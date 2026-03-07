@@ -1,0 +1,71 @@
+{
+    "schema_version": "1.0.0",
+    "tool_version": "1.0.0",
+    "generated_at": "2026-03-06T12:00:00Z",
+    "node": {
+        "hostname": "...",
+        "os": "...",
+        "kernel": "...",
+        "architecture": "x86_64"
+    },
+    "cpu": {
+        "vendor": "GenuineIntel",
+        "model_name": "...",
+        "logical_cpus": 32,
+        "physical_cores": 16,
+        "threads_per_core": 2,
+        "sockets": 1,
+        "cpufreq": {
+            "driver": "...",
+            "governor_current": "...",
+            "governors_available": ["..."],
+            "min_khz": "...",
+            "max_khz": "...",
+            "available_frequencies_khz": ["..."]
+        },
+        "rapl": {
+            "available": true,
+            "domains": ["..."],
+            "readable": true
+        }
+    },
+    "gpu": {
+        "nvidia_present": true,
+        "device_count": 1,
+        "devices": [
+            {
+                "index": 0,
+                "name": "...",
+                "driver_version": "...",
+                "vbios_version": "...",
+                "memory_total_mb": "...",
+                "supported_graphics_clocks_mhz": ["..."],
+                "supported_memory_clocks_mhz": ["..."]
+            }
+        ]
+    },
+    "numa": {
+        "available": true,
+        "nodes": {
+            "0": [0,1,2,3,4,5,6,7]
+        }
+    },
+    "tools": {
+        "perf": true,
+        "cpupower": true,
+        "numactl": true,
+        "nvidia_smi": true
+    },
+    "permissions": {
+        "is_root": false,
+        "rapl_readable": true,
+        "cpufreq_writable": false,
+        "gpu_clock_control_available": false
+    },
+    "readiness": {
+        "ready_for_telemetry": true,
+        "ready_for_control": false,
+        "blocking_issues": [],
+        "warnings": []
+    }
+}
