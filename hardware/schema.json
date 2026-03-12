@@ -1,13 +1,15 @@
 {
-    "schema_version": "1.0.0",
-    "tool_version": "1.0.0",
+    "schema_version": "2.0.0",
+    "tool_version": "2.0.0",
     "generated_at": "2026-03-06T12:00:00Z",
+
     "node": {
         "hostname": "...",
         "os": "...",
         "kernel": "...",
         "architecture": "x86_64"
     },
+
     "cpu": {
         "vendor": "GenuineIntel",
         "model_name": "...",
@@ -16,19 +18,38 @@
         "threads_per_core": 2,
         "sockets": 1,
         "cpufreq": {
-            "driver": "...",
-            "governor_current": "...",
-            "governors_available": ["..."],
-            "min_khz": "...",
-            "max_khz": "...",
-            "available_frequencies_khz": ["..."]
+            "driver": "intel_pstate",
+            "governor_current": "powersave",
+            "governors_available": ["performance", "powersave"],
+            "min_khz": "800000",
+            "max_khz": "4200000",
+            "base_frequency_khz": "2400000",
+            "available_frequencies_khz": [],
+            "scaling_method": "discrete|range|unknown",
+            "intel_pstate_status": "active|passive|off|<empty>",
+            "hwp_enabled": true,
+            "epp_available": true,
+            "control_model": "hwp_range|pstate_range|discrete|unknown",
+            "driver_limitations": ["..."]
         },
         "rapl": {
             "available": true,
-            "domains": ["..."],
-            "readable": true
+            "domains": ["intel-rapl:0 (package-0)"],
+            "readable": true,
+            "probe": {
+                "success": true,
+                "sample_value_uj": "12345678",
+                "domain_tested": "intel-rapl:0"
+            }
+        },
+        "taxonomy": {
+            "present": true,
+            "observable": true,
+            "controllable": false,
+            "reason": "cpufreq governor sysfs not writable by current user"
         }
     },
+
     "gpu": {
         "nvidia_present": true,
         "device_count": 1,
@@ -36,36 +57,138 @@
             {
                 "index": 0,
                 "name": "...",
+                "vendor": "nvidia",
                 "driver_version": "...",
                 "vbios_version": "...",
                 "memory_total_mb": "...",
                 "supported_graphics_clocks_mhz": ["..."],
                 "supported_memory_clocks_mhz": ["..."]
             }
-        ]
+        ],
+        "by_vendor": {
+            "nvidia": [],
+            "intel": []
+        },
+        "taxonomy": {
+            "present": true,
+            "observable": true,
+            "controllable": false,
+            "reason": "insufficient privileges for clock manipulation"
+        }
     },
+
     "numa": {
         "available": true,
         "nodes": {
             "0": [0,1,2,3,4,5,6,7]
         }
     },
+
     "tools": {
         "perf": true,
         "cpupower": true,
         "numactl": true,
         "nvidia_smi": true
     },
+
     "permissions": {
         "is_root": false,
         "rapl_readable": true,
         "cpufreq_writable": false,
-        "gpu_clock_control_available": false
+        "gpu_clock_control_available": false,
+        "perf_event_paranoid": 2
     },
+
+    "active_probes": {
+        "perf": {
+            "event_paranoid_level": 2,
+            "accessible": true,
+            "tested_with": "perf stat -e cycles -- true",
+            "note": "perf accessible without restrictions"
+        },
+        "rapl_read": {
+            "success": true,
+            "sample_value_uj": "12345678",
+            "domain_tested": "intel-rapl:0"
+        },
+        "cpu_frequency": {
+            "success": true,
+            "current_khz": "2400000"
+        },
+        "gpu_metrics": {
+            "success": true,
+            "temperature_c": "45",
+            "power_draw_w": "30.5"
+        }
+    },
+
+    "capabilities": {
+        "<capability_name>": {
+            "status": "available|unavailable|degraded",
+            "severity": "critical|warning|info",
+            "evidence": "description of what was checked and found",
+            "reason": "cause of failure (null when available)",
+            "recommendation": "actionable fix (null when available)"
+        },
+        "_capability_names_": [
+            "cpu_discovery",
+            "cpu_telemetry",
+            "energy_cpu",
+            "cpu_control",
+            "gpu_discovery",
+            "gpu_telemetry",
+            "gpu_control",
+            "topology_awareness",
+            "full_pipeline"
+        ]
+    },
+
+    "backends": {
+        "telemetry": {
+            "cpu_perf": true,
+            "cpu_rapl": true,
+            "gpu_nvml": true
+        },
+        "control": {
+            "cpu_cpufreq": false,
+            "gpu_clocks": false
+        },
+        "observable_frequencies": {
+            "method": "range",
+            "min_khz": "800000",
+            "max_khz": "4200000",
+            "base_frequency_khz": "2400000",
+            "discrete_steps": []
+        },
+        "energy_domains": ["intel-rapl:0 (package-0)"]
+    },
+
+    "experiment_blockers": [
+        {
+            "severity": "critical",
+            "capability": "...",
+            "message": "...",
+            "recommendation": "..."
+        }
+    ],
+
     "readiness": {
-        "ready_for_telemetry": true,
-        "ready_for_control": false,
-        "blocking_issues": [],
-        "warnings": []
+        "cpu_discovery_ready": true,
+        "cpu_telemetry_ready": true,
+        "gpu_discovery_ready": true,
+        "gpu_telemetry_ready": true,
+        "energy_cpu_ready": true,
+        "cpu_control_ready": false,
+        "gpu_control_ready": false,
+        "full_pipeline_ready": false,
+        "issues": [
+            {
+                "severity": "critical|warning|info",
+                "capability": "...",
+                "message": "...",
+                "reason": "...",
+                "recommendation": "..."
+            }
+        ]
     }
 }
