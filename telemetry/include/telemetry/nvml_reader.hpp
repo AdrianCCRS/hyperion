@@ -24,5 +24,13 @@ namespace telemetry {
 
         bool read(GpuSample& out) noexcept; //nvmlDeviceGetPowerUsage
         bool is_open() const noexcept { return open_; }
+        unsigned int device_index() const noexcept { return device_index_; }
+        static constexpr bool compiled_with_gpu() noexcept {
+        #ifdef TELEMETRY_WITH_GPU
+            return true;
+        #else
+            return false;
+        #endif
+        }
     };
 }

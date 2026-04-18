@@ -22,7 +22,12 @@ target_link_libraries(telemetry PRIVATE pthread)
 # Link NVML only when GPU support is requested
 option(WITH_GPU "Enable NVML GPU telemetry" OFF)
 if(WITH_GPU)
+  find_path(NVML_INCLUDE_DIR nvml.h)
   find_library(NVML_LIB nvidia-ml REQUIRED)
+  if(NOT NVML_INCLUDE_DIR)
+    message(FATAL_ERROR "Could not find nvml.h")
+  endif()
+  target_include_directories(telemetry PUBLIC ${NVML_INCLUDE_DIR})
   target_link_libraries(telemetry PRIVATE ${NVML_LIB})
   target_compile_definitions(telemetry PUBLIC TELEMETRY_WITH_GPU)
 endif()
@@ -34,3 +39,11 @@ add_executable(telemetry_link_smoke_test
 )
 target_link_libraries(telemetry_link_smoke_test PRIVATE telemetry pthread)
 add_test(NAME telemetry_link_smoke_test COMMAND telemetry_link_smoke_test)
+
+if(NOT WITH_GPU)
+  add_executable(nvml_reader_cpu_stub_test
+    tests/test_nvml_reader_cpu_stub.cpp
+  )
+  target_link_libraries(nvml_reader_cpu_stub_test PRIVATE telemetry pthread)
+  add_test(NAME nvml_reader_cpu_stub_test COMMAND nvml_reader_cpu_stub_test)
+endif()
