@@ -4,6 +4,13 @@
 #include <string>
 
 namespace telemetry {
+    namespace detail {
+        bool parse_uint64(const char* text, uint64_t& out) noexcept;
+        uint64_t rapl_delta_uj(uint64_t previous_uj,
+                               uint64_t current_uj,
+                               uint64_t max_range_uj) noexcept;
+    }
+
     class RaplReader {
     public:
     //Domain paths for RAPL

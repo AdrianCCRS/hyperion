@@ -52,6 +52,12 @@ add_executable(perf_reader_test
 target_link_libraries(perf_reader_test PRIVATE telemetry pthread)
 add_test(NAME perf_reader_test COMMAND perf_reader_test)
 
+add_executable(rapl_reader_test
+  tests/test_rapl_reader.cpp
+)
+target_link_libraries(rapl_reader_test PRIVATE telemetry pthread)
+add_test(NAME rapl_reader_test COMMAND rapl_reader_test)
+
 if(NOT WITH_GPU)
   add_executable(nvml_reader_cpu_stub_test
     tests/test_nvml_reader_cpu_stub.cpp
