@@ -6,6 +6,12 @@
 #include <cstdint>
 
 namespace telemetry {
+    namespace detail {
+        uint64_t scale_perf_count(uint64_t value,
+                                  uint64_t time_enabled,
+                                  uint64_t time_running) noexcept;
+    }
+
     class PerfReader {
         public:
         //pid = 0 -> monitor calling process
@@ -29,6 +35,9 @@ namespace telemetry {
         bool is_open() const noexcept { return group_fd_ >= 0; }
 
         private:
+            static constexpr uint64_t kExpectedCounters = 4;
+            static constexpr uint64_t kMaxReadCounters = 8;
+
             pid_t pid_;
             int   cpu_;
             int   group_fd_ = -1;   // leader fd
@@ -40,7 +49,7 @@ namespace telemetry {
                 uint64_t nr;
                 uint64_t time_enabled;
                 uint64_t time_running;
-                uint64_t values[8]; // Support up to 8 counters in the group (configurable in open()) and no id because we know the order of counters. Adjust as needed.
+                uint64_t values[kMaxReadCounters]; // No ids because the event order is fixed by open().
             };
         };
 }

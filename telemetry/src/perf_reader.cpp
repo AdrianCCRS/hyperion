@@ -6,8 +6,28 @@
 #include <cstring>
 #include <stdexcept>
 #include <ctime>
+#include <string>
 
 namespace telemetry {
+    namespace detail {
+        uint64_t scale_perf_count(uint64_t value,
+                                  uint64_t time_enabled,
+                                  uint64_t time_running) noexcept {
+            if(time_running == 0) return 0;
+            if(time_running == time_enabled) return value;
+            return static_cast<uint64_t>(
+                static_cast<double>(value) *
+                static_cast<double>(time_enabled) /
+                static_cast<double>(time_running)
+            );
+        }
+    }
+
+    namespace {
+        std::runtime_error errno_error(const char* context) {
+            return std::runtime_error(std::string(context) + ": " + std::strerror(errno));
+        }
+    }
     
     //Wrapper for perf_event_open syscall, since it's not exposed in glibc headers.
     static long perf_event_open(perf_event_attr *attr, pid_t pid, int cpu, int group_fd, unsigned long flags) {
@@ -66,13 +86,13 @@ namespace telemetry {
         //Event 0 - leader: INSTRUCTIONS
         auto a0 = make_hw_attr(PERF_COUNT_HW_INSTRUCTIONS, true);
         group_fd_ = (int) perf_event_open(&a0, pid_, cpu_, -1, 0);
-        if(group_fd_ < 0) throw std::runtime_error(strerror(errno));
+        if(group_fd_ < 0) throw errno_error("perf_event_open instructions failed");
 
         //Event 1 - member: CPU-CYCLES
         auto a1 = make_hw_attr(PERF_COUNT_HW_CPU_CYCLES, false);
         int fd1 = (int) perf_event_open(&a1, pid_, cpu_, group_fd_, 0);
         if(fd1 < 0){
-            std::runtime_error error(strerror(errno));
+            std::runtime_error error = errno_error("perf_event_open cycles failed");
             cleanup_on_error();
             throw error;
         }
@@ -82,7 +102,7 @@ namespace telemetry {
         auto a2 = make_hw_attr(PERF_COUNT_HW_CACHE_REFERENCES, false);
         int fd2 = (int) perf_event_open(&a2, pid_, cpu_, group_fd_, 0);
         if(fd2 < 0){
-            std::runtime_error error(strerror(errno));
+            std::runtime_error error = errno_error("perf_event_open cache references failed");
             cleanup_on_error();
             throw error;
         }
@@ -92,39 +112,50 @@ namespace telemetry {
         auto a3 = make_hw_attr(PERF_COUNT_HW_CACHE_MISSES, false);
         int fd3 = (int) perf_event_open(&a3, pid_, cpu_, group_fd_, 0);
         if(fd3 < 0){
-            std::runtime_error error(strerror(errno));
+            std::runtime_error error = errno_error("perf_event_open cache misses failed");
             cleanup_on_error();
             throw error;
         }
         member_fds_.push_back(fd3);
 
         //Arm counting (RESET + ENABLE on the leader cascades to all members)
-        ioctl(group_fd_, PERF_EVENT_IOC_RESET, PERF_IOC_FLAG_GROUP);
-        ioctl(group_fd_, PERF_EVENT_IOC_ENABLE, PERF_IOC_FLAG_GROUP);
+        if(ioctl(group_fd_, PERF_EVENT_IOC_RESET, PERF_IOC_FLAG_GROUP) < 0){
+            std::runtime_error error = errno_error("PERF_EVENT_IOC_RESET failed");
+            cleanup_on_error();
+            throw error;
+        }
+        if(ioctl(group_fd_, PERF_EVENT_IOC_ENABLE, PERF_IOC_FLAG_GROUP) < 0){
+            std::runtime_error error = errno_error("PERF_EVENT_IOC_ENABLE failed");
+            cleanup_on_error();
+            throw error;
+        }
     }
 
     bool PerfReader::read(CpuSample& out) noexcept {
+        if(!is_open()) return false;
+
         struct timespec ts;
         clock_gettime(CLOCK_MONOTONIC, &ts);
-        out.timestamp_ns = ts.tv_sec * 1'000'000'000ULL + ts.tv_nsec;
 
         ReadFormat rf{};
         //Validate we read the expected amount of data (at least the header with nr, time_enabled, time_running)
         ssize_t n = ::read(group_fd_, &rf, sizeof(rf));
         if(n < (ssize_t) sizeof(uint64_t) * 3) return false;
+        if(rf.nr < kExpectedCounters || rf.nr > kMaxReadCounters) return false;
 
-        //Scale if multiplexing is active. 
-        //TODO: implement in consumer instead here
-        // auto scale = [&](uint64_t value) -> uint64_t {
-        //     if(rf.time_running == 0) return 0;
-        //     if(rf.time_running == rf.time_enabled) return value; // No scaling needed
-        //     return (uint64_t)((double)value * rf.time_enabled / rf.time_running); //Scale up to estimate full count, like a rate
-        // };
+        const auto expected_bytes = static_cast<ssize_t>(
+            sizeof(uint64_t) * (3 + rf.nr)
+        );
+        if(n < expected_bytes) return false;
 
-        out.instructions = rf.values[0];
-        out.cycles = rf.values[1];
-        out.cache_references = rf.values[2];
-        out.cache_misses = rf.values[3];
+        CpuSample sample{};
+        sample.timestamp_ns = ts.tv_sec * 1'000'000'000ULL + ts.tv_nsec;
+
+        sample.instructions = detail::scale_perf_count(rf.values[0], rf.time_enabled, rf.time_running);
+        sample.cycles = detail::scale_perf_count(rf.values[1], rf.time_enabled, rf.time_running);
+        sample.cache_references = detail::scale_perf_count(rf.values[2], rf.time_enabled, rf.time_running);
+        sample.cache_misses = detail::scale_perf_count(rf.values[3], rf.time_enabled, rf.time_running);
+        out = sample;
         return true;
     }
 

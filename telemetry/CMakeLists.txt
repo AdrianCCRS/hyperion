@@ -46,6 +46,12 @@ add_executable(collector_lifecycle_test
 target_link_libraries(collector_lifecycle_test PRIVATE telemetry pthread)
 add_test(NAME collector_lifecycle_test COMMAND collector_lifecycle_test)
 
+add_executable(perf_reader_test
+  tests/test_perf_reader.cpp
+)
+target_link_libraries(perf_reader_test PRIVATE telemetry pthread)
+add_test(NAME perf_reader_test COMMAND perf_reader_test)
+
 if(NOT WITH_GPU)
   add_executable(nvml_reader_cpu_stub_test
     tests/test_nvml_reader_cpu_stub.cpp
