@@ -42,6 +42,7 @@ namespace telemetry {
             CollectorConfig cfg_;
             Ring& ring_;
             pthread_t thread_{};
+            bool thread_started_{false};
             std::atomic<bool> running_{false};
             std::atomic<bool> stop_flag_{false};
 
@@ -52,6 +53,7 @@ namespace telemetry {
             static void* thread_entry(void* arg);
             void run(); //Main loop of the producer thread
             void sleep_ns(long ns) const noexcept; //Helper to sleep for the specified interval with high precision
+            void close_readers() noexcept;
     };
     
 }

@@ -3,10 +3,17 @@
 #include <time.h>
 #include <stdexcept>
 #include <cstring>
+#include <string>
 #include <utility>
 
 namespace telemetry
 {
+    namespace {
+        std::runtime_error pthread_error(const char* context, int error_code) {
+            return std::runtime_error(std::string(context) + ": " + std::strerror(error_code));
+        }
+    }
+
     Collector::Collector(CollectorConfig cfg, Ring& ring)
         : cfg_(std::move(cfg)),
           ring_(ring),
@@ -19,16 +26,33 @@ namespace telemetry
     }
 
     void Collector::start(){
-        if(running_.load()) return;
+        if(thread_started_) return;
+        if(cfg_.interval_ns <= 0){
+            throw std::invalid_argument("Collector interval_ns must be positive");
+        }
+        if(cfg_.enable_gpu && !NvmlReader::compiled_with_gpu()){
+            throw std::runtime_error("GPU telemetry requested but telemetry was built without NVML support");
+        }
 
-        perf_reader_.open();
-        if(!cfg_.rapl_pkg_path.empty()) rapl_reader_.open();
-        if(cfg_.enable_gpu) nvml_reader_.open();
+        try {
+            perf_reader_.open();
+            if(!cfg_.rapl_pkg_path.empty()) rapl_reader_.open();
+            if(cfg_.enable_gpu) nvml_reader_.open();
+        } catch (...) {
+            close_readers();
+            running_.store(false);
+            stop_flag_.store(true, std::memory_order_relaxed);
+            throw;
+        }
 
-        stop_flag_.store(false);
+        stop_flag_.store(false, std::memory_order_relaxed);
 
         pthread_attr_t attr;
-        pthread_attr_init(&attr);
+        int rc = pthread_attr_init(&attr);
+        if(rc != 0){
+            close_readers();
+            throw pthread_error("pthread_attr_init failed", rc);
+        }
 
         // Pin producer to a specific core if requested.
         // This limits TLB disruption and keeps cache state stable —
@@ -37,15 +61,22 @@ namespace telemetry
             cpu_set_t cpuset;
             CPU_ZERO(&cpuset);
             CPU_SET(cfg_.producer_cpu, &cpuset);
-            pthread_attr_setaffinity_np(&attr, sizeof(cpuset), &cpuset);
+            rc = pthread_attr_setaffinity_np(&attr, sizeof(cpuset), &cpuset);
+            if(rc != 0){
+                pthread_attr_destroy(&attr);
+                close_readers();
+                throw pthread_error("pthread_attr_setaffinity_np failed", rc);
+            }
         }
 
-        if(pthread_create(&thread_, &attr, thread_entry, this) != 0){
-            pthread_attr_destroy(&attr);
-            running_.store(false);
-            throw std::runtime_error("Failed to create producer thread");
-        }
+        rc = pthread_create(&thread_, &attr, thread_entry, this);
         pthread_attr_destroy(&attr);
+        if(rc != 0){
+            running_.store(false);
+            close_readers();
+            throw pthread_error("pthread_create failed", rc);
+        }
+        thread_started_ = true;
         running_.store(true);
     }
 
@@ -55,22 +86,28 @@ namespace telemetry
     }
     
     void Collector::run(){
+        running_.store(true);
+
         struct timespec next_wake;
         clock_gettime(CLOCK_MONOTONIC, &next_wake);
 
         while(!stop_flag_.load(std::memory_order_relaxed)){
             Sample s;
+            auto push_sample = [this](const Sample& sample) {
+                while(!stop_flag_.load(std::memory_order_relaxed) && !ring_.try_push(sample)) {}
+            };
+
             // --- CPU Sample ---
             s.tag = SampleTag::CPU;
             if(perf_reader_.read(s.cpu)){
-                while(!ring_.try_push(s)){}
+                push_sample(s);
             }
 
             // --- Energy Sample ---
             if(rapl_reader_.is_open()){
                 s.tag = SampleTag::ENERGY;
                 if(rapl_reader_.read(s.energy)){
-                    while(!ring_.try_push(s)){}
+                    push_sample(s);
                 }
             }
 
@@ -80,7 +117,7 @@ namespace telemetry
                 {
                     s.tag = SampleTag::GPU;
                     if(nvml_reader_.read(s.gpu)){
-                        while(!ring_.try_push(s)){}
+                        push_sample(s);
                     }
                 }
             #endif
@@ -88,7 +125,8 @@ namespace telemetry
             ring_.flush_producer();
 
             // --- Sleep until next interval (absolute timer) ---
-            next_wake.tv_nsec += cfg_.interval_ns;
+            next_wake.tv_sec += cfg_.interval_ns / 1'000'000'000L;
+            next_wake.tv_nsec += cfg_.interval_ns % 1'000'000'000L;
             if (next_wake.tv_nsec >= 1'000'000'000L) {
                 next_wake.tv_sec++;
                 next_wake.tv_nsec -= 1'000'000'000L;
@@ -101,14 +139,19 @@ namespace telemetry
     }
 
     void Collector::stop(){
-        if(!running_.load()) return;
-
         stop_flag_.store(true, std::memory_order_relaxed);
-        pthread_join(thread_, nullptr);
-        perf_reader_.disable();
+        if(thread_started_){
+            pthread_join(thread_, nullptr);
+            thread_started_ = false;
+        }
+        close_readers();
+        running_.store(false);
+    }
+
+    void Collector::close_readers() noexcept {
+        perf_reader_.close();
         rapl_reader_.close();
         nvml_reader_.close();
-        running_.store(false);
     }
 
     void Collector::sleep_ns(long ns) const noexcept {

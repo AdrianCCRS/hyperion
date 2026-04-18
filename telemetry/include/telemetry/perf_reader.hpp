@@ -17,6 +17,7 @@ namespace telemetry {
         //Open a group of counters. Call once before any read()
         // Throws std::runtime_error on failure (e.g., perf_paranoid too high).
         void open();
+        void close() noexcept;
     
         // Read all counters atomically. Fills out and returns true on success.
         bool read(CpuSample& out) noexcept;

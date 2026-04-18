@@ -34,6 +34,10 @@ namespace telemetry {
         : pid_(pid), cpu_(cpu) {}
 
     PerfReader::~PerfReader(){
+        close();
+    }
+
+    void PerfReader::close() noexcept {
         disable();
         for(int fd : member_fds_){
             if(fd >= 0) ::close(fd);
