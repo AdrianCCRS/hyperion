@@ -40,6 +40,12 @@ add_executable(telemetry_link_smoke_test
 target_link_libraries(telemetry_link_smoke_test PRIVATE telemetry pthread)
 add_test(NAME telemetry_link_smoke_test COMMAND telemetry_link_smoke_test)
 
+add_executable(spsc_ring_test
+  tests/test_spsc_ring.cpp
+)
+target_link_libraries(spsc_ring_test PRIVATE telemetry pthread)
+add_test(NAME spsc_ring_test COMMAND spsc_ring_test)
+
 add_executable(collector_lifecycle_test
   tests/test_collector_lifecycle.cpp
 )
