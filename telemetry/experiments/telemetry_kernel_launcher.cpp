@@ -1,5 +1,6 @@
 #include "telemetry/collector.hpp"
 #include "telemetry/experiment_utils.hpp"
+#include "telemetry/rapl_reader.hpp"
 
 #include <atomic>
 #include <csignal>
@@ -54,6 +55,31 @@ namespace {
     struct RecordedSample {
         int repetition = 0;
         telemetry::Sample sample{};
+    };
+
+    struct RaplExportConfig {
+        uint64_t pkg_max_range_uj = 0;
+        uint64_t dram_max_range_uj = 0;
+    };
+
+    struct RaplDeltaState {
+        int repetition = -1;
+        bool have_previous = false;
+        telemetry::EnergySnapshot previous{};
+    };
+
+    struct RaplDelta {
+        uint64_t pkg_delta_uj = 0;
+        uint64_t dram_delta_uj = 0;
+        bool valid = false;
+    };
+
+    struct RaplSummary {
+        uint64_t pkg_max_range_uj = 0;
+        uint64_t dram_max_range_uj = 0;
+        uint64_t pkg_total_delta_uj = 0;
+        uint64_t dram_total_delta_uj = 0;
+        uint64_t energy_delta_count = 0;
     };
 
     [[noreturn]] void usage(const char* argv0) {
@@ -209,6 +235,82 @@ namespace {
         size_t end = begin;
         while(end < output.size() && output[end] >= '0' && output[end] <= '9') ++end;
         return std::stoull(output.substr(begin, end - begin));
+    }
+
+    uint64_t read_rapl_max_range_uj(const std::string& domain_path) {
+        if(domain_path.empty()) return 0;
+
+        std::ifstream in(fs::path(domain_path) / "max_energy_range_uj");
+        std::string text;
+        if(!(in >> text)) return 0;
+
+        uint64_t parsed = 0;
+        return telemetry::detail::parse_uint64(text.c_str(), parsed) ? parsed : 0;
+    }
+
+    RaplExportConfig read_rapl_export_config(const Options& opt) {
+        RaplExportConfig config{};
+        config.pkg_max_range_uj = read_rapl_max_range_uj(opt.rapl_pkg_path);
+        config.dram_max_range_uj = read_rapl_max_range_uj(opt.rapl_dram_path);
+        return config;
+    }
+
+    RaplDelta next_rapl_delta(const RecordedSample& record,
+                              const RaplExportConfig& config,
+                              RaplDeltaState& state) {
+        RaplDelta delta{};
+        const auto& current = record.sample.energy;
+
+        if(state.repetition != record.repetition) {
+            state.repetition = record.repetition;
+            state.have_previous = false;
+            state.previous = {};
+        }
+
+        if(state.have_previous) {
+            const bool pkg_wrap_without_range =
+                current.pkg_uj < state.previous.pkg_uj && config.pkg_max_range_uj == 0;
+            const bool dram_wrap_without_range =
+                current.dram_uj < state.previous.dram_uj && config.dram_max_range_uj == 0;
+
+            if(!pkg_wrap_without_range && !dram_wrap_without_range) {
+                delta.pkg_delta_uj = telemetry::detail::rapl_delta_uj(
+                    state.previous.pkg_uj,
+                    current.pkg_uj,
+                    config.pkg_max_range_uj
+                );
+                delta.dram_delta_uj = telemetry::detail::rapl_delta_uj(
+                    state.previous.dram_uj,
+                    current.dram_uj,
+                    config.dram_max_range_uj
+                );
+                delta.valid = true;
+            }
+        }
+
+        state.previous = current;
+        state.have_previous = true;
+        return delta;
+    }
+
+    RaplSummary compute_rapl_summary(const Options& opt,
+                                     const std::vector<RecordedSample>& samples) {
+        const RaplExportConfig config = read_rapl_export_config(opt);
+        RaplSummary summary{};
+        summary.pkg_max_range_uj = config.pkg_max_range_uj;
+        summary.dram_max_range_uj = config.dram_max_range_uj;
+
+        RaplDeltaState state{};
+        for(const auto& record : samples) {
+            if(record.sample.tag != telemetry::SampleTag::ENERGY) continue;
+            const RaplDelta delta = next_rapl_delta(record, config, state);
+            if(!delta.valid) continue;
+
+            summary.pkg_total_delta_uj += delta.pkg_delta_uj;
+            summary.dram_total_delta_uj += delta.dram_delta_uj;
+            ++summary.energy_delta_count;
+        }
+        return summary;
     }
 
     std::vector<std::string> build_workload_args(const Options& opt, int ready_fd, int go_fd) {
@@ -415,36 +517,80 @@ namespace {
     void write_samples_csv(const fs::path& path,
                            const Options& opt,
                            const std::vector<RecordedSample>& samples) {
+        const RaplExportConfig rapl_config = read_rapl_export_config(opt);
+        RaplDeltaState rapl_state{};
+
         std::ofstream out(path);
         out << "run_id,repetition,kernel,label,timestamp_ns,tag,instructions,cycles,"
                "cache_references,cache_misses,time_enabled_ns,time_running_ns,"
-               "pkg_uj,dram_uj,gpu_power_mw,gpu_util_pct\n";
+               "pkg_uj,dram_uj,pkg_delta_uj,dram_delta_uj,energy_delta_valid,"
+               "gpu_power_mw,gpu_util_pct\n";
         const char* label = telemetry::experiment::kernel_label(opt.kernel);
-        for(const auto& record : samples) {
-            const auto& sample = record.sample;
+
+        auto write_prefix = [&](const RecordedSample& record,
+                                uint64_t timestamp,
+                                const char* tag) {
             out << opt.run_id << ','
                 << record.repetition << ','
                 << opt.kernel << ','
-                << label << ',';
+                << label << ','
+                << timestamp << ','
+                << tag;
+        };
+        auto empty_field = [&]() { out << ','; };
+        auto value_field = [&](auto value) { out << ',' << value; };
+
+        for(const auto& record : samples) {
+            const auto& sample = record.sample;
             if(sample.tag == telemetry::SampleTag::CPU) {
-                out << sample.cpu.timestamp_ns << ','
-                    << tag_name(sample.tag) << ','
-                    << sample.cpu.instructions << ','
-                    << sample.cpu.cycles << ','
-                    << sample.cpu.cache_references << ','
-                    << sample.cpu.cache_misses << ','
-                    << sample.cpu.time_enabled_ns << ','
-                    << sample.cpu.time_running_ns << ",,,,,\n";
+                write_prefix(record, sample.cpu.timestamp_ns, tag_name(sample.tag));
+                value_field(sample.cpu.instructions);
+                value_field(sample.cpu.cycles);
+                value_field(sample.cpu.cache_references);
+                value_field(sample.cpu.cache_misses);
+                value_field(sample.cpu.time_enabled_ns);
+                value_field(sample.cpu.time_running_ns);
+                empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
+                out << '\n';
             } else if(sample.tag == telemetry::SampleTag::ENERGY) {
-                out << sample.energy.timestamp_ns << ','
-                    << tag_name(sample.tag) << ",,,,,,,"
-                    << sample.energy.pkg_uj << ','
-                    << sample.energy.dram_uj << ",,\n";
+                const RaplDelta delta = next_rapl_delta(record, rapl_config, rapl_state);
+                write_prefix(record, sample.energy.timestamp_ns, tag_name(sample.tag));
+                empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
+                value_field(sample.energy.pkg_uj);
+                value_field(sample.energy.dram_uj);
+                value_field(delta.pkg_delta_uj);
+                value_field(delta.dram_delta_uj);
+                value_field(delta.valid ? 1 : 0);
+                empty_field();
+                empty_field();
+                out << '\n';
             } else {
-                out << sample.gpu.timestamp_ns << ','
-                    << tag_name(sample.tag) << ",,,,,,,,,"
-                    << sample.gpu.power_mw << ','
-                    << sample.gpu.util_pct << '\n';
+                write_prefix(record, sample.gpu.timestamp_ns, tag_name(sample.tag));
+                empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
+                value_field(sample.gpu.power_mw);
+                value_field(sample.gpu.util_pct);
+                out << '\n';
             }
         }
     }
@@ -468,6 +614,7 @@ namespace {
                              const std::vector<uint64_t>& push_retries_by_repetition) {
         const auto jitter = sampling_jitter(samples);
         const double ratio = perf_running_ratio_min(samples);
+        const RaplSummary rapl_summary = compute_rapl_summary(opt, samples);
         std::vector<double> baseline_values;
         std::vector<double> telemetry_values;
         baseline_values.reserve(baseline_elapsed_ns.size());
@@ -522,6 +669,11 @@ namespace {
         write_json_array(out, push_retries_by_repetition);
         out << ",\n";
         out << "  \"perf_running_ratio_min\": " << ratio << ",\n";
+        out << "  \"rapl_pkg_max_range_uj\": " << rapl_summary.pkg_max_range_uj << ",\n";
+        out << "  \"rapl_dram_max_range_uj\": " << rapl_summary.dram_max_range_uj << ",\n";
+        out << "  \"rapl_pkg_total_delta_uj\": " << rapl_summary.pkg_total_delta_uj << ",\n";
+        out << "  \"rapl_dram_total_delta_uj\": " << rapl_summary.dram_total_delta_uj << ",\n";
+        out << "  \"rapl_energy_delta_count\": " << rapl_summary.energy_delta_count << ",\n";
         out << "  \"samples_collected\": " << samples.size() << "\n";
         out << "}\n";
     }
@@ -534,6 +686,7 @@ namespace {
                        const std::vector<RecordedSample>& samples,
                        const std::vector<uint64_t>& push_retries_by_repetition) {
         const auto jitter = sampling_jitter(samples);
+        const RaplSummary rapl_summary = compute_rapl_summary(opt, samples);
         std::vector<double> baseline_values;
         std::vector<double> telemetry_values;
         baseline_values.reserve(baseline_elapsed_ns.size());
@@ -559,6 +712,9 @@ namespace {
         out << "overhead_pct_sd=" << overhead_stats.sd << "\n";
         out << "sampling_cv_pct=" << jitter.cv_pct << "\n";
         out << "perf_running_ratio_min=" << perf_running_ratio_min(samples) << "\n";
+        out << "rapl_pkg_total_delta_uj=" << rapl_summary.pkg_total_delta_uj << "\n";
+        out << "rapl_dram_total_delta_uj=" << rapl_summary.dram_total_delta_uj << "\n";
+        out << "rapl_energy_delta_count=" << rapl_summary.energy_delta_count << "\n";
         out << "push_retries=" << push_retries_total << "\n";
         out << "samples_collected=" << samples.size() << "\n";
     }

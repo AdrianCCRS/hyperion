@@ -91,10 +91,14 @@ comparison, use `--pin-workload-cpus <list>` to set process affinity and add
 
 The output directory is `--output-dir/--run-id` and contains:
 
-- `samples.csv`: CPU/RAPL/GPU-shaped rows with a `repetition` column, although
-  GPU is intentionally not used in this path yet;
+- `samples.csv`: CPU/RAPL/GPU-shaped rows with a `repetition` column. RAPL
+  rows include raw `pkg_uj`/`dram_uj` snapshots plus wrap-aware
+  `pkg_delta_uj`/`dram_delta_uj` values. `energy_delta_valid=0` marks the first
+  energy sample of each repetition, or a detected wrap without a readable
+  `max_energy_range_uj`;
 - `metadata.json`: experiment parameters, optional pinning, per-repetition timing arrays,
-  overhead mean/sd, jitter, `push_retries` and minimum perf running ratio;
+  overhead mean/sd, jitter, `push_retries`, minimum perf running ratio and RAPL
+  max-range/total-delta summaries;
 - `summary.txt`: compact human-readable result.
 
 `--cgroup-path` must point to a pre-created/delegated cgroup. The launcher does
