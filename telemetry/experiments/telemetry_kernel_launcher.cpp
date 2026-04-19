@@ -30,7 +30,9 @@ namespace {
         int warmup = 1;
         int threads = 1;
         int repetitions = 1;
-        std::vector<int> workload_cpus;
+        std::vector<int> perf_cpus;
+        std::vector<int> pin_workload_cpus;
+        bool pin_workers = false;
         int collector_cpu = -1;
         int consumer_cpu = -1;
         std::string cgroup_path;
@@ -58,7 +60,8 @@ namespace {
         std::fprintf(stderr,
                      "usage: %s --kernel <name> --size <N> --iterations <N> "
                      "--warmup <N> --threads <N> --repetitions <N> "
-                     "--workload-cpus <list> "
+                     "--perf-cpus <list> "
+                     "[--pin-workload-cpus <list> --pin-workers] "
                      "--collector-cpu <cpu> --consumer-cpu <cpu> "
                      "--cgroup-path <path> --output-dir <dir> --run-id <id>\n",
                      argv0);
@@ -94,8 +97,14 @@ namespace {
                 opt.threads = std::stoi(need_value());
             } else if(arg == "--repetitions") {
                 opt.repetitions = std::stoi(need_value());
+            } else if(arg == "--perf-cpus") {
+                opt.perf_cpus = telemetry::experiment::parse_cpu_list(need_value());
             } else if(arg == "--workload-cpus") {
-                opt.workload_cpus = telemetry::experiment::parse_cpu_list(need_value());
+                opt.perf_cpus = telemetry::experiment::parse_cpu_list(need_value());
+            } else if(arg == "--pin-workload-cpus") {
+                opt.pin_workload_cpus = telemetry::experiment::parse_cpu_list(need_value());
+            } else if(arg == "--pin-workers") {
+                opt.pin_workers = true;
             } else if(arg == "--collector-cpu") {
                 opt.collector_cpu = std::stoi(need_value());
             } else if(arg == "--consumer-cpu") {
@@ -135,20 +144,14 @@ namespace {
         if(opt.enable_perf && opt.cgroup_path.empty()) {
             throw std::invalid_argument("--cgroup-path is required when perf is enabled");
         }
-        if(opt.enable_perf && opt.workload_cpus.empty()) {
-            throw std::invalid_argument("--workload-cpus is required when perf is enabled");
+        if(opt.enable_perf && opt.perf_cpus.empty()) {
+            throw std::invalid_argument("--perf-cpus is required when perf is enabled");
         }
-        if(opt.collector_cpu >= 0 &&
-           telemetry::experiment::contains_cpu(opt.workload_cpus, opt.collector_cpu)) {
-            throw std::invalid_argument("--collector-cpu must not be inside --workload-cpus");
+        if(opt.pin_workers && opt.pin_workload_cpus.empty()) {
+            throw std::invalid_argument("--pin-workers requires --pin-workload-cpus");
         }
-        if(opt.consumer_cpu >= 0 &&
-           telemetry::experiment::contains_cpu(opt.workload_cpus, opt.consumer_cpu)) {
-            throw std::invalid_argument("--consumer-cpu must not be inside --workload-cpus");
-        }
-        if(!opt.workload_cpus.empty() &&
-           static_cast<size_t>(opt.threads) > opt.workload_cpus.size()) {
-            throw std::invalid_argument("--threads must not exceed --workload-cpus count");
+        if(opt.pin_workers && static_cast<size_t>(opt.threads) > opt.pin_workload_cpus.size()) {
+            throw std::invalid_argument("--threads must not exceed --pin-workload-cpus count when --pin-workers is used");
         }
         return opt;
     }
@@ -219,9 +222,9 @@ namespace {
             "--ready-fd", std::to_string(ready_fd),
             "--go-fd", std::to_string(go_fd)
         };
-        if(!opt.workload_cpus.empty()) {
+        if(opt.pin_workers && !opt.pin_workload_cpus.empty()) {
             args.push_back("--worker-cpus");
-            args.push_back(telemetry::experiment::format_cpu_list(opt.workload_cpus));
+            args.push_back(telemetry::experiment::format_cpu_list(opt.pin_workload_cpus));
         }
         return args;
     }
@@ -268,7 +271,7 @@ namespace {
                 ::close(go_pipe[1]);
                 ::close(stdout_pipe[0]);
                 if(::dup2(stdout_pipe[1], STDOUT_FILENO) < 0) _exit(126);
-                set_affinity(0, opt.workload_cpus);
+                set_affinity(0, opt.pin_workload_cpus);
 
                 std::vector<std::string> args = build_workload_args(opt, ready_pipe[1], go_pipe[0]);
                 std::vector<char*> argv;
@@ -291,7 +294,7 @@ namespace {
         cfg.interval_ns = opt.interval_ns;
         cfg.producer_cpu = opt.collector_cpu;
         cfg.perf_cgroup_path = opt.cgroup_path;
-        cfg.perf_cpus = opt.workload_cpus;
+        cfg.perf_cpus = opt.perf_cpus;
         cfg.rapl_pkg_path = opt.rapl_pkg_path;
         cfg.rapl_dram_path = opt.rapl_dram_path;
         telemetry::Collector collector(cfg, ring);
@@ -490,7 +493,9 @@ namespace {
         out << "  \"repetitions\": " << opt.repetitions << ",\n";
         out << "  \"interval_ns\": " << opt.interval_ns << ",\n";
         out << "  \"enable_perf\": " << (opt.enable_perf ? "true" : "false") << ",\n";
-        out << "  \"workload_cpus\": \"" << telemetry::experiment::format_cpu_list(opt.workload_cpus) << "\",\n";
+        out << "  \"perf_cpus\": \"" << telemetry::experiment::format_cpu_list(opt.perf_cpus) << "\",\n";
+        out << "  \"pin_workload_cpus\": \"" << telemetry::experiment::format_cpu_list(opt.pin_workload_cpus) << "\",\n";
+        out << "  \"pin_workers\": " << (opt.pin_workers ? "true" : "false") << ",\n";
         out << "  \"collector_cpu\": " << opt.collector_cpu << ",\n";
         out << "  \"consumer_cpu\": " << opt.consumer_cpu << ",\n";
         out << "  \"cgroup_path\": \"" << telemetry::experiment::json_escape(opt.cgroup_path) << "\",\n";

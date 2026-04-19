@@ -61,7 +61,7 @@ the CPU path for thread pools and dynamic worker creation.
   --warmup 2 \
   --threads 4 \
   --repetitions 5 \
-  --workload-cpus 2,3,4,5 \
+  --perf-cpus 2,3,4,5 \
   --collector-cpu 6 \
   --consumer-cpu 7 \
   --cgroup-path /sys/fs/cgroup/<delegated-cgroup> \
@@ -82,21 +82,26 @@ before that signal. The timed region is therefore intended to cover the kernel
 loops on pre-existing memory and workers, not benchmark setup, allocation, or
 thread creation.
 
-When `--workload-cpus` is provided, it is also passed to the workload as
-`--worker-cpus`. The workload pins one worker thread per listed CPU, so
-`--threads` must not exceed the number of CPUs in `--workload-cpus`.
+By default, the launcher does not pin the workload process or its worker
+threads. `--perf-cpus` only tells the cgroup perf reader which CPUs to open
+events on; scheduling remains controlled by the kernel, scheduler policy and
+any cpuset constraints already applied to the cgroup/job. For a controlled
+comparison, use `--pin-workload-cpus <list>` to set process affinity and add
+`--pin-workers` to pin one workload worker per listed CPU.
 
 The output directory is `--output-dir/--run-id` and contains:
 
 - `samples.csv`: CPU/RAPL/GPU-shaped rows with a `repetition` column, although
   GPU is intentionally not used in this path yet;
-- `metadata.json`: experiment parameters, pinning, per-repetition timing arrays,
+- `metadata.json`: experiment parameters, optional pinning, per-repetition timing arrays,
   overhead mean/sd, jitter, `push_retries` and minimum perf running ratio;
 - `summary.txt`: compact human-readable result.
 
 `--cgroup-path` must point to a pre-created/delegated cgroup. The launcher does
-not create global cgroup hierarchy state or assume sudo. `--workload-cpus` is
-mandatory when perf is enabled because cgroup `perf_event_open` is per CPU.
+not create global cgroup hierarchy state or assume sudo. `--perf-cpus` is
+mandatory when perf is enabled because cgroup `perf_event_open` is per CPU. To
+let the workload migrate freely, pass the full CPU set where the job may run as
+`--perf-cpus` and do not pass `--pin-workload-cpus` or `--pin-workers`.
 
 For local smoke checks without perf/cgroup access:
 
@@ -108,7 +113,7 @@ For local smoke checks without perf/cgroup access:
   --warmup 1 \
   --threads 2 \
   --repetitions 2 \
-  --workload-cpus 0,1 \
+  --perf-cpus 0,1 \
   --collector-cpu -1 \
   --consumer-cpu -1 \
   --no-perf \
