@@ -18,6 +18,7 @@ namespace telemetry {
     struct CollectorConfig {
         int producer_cpu = -1; // -1 = no pinning
         long interval_ns = 1'000'000; // 1 ms default sampling interval
+        bool enable_perf = true; // Whether to collect CPU perf_event counters.
         bool enable_gpu = false; //Whether to collect GPU metrics (requires NVML and compatible GPU)
         pid_t target_pid = 0; //PID of the process to monitor (0 = self)
         std::string rapl_pkg_path;
@@ -37,6 +38,7 @@ namespace telemetry {
             void stop();
 
             bool running() const noexcept {return running_.load();}
+            uint64_t push_retries() const noexcept { return push_retries_.load(std::memory_order_relaxed); }
 
         private:
             CollectorConfig cfg_;
@@ -45,6 +47,7 @@ namespace telemetry {
             bool thread_started_{false};
             std::atomic<bool> running_{false};
             std::atomic<bool> stop_flag_{false};
+            std::atomic<uint64_t> push_retries_{0};
 
             PerfReader perf_reader_;
             RaplReader rapl_reader_;

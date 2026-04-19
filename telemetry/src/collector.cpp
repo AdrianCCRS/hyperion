@@ -35,7 +35,7 @@ namespace telemetry
         }
 
         try {
-            perf_reader_.open();
+            if(cfg_.enable_perf) perf_reader_.open();
             if(!cfg_.rapl_pkg_path.empty()) rapl_reader_.open();
             if(cfg_.enable_gpu) nvml_reader_.open();
         } catch (...) {
@@ -45,6 +45,7 @@ namespace telemetry
             throw;
         }
 
+        push_retries_.store(0, std::memory_order_relaxed);
         stop_flag_.store(false, std::memory_order_relaxed);
 
         pthread_attr_t attr;
@@ -94,13 +95,17 @@ namespace telemetry
         while(!stop_flag_.load(std::memory_order_relaxed)){
             Sample s;
             auto push_sample = [this](const Sample& sample) {
-                while(!stop_flag_.load(std::memory_order_relaxed) && !ring_.try_push(sample)) {}
+                while(!stop_flag_.load(std::memory_order_relaxed) && !ring_.try_push(sample)) {
+                    push_retries_.fetch_add(1, std::memory_order_relaxed);
+                }
             };
 
             // --- CPU Sample ---
-            s.tag = SampleTag::CPU;
-            if(perf_reader_.read(s.cpu)){
-                push_sample(s);
+            if(perf_reader_.is_open()){
+                s.tag = SampleTag::CPU;
+                if(perf_reader_.read(s.cpu)){
+                    push_sample(s);
+                }
             }
 
             // --- Energy Sample ---

@@ -18,6 +18,16 @@ add_library(telemetry STATIC
 )
 target_include_directories(telemetry PUBLIC include)
 target_link_libraries(telemetry PRIVATE pthread)
+
+add_executable(telemetry_overhead_bench
+  benchmarks/telemetry_overhead_bench.cpp
+)
+target_link_libraries(telemetry_overhead_bench PRIVATE telemetry pthread)
+
+add_executable(telemetry_jitter_bench
+  benchmarks/telemetry_jitter_bench.cpp
+)
+target_link_libraries(telemetry_jitter_bench PRIVATE telemetry pthread)
  
 # Link NVML only when GPU support is requested
 option(WITH_GPU "Enable NVML GPU telemetry" OFF)
@@ -51,6 +61,12 @@ add_executable(collector_lifecycle_test
 )
 target_link_libraries(collector_lifecycle_test PRIVATE telemetry pthread)
 add_test(NAME collector_lifecycle_test COMMAND collector_lifecycle_test)
+
+add_executable(collector_no_perf_test
+  tests/test_collector_no_perf.cpp
+)
+target_link_libraries(collector_no_perf_test PRIVATE telemetry pthread)
+add_test(NAME collector_no_perf_test COMMAND collector_no_perf_test)
 
 add_executable(perf_reader_test
   tests/test_perf_reader.cpp
