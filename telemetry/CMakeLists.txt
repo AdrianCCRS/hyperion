@@ -12,9 +12,11 @@ add_compile_options(-Wall -Wextra -O2 -march=native)
  
 add_library(telemetry STATIC
   src/perf_reader.cpp
+  src/perf_cgroup_reader.cpp
   src/rapl_reader.cpp
   src/nvml_reader.cpp
   src/collector.cpp
+  src/experiment_utils.cpp
 )
 target_include_directories(telemetry PUBLIC include)
 target_link_libraries(telemetry PRIVATE pthread)
@@ -28,6 +30,16 @@ add_executable(telemetry_jitter_bench
   benchmarks/telemetry_jitter_bench.cpp
 )
 target_link_libraries(telemetry_jitter_bench PRIVATE telemetry pthread)
+
+add_executable(telemetry_kernel_workload
+  experiments/telemetry_kernel_workload.cpp
+)
+target_link_libraries(telemetry_kernel_workload PRIVATE telemetry pthread)
+
+add_executable(telemetry_kernel_launcher
+  experiments/telemetry_kernel_launcher.cpp
+)
+target_link_libraries(telemetry_kernel_launcher PRIVATE telemetry pthread)
  
 # Link NVML only when GPU support is requested
 option(WITH_GPU "Enable NVML GPU telemetry" OFF)
@@ -74,11 +86,23 @@ add_executable(perf_reader_test
 target_link_libraries(perf_reader_test PRIVATE telemetry pthread)
 add_test(NAME perf_reader_test COMMAND perf_reader_test)
 
+add_executable(perf_cgroup_reader_test
+  tests/test_perf_cgroup_reader.cpp
+)
+target_link_libraries(perf_cgroup_reader_test PRIVATE telemetry pthread)
+add_test(NAME perf_cgroup_reader_test COMMAND perf_cgroup_reader_test)
+
 add_executable(rapl_reader_test
   tests/test_rapl_reader.cpp
 )
 target_link_libraries(rapl_reader_test PRIVATE telemetry pthread)
 add_test(NAME rapl_reader_test COMMAND rapl_reader_test)
+
+add_executable(experiment_utils_test
+  tests/test_experiment_utils.cpp
+)
+target_link_libraries(experiment_utils_test PRIVATE telemetry pthread)
+add_test(NAME experiment_utils_test COMMAND experiment_utils_test)
 
 if(NOT WITH_GPU)
   add_executable(nvml_reader_cpu_stub_test

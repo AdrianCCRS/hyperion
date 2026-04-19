@@ -18,6 +18,7 @@ namespace telemetry
         : cfg_(std::move(cfg)),
           ring_(ring),
           perf_reader_(cfg_.target_pid, -1),
+          perf_cgroup_reader_(cfg_.perf_cgroup_path, cfg_.perf_cpus),
           rapl_reader_(cfg_.rapl_pkg_path, cfg_.rapl_dram_path),
           nvml_reader_(0) {}
 
@@ -35,7 +36,13 @@ namespace telemetry
         }
 
         try {
-            if(cfg_.enable_perf) perf_reader_.open();
+            if(cfg_.enable_perf) {
+                if(!cfg_.perf_cgroup_path.empty()) {
+                    perf_cgroup_reader_.open();
+                } else {
+                    perf_reader_.open();
+                }
+            }
             if(!cfg_.rapl_pkg_path.empty()) rapl_reader_.open();
             if(cfg_.enable_gpu) nvml_reader_.open();
         } catch (...) {
@@ -101,7 +108,12 @@ namespace telemetry
             };
 
             // --- CPU Sample ---
-            if(perf_reader_.is_open()){
+            if(perf_cgroup_reader_.is_open()){
+                s.tag = SampleTag::CPU;
+                if(perf_cgroup_reader_.read(s.cpu)){
+                    push_sample(s);
+                }
+            } else if(perf_reader_.is_open()){
                 s.tag = SampleTag::CPU;
                 if(perf_reader_.read(s.cpu)){
                     push_sample(s);
@@ -155,6 +167,7 @@ namespace telemetry
 
     void Collector::close_readers() noexcept {
         perf_reader_.close();
+        perf_cgroup_reader_.close();
         rapl_reader_.close();
         nvml_reader_.close();
     }

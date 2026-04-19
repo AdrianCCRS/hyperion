@@ -2,6 +2,7 @@
 #include "metrics.hpp"
 #include "spsc_ring.hpp"
 #include "perf_reader.hpp"
+#include "perf_cgroup_reader.hpp"
 #include "rapl_reader.hpp"
 #include "nvml_reader.hpp"
 #include <pthread.h>
@@ -9,6 +10,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <vector>
 
 namespace telemetry {
     // Ring size: power of two, chosen to hold ~10 s of samples at 1 kHz
@@ -21,6 +23,8 @@ namespace telemetry {
         bool enable_perf = true; // Whether to collect CPU perf_event counters.
         bool enable_gpu = false; //Whether to collect GPU metrics (requires NVML and compatible GPU)
         pid_t target_pid = 0; //PID of the process to monitor (0 = self)
+        std::string perf_cgroup_path;
+        std::vector<int> perf_cpus;
         std::string rapl_pkg_path;
         std::string rapl_dram_path;
     };
@@ -50,6 +54,7 @@ namespace telemetry {
             std::atomic<uint64_t> push_retries_{0};
 
             PerfReader perf_reader_;
+            PerfCgroupReader perf_cgroup_reader_;
             RaplReader rapl_reader_;
             NvmlReader nvml_reader_;
 

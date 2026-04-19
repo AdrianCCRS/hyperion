@@ -21,6 +21,8 @@ namespace telemetry {
     uint64_t cycles;          // PERF_COUNT_HW_CPU_CYCLES
     uint64_t cache_references; // PERF_COUNT_HW_CACHE_REFERENCES
     uint64_t cache_misses;    // PERF_COUNT_HW_CACHE_MISSES
+    uint64_t time_enabled_ns; // perf_event enabled time for multiplexing diagnostics
+    uint64_t time_running_ns; // perf_event running time for multiplexing diagnostics
     // Derived (compute after capture, not during critical path):
     // double ipc()  const { return (double)instructions / cycles; }
     };

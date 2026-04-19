@@ -155,6 +155,8 @@ namespace telemetry {
         sample.cycles = detail::scale_perf_count(rf.values[1], rf.time_enabled, rf.time_running);
         sample.cache_references = detail::scale_perf_count(rf.values[2], rf.time_enabled, rf.time_running);
         sample.cache_misses = detail::scale_perf_count(rf.values[3], rf.time_enabled, rf.time_running);
+        sample.time_enabled_ns = rf.time_enabled;
+        sample.time_running_ns = rf.time_running;
         out = sample;
         return true;
     }
