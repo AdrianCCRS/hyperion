@@ -60,6 +60,7 @@ the CPU path for thread pools and dynamic worker creation.
   --iterations 20 \
   --warmup 2 \
   --threads 4 \
+  --repetitions 5 \
   --workload-cpus 2,3,4,5 \
   --collector-cpu 6 \
   --consumer-cpu 7 \
@@ -69,7 +70,8 @@ the CPU path for thread pools and dynamic worker creation.
   --run-id stream_mt_001
 ```
 
-The launcher runs two child executions with identical parameters:
+For each repetition, the launcher runs two child executions with identical
+parameters:
 
 - baseline: workload child without active collector;
 - telemetry: workload child with collector, consumer and export enabled.
@@ -80,12 +82,16 @@ before that signal. The timed region is therefore intended to cover the kernel
 loops on pre-existing memory and workers, not benchmark setup, allocation, or
 thread creation.
 
+When `--workload-cpus` is provided, it is also passed to the workload as
+`--worker-cpus`. The workload pins one worker thread per listed CPU, so
+`--threads` must not exceed the number of CPUs in `--workload-cpus`.
+
 The output directory is `--output-dir/--run-id` and contains:
 
-- `samples.csv`: CPU/RAPL/GPU-shaped rows, although GPU is intentionally not
-  used in this path yet;
-- `metadata.json`: experiment parameters, pinning, overhead, jitter,
-  `push_retries` and perf multiplexing ratio;
+- `samples.csv`: CPU/RAPL/GPU-shaped rows with a `repetition` column, although
+  GPU is intentionally not used in this path yet;
+- `metadata.json`: experiment parameters, pinning, per-repetition timing arrays,
+  overhead mean/sd, jitter, `push_retries` and minimum perf running ratio;
 - `summary.txt`: compact human-readable result.
 
 `--cgroup-path` must point to a pre-created/delegated cgroup. The launcher does
@@ -101,6 +107,7 @@ For local smoke checks without perf/cgroup access:
   --iterations 2 \
   --warmup 1 \
   --threads 2 \
+  --repetitions 2 \
   --workload-cpus 0,1 \
   --collector-cpu -1 \
   --consumer-cpu -1 \

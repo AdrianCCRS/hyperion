@@ -4,13 +4,16 @@
 #include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <memory>
 #include <mutex>
+#include <pthread.h>
 #include <stdexcept>
 #include <string>
 #include <thread>
 #include <unistd.h>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -22,6 +25,7 @@ namespace {
         int iterations = 10;
         int warmup = 1;
         int threads = 1;
+        std::vector<int> worker_cpus;
         int ready_fd = -1;
         int go_fd = -1;
     };
@@ -29,7 +33,8 @@ namespace {
     [[noreturn]] void usage(const char* argv0) {
         std::fprintf(stderr,
                      "usage: %s --kernel <name> --size <N> --iterations <N> "
-                     "--warmup <N> --threads <N> [--ready-fd fd --go-fd fd]\n",
+                     "--warmup <N> --threads <N> [--worker-cpus list] "
+                     "[--ready-fd fd --go-fd fd]\n",
                      argv0);
         std::exit(2);
     }
@@ -54,6 +59,8 @@ namespace {
                 opt.warmup = std::stoi(need_value("--warmup"));
             } else if(arg == "--threads") {
                 opt.threads = std::stoi(need_value("--threads"));
+            } else if(arg == "--worker-cpus") {
+                opt.worker_cpus = telemetry::experiment::parse_cpu_list(need_value("--worker-cpus"));
             } else if(arg == "--ready-fd") {
                 opt.ready_fd = std::stoi(need_value("--ready-fd"));
             } else if(arg == "--go-fd") {
@@ -72,6 +79,9 @@ namespace {
         if(opt.iterations <= 0) throw std::invalid_argument("--iterations must be positive");
         if(opt.warmup < 0) throw std::invalid_argument("--warmup must be non-negative");
         if(opt.threads <= 0) throw std::invalid_argument("--threads must be positive");
+        if(!opt.worker_cpus.empty() && static_cast<size_t>(opt.threads) > opt.worker_cpus.size()) {
+            throw std::invalid_argument("--threads must not exceed --worker-cpus count");
+        }
         return opt;
     }
 
@@ -83,23 +93,19 @@ namespace {
             virtual void run(size_t worker, size_t begin, size_t end) noexcept = 0;
         };
 
-        explicit ThreadPool(int threads)
-            : workers_(static_cast<size_t>(threads)) {
-            for(size_t worker = 0; worker < workers_.size(); ++worker) {
-                workers_[worker] = std::thread(&ThreadPool::worker_loop, this, worker);
+        ThreadPool(int threads, std::vector<int> worker_cpus)
+            : worker_cpus_(std::move(worker_cpus)) {
+            if(!worker_cpus_.empty() && worker_cpus_.size() < static_cast<size_t>(threads)) {
+                throw std::invalid_argument("ThreadPool requires one worker CPU per thread");
+            }
+            workers_.reserve(static_cast<size_t>(threads));
+            for(size_t worker = 0; worker < static_cast<size_t>(threads); ++worker) {
+                spawn_worker(worker);
             }
         }
 
         ~ThreadPool() {
-            {
-                std::lock_guard<std::mutex> lock(mutex_);
-                stopping_ = true;
-                ++generation_;
-            }
-            cv_.notify_all();
-            for(auto& worker : workers_) {
-                if(worker.joinable()) worker.join();
-            }
+            stop_and_join();
         }
 
         ThreadPool(const ThreadPool&) = delete;
@@ -127,6 +133,7 @@ namespace {
 
     private:
         std::vector<std::thread> workers_;
+        std::vector<int> worker_cpus_;
         std::mutex mutex_;
         std::condition_variable cv_;
         std::condition_variable done_cv_;
@@ -135,6 +142,34 @@ namespace {
         size_t remaining_ = 0;
         uint64_t generation_ = 0;
         bool stopping_ = false;
+
+        void spawn_worker(size_t worker) {
+            workers_.emplace_back(&ThreadPool::worker_loop, this, worker);
+            if(!worker_cpus_.empty()) {
+                const int cpu = worker_cpus_[worker];
+                cpu_set_t set;
+                CPU_ZERO(&set);
+                CPU_SET(cpu, &set);
+                const int rc = pthread_setaffinity_np(workers_.back().native_handle(), sizeof(set), &set);
+                if(rc != 0) {
+                    stop_and_join();
+                    throw std::runtime_error(std::string("pthread_setaffinity_np worker failed: ") +
+                                             std::strerror(rc));
+                }
+            }
+        }
+
+        void stop_and_join() noexcept {
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                stopping_ = true;
+                ++generation_;
+            }
+            cv_.notify_all();
+            for(auto& worker : workers_) {
+                if(worker.joinable()) worker.join();
+            }
+        }
 
         void worker_loop(size_t worker) {
             uint64_t seen_generation = 0;
@@ -180,8 +215,8 @@ namespace {
 
     class StreamTriadKernel final : public Kernel {
     public:
-        StreamTriadKernel(size_t n, int threads)
-            : n_(n), pool_(threads), a_(n, 1.0), b_(n, 2.0), c_(n, 0.0) {}
+        StreamTriadKernel(size_t n, int threads, const std::vector<int>& worker_cpus)
+            : n_(n), pool_(threads, worker_cpus), a_(n, 1.0), b_(n, 2.0), c_(n, 0.0) {}
 
         void prepare_for_measurement() override {
             std::fill(c_.begin(), c_.end(), 0.0);
@@ -218,9 +253,9 @@ namespace {
 
     class ReductionKernel final : public Kernel {
     public:
-        ReductionKernel(size_t n, int threads)
+        ReductionKernel(size_t n, int threads, const std::vector<int>& worker_cpus)
             : n_(n),
-              pool_(threads),
+              pool_(threads, worker_cpus),
               values_(n, 1.0),
               partial_(pool_.worker_count(), 0.0) {}
 
@@ -262,9 +297,9 @@ namespace {
 
     class Stencil2DKernel final : public Kernel {
     public:
-        Stencil2DKernel(size_t n, int threads)
+        Stencil2DKernel(size_t n, int threads, const std::vector<int>& worker_cpus)
             : n_(n),
-              pool_(threads),
+              pool_(threads, worker_cpus),
               current_(n * n, 1.0),
               next_(n * n, 0.0) {
             if(n < 3) throw std::invalid_argument("stencil_2d requires --size >= 3");
@@ -315,9 +350,9 @@ namespace {
 
     class GemmNaiveKernel final : public Kernel {
     public:
-        GemmNaiveKernel(size_t n, int threads)
+        GemmNaiveKernel(size_t n, int threads, const std::vector<int>& worker_cpus)
             : n_(n),
-              pool_(threads),
+              pool_(threads, worker_cpus),
               a_(n * n, 1.0),
               b_(n * n, 2.0),
               c_(n * n, 0.0) {}
@@ -362,16 +397,16 @@ namespace {
 
     std::unique_ptr<Kernel> make_kernel(const Options& opt) {
         if(opt.kernel == "stream_triad") {
-            return std::make_unique<StreamTriadKernel>(opt.size, opt.threads);
+            return std::make_unique<StreamTriadKernel>(opt.size, opt.threads, opt.worker_cpus);
         }
         if(opt.kernel == "reduction") {
-            return std::make_unique<ReductionKernel>(opt.size, opt.threads);
+            return std::make_unique<ReductionKernel>(opt.size, opt.threads, opt.worker_cpus);
         }
         if(opt.kernel == "stencil_2d") {
-            return std::make_unique<Stencil2DKernel>(opt.size, opt.threads);
+            return std::make_unique<Stencil2DKernel>(opt.size, opt.threads, opt.worker_cpus);
         }
         if(opt.kernel == "gemm_naive") {
-            return std::make_unique<GemmNaiveKernel>(opt.size, opt.threads);
+            return std::make_unique<GemmNaiveKernel>(opt.size, opt.threads, opt.worker_cpus);
         }
         throw std::invalid_argument("unsupported kernel: " + opt.kernel);
     }

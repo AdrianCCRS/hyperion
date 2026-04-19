@@ -12,6 +12,7 @@
 #include <fstream>
 #include <sched.h>
 #include <sstream>
+#include <numeric>
 #include <stdexcept>
 #include <string>
 #include <sys/wait.h>
@@ -28,6 +29,7 @@ namespace {
         int iterations = 10;
         int warmup = 1;
         int threads = 1;
+        int repetitions = 1;
         std::vector<int> workload_cpus;
         int collector_cpu = -1;
         int consumer_cpu = -1;
@@ -47,10 +49,16 @@ namespace {
         std::string output;
     };
 
+    struct RecordedSample {
+        int repetition = 0;
+        telemetry::Sample sample{};
+    };
+
     [[noreturn]] void usage(const char* argv0) {
         std::fprintf(stderr,
                      "usage: %s --kernel <name> --size <N> --iterations <N> "
-                     "--warmup <N> --threads <N> --workload-cpus <list> "
+                     "--warmup <N> --threads <N> --repetitions <N> "
+                     "--workload-cpus <list> "
                      "--collector-cpu <cpu> --consumer-cpu <cpu> "
                      "--cgroup-path <path> --output-dir <dir> --run-id <id>\n",
                      argv0);
@@ -84,6 +92,8 @@ namespace {
                 opt.warmup = std::stoi(need_value());
             } else if(arg == "--threads") {
                 opt.threads = std::stoi(need_value());
+            } else if(arg == "--repetitions") {
+                opt.repetitions = std::stoi(need_value());
             } else if(arg == "--workload-cpus") {
                 opt.workload_cpus = telemetry::experiment::parse_cpu_list(need_value());
             } else if(arg == "--collector-cpu") {
@@ -120,6 +130,7 @@ namespace {
         if(opt.iterations <= 0) throw std::invalid_argument("--iterations must be positive");
         if(opt.warmup < 0) throw std::invalid_argument("--warmup must be non-negative");
         if(opt.threads <= 0) throw std::invalid_argument("--threads must be positive");
+        if(opt.repetitions <= 0) throw std::invalid_argument("--repetitions must be positive");
         if(opt.interval_ns <= 0) throw std::invalid_argument("--interval-ns must be positive");
         if(opt.enable_perf && opt.cgroup_path.empty()) {
             throw std::invalid_argument("--cgroup-path is required when perf is enabled");
@@ -134,6 +145,10 @@ namespace {
         if(opt.consumer_cpu >= 0 &&
            telemetry::experiment::contains_cpu(opt.workload_cpus, opt.consumer_cpu)) {
             throw std::invalid_argument("--consumer-cpu must not be inside --workload-cpus");
+        }
+        if(!opt.workload_cpus.empty() &&
+           static_cast<size_t>(opt.threads) > opt.workload_cpus.size()) {
+            throw std::invalid_argument("--threads must not exceed --workload-cpus count");
         }
         return opt;
     }
@@ -194,7 +209,7 @@ namespace {
     }
 
     std::vector<std::string> build_workload_args(const Options& opt, int ready_fd, int go_fd) {
-        return {
+        std::vector<std::string> args = {
             opt.workload_bin.string(),
             "--kernel", opt.kernel,
             "--size", std::to_string(opt.size),
@@ -204,32 +219,39 @@ namespace {
             "--ready-fd", std::to_string(ready_fd),
             "--go-fd", std::to_string(go_fd)
         };
+        if(!opt.workload_cpus.empty()) {
+            args.push_back("--worker-cpus");
+            args.push_back(telemetry::experiment::format_cpu_list(opt.workload_cpus));
+        }
+        return args;
     }
 
     void drain_samples(telemetry::Collector::Ring& ring,
                        std::atomic<bool>& stop,
-                       std::vector<telemetry::Sample>& samples,
-                       int consumer_cpu) {
+                       std::vector<RecordedSample>& samples,
+                       int consumer_cpu,
+                       int repetition) {
         set_current_thread_affinity(consumer_cpu);
         while(!stop.load(std::memory_order_relaxed)) {
             while(auto sample = ring.try_pop()) {
-                samples.push_back(*sample);
+                samples.push_back(RecordedSample{repetition, *sample});
             }
             ring.flush_consumer();
             struct timespec t{0, 100'000};
             nanosleep(&t, nullptr);
         }
         while(auto sample = ring.try_pop()) {
-            samples.push_back(*sample);
+            samples.push_back(RecordedSample{repetition, *sample});
         }
         ring.flush_consumer();
     }
 
     ChildResult run_child(const Options& opt,
                           bool collect,
-                          std::vector<telemetry::Sample>& samples,
+                          std::vector<RecordedSample>& samples,
                           uint64_t reserve_samples,
-                          uint64_t& push_retries) {
+                          uint64_t& push_retries,
+                          int repetition) {
         int ready_pipe[2];
         int go_pipe[2];
         int stdout_pipe[2];
@@ -286,12 +308,13 @@ namespace {
             }
 
             if(collect) {
-                samples.reserve(static_cast<size_t>(reserve_samples));
+                samples.reserve(samples.size() + static_cast<size_t>(reserve_samples));
                 consumer = std::thread(drain_samples,
                                        std::ref(ring),
                                        std::ref(stop_consumer),
                                        std::ref(samples),
-                                       opt.consumer_cpu);
+                                       opt.consumer_cpu,
+                                       repetition);
                 collector.start();
             }
 
@@ -341,11 +364,17 @@ namespace {
         return result;
     }
 
-    telemetry::experiment::Stats sampling_jitter(const std::vector<telemetry::Sample>& samples) {
+    telemetry::experiment::Stats sampling_jitter(const std::vector<RecordedSample>& samples) {
         std::vector<double> intervals;
+        int current_repetition = -1;
         uint64_t previous = 0;
-        for(const auto& sample : samples) {
+        for(const auto& record : samples) {
+            const auto& sample = record.sample;
             if(sample.tag != telemetry::SampleTag::CPU) continue;
+            if(record.repetition != current_repetition) {
+                current_repetition = record.repetition;
+                previous = 0;
+            }
             if(previous != 0) {
                 intervals.push_back(static_cast<double>(sample.cpu.timestamp_ns - previous));
             }
@@ -354,14 +383,21 @@ namespace {
         return telemetry::experiment::compute_stats(intervals);
     }
 
-    double perf_running_ratio(const std::vector<telemetry::Sample>& samples) {
-        for(auto it = samples.rbegin(); it != samples.rend(); ++it) {
-            if(it->tag == telemetry::SampleTag::CPU && it->cpu.time_enabled_ns != 0) {
-                return static_cast<double>(it->cpu.time_running_ns) /
-                       static_cast<double>(it->cpu.time_enabled_ns);
+    double perf_running_ratio_min(const std::vector<RecordedSample>& samples) {
+        double min_ratio = 0.0;
+        bool saw_ratio = false;
+        for(const auto& record : samples) {
+            const auto& sample = record.sample;
+            if(sample.tag == telemetry::SampleTag::CPU && sample.cpu.time_enabled_ns != 0) {
+                const double ratio = static_cast<double>(sample.cpu.time_running_ns) /
+                                     static_cast<double>(sample.cpu.time_enabled_ns);
+                if(!saw_ratio || ratio < min_ratio) {
+                    min_ratio = ratio;
+                    saw_ratio = true;
+                }
             }
         }
-        return 0.0;
+        return saw_ratio ? min_ratio : 0.0;
     }
 
     const char* tag_name(telemetry::SampleTag tag) {
@@ -375,14 +411,16 @@ namespace {
 
     void write_samples_csv(const fs::path& path,
                            const Options& opt,
-                           const std::vector<telemetry::Sample>& samples) {
+                           const std::vector<RecordedSample>& samples) {
         std::ofstream out(path);
-        out << "run_id,kernel,label,timestamp_ns,tag,instructions,cycles,"
+        out << "run_id,repetition,kernel,label,timestamp_ns,tag,instructions,cycles,"
                "cache_references,cache_misses,time_enabled_ns,time_running_ns,"
                "pkg_uj,dram_uj,gpu_power_mw,gpu_util_pct\n";
         const char* label = telemetry::experiment::kernel_label(opt.kernel);
-        for(const auto& sample : samples) {
+        for(const auto& record : samples) {
+            const auto& sample = record.sample;
             out << opt.run_id << ','
+                << record.repetition << ','
                 << opt.kernel << ','
                 << label << ',';
             if(sample.tag == telemetry::SampleTag::CPU) {
@@ -408,18 +446,37 @@ namespace {
         }
     }
 
+    template <typename T>
+    void write_json_array(std::ofstream& out, const std::vector<T>& values) {
+        out << '[';
+        for(size_t i = 0; i < values.size(); ++i) {
+            if(i != 0) out << ',';
+            out << values[i];
+        }
+        out << ']';
+    }
+
     void write_metadata_json(const fs::path& path,
                              const Options& opt,
-                             const ChildResult& baseline,
-                             const ChildResult& telemetry,
-                             const std::vector<telemetry::Sample>& samples,
-                             uint64_t push_retries) {
+                             const std::vector<uint64_t>& baseline_elapsed_ns,
+                             const std::vector<uint64_t>& telemetry_elapsed_ns,
+                             const std::vector<double>& overheads,
+                             const std::vector<RecordedSample>& samples,
+                             const std::vector<uint64_t>& push_retries_by_repetition) {
         const auto jitter = sampling_jitter(samples);
-        const double ratio = perf_running_ratio(samples);
-        const double overhead = telemetry::experiment::overhead_percent(
-            static_cast<double>(baseline.elapsed_ns),
-            static_cast<double>(telemetry.elapsed_ns)
-        );
+        const double ratio = perf_running_ratio_min(samples);
+        std::vector<double> baseline_values;
+        std::vector<double> telemetry_values;
+        baseline_values.reserve(baseline_elapsed_ns.size());
+        telemetry_values.reserve(telemetry_elapsed_ns.size());
+        for(uint64_t value : baseline_elapsed_ns) baseline_values.push_back(static_cast<double>(value));
+        for(uint64_t value : telemetry_elapsed_ns) telemetry_values.push_back(static_cast<double>(value));
+        const auto baseline_stats = telemetry::experiment::compute_stats(baseline_values);
+        const auto telemetry_stats = telemetry::experiment::compute_stats(telemetry_values);
+        const auto overhead_stats = telemetry::experiment::compute_stats(overheads);
+        const uint64_t push_retries_total = std::accumulate(push_retries_by_repetition.begin(),
+                                                            push_retries_by_repetition.end(),
+                                                            uint64_t{0});
 
         std::ofstream out(path);
         out << "{\n";
@@ -430,45 +487,74 @@ namespace {
         out << "  \"iterations\": " << opt.iterations << ",\n";
         out << "  \"warmup\": " << opt.warmup << ",\n";
         out << "  \"threads\": " << opt.threads << ",\n";
+        out << "  \"repetitions\": " << opt.repetitions << ",\n";
         out << "  \"interval_ns\": " << opt.interval_ns << ",\n";
         out << "  \"enable_perf\": " << (opt.enable_perf ? "true" : "false") << ",\n";
         out << "  \"workload_cpus\": \"" << telemetry::experiment::format_cpu_list(opt.workload_cpus) << "\",\n";
         out << "  \"collector_cpu\": " << opt.collector_cpu << ",\n";
         out << "  \"consumer_cpu\": " << opt.consumer_cpu << ",\n";
         out << "  \"cgroup_path\": \"" << telemetry::experiment::json_escape(opt.cgroup_path) << "\",\n";
-        out << "  \"baseline_elapsed_ns\": " << baseline.elapsed_ns << ",\n";
-        out << "  \"telemetry_elapsed_ns\": " << telemetry.elapsed_ns << ",\n";
-        out << "  \"overhead_pct\": " << overhead << ",\n";
+        out << "  \"baseline_elapsed_ns_mean\": " << baseline_stats.mean << ",\n";
+        out << "  \"baseline_elapsed_ns_sd\": " << baseline_stats.sd << ",\n";
+        out << "  \"telemetry_elapsed_ns_mean\": " << telemetry_stats.mean << ",\n";
+        out << "  \"telemetry_elapsed_ns_sd\": " << telemetry_stats.sd << ",\n";
+        out << "  \"overhead_pct_mean\": " << overhead_stats.mean << ",\n";
+        out << "  \"overhead_pct_sd\": " << overhead_stats.sd << ",\n";
+        out << "  \"baseline_elapsed_ns_values\": ";
+        write_json_array(out, baseline_elapsed_ns);
+        out << ",\n";
+        out << "  \"telemetry_elapsed_ns_values\": ";
+        write_json_array(out, telemetry_elapsed_ns);
+        out << ",\n";
+        out << "  \"overhead_pct_values\": ";
+        write_json_array(out, overheads);
+        out << ",\n";
         out << "  \"sampling_interval_mean_ns\": " << jitter.mean << ",\n";
         out << "  \"sampling_interval_sd_ns\": " << jitter.sd << ",\n";
         out << "  \"sampling_interval_cv_pct\": " << jitter.cv_pct << ",\n";
-        out << "  \"push_retries\": " << push_retries << ",\n";
-        out << "  \"perf_running_ratio\": " << ratio << ",\n";
+        out << "  \"push_retries\": " << push_retries_total << ",\n";
+        out << "  \"push_retries_by_repetition\": ";
+        write_json_array(out, push_retries_by_repetition);
+        out << ",\n";
+        out << "  \"perf_running_ratio_min\": " << ratio << ",\n";
         out << "  \"samples_collected\": " << samples.size() << "\n";
         out << "}\n";
     }
 
     void write_summary(const fs::path& path,
                        const Options& opt,
-                       const ChildResult& baseline,
-                       const ChildResult& telemetry,
-                       const std::vector<telemetry::Sample>& samples,
-                       uint64_t push_retries) {
+                       const std::vector<uint64_t>& baseline_elapsed_ns,
+                       const std::vector<uint64_t>& telemetry_elapsed_ns,
+                       const std::vector<double>& overheads,
+                       const std::vector<RecordedSample>& samples,
+                       const std::vector<uint64_t>& push_retries_by_repetition) {
         const auto jitter = sampling_jitter(samples);
-        const double overhead = telemetry::experiment::overhead_percent(
-            static_cast<double>(baseline.elapsed_ns),
-            static_cast<double>(telemetry.elapsed_ns)
-        );
+        std::vector<double> baseline_values;
+        std::vector<double> telemetry_values;
+        baseline_values.reserve(baseline_elapsed_ns.size());
+        telemetry_values.reserve(telemetry_elapsed_ns.size());
+        for(uint64_t value : baseline_elapsed_ns) baseline_values.push_back(static_cast<double>(value));
+        for(uint64_t value : telemetry_elapsed_ns) telemetry_values.push_back(static_cast<double>(value));
+        const auto baseline_stats = telemetry::experiment::compute_stats(baseline_values);
+        const auto telemetry_stats = telemetry::experiment::compute_stats(telemetry_values);
+        const auto overhead_stats = telemetry::experiment::compute_stats(overheads);
+        const uint64_t push_retries_total = std::accumulate(push_retries_by_repetition.begin(),
+                                                            push_retries_by_repetition.end(),
+                                                            uint64_t{0});
         std::ofstream out(path);
         out << "run_id=" << opt.run_id << "\n";
         out << "kernel=" << opt.kernel << "\n";
         out << "label=" << telemetry::experiment::kernel_label(opt.kernel) << "\n";
-        out << "baseline_elapsed_ns=" << baseline.elapsed_ns << "\n";
-        out << "telemetry_elapsed_ns=" << telemetry.elapsed_ns << "\n";
-        out << "overhead_pct=" << overhead << "\n";
+        out << "repetitions=" << opt.repetitions << "\n";
+        out << "baseline_elapsed_ns_mean=" << baseline_stats.mean << "\n";
+        out << "baseline_elapsed_ns_sd=" << baseline_stats.sd << "\n";
+        out << "telemetry_elapsed_ns_mean=" << telemetry_stats.mean << "\n";
+        out << "telemetry_elapsed_ns_sd=" << telemetry_stats.sd << "\n";
+        out << "overhead_pct_mean=" << overhead_stats.mean << "\n";
+        out << "overhead_pct_sd=" << overhead_stats.sd << "\n";
         out << "sampling_cv_pct=" << jitter.cv_pct << "\n";
-        out << "perf_running_ratio=" << perf_running_ratio(samples) << "\n";
-        out << "push_retries=" << push_retries << "\n";
+        out << "perf_running_ratio_min=" << perf_running_ratio_min(samples) << "\n";
+        out << "push_retries=" << push_retries_total << "\n";
         out << "samples_collected=" << samples.size() << "\n";
     }
 }
@@ -477,48 +563,105 @@ int main(int argc, char** argv) {
     try {
         const Options opt = parse_args(argc, argv);
 
-        std::vector<telemetry::Sample> discarded;
-        uint64_t ignored_push_retries = 0;
-        const ChildResult baseline = run_child(opt, false, discarded, 0, ignored_push_retries);
-        if(baseline.exit_code != 0) {
-            std::fprintf(stderr, "baseline workload failed: exit=%d\n%s",
-                         baseline.exit_code,
-                         baseline.output.c_str());
-            return 1;
-        }
+        std::vector<uint64_t> baseline_elapsed_ns;
+        std::vector<uint64_t> telemetry_elapsed_ns;
+        std::vector<double> overheads;
+        std::vector<uint64_t> push_retries_by_repetition;
+        std::vector<RecordedSample> samples;
 
-        const uint64_t expected_samples =
-            std::max<uint64_t>(1024, baseline.elapsed_ns / static_cast<uint64_t>(opt.interval_ns) * 3 + 1024);
-        std::vector<telemetry::Sample> samples;
-        uint64_t push_retries = 0;
-        const ChildResult telemetry = run_child(opt, true, samples, expected_samples, push_retries);
-        if(telemetry.exit_code != 0) {
-            std::fprintf(stderr, "telemetry workload failed: exit=%d\n%s",
-                         telemetry.exit_code,
-                         telemetry.output.c_str());
-            return 1;
+        baseline_elapsed_ns.reserve(static_cast<size_t>(opt.repetitions));
+        telemetry_elapsed_ns.reserve(static_cast<size_t>(opt.repetitions));
+        overheads.reserve(static_cast<size_t>(opt.repetitions));
+        push_retries_by_repetition.reserve(static_cast<size_t>(opt.repetitions));
+
+        for(int repetition = 1; repetition <= opt.repetitions; ++repetition) {
+            std::vector<RecordedSample> discarded;
+            uint64_t ignored_push_retries = 0;
+            const ChildResult baseline = run_child(opt,
+                                                   false,
+                                                   discarded,
+                                                   0,
+                                                   ignored_push_retries,
+                                                   repetition);
+            if(baseline.exit_code != 0) {
+                std::fprintf(stderr, "baseline workload failed: repetition=%d exit=%d\n%s",
+                             repetition,
+                             baseline.exit_code,
+                             baseline.output.c_str());
+                return 1;
+            }
+
+            const uint64_t expected_samples =
+                std::max<uint64_t>(
+                    1024,
+                    baseline.elapsed_ns / static_cast<uint64_t>(opt.interval_ns) * 3 + 1024
+                );
+            uint64_t push_retries = 0;
+            const ChildResult telemetry = run_child(opt,
+                                                    true,
+                                                    samples,
+                                                    expected_samples,
+                                                    push_retries,
+                                                    repetition);
+            if(telemetry.exit_code != 0) {
+                std::fprintf(stderr, "telemetry workload failed: repetition=%d exit=%d\n%s",
+                             repetition,
+                             telemetry.exit_code,
+                             telemetry.output.c_str());
+                return 1;
+            }
+
+            baseline_elapsed_ns.push_back(baseline.elapsed_ns);
+            telemetry_elapsed_ns.push_back(telemetry.elapsed_ns);
+            overheads.push_back(telemetry::experiment::overhead_percent(
+                static_cast<double>(baseline.elapsed_ns),
+                static_cast<double>(telemetry.elapsed_ns)
+            ));
+            push_retries_by_repetition.push_back(push_retries);
         }
 
         const fs::path run_dir = opt.output_dir / opt.run_id;
         fs::create_directories(run_dir);
         write_samples_csv(run_dir / "samples.csv", opt, samples);
-        write_metadata_json(run_dir / "metadata.json", opt, baseline, telemetry, samples, push_retries);
-        write_summary(run_dir / "summary.txt", opt, baseline, telemetry, samples, push_retries);
+        write_metadata_json(run_dir / "metadata.json",
+                            opt,
+                            baseline_elapsed_ns,
+                            telemetry_elapsed_ns,
+                            overheads,
+                            samples,
+                            push_retries_by_repetition);
+        write_summary(run_dir / "summary.txt",
+                      opt,
+                      baseline_elapsed_ns,
+                      telemetry_elapsed_ns,
+                      overheads,
+                      samples,
+                      push_retries_by_repetition);
 
-        const double overhead = telemetry::experiment::overhead_percent(
-            static_cast<double>(baseline.elapsed_ns),
-            static_cast<double>(telemetry.elapsed_ns)
-        );
+        std::vector<double> baseline_values;
+        std::vector<double> telemetry_values;
+        baseline_values.reserve(baseline_elapsed_ns.size());
+        telemetry_values.reserve(telemetry_elapsed_ns.size());
+        for(uint64_t value : baseline_elapsed_ns) baseline_values.push_back(static_cast<double>(value));
+        for(uint64_t value : telemetry_elapsed_ns) telemetry_values.push_back(static_cast<double>(value));
+        const auto baseline_stats = telemetry::experiment::compute_stats(baseline_values);
+        const auto telemetry_stats = telemetry::experiment::compute_stats(telemetry_values);
+        const auto overhead_stats = telemetry::experiment::compute_stats(overheads);
         const auto jitter = sampling_jitter(samples);
+        const uint64_t push_retries_total = std::accumulate(push_retries_by_repetition.begin(),
+                                                            push_retries_by_repetition.end(),
+                                                            uint64_t{0});
         std::printf("run_dir=%s\n", run_dir.c_str());
-        std::printf("baseline_elapsed_ns=%llu telemetry_elapsed_ns=%llu overhead=%.2f%%\n",
-                    static_cast<unsigned long long>(baseline.elapsed_ns),
-                    static_cast<unsigned long long>(telemetry.elapsed_ns),
-                    overhead);
-        std::printf("sampling_cv=%.2f%% perf_running_ratio=%.4f push_retries=%llu samples=%llu\n",
+        std::printf("repetitions=%d baseline_mean_ns=%.2f telemetry_mean_ns=%.2f overhead_mean=%.2f%% overhead_sd=%.2f%%\n",
+                    opt.repetitions,
+                    baseline_stats.mean,
+                    telemetry_stats.mean,
+                    overhead_stats.mean,
+                    overhead_stats.sd);
+        std::printf("sampling_cv=%.2f%% perf_running_ratio_min=%.4f push_retries=%llu samples=%llu\n",
                     jitter.cv_pct,
-                    perf_running_ratio(samples),
-                    static_cast<unsigned long long>(push_retries),
+                    perf_running_ratio_min(samples),
+                    static_cast<unsigned long long>(push_retries_total),
                     static_cast<unsigned long long>(samples.size()));
         return 0;
     } catch(const std::exception& e) {
