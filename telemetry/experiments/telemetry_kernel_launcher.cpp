@@ -57,23 +57,6 @@ namespace {
         telemetry::Sample sample{};
     };
 
-    struct RaplExportConfig {
-        uint64_t pkg_max_range_uj = 0;
-        uint64_t dram_max_range_uj = 0;
-    };
-
-    struct RaplDeltaState {
-        int repetition = -1;
-        bool have_previous = false;
-        telemetry::EnergySnapshot previous{};
-    };
-
-    struct RaplDelta {
-        uint64_t pkg_delta_uj = 0;
-        uint64_t dram_delta_uj = 0;
-        bool valid = false;
-    };
-
     struct RaplSummary {
         uint64_t pkg_max_range_uj = 0;
         uint64_t dram_max_range_uj = 0;
@@ -248,62 +231,30 @@ namespace {
         return telemetry::detail::parse_uint64(text.c_str(), parsed) ? parsed : 0;
     }
 
-    RaplExportConfig read_rapl_export_config(const Options& opt) {
-        RaplExportConfig config{};
+    telemetry::experiment::RaplExportConfig read_rapl_export_config(const Options& opt) {
+        telemetry::experiment::RaplExportConfig config{};
         config.pkg_max_range_uj = read_rapl_max_range_uj(opt.rapl_pkg_path);
         config.dram_max_range_uj = read_rapl_max_range_uj(opt.rapl_dram_path);
         return config;
     }
 
-    RaplDelta next_rapl_delta(const RecordedSample& record,
-                              const RaplExportConfig& config,
-                              RaplDeltaState& state) {
-        RaplDelta delta{};
-        const auto& current = record.sample.energy;
-
-        if(state.repetition != record.repetition) {
-            state.repetition = record.repetition;
-            state.have_previous = false;
-            state.previous = {};
-        }
-
-        if(state.have_previous) {
-            const bool pkg_wrap_without_range =
-                current.pkg_uj < state.previous.pkg_uj && config.pkg_max_range_uj == 0;
-            const bool dram_wrap_without_range =
-                current.dram_uj < state.previous.dram_uj && config.dram_max_range_uj == 0;
-
-            if(!pkg_wrap_without_range && !dram_wrap_without_range) {
-                delta.pkg_delta_uj = telemetry::detail::rapl_delta_uj(
-                    state.previous.pkg_uj,
-                    current.pkg_uj,
-                    config.pkg_max_range_uj
-                );
-                delta.dram_delta_uj = telemetry::detail::rapl_delta_uj(
-                    state.previous.dram_uj,
-                    current.dram_uj,
-                    config.dram_max_range_uj
-                );
-                delta.valid = true;
-            }
-        }
-
-        state.previous = current;
-        state.have_previous = true;
-        return delta;
-    }
-
     RaplSummary compute_rapl_summary(const Options& opt,
                                      const std::vector<RecordedSample>& samples) {
-        const RaplExportConfig config = read_rapl_export_config(opt);
+        const telemetry::experiment::RaplExportConfig config = read_rapl_export_config(opt);
         RaplSummary summary{};
         summary.pkg_max_range_uj = config.pkg_max_range_uj;
         summary.dram_max_range_uj = config.dram_max_range_uj;
 
-        RaplDeltaState state{};
+        telemetry::experiment::RaplDeltaState state{};
         for(const auto& record : samples) {
             if(record.sample.tag != telemetry::SampleTag::ENERGY) continue;
-            const RaplDelta delta = next_rapl_delta(record, config, state);
+            const telemetry::experiment::RaplDelta delta =
+                telemetry::experiment::next_rapl_delta(
+                    record.repetition,
+                    record.sample.energy,
+                    config,
+                    state
+                );
             if(!delta.valid) continue;
 
             summary.pkg_total_delta_uj += delta.pkg_delta_uj;
@@ -517,8 +468,8 @@ namespace {
     void write_samples_csv(const fs::path& path,
                            const Options& opt,
                            const std::vector<RecordedSample>& samples) {
-        const RaplExportConfig rapl_config = read_rapl_export_config(opt);
-        RaplDeltaState rapl_state{};
+        const telemetry::experiment::RaplExportConfig rapl_config = read_rapl_export_config(opt);
+        telemetry::experiment::RaplDeltaState rapl_state{};
 
         std::ofstream out(path);
         out << "run_id,repetition,kernel,label,timestamp_ns,tag,instructions,cycles,"
@@ -559,7 +510,13 @@ namespace {
                 empty_field();
                 out << '\n';
             } else if(sample.tag == telemetry::SampleTag::ENERGY) {
-                const RaplDelta delta = next_rapl_delta(record, rapl_config, rapl_state);
+                const telemetry::experiment::RaplDelta delta =
+                    telemetry::experiment::next_rapl_delta(
+                        record.repetition,
+                        sample.energy,
+                        rapl_config,
+                        rapl_state
+                    );
                 write_prefix(record, sample.energy.timestamp_ns, tag_name(sample.tag));
                 empty_field();
                 empty_field();

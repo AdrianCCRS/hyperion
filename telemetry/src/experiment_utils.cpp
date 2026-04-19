@@ -124,4 +124,64 @@ namespace telemetry::experiment {
         return out;
     }
 
+    namespace {
+        bool rapl_wrap_without_valid_range(uint64_t previous_uj,
+                                           uint64_t current_uj,
+                                           uint64_t max_range_uj) noexcept {
+            return current_uj < previous_uj &&
+                   (max_range_uj == 0 || previous_uj > max_range_uj);
+        }
+
+        uint64_t rapl_delta_uj(uint64_t previous_uj,
+                               uint64_t current_uj,
+                               uint64_t max_range_uj) noexcept {
+            if(current_uj >= previous_uj) return current_uj - previous_uj;
+            return (max_range_uj - previous_uj) + current_uj;
+        }
+    }
+
+    RaplDelta next_rapl_delta(int repetition,
+                              const EnergySnapshot& current,
+                              const RaplExportConfig& config,
+                              RaplDeltaState& state) noexcept {
+        RaplDelta delta{};
+
+        if(state.repetition != repetition) {
+            state.repetition = repetition;
+            state.have_previous = false;
+            state.previous = {};
+        }
+
+        if(state.have_previous) {
+            const bool pkg_invalid = rapl_wrap_without_valid_range(
+                state.previous.pkg_uj,
+                current.pkg_uj,
+                config.pkg_max_range_uj
+            );
+            const bool dram_invalid = rapl_wrap_without_valid_range(
+                state.previous.dram_uj,
+                current.dram_uj,
+                config.dram_max_range_uj
+            );
+
+            if(!pkg_invalid && !dram_invalid) {
+                delta.pkg_delta_uj = rapl_delta_uj(
+                    state.previous.pkg_uj,
+                    current.pkg_uj,
+                    config.pkg_max_range_uj
+                );
+                delta.dram_delta_uj = rapl_delta_uj(
+                    state.previous.dram_uj,
+                    current.dram_uj,
+                    config.dram_max_range_uj
+                );
+                delta.valid = true;
+            }
+        }
+
+        state.previous = current;
+        state.have_previous = true;
+        return delta;
+    }
+
 }
