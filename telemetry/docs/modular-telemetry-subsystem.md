@@ -74,6 +74,12 @@ The launcher runs two child executions with identical parameters:
 - baseline: workload child without active collector;
 - telemetry: workload child with collector, consumer and export enabled.
 
+Inside each child, the workload allocates its data buffers and creates a fixed
+thread pool before sending the ready signal to the launcher. Warmup also runs
+before that signal. The timed region is therefore intended to cover the kernel
+loops on pre-existing memory and workers, not benchmark setup, allocation, or
+thread creation.
+
 The output directory is `--output-dir/--run-id` and contains:
 
 - `samples.csv`: CPU/RAPL/GPU-shaped rows, although GPU is intentionally not
