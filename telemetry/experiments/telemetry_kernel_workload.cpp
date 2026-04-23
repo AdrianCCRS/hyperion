@@ -16,9 +16,20 @@
 #include <utility>
 #include <vector>
 
+/**
+ * @file telemetry_kernel_workload.cpp
+ * @brief CPU multithreaded kernels executed under launcher control.
+ *
+ * This binary should stay focused on workload execution. The launcher handles
+ * cgroups, collector lifecycle, consumer lifecycle, and persistence. The child
+ * prepares memory and worker threads before the measured window begins.
+ */
 namespace {
+    // Prevent the compiler from removing whole kernels whose results are only
+    // used to keep the workload observable.
     volatile double sink = 0.0;
 
+    /** @brief Workload CLI/configuration parsed from launcher arguments. */
     struct Options {
         std::string kernel = "stream_triad";
         size_t size = 1'000'000;
@@ -85,8 +96,15 @@ namespace {
         return opt;
     }
 
+    /**
+     * @brief Minimal fixed-size worker pool for CPU kernels.
+     *
+     * Workers are created before the measured region. Each run() call publishes
+     * one Task plus an element count, and workers split the range by worker id.
+     */
     class ThreadPool {
     public:
+        /** @brief Per-kernel range task executed by each worker. */
         class Task {
         public:
             virtual ~Task() = default;
@@ -146,6 +164,8 @@ namespace {
         void spawn_worker(size_t worker) {
             workers_.emplace_back(&ThreadPool::worker_loop, this, worker);
             if(!worker_cpus_.empty()) {
+                // Worker pinning is optional and controlled by the launcher.
+                // It is applied after std::thread creation through native_handle.
                 const int cpu = worker_cpus_[worker];
                 cpu_set_t set;
                 CPU_ZERO(&set);
@@ -188,6 +208,8 @@ namespace {
                 }
 
                 const size_t workers = workers_.size();
+                // Static contiguous partitioning keeps each task simple and
+                // deterministic for benchmark comparisons.
                 const size_t begin = worker * count / workers;
                 const size_t end = (worker + 1) * count / workers;
                 if(begin < end) {
@@ -205,14 +227,19 @@ namespace {
         }
     };
 
+    /** @brief Common interface for all CPU kernels used by the workload. */
     class Kernel {
     public:
         virtual ~Kernel() = default;
+        /** Reset mutable buffers after warmup and before the measured window. */
         virtual void prepare_for_measurement() = 0;
+        /** Execute the measured kernel body for the requested iterations. */
         virtual void run(int iterations) = 0;
+        /** Return one value so the compiler cannot discard the computation. */
         virtual double result() const noexcept = 0;
     };
 
+    /** @brief STREAM triad style memory-bandwidth kernel. */
     class StreamTriadKernel final : public Kernel {
     public:
         StreamTriadKernel(size_t n, int threads, const std::vector<int>& worker_cpus)
@@ -251,6 +278,7 @@ namespace {
         std::vector<double> c_;
     };
 
+    /** @brief Parallel reduction kernel dominated by linear memory reads. */
     class ReductionKernel final : public Kernel {
     public:
         ReductionKernel(size_t n, int threads, const std::vector<int>& worker_cpus)
@@ -295,6 +323,7 @@ namespace {
         std::vector<double> partial_;
     };
 
+    /** @brief 2D stencil kernel with local-neighbor cache-sensitive access. */
     class Stencil2DKernel final : public Kernel {
     public:
         Stencil2DKernel(size_t n, int threads, const std::vector<int>& worker_cpus)
@@ -348,6 +377,7 @@ namespace {
         std::vector<double> next_;
     };
 
+    /** @brief Naive matrix multiplication kernel used as compute-heavy baseline. */
     class GemmNaiveKernel final : public Kernel {
     public:
         GemmNaiveKernel(size_t n, int threads, const std::vector<int>& worker_cpus)
@@ -413,12 +443,16 @@ namespace {
 
     void signal_ready_and_wait(const Options& opt) {
         if(opt.ready_fd >= 0) {
+            // Signal after allocation, worker creation, and warmup. The parent
+            // starts telemetry only after receiving this byte.
             const char ready = 'R';
             if(::write(opt.ready_fd, &ready, 1) != 1) {
                 throw std::runtime_error("failed to signal readiness");
             }
         }
         if(opt.go_fd >= 0) {
+            // The launcher sends go after collector/consumer setup. This keeps
+            // setup overhead outside elapsed_ns.
             char go = 0;
             if(::read(opt.go_fd, &go, 1) != 1) {
                 throw std::runtime_error("failed to wait for launch signal");
@@ -435,6 +469,8 @@ int main(int argc, char** argv) {
         kernel->prepare_for_measurement();
         signal_ready_and_wait(opt);
 
+        // Only the kernel loop is timed. Setup, warmup, and synchronization
+        // with the launcher are intentionally outside this interval.
         const uint64_t start = telemetry::experiment::now_ns();
         kernel->run(opt.iterations);
         const uint64_t elapsed = telemetry::experiment::now_ns() - start;

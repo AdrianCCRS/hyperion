@@ -6,6 +6,14 @@
 #include <numeric>
 #include <stdexcept>
 
+/**
+ * @file experiment_utils.cpp
+ * @brief Helper functions shared by manual experiment binaries.
+ *
+ * These utilities are outside the collector hot path. They cover argument
+ * parsing helpers, descriptive statistics, JSON escaping, and RAPL export
+ * delta tracking.
+ */
 namespace telemetry::experiment {
 
     uint64_t now_ns() noexcept {
@@ -15,6 +23,8 @@ namespace telemetry::experiment {
     }
 
     namespace {
+        // Parse a single non-negative CPU id. Ranges are handled by
+        // parse_cpu_list so the error messages can distinguish token failures.
         int parse_cpu_token(const std::string& token) {
             if(token.empty()) throw std::invalid_argument("empty CPU token");
             size_t pos = 0;
@@ -54,6 +64,8 @@ namespace telemetry::experiment {
             start = comma + 1;
         }
 
+        // Duplicates usually indicate an experiment setup error. Preserve the
+        // caller's original order, but validate duplicates with a sorted copy.
         std::vector<int> sorted = cpus;
         std::sort(sorted.begin(), sorted.end());
         if(std::adjacent_find(sorted.begin(), sorted.end()) != sorted.end()) {
@@ -125,6 +137,7 @@ namespace telemetry::experiment {
     }
 
     namespace {
+        // A wrap without a valid max range cannot produce a trustworthy delta.
         bool rapl_wrap_without_valid_range(uint64_t previous_uj,
                                            uint64_t current_uj,
                                            uint64_t max_range_uj) noexcept {
@@ -147,6 +160,8 @@ namespace telemetry::experiment {
         RaplDelta delta{};
 
         if(state.repetition != repetition) {
+            // Repetition boundaries reset the delta chain. This avoids joining
+            // independent telemetry windows in the exported energy totals.
             state.repetition = repetition;
             state.have_previous = false;
             state.previous = {};

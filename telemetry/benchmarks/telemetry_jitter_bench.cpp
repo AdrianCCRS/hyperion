@@ -7,6 +7,14 @@
 #include <string>
 #include <vector>
 
+/**
+ * @file telemetry_jitter_bench.cpp
+ * @brief Manual synthetic benchmark for producer sampling jitter.
+ *
+ * This binary drains CPU sample timestamps and reports the interval mean,
+ * standard deviation, coefficient of variation, and push retries. It is not a
+ * unit test because scheduler behavior is hardware/node dependent.
+ */
 namespace {
     uint64_t now_ns() {
         struct timespec ts;
@@ -53,6 +61,8 @@ int main(int argc, char** argv) {
     std::vector<uint64_t> timestamps;
     timestamps.reserve(target_samples);
 
+    // Deadline prevents a bad backend or missing samples from turning this
+    // manual benchmark into an unbounded wait.
     const uint64_t deadline = now_ns() + (target_samples + 1000ULL) *
                               static_cast<uint64_t>(cfg.interval_ns);
     while(timestamps.size() < target_samples && now_ns() < deadline) {

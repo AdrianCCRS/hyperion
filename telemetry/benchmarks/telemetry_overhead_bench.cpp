@@ -9,6 +9,14 @@
 #include <thread>
 #include <vector>
 
+/**
+ * @file telemetry_overhead_bench.cpp
+ * @brief Manual synthetic benchmark for collector overhead exploration.
+ *
+ * This is not a CTest unit test. It returns zero even when the measured
+ * overhead is high because the result depends on hardware, permissions, and
+ * node load.
+ */
 namespace {
     volatile double sink = 0.0;
 
@@ -50,6 +58,7 @@ namespace {
                     100.0 * sd / m);
     }
 
+    /** Drain the ring so producer backpressure does not dominate the benchmark. */
     void drain_loop(telemetry::Collector::Ring& ring, std::atomic<bool>& stop) {
         while(!stop.load(std::memory_order_relaxed)) {
             while(ring.try_pop()) {}
@@ -91,6 +100,8 @@ int main(int argc, char** argv) {
     baseline.reserve(static_cast<size_t>(reps));
     instrumented.reserve(static_cast<size_t>(reps));
 
+    // Baseline first, then instrumented, mirroring the launcher philosophy but
+    // with a synthetic in-process workload.
     for(int r = 0; r < reps; ++r) {
         const uint64_t t0 = now_ns();
         workload(iterations);

@@ -10,6 +10,13 @@
 #include <string>
 #include <utility>
 
+/**
+ * @file rapl_reader.cpp
+ * @brief Low-overhead sysfs reader for Intel RAPL energy counters.
+ *
+ * The producer stores raw cumulative energy snapshots. Delta computation and
+ * overflow handling are intentionally left to the export/consumer side.
+ */
 namespace telemetry {
     namespace detail {
         bool parse_uint64(const char* text, uint64_t& out) noexcept {
@@ -58,6 +65,8 @@ namespace telemetry {
         if(is_open()) return;
         max_range_uj_ = 0;
 
+        // Build sysfs paths once during initialization. The sampling loop only
+        // rewinds and reads already-open descriptors.
         auto make_path = [](const std::string& base) {
             return base + "/energy_uj";
         }; //Lambda to construct the full path to the energy file (should be used once at initialization)
@@ -72,7 +81,8 @@ namespace telemetry {
                 throw errno_error("Failed to open RAPL DRAM energy file", dram_energy_path);
             }
         }
-        //Read max range for wrap detection
+        // Read max range for diagnostics/wrap handling. This is not required
+        // for raw snapshots and failures are tolerated.
         char buf[32]; int fd;
         fd = ::open((pkg_path_ + "/max_energy_range_uj").c_str(), O_RDONLY);
         if(fd >= 0){

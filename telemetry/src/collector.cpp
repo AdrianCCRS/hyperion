@@ -6,6 +6,14 @@
 #include <string>
 #include <utility>
 
+/**
+ * @file collector.cpp
+ * @brief Producer thread implementation for the telemetry subsystem.
+ *
+ * This file is the main hot-path implementation. Keep it conservative: backend
+ * setup may allocate or throw in start(), but run() should stay limited to
+ * timestamping, reader read() calls, ring pushes, and absolute sleeping.
+ */
 namespace telemetry
 {
     namespace {
@@ -36,6 +44,8 @@ namespace telemetry
         }
 
         try {
+            // Open only the enabled backends. This keeps local tests usable
+            // without PMU permissions and avoids unnecessary work per sample.
             if(cfg_.enable_perf) {
                 if(!cfg_.perf_cgroup_path.empty()) {
                     perf_cgroup_reader_.open();
@@ -52,6 +62,7 @@ namespace telemetry
             throw;
         }
 
+        // Reset experiment-local state only after all enabled readers are open.
         push_retries_.store(0, std::memory_order_relaxed);
         stop_flag_.store(false, std::memory_order_relaxed);
 
@@ -62,9 +73,8 @@ namespace telemetry
             throw pthread_error("pthread_attr_init failed", rc);
         }
 
-        // Pin producer to a specific core if requested.
-        // This limits TLB disruption and keeps cache state stable —
-        // see LKML Chapter 35 (Linux Programming Interface, ch.29/35)
+        // Optional producer pinning is applied before thread creation so the
+        // sampling loop starts on the requested CPU instead of migrating later.
         if (cfg_.producer_cpu >= 0) {
             cpu_set_t cpuset;
             CPU_ZERO(&cpuset);
@@ -96,18 +106,23 @@ namespace telemetry
     void Collector::run(){
         running_.store(true);
 
+        // Absolute scheduling reduces accumulated drift compared with relative
+        // nanosleep. Jitter is still measured and exported by the launcher.
         struct timespec next_wake;
         clock_gettime(CLOCK_MONOTONIC, &next_wake);
 
         while(!stop_flag_.load(std::memory_order_relaxed)){
             Sample s;
             auto push_sample = [this](const Sample& sample) {
+                // Do not log or allocate here. A retry means the consumer is
+                // behind or the ring is full; the counter is exported later.
                 while(!stop_flag_.load(std::memory_order_relaxed) && !ring_.try_push(sample)) {
                     push_retries_.fetch_add(1, std::memory_order_relaxed);
                 }
             };
 
-            // --- CPU Sample ---
+            // CPU counters are mutually exclusive between cgroup and simple
+            // PID modes. Cgroup mode is used by the multithreaded launcher.
             if(perf_cgroup_reader_.is_open()){
                 s.tag = SampleTag::CPU;
                 if(perf_cgroup_reader_.read(s.cpu)){
@@ -120,7 +135,8 @@ namespace telemetry
                 }
             }
 
-            // --- Energy Sample ---
+            // RAPL rows are raw snapshots. Deltas and overflow handling are
+            // computed in the export/consumer path, not here.
             if(rapl_reader_.is_open()){
                 s.tag = SampleTag::ENERGY;
                 if(rapl_reader_.read(s.energy)){
@@ -128,7 +144,8 @@ namespace telemetry
                 }
             }
 
-            // --- GPU Sample ---
+            // NVML is optional and device-level. It is compiled only when the
+            // library is built with TELEMETRY_WITH_GPU.
             #ifdef TELEMETRY_WITH_GPU
                 if (nvml_reader_.is_open())
                 {
@@ -141,7 +158,7 @@ namespace telemetry
             
             ring_.flush_producer();
 
-            // --- Sleep until next interval (absolute timer) ---
+            // Sleep until the next absolute sampling instant.
             next_wake.tv_sec += cfg_.interval_ns / 1'000'000'000L;
             next_wake.tv_nsec += cfg_.interval_ns % 1'000'000'000L;
             if (next_wake.tv_nsec >= 1'000'000'000L) {

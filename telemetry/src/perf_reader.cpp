@@ -8,6 +8,14 @@
 #include <ctime>
 #include <string>
 
+/**
+ * @file perf_reader.cpp
+ * @brief Simple perf_event reader for single-process measurements.
+ *
+ * This implementation intentionally keeps inherit disabled. It is useful for
+ * local smoke tests and simple process scopes; multithreaded experiments use
+ * PerfCgroupReader so attribution is based on a cgroup boundary.
+ */
 namespace telemetry {
     namespace detail {
         uint64_t scale_perf_count(uint64_t value,
@@ -34,7 +42,8 @@ namespace telemetry {
         return syscall(SYS_perf_event_open, attr, pid, cpu, group_fd, flags);
     }
 
-    //Helper: build attr for a HW counter 
+    // Build one user-space hardware counter. Only the group leader carries the
+    // read_format because grouped reads happen through the leader fd.
     static perf_event_attr make_hw_attr(uint64_t config, bool is_leader) {
         perf_event_attr attr{};
         attr.type = PERF_TYPE_HARDWARE;
@@ -72,6 +81,8 @@ namespace telemetry {
     void PerfReader::open(){
         if(is_open()) return;
 
+        // Any partial open must be undone so callers can retry or destroy the
+        // reader without leaking file descriptors.
         auto cleanup_on_error = [this]() {
             for(int fd : member_fds_){
                 if(fd >= 0) ::close(fd);
@@ -83,12 +94,12 @@ namespace telemetry {
             }
         };
 
-        //Event 0 - leader: INSTRUCTIONS
+        // Event order is part of the read() contract:
+        // instructions, cycles, cache references, cache misses.
         auto a0 = make_hw_attr(PERF_COUNT_HW_INSTRUCTIONS, true);
         group_fd_ = (int) perf_event_open(&a0, pid_, cpu_, -1, 0);
         if(group_fd_ < 0) throw errno_error("perf_event_open instructions failed");
 
-        //Event 1 - member: CPU-CYCLES
         auto a1 = make_hw_attr(PERF_COUNT_HW_CPU_CYCLES, false);
         int fd1 = (int) perf_event_open(&a1, pid_, cpu_, group_fd_, 0);
         if(fd1 < 0){
@@ -98,7 +109,6 @@ namespace telemetry {
         }
         member_fds_.push_back(fd1);
 
-        //Event 2 - member: CACHE-REFERENCES
         auto a2 = make_hw_attr(PERF_COUNT_HW_CACHE_REFERENCES, false);
         int fd2 = (int) perf_event_open(&a2, pid_, cpu_, group_fd_, 0);
         if(fd2 < 0){
@@ -108,7 +118,6 @@ namespace telemetry {
         }
         member_fds_.push_back(fd2);
 
-        //Event 3 - member: CACHE-MISSES
         auto a3 = make_hw_attr(PERF_COUNT_HW_CACHE_MISSES, false);
         int fd3 = (int) perf_event_open(&a3, pid_, cpu_, group_fd_, 0);
         if(fd3 < 0){
@@ -118,7 +127,7 @@ namespace telemetry {
         }
         member_fds_.push_back(fd3);
 
-        //Arm counting (RESET + ENABLE on the leader cascades to all members)
+        // RESET + ENABLE on the leader cascades to the whole group.
         if(ioctl(group_fd_, PERF_EVENT_IOC_RESET, PERF_IOC_FLAG_GROUP) < 0){
             std::runtime_error error = errno_error("PERF_EVENT_IOC_RESET failed");
             cleanup_on_error();
@@ -138,7 +147,8 @@ namespace telemetry {
         clock_gettime(CLOCK_MONOTONIC, &ts);
 
         ReadFormat rf{};
-        //Validate we read the expected amount of data (at least the header with nr, time_enabled, time_running)
+        // Validate at least the header and the expected fixed event count. A
+        // malformed read is ignored instead of throwing from the producer.
         ssize_t n = ::read(group_fd_, &rf, sizeof(rf));
         if(n < (ssize_t) sizeof(uint64_t) * 3) return false;
         if(rf.nr < kExpectedCounters || rf.nr > kMaxReadCounters) return false;

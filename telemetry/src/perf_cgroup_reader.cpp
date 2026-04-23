@@ -12,6 +12,13 @@
 #include <unistd.h>
 #include <utility>
 
+/**
+ * @file perf_cgroup_reader.cpp
+ * @brief Cgroup-scoped perf_event reader used by multithreaded experiments.
+ *
+ * perf cgroup mode is opened per CPU. The configured cgroup defines which tasks
+ * are attributed; the configured CPU list defines where events are observed.
+ */
 namespace telemetry {
     namespace {
         std::runtime_error errno_error(const char* context, const std::string& detail = {}) {
@@ -42,6 +49,8 @@ namespace telemetry {
             attr.exclude_kernel = 1;
             attr.exclude_hv = 1;
             attr.inherit = 0;
+            // Grouped reads are performed on the leader. Members do not need
+            // read_format because their values are returned through the group.
             if(is_leader) {
                 attr.read_format = PERF_FORMAT_GROUP |
                                    PERF_FORMAT_TOTAL_TIME_ENABLED |
@@ -99,6 +108,9 @@ namespace telemetry {
                 };
 
                 try {
+                    // Every CPU gets an independent group. The final sample is
+                    // the sum across groups, which matches cgroup-per-CPU perf
+                    // semantics for migrating multithreaded workloads.
                     auto a0 = make_hw_attr(PERF_COUNT_HW_INSTRUCTIONS, true);
                     events.group_fd = static_cast<int>(
                         perf_event_open(&a0, cgroup_fd_, cpu, -1, PERF_FLAG_PID_CGROUP)
@@ -119,6 +131,8 @@ namespace telemetry {
                     };
 
                     events.member_fds.reserve(kExpectedCounters - 1);
+                    // Keep event order aligned with read(): instructions,
+                    // cycles, cache references, cache misses.
                     open_member(PERF_COUNT_HW_CPU_CYCLES, "perf_event_open cgroup cycles failed");
                     open_member(PERF_COUNT_HW_CACHE_REFERENCES, "perf_event_open cgroup cache references failed");
                     open_member(PERF_COUNT_HW_CACHE_MISSES, "perf_event_open cgroup cache misses failed");
@@ -172,6 +186,8 @@ namespace telemetry {
 
         for(const auto& events : cpu_events_) {
             ReadFormat rf{};
+            // A failed read from any CPU invalidates the aggregate sample. The
+            // producer can simply skip this tick and continue.
             const ssize_t n = ::read(events.group_fd, &rf, sizeof(rf));
             if(n < static_cast<ssize_t>(sizeof(uint64_t) * 3)) return false;
             if(rf.nr < kExpectedCounters || rf.nr > kMaxReadCounters) return false;

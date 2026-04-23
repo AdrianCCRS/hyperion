@@ -2,6 +2,14 @@
 #include <ctime>
 #include <stdexcept>
 
+/**
+ * @file nvml_reader.cpp
+ * @brief Optional NVML reader implementation.
+ *
+ * CPU-only builds keep the same public API but fail early if GPU telemetry is
+ * requested. This lets tests link the telemetry library without NVIDIA headers
+ * or libnvidia-ml.
+ */
 namespace telemetry {
 
     NvmlReader::NvmlReader(unsigned int device_index)
@@ -15,6 +23,8 @@ namespace telemetry {
     void NvmlReader::open(){
         if(open_) return;
 
+        // NVML initialization is intentionally outside the sampling loop. The
+        // producer only performs device queries after the reader is open.
         nvmlReturn_t result = nvmlInit_v2();
         if(result != NVML_SUCCESS){
             throw std::runtime_error(nvmlErrorString(result));
@@ -42,6 +52,8 @@ namespace telemetry {
         if(!open_) return false;
 
         GpuSample sample{};
+        // Timestamp first so CPU, RAPL, and GPU rows share the same monotonic
+        // time base even though the underlying APIs differ.
         struct timespec ts;
         clock_gettime(CLOCK_MONOTONIC, &ts);
         sample.timestamp_ns = ts.tv_sec * 1'000'000'000ULL + ts.tv_nsec;

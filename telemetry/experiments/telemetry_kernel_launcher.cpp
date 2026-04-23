@@ -21,9 +21,24 @@
 #include <unistd.h>
 #include <vector>
 
+/**
+ * @file telemetry_kernel_launcher.cpp
+ * @brief Manual experiment runner for CPU multithreaded telemetry captures.
+ *
+ * The launcher owns orchestration, not kernel work. For each repetition it runs
+ * one baseline child and then one telemetry child. The telemetry child is moved
+ * into the configured cgroup, the collector and consumer are started, and all
+ * samples are exported after the measured window finishes.
+ */
 namespace {
     namespace fs = std::filesystem;
 
+    /**
+     * @brief Complete launcher configuration parsed from CLI arguments.
+     *
+     * Names deliberately separate measurement scope (perf_cpus) from scheduling
+     * policy (pin_workload_cpus, pin_workers, collector_cpu, consumer_cpu).
+     */
     struct Options {
         std::string kernel = "stream_triad";
         size_t size = 1'000'000;
@@ -46,17 +61,20 @@ namespace {
         fs::path workload_bin;
     };
 
+    /** @brief Result captured from one child workload process. */
     struct ChildResult {
         uint64_t elapsed_ns = 0;
         int exit_code = -1;
         std::string output;
     };
 
+    /** @brief Sample plus repetition id, used to avoid cross-run deltas. */
     struct RecordedSample {
         int repetition = 0;
         telemetry::Sample sample{};
     };
 
+    /** @brief Aggregated RAPL export diagnostics for metadata/summary files. */
     struct RaplSummary {
         uint64_t pkg_max_range_uj = 0;
         uint64_t dram_max_range_uj = 0;
@@ -87,6 +105,9 @@ namespace {
         opt.workload_bin = default_workload_path(argv[0]);
         opt.run_id = "run_" + std::to_string(telemetry::experiment::now_ns());
 
+        // Keep parsing explicit instead of adding a dependency on an argument
+        // library. This binary is part of the experimental harness and should
+        // remain easy to build on restricted HPC nodes.
         for(int i = 1; i < argc; ++i) {
             const std::string arg = argv[i];
             auto need_value = [&]() -> const char* {
@@ -198,6 +219,8 @@ namespace {
     void move_pid_to_cgroup(pid_t pid, const std::string& cgroup_path) {
         if(cgroup_path.empty()) return;
         const fs::path procs = fs::path(cgroup_path) / "cgroup.procs";
+        // The launcher only joins a pre-created/delegated cgroup. It does not
+        // create hierarchy state or require global cgroup privileges.
         std::ofstream out(procs);
         if(!out.is_open()) {
             throw std::runtime_error("failed to open cgroup.procs: " + procs.string());
@@ -248,6 +271,8 @@ namespace {
         telemetry::experiment::RaplDeltaState state{};
         for(const auto& record : samples) {
             if(record.sample.tag != telemetry::SampleTag::ENERGY) continue;
+            // Reuse the same export delta helper used by CSV generation so
+            // metadata totals follow exactly the same wrap/validity rules.
             const telemetry::experiment::RaplDelta delta =
                 telemetry::experiment::next_rapl_delta(
                     record.repetition,
@@ -276,6 +301,8 @@ namespace {
             "--go-fd", std::to_string(go_fd)
         };
         if(opt.pin_workers && !opt.pin_workload_cpus.empty()) {
+            // Worker pinning is delegated to the child so std::thread native
+            // handles are available when affinity is applied.
             args.push_back("--worker-cpus");
             args.push_back(telemetry::experiment::format_cpu_list(opt.pin_workload_cpus));
         }
@@ -293,6 +320,9 @@ namespace {
                 samples.push_back(RecordedSample{repetition, *sample});
             }
             ring.flush_consumer();
+
+            // Batch drain and sleep briefly. Disk export is deferred until the
+            // workload is finished so the measured window does not write files.
             struct timespec t{0, 100'000};
             nanosleep(&t, nullptr);
         }
@@ -308,6 +338,9 @@ namespace {
                           uint64_t reserve_samples,
                           uint64_t& push_retries,
                           int repetition) {
+        // The ready/go pipes delimit the measured region. The child reports
+        // ready after setup and warmup; the parent sends go after optional
+        // cgroup placement plus collector/consumer startup.
         int ready_pipe[2];
         int go_pipe[2];
         int stdout_pipe[2];
@@ -326,6 +359,8 @@ namespace {
                 if(::dup2(stdout_pipe[1], STDOUT_FILENO) < 0) _exit(126);
                 set_affinity(0, opt.pin_workload_cpus);
 
+                // Replace the child with the workload binary. Communication
+                // after execv is only through pipes and stdout text.
                 std::vector<std::string> args = build_workload_args(opt, ready_pipe[1], go_pipe[0]);
                 std::vector<char*> argv;
                 argv.reserve(args.size() + 1);
@@ -364,6 +399,8 @@ namespace {
             }
 
             if(collect) {
+                // Reserve before the consumer starts so vector growth does not
+                // happen while the telemetry child is executing.
                 samples.reserve(samples.size() + static_cast<size_t>(reserve_samples));
                 consumer = std::thread(drain_samples,
                                        std::ref(ring),
@@ -371,6 +408,7 @@ namespace {
                                        std::ref(samples),
                                        opt.consumer_cpu,
                                        repetition);
+                // Start collection before releasing the measured workload.
                 collector.start();
             }
 
@@ -393,6 +431,8 @@ namespace {
 
         std::string output;
         char buffer[4096];
+        // Capture stdout completely. On success it contains elapsed_ns; on
+        // failure it helps diagnose the workload process.
         while(true) {
             const ssize_t n = ::read(stdout_pipe[0], buffer, sizeof(buffer));
             if(n > 0) output.append(buffer, static_cast<size_t>(n));
@@ -428,6 +468,7 @@ namespace {
             const auto& sample = record.sample;
             if(sample.tag != telemetry::SampleTag::CPU) continue;
             if(record.repetition != current_repetition) {
+                // Do not compute an interval across independent telemetry runs.
                 current_repetition = record.repetition;
                 previous = 0;
             }
@@ -471,6 +512,8 @@ namespace {
         const telemetry::experiment::RaplExportConfig rapl_config = read_rapl_export_config(opt);
         telemetry::experiment::RaplDeltaState rapl_state{};
 
+        // CSV is deliberately rectangular: every row has the same columns and
+        // unused fields remain empty. This makes downstream ML ingestion simple.
         std::ofstream out(path);
         out << "run_id,repetition,kernel,label,timestamp_ns,tag,instructions,cycles,"
                "cache_references,cache_misses,time_enabled_ns,time_running_ns,"
@@ -517,6 +560,8 @@ namespace {
                         rapl_config,
                         rapl_state
                     );
+                // ENERGY rows keep raw cumulative counters and export derived
+                // deltas with an explicit validity bit for wrap/first samples.
                 write_prefix(record, sample.energy.timestamp_ns, tag_name(sample.tag));
                 empty_field();
                 empty_field();
@@ -572,6 +617,9 @@ namespace {
         const auto jitter = sampling_jitter(samples);
         const double ratio = perf_running_ratio_min(samples);
         const RaplSummary rapl_summary = compute_rapl_summary(opt, samples);
+
+        // Metadata contains both per-repetition raw values and aggregate
+        // statistics so a dataset pipeline can choose its own analysis level.
         std::vector<double> baseline_values;
         std::vector<double> telemetry_values;
         baseline_values.reserve(baseline_elapsed_ns.size());
@@ -681,6 +729,9 @@ int main(int argc, char** argv) {
     try {
         const Options opt = parse_args(argc, argv);
 
+        // Store timing arrays separately from samples because baseline runs do
+        // not collect telemetry rows. The repetition index links telemetry rows
+        // to the corresponding telemetry elapsed value.
         std::vector<uint64_t> baseline_elapsed_ns;
         std::vector<uint64_t> telemetry_elapsed_ns;
         std::vector<double> overheads;
@@ -695,6 +746,9 @@ int main(int argc, char** argv) {
         for(int repetition = 1; repetition <= opt.repetitions; ++repetition) {
             std::vector<RecordedSample> discarded;
             uint64_t ignored_push_retries = 0;
+            // Baseline and telemetry run sequentially, never concurrently.
+            // This avoids mutual interference and makes overhead interpretation
+            // simpler, at the cost of requiring repetitions to handle noise.
             const ChildResult baseline = run_child(opt,
                                                    false,
                                                    discarded,
@@ -712,6 +766,8 @@ int main(int argc, char** argv) {
             const uint64_t expected_samples =
                 std::max<uint64_t>(
                     1024,
+                    // A conservative reserve: CPU + RAPL + optional GPU rows
+                    // can produce multiple samples per sampling tick.
                     baseline.elapsed_ns / static_cast<uint64_t>(opt.interval_ns) * 3 + 1024
                 );
             uint64_t push_retries = 0;
