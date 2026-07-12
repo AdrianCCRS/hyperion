@@ -1,0 +1,38 @@
+kernels:
+  - id: stream_official
+    suite: STREAM
+    role: calibration
+    exec_path: bin/stream_c
+    reports_bandwidth_stdout: true #Si la suite reporta el ancho de banda por stdout
+    binary_checksum: "sha256:..." #Se completa al compilar el binario
+
+  - id: ert_probe
+    suite: ERT
+    role: calibration
+    exec_path: bin/ert_probe
+    reports_flops_stdout: true #Si la suite reporta los flops por stdout
+    binary_checksum: "sha256:..." #Se completa al compilar el binario
+
+  - id: npb_ep
+    suite: NPB
+    role: dataset
+    exec_path: bin/ep.S.x
+    phase_label_hint: compute_bound #Según literatura, NO es etiqueta de entrenamiento, sino de inferencia
+    size_variant: S
+    expected_runtime_seconds: 4 #Revisar esto, no estoy seguro si es correcto, pero es un valor de referencia para la ejecución de la suite
+    warmup_seconds: 1.0 #Revisar también, es un valor de referencia para la ejecución de la suite. ESPECIAL ATENCIÓN
+    success_check: {type: exit_code}
+    binary_checksum: "sha256:..." #Se completa al compilar el binario
+  
+  - id: npb_mg
+    suite: NPB-OMP
+    role: dataset
+    exec_path: bin/mg.S.x
+    phase_label_hint: memory_bound
+    size_variant: S
+    expected_runtime_seconds: 6
+    warmup_seconds: 1.0
+    success_check: {type: stdout_regex, pattern: "VERIFICATION SUCCESSFUL"}
+    binary_checksum: "sha256:..."
+
+#Así con todos los kernels que se quieran agregar al catálogo. Se pueden agregar kernels de cualquier suite, siempre y cuando se tenga el binario compilado y se pueda ejecutar en el entorno de ejecución.

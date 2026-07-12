@@ -1,0 +1,62 @@
+#Example of campaign configuration schema
+
+#Experiment metadata
+campaign_id: pilot_2026_07_local_v1
+environment_tier: local
+seed: 123456
+
+#Output configuration
+output_dir: runs/pilot_2026_07_local_v1
+overwrite: false
+
+#Kernel catalog
+catalog_path: schemas/kernels/catalog.yaml
+
+#Calibration kernels to be used in the campaign
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+#Dataset kernels to be used in the campaign
+kernels:
+  - kernel_ref: npb_ep
+  - kernel_ref: npb_mg
+
+frequency_levels:
+- {id: F0, mode: fixed, fraction: 1.00} #fmax supported. Top limit.
+- {id: F1, mode: fixed, fraction: 0.75} # 75% of range [fmin, fmax]. Intermediate-High point
+- {id: F2, mode: fixed, fraction: 0.50} # 50% of range [fmin, fmax]. Intermediate point
+- {id: F3, mode: fixed, fraction: 0.25} # 25% of range [fmin, fmax]. Intermediate-Low point
+- {id: F4, mode: fixed, fraction: 0.00} #fmin supported. Bottom limit.
+- {id: REF, mode: native_governor} #Reference frequency level. Not used for training.
+
+#Repetitions and windows configuration
+repetitions_per_combination: 10
+target_windows_per_repetition: 50 #Min of rows collected by telemetry system per repetition. If the telemetry system collects more rows, it will be used all of them, but at least this number of rows will be collected.
+interval_ns: 1000000000 #1 second. Interval between telemetry samples. This is the minimum interval, but the telemetry system may collect samples at a higher frequency if it can.
+
+#PMU's perf counters configuration
+running_ratio_min: 0.90 #Minimum ratio of PMU's perf counters.
+
+#CPU configuration
+cores:
+  delegated_cpus: [0, 1, 2, 3] #Cores that will be used for the campaign. The rest of the cores will be used by the OS and other processes.
+  collector_cpu: 0
+  consumer_cpu: 1
+  numa_node_pin: 0 #NUMA node where the workload, collector, and consumer are pinned to dedicated CPUs.
+
+#Measurement tools configuration
+cgroup_path: /sys/fs/cgroup
+perf_enabled: true #Enable perf counters in the cgroup.
+rapl: 
+  enabled: true #Enable RAPL in the cgroup.
+  domains: [package-0, dram] #RAPL domains to be enabled in the cgroup.
+
+#GPU configuration
+gpu:
+  enabled: false #Enable GPU telemetry collection. Not developed yet.
+
+timeouts_seconds:
+  ready: 15 #Max time to wait for the run to be ready. It says "Everything is ready to start the measurement". If the workload is not ready in this time, the campaign will be aborted.
+  run: 300 #Max time to wait for the run to finish. If the workload does not finish in this time, the campaign will be aborted.
+  shutdown: 15 #Max time to wait for the run to shutdown. Free resources, stop telemetry collection, etc.
