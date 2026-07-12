@@ -20,13 +20,15 @@ class KernelEntry:
     phase_label_hint: str | None #Solo si role == "dataset"
     size_variant: str | None #Opcional
     expected_runtime_seconds: int | None #Opcional
-    warmpup_seconds: int | None #Opcional
+    warmup_seconds: float | None #Opcional
     success_check: dict | None #Opcional
     reports_bandwidth_stdout: bool = False
     reports_flops_stdout: bool = False
+    exec_args: str = ""
 
     def __post_init__(self):
-        #VALIDACIONES C03: success_check
+        self.validate_role_requirements()
+        # CAT-03 / C03: validate the check type and compile regexes before runs.
         if not isinstance(self.success_check, dict):
             raise ValueError("C03: success_check debe ser un objeto")
 
@@ -53,14 +55,50 @@ class KernelEntry:
             return
 
         raise ValueError(f"C03: tipo de success_check no soportado: {check_type!r}")
-        #FIN VALIDACIONES C03
+
+    def validate_role_requirements(self) -> None:
+        # CAT-04: dataset kernels require the metadata used to characterize runs.
+        if self.role == "dataset":
+            required = {
+                "phase_label_hint": self.phase_label_hint,
+                "size_variant": self.size_variant,
+                "expected_runtime_seconds": self.expected_runtime_seconds,
+                "warmup_seconds": self.warmup_seconds,
+            }
+            missing = [name for name, value in required.items() if value is None]
+            if missing:
+                raise ValueError(
+                    f"CAT-04: kernel dataset {self.id!r} requiere {', '.join(missing)}"
+                )
+
+        # CAT-05: a calibration entry reports exactly one calibration metric.
+        if self.role == "calibration" and (
+            self.reports_bandwidth_stdout == self.reports_flops_stdout
+        ):
+            raise ValueError(
+                f"CAT-05: kernel calibration {self.id!r} debe reportar exactamente "
+                "una de bandwidth_stdout o flops_stdout"
+            )
         
 def load_catalog(catalog_path: str) -> dict[str, KernelEntry]:
     with open(catalog_path, encoding="utf-8") as catalog_file:
-        kernels = yaml.safe_load(catalog_file).get("kernels", [])
+        document = yaml.safe_load(catalog_file) or {}
+    kernels = document.get("kernels", [])
+    if not isinstance(kernels, list):
+        raise ValueError("El campo kernels debe ser una lista")
 
-    return {
-        kernel["id"]: KernelEntry(
+    entries: dict[str, KernelEntry] = {}
+    for kernel in kernels:
+        if not isinstance(kernel, dict):
+            raise ValueError("Cada entrada de kernels debe ser un objeto")
+        kernel_id = kernel.get("id")
+        # CAT-08: reject duplicate IDs instead of silently overwriting an entry.
+        if not isinstance(kernel_id, str) or not kernel_id:
+            raise ValueError("CAT-08: cada entrada requiere un id no vacío")
+        if kernel_id in entries:
+            raise ValueError(f"CAT-08: id de catálogo duplicado: {kernel_id!r}")
+
+        entry = KernelEntry(
             id=kernel["id"],
             suite=kernel["suite"],
             role=kernel["role"],
@@ -69,32 +107,38 @@ def load_catalog(catalog_path: str) -> dict[str, KernelEntry]:
             phase_label_hint=kernel.get("phase_label_hint"),
             size_variant=kernel.get("size_variant"),
             expected_runtime_seconds=kernel.get("expected_runtime_seconds"),
-            warmpup_seconds=kernel.get("warmup_seconds"),
+            warmup_seconds=kernel.get("warmup_seconds"),
             success_check=kernel.get("success_check"),
             reports_bandwidth_stdout=kernel.get("reports_bandwidth_stdout", False),
             reports_flops_stdout=kernel.get("reports_flops_stdout", False),
+            exec_args=kernel.get("exec_args", ""),
         )
-        for kernel in kernels
-    }
+        if not isinstance(entry.exec_args, str):
+            raise ValueError(f"CAT-06: exec_args de {entry.id!r} debe ser un string")
+        entries[entry.id] = entry
+    return entries
 
 def verify_binary(entry: KernelEntry) -> bool:
     """
-    C02: sha256(entry.exec_path) == entry.binary_checksum
+    C02: sha256(entry.exec_path) == entry.binary_checksum.
+
+    CAT-07: call this same check during campaign preflight and immediately
+    before each individual run; it has no cached result.
     Retorna CheckResult con factor_id "C01" o "C02" segun cual falle.
     """
-    # C01: Check if the file exists and is executable by the current user
+    # CAT-01 / C01: require a regular executable file before using it.
     if not os.path.isfile(entry.exec_path) or not os.access(entry.exec_path, os.X_OK):
         return False
     
     try:
         with open(entry.exec_path, "rb") as binary_file:
-            # Compute the SHA256 checksum of the binary file
             checksum = f"sha256:{hashlib.file_digest(binary_file, 'sha256').hexdigest()}"
     except OSError:
         return False
-    # C02: Check if the binary checksum matches
+    # CAT-02 / C02: reject a binary changed since the catalog was generated.
     return checksum == entry.binary_checksum
 
 def resolve_exec_command(entry: KernelEntry) -> list[str]:
-    """Resuelve el comando de ejecución para un kernel."""
-    return ["--exec", entry.exec_path, "--exec-args", ""]
+    """Traduce una entrada al argv del launcher, sin inferir argumentos."""
+    # CAT-06: exec_args is the sole source of suite arguments; keep empty values.
+    return ["--exec", entry.exec_path, "--exec-args", entry.exec_args]
