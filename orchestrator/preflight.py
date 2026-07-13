@@ -302,18 +302,18 @@ def run_campaign_preflight(
     return results
 
 
-def run_reduced_preflight(manifest: Any, env: Any, entry: Any, run_id: str, *, expected_governor: str = "userspace", load_threshold: float = 1.0, turbo_snapshot: Mapping[str, Any] | None = None) -> list[CheckResult]:
+def run_reduced_preflight(manifest: Any, env: Any, entry: Any, run_id: str, *, expected_governor: str = "userspace", load_threshold: float = 1.0, turbo_snapshot: Mapping[str, Any] | None = None, cpu_root: str | Path | None = None, load_reader: Callable[[], tuple[float, float, float]] = os.getloadavg) -> list[CheckResult]:
     """Ejecuta checks por corrida, incluidos C01/C02 para detectar binarios cambiados."""
     results = [
         check_temperature(_value(manifest, "package_temperature_c"), _value(manifest, "temperature_min_c", 0.0), _value(manifest, "temperature_max_c", 90.0)),
         check_foreign_processes(_value(manifest, "foreign_affinity_pids", ())),
-        check_governor(_cores(manifest), expected_governor),
-        check_external_load(load_threshold),
+        check_governor(_cores(manifest), expected_governor, cpu_root),
+        check_external_load(load_threshold, load_reader),
         check_run_id_unique(_value(manifest, "output_dir"), run_id, bool(_value(manifest, "overwrite", False))),
         check_binary_exists(entry),
         check_binary_checksum(entry),
         check_success_check(entry),
     ]
     if turbo_snapshot is not None:
-        results.append(check_turbo_hwp_unchanged(turbo_snapshot))
+        results.append(check_turbo_hwp_unchanged(turbo_snapshot, cpu_root))
     return results
