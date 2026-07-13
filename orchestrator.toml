@@ -11,6 +11,7 @@ drm_root = "/sys/class/drm"
 
 [detection]
 slurm_env_var = "SLURM_JOB_ID"
+tier_override_env_var = "HYPERION_ENVIRONMENT_TIER"
 tier_hpc = "hpc_sc3"
 tier_local = "local"
 tier_cloud = "cloud_own"
