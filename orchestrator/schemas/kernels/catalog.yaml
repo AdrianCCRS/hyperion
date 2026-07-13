@@ -4,6 +4,7 @@ kernels:
     role: calibration
     exec_path: bin/stream_c
     reports_bandwidth_stdout: true #Si la suite reporta el ancho de banda por stdout
+    success_check: {type: exit_code}
     binary_checksum: "sha256:..." #Se completa al compilar el binario
 
   - id: ert_probe
@@ -11,6 +12,7 @@ kernels:
     role: calibration
     exec_path: bin/ert_probe
     reports_flops_stdout: true #Si la suite reporta los flops por stdout
+    success_check: {type: exit_code}
     binary_checksum: "sha256:..." #Se completa al compilar el binario
 
   - id: npb_ep
@@ -21,6 +23,7 @@ kernels:
     size_variant: S
     expected_runtime_seconds: 4 #Revisar esto, no estoy seguro si es correcto, pero es un valor de referencia para la ejecución de la suite
     warmup_seconds: 1.0 #Revisar también, es un valor de referencia para la ejecución de la suite. ESPECIAL ATENCIÓN
+    estimated_memory_bytes: 67108864 #Estimación conservadora; confirmar contra el build objetivo.
     success_check: {type: exit_code}
     binary_checksum: "sha256:..." #Se completa al compilar el binario
   
@@ -32,6 +35,7 @@ kernels:
     size_variant: S
     expected_runtime_seconds: 6
     warmup_seconds: 1.0
+    estimated_memory_bytes: 67108864 #Estimación conservadora; confirmar contra el build objetivo.
     success_check: {type: stdout_regex, pattern: "VERIFICATION SUCCESSFUL"}
     binary_checksum: "sha256:..."
 

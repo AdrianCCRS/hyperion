@@ -66,6 +66,7 @@ class Manifest:
     interval_ns: int
     running_ratio_min: float
     cores: Cores
+    smt_policy: str
     cgroup_path: str | None
     perf_enabled: bool
     rapl: Mapping[str, Any]
@@ -216,6 +217,9 @@ def load(path: str | Path) -> Manifest:
     if numa_node_pin is not None and (isinstance(numa_node_pin, bool) or not isinstance(numa_node_pin, int)):
         _error("MAN-06", "cores.numa_node_pin", "debe ser un entero o null")
     cores = Cores(delegated, collector, consumer, numa_node_pin)
+    smt_policy = _required(document, "smt_policy")
+    if smt_policy not in {"all_threads", "one_thread_per_physical_core"}:
+        _error("MAN-00", "smt_policy", "debe ser all_threads o one_thread_per_physical_core")
 
     frequency_levels = _parse_frequency_levels(_required(document, "frequency_levels"))
     interval_ns = _required(document, "interval_ns")
@@ -259,7 +263,7 @@ def load(path: str | Path) -> Manifest:
     manifest = Manifest(
         campaign_id, tier, seed, output_dir, overwrite, catalog_path, calibration, kernels,
         frequency_levels, repetitions, target_windows, interval_ns, float(running_ratio),
-        cores, cgroup_path, perf_enabled, dict(rapl), dict(gpu), timeouts,
+        cores, smt_policy, cgroup_path, perf_enabled, dict(rapl), dict(gpu), timeouts,
     )
     matrix_size = compute_matrix_size(manifest)
     # MAN-03: cada combinación tiene baseline y telemetry, por eso se duplica.

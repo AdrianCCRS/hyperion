@@ -40,10 +40,12 @@ running_ratio_min: 0.90 #Minimum ratio of PMU's perf counters.
 
 #CPU configuration
 cores:
-  delegated_cpus: [0, 1, 2, 3] #Cores that will be used for the campaign. The rest of the cores will be used by the OS and other processes.
+  delegated_cpus: [2, 3, 4, 5] #Cores that will be used for the campaign. The rest of the cores will be used by the OS and other processes.
   collector_cpu: 0
   consumer_cpu: 1
   numa_node_pin: 0 #NUMA node where the workload, collector, and consumer are pinned to dedicated CPUs.
+
+smt_policy: all_threads #all_threads | one_thread_per_physical_core
 
 #Measurement tools configuration
 cgroup_path: /sys/fs/cgroup

@@ -24,6 +24,7 @@ class KernelEntry:
     expected_runtime_seconds: int | None #Opcional
     warmup_seconds: float | None #Opcional
     success_check: dict | None #Opcional
+    estimated_memory_bytes: int | None = None
     reports_bandwidth_stdout: bool = False
     reports_flops_stdout: bool = False
     exec_args: str = ""
@@ -59,13 +60,14 @@ class KernelEntry:
         raise ValueError(f"C03: tipo de success_check no soportado: {check_type!r}")
 
     def validate_role_requirements(self) -> None:
-        # CAT-04: dataset kernels require the metadata used to characterize runs.
+        # CAT-04/C05: los kernels dataset declaran metadatos y memoria estimada.
         if self.role == "dataset":
             required = {
                 "phase_label_hint": self.phase_label_hint,
                 "size_variant": self.size_variant,
                 "expected_runtime_seconds": self.expected_runtime_seconds,
                 "warmup_seconds": self.warmup_seconds,
+                "estimated_memory_bytes": self.estimated_memory_bytes,
             }
             missing = [name for name, value in required.items() if value is None]
             if missing:
@@ -111,6 +113,7 @@ def load_catalog(catalog_path: str) -> dict[str, KernelEntry]:
             expected_runtime_seconds=kernel.get("expected_runtime_seconds"),
             warmup_seconds=kernel.get("warmup_seconds"),
             success_check=kernel.get("success_check"),
+            estimated_memory_bytes=kernel.get("estimated_memory_bytes"),
             reports_bandwidth_stdout=kernel.get("reports_bandwidth_stdout", False),
             reports_flops_stdout=kernel.get("reports_flops_stdout", False),
             exec_args=kernel.get("exec_args", ""),

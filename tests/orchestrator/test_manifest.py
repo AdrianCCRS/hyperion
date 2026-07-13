@@ -43,6 +43,7 @@ def campaign(tmp_path):
         "interval_ns": 1_000_000,
         "running_ratio_min": 0.9,
         "cores": {"delegated_cpus": "2-5", "collector_cpu": 0, "consumer_cpu": 1, "numa_node_pin": 0},
+        "smt_policy": "all_threads",
         "cgroup_path": None,
         "perf_enabled": True,
         "rapl": {"enabled": True, "domains": ["package"]},
@@ -69,6 +70,12 @@ def test_man_t02_hpc_requiere_cgroup(tmp_path, monkeypatch, catalogo, campaign):
     campaign["environment_tier"] = "hpc_sc3"
     campaign.pop("cgroup_path")
     with pytest.raises(manifest.ManifestValidationError, match="cgroup_path"):
+        cargar(tmp_path, monkeypatch, catalogo, campaign)
+
+
+def test_manifest_requiere_politica_smt(tmp_path, monkeypatch, catalogo, campaign):
+    campaign.pop("smt_policy")
+    with pytest.raises(manifest.ManifestValidationError, match="smt_policy"):
         cargar(tmp_path, monkeypatch, catalogo, campaign)
 
 
