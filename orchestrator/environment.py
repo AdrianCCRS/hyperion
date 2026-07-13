@@ -8,6 +8,8 @@ from pathlib import Path
 import time
 from typing import Any
 
+from .config import OrchestratorConfig, SysfsPaths, load_config
+
 logger = logging.getLogger(__name__)
 
 
@@ -44,21 +46,21 @@ def _parse_cpu_list(cpu_list: str) -> list[int]:
     return sorted(cpus)
 
 
-def _available_cpus(sys_path: Path, delegated: list[int]) -> list[int]:
+def _available_cpus(sysfs: SysfsPaths, delegated: list[int]) -> list[int]:
     if delegated:
         return delegated
     return sorted(
         int(path.name.removeprefix("cpu"))
-        for path in (sys_path / "devices/system/cpu").glob("cpu[0-9]*")
+        for path in sysfs.cpu_root.glob("cpu[0-9]*")
         if path.name.removeprefix("cpu").isdigit()
     )
 
 
-def _frequency_data(sys_path: Path, cpus: list[int]) -> tuple[str, list[int]]:
+def _frequency_data(sysfs: SysfsPaths, cpus: list[int]) -> tuple[str, list[int]]:
     driver = ""
     frequencies: set[int] = set()
     for cpu in cpus:
-        cpu_path = sys_path / "devices/system/cpu" / f"cpu{cpu}" / "cpufreq"
+        cpu_path = sysfs.cpu_root / f"cpu{cpu}" / "cpufreq"
         if not driver:
             driver = _read_text(cpu_path / "scaling_driver") or ""
         values = _read_text(cpu_path / "scaling_available_frequencies")
@@ -71,8 +73,8 @@ def _frequency_data(sys_path: Path, cpus: list[int]) -> tuple[str, list[int]]:
     return driver, sorted(frequencies)
 
 
-def _rapl_data(sys_path: Path) -> tuple[list[str], bool]:
-    rapl_root = sys_path / "class/powercap/intel-rapl"
+def _rapl_data(sysfs: SysfsPaths) -> tuple[list[str], bool]:
+    rapl_root = sysfs.rapl_root
     domains: list[str] = []
     for domain_path in rapl_root.glob("intel-rapl:*"):
         if not domain_path.is_dir():
@@ -89,10 +91,10 @@ def _rapl_data(sys_path: Path) -> tuple[list[str], bool]:
     return domains, second is not None and first != second
 
 
-def _numa_data(sys_path: Path, delegated: list[int]) -> tuple[dict[int, list[int]], dict[int, int]]:
+def _numa_data(sysfs: SysfsPaths, delegated: list[int]) -> tuple[dict[int, list[int]], dict[int, int]]:
     topology: dict[int, list[int]] = {}
     delegated_nodes: dict[int, int] = {}
-    for node_path in (sys_path / "devices/system/node").glob("node[0-9]*"):
+    for node_path in sysfs.numa_root.glob("node[0-9]*"):
         try:
             node_id = int(node_path.name.removeprefix("node"))
         except ValueError:
@@ -105,42 +107,49 @@ def _numa_data(sys_path: Path, delegated: list[int]) -> tuple[dict[int, list[int
     return topology, delegated_nodes
 
 
-def detect_environment(delegated_cpus: str, base_sys_path: str = "/sys") -> EnvironmentProfile:
+def detect_environment(
+    delegated_cpus: str,
+    base_sys_path: str = "/sys",
+    *,
+    config: OrchestratorConfig | None = None,
+) -> EnvironmentProfile:
     """
     Lee las capacidades del sistema mediante operaciones de solo lectura.
 
     ``base_sys_path`` permite usar un sysfs virtual en pruebas; no se escribe
     ningún archivo durante la detección (ENV-01).
     """
-    sys_path = Path(base_sys_path)
+    platform = config or load_config()
+    # Un sysfs alternativo siempre prevalece para aislar las pruebas del host.
+    sysfs = platform.sysfs if base_sys_path == "/sys" else SysfsPaths.from_base(base_sys_path)
     delegated = _parse_cpu_list(delegated_cpus)
-    cpus = _available_cpus(sys_path, delegated)
-    scaling_driver, frequencies = _frequency_data(sys_path, cpus)
+    cpus = _available_cpus(sysfs, delegated)
+    scaling_driver, frequencies = _frequency_data(sysfs, cpus)
     # ENV-02: solo drivers físicos conocidos y más de una frecuencia son válidos.
     freq_capable = (
         scaling_driver in {"intel_pstate", "acpi-cpufreq", "amd-pstate"}
         and len(frequencies) > 1
     )
-    rapl_domains, rapl_capable = _rapl_data(sys_path)
+    rapl_domains, rapl_capable = _rapl_data(sysfs)
 
     smt_siblings: dict[int, list[int]] = {}
     for cpu in delegated:
         siblings = _read_text(
-            sys_path / "devices/system/cpu" / f"cpu{cpu}" / "topology/thread_siblings_list"
+            sysfs.cpu_root / f"cpu{cpu}" / "topology/thread_siblings_list"
         )
         if siblings is not None:
             smt_siblings[cpu] = _parse_cpu_list(siblings)
-    numa_cpu_map, delegated_cpu_numa_nodes = _numa_data(sys_path, delegated)
+    numa_cpu_map, delegated_cpu_numa_nodes = _numa_data(sysfs, delegated)
     perf_events = sorted(
         path.name
-        for path in (sys_path / "bus/event_source/devices/cpu/events").glob("*")
+        for path in sysfs.perf_events_root.glob("*")
         if path.is_file()
     )
     gpu_present = any(
         (card / "device").exists()
-        for card in (sys_path / "class/drm").glob("card[0-9]*")
+        for card in sysfs.drm_root.glob("card[0-9]*")
     )
-    tier = "hpc_sc3" if os.environ.get("SLURM_JOB_ID") else "local"
+    tier = platform.detection.tier_hpc if os.environ.get(platform.detection.slurm_env_var) else platform.detection.tier_local
     profile = EnvironmentProfile(
         tier=tier,
         rapl_capable=rapl_capable,

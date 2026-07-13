@@ -1,0 +1,16 @@
+[harness]
+exec_flag = "--exec"
+exec_args_flag = "--exec-args"
+
+[sysfs]
+cpu_root = "/sys/devices/system/cpu"
+rapl_root = "/sys/class/powercap/intel-rapl"
+numa_root = "/sys/devices/system/node"
+perf_events_root = "/sys/bus/event_source/devices/cpu/events"
+drm_root = "/sys/class/drm"
+
+[detection]
+slurm_env_var = "SLURM_JOB_ID"
+tier_hpc = "hpc_sc3"
+tier_local = "local"
+tier_cloud = "cloud_own"
