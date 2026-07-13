@@ -1,163 +1,193 @@
-from dataclasses import asdict, dataclass, field
-import glob
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
 import json
+import logging
 import os
 from pathlib import Path
 import time
+from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
 class EnvironmentProfile:
-    """Read-only snapshot of the node capabilities used by a campaign."""
-
-    tier: str
+    tier: str                           # local | cloud_own | hpc_sc3
     rapl_capable: bool
-    rapl_domains_available: list[str] | None
+    rapl_domains_available: list[str]
     freq_control_capable: bool
-    scaling_driver: str | None
-    numa_nodes: int | None
-    smt_siblings: dict[int, list[int]] | None
+    scaling_driver: str
+    available_frequencies_khz: list[int]
+    numa_nodes: int
+    smt_siblings: dict[int, list[int]]  # Mapeo de CPU a sus hermanos SMT
     gpu_present: bool
-    gpu_exclusive_hint: bool | None
-    delegated_cpus: list[int] = field(default_factory=list)
-    numa_cpu_map: dict[int, list[int]] = field(default_factory=dict)
-    delegated_cpu_numa_nodes: dict[int, int] = field(default_factory=dict)
-    smt_policy: str = "all_threads"
-    perf_events_available: list[str] = field(default_factory=list)
+    gpu_exclusive_hint: bool            # Heurística: local=True, hpc_sc3=Nunca True
+
+
+def _read_text(path: Path) -> str | None:
+    """Lee un archivo; centralizarlo facilita sustituirlo en las pruebas."""
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
 
 
 def _parse_cpu_list(cpu_list: str) -> list[int]:
     cpus: set[int] = set()
-    for part in cpu_list.split(","):
+    for token in cpu_list.split(","):
         try:
-            start, end = (part.split("-", 1) + [part])[:2] if "-" in part else (part, part)
-            cpus.update(range(int(start), int(end) + 1))
+            first, last = token.split("-", 1) if "-" in token else (token, token)
+            cpus.update(range(int(first), int(last) + 1))
         except ValueError:
             continue
     return sorted(cpus)
 
 
-def detect_environment(
-    delegated_cpus: str, *, smt_policy: str = "all_threads"
-) -> EnvironmentProfile:
-    """Detect capabilities with read-only sysfs/procfs access only (ENV-01)."""
-    if smt_policy not in {"all_threads", "one_thread_per_physical_core"}:
-        raise ValueError("ENV-07: política SMT no soportada")
+def _available_cpus(sys_path: Path, delegated: list[int]) -> list[int]:
+    if delegated:
+        return delegated
+    return sorted(
+        int(path.name.removeprefix("cpu"))
+        for path in (sys_path / "devices/system/cpu").glob("cpu[0-9]*")
+        if path.name.removeprefix("cpu").isdigit()
+    )
 
-    def read(path: str) -> str | None:
-        try:
-            return Path(path).read_text().strip()
-        except OSError:
-            return None
 
-    cpus = _parse_cpu_list(delegated_cpus)
-    cpu_paths = [f"/sys/devices/system/cpu/cpu{cpu}" for cpu in cpus]
-    if not cpu_paths:
-        cpu_paths = glob.glob("/sys/devices/system/cpu/cpu[0-9]*")
-
-    drivers = [read(f"{cpu}/cpufreq/scaling_driver") for cpu in cpu_paths]
-    scaling_driver = next((driver for driver in drivers if driver), None)
-    frequencies: set[str] = set()
-    for cpu in cpu_paths:
-        values = read(f"{cpu}/cpufreq/scaling_available_frequencies")
+def _frequency_data(sys_path: Path, cpus: list[int]) -> tuple[str, list[int]]:
+    driver = ""
+    frequencies: set[int] = set()
+    for cpu in cpus:
+        cpu_path = sys_path / "devices/system/cpu" / f"cpu{cpu}" / "cpufreq"
+        if not driver:
+            driver = _read_text(cpu_path / "scaling_driver") or ""
+        values = _read_text(cpu_path / "scaling_available_frequencies")
         if values:
-            frequencies.update(values.split())
-    # ENV-02: only known hardware drivers with multiple frequencies qualify.
-    freq_control_capable = (
+            for value in values.split():
+                try:
+                    frequencies.add(int(value))
+                except ValueError:
+                    continue
+    return driver, sorted(frequencies)
+
+
+def _rapl_data(sys_path: Path) -> tuple[list[str], bool]:
+    rapl_root = sys_path / "class/powercap/intel-rapl"
+    domains: list[str] = []
+    for domain_path in rapl_root.glob("intel-rapl:*"):
+        if not domain_path.is_dir():
+            continue
+        domains.append(_read_text(domain_path / "name") or domain_path.name)
+
+    root_energy = rapl_root / "intel-rapl:0" / "energy_uj"
+    first = _read_text(root_energy)
+    if first is None:
+        return domains, False
+    # ENV-03: dos lecturas separadas por 100 ms, sin escribir en sysfs.
+    time.sleep(0.1)
+    second = _read_text(root_energy)
+    return domains, second is not None and first != second
+
+
+def _numa_data(sys_path: Path, delegated: list[int]) -> tuple[dict[int, list[int]], dict[int, int]]:
+    topology: dict[int, list[int]] = {}
+    delegated_nodes: dict[int, int] = {}
+    for node_path in (sys_path / "devices/system/node").glob("node[0-9]*"):
+        try:
+            node_id = int(node_path.name.removeprefix("node"))
+        except ValueError:
+            continue
+        cpus = _parse_cpu_list(_read_text(node_path / "cpulist") or "")
+        topology[node_id] = cpus
+        for cpu in delegated:
+            if cpu in cpus:
+                delegated_nodes[cpu] = node_id
+    return topology, delegated_nodes
+
+
+def detect_environment(delegated_cpus: str, base_sys_path: str = "/sys") -> EnvironmentProfile:
+    """
+    Lee las capacidades del sistema mediante operaciones de solo lectura.
+
+    ``base_sys_path`` permite usar un sysfs virtual en pruebas; no se escribe
+    ningún archivo durante la detección (ENV-01).
+    """
+    sys_path = Path(base_sys_path)
+    delegated = _parse_cpu_list(delegated_cpus)
+    cpus = _available_cpus(sys_path, delegated)
+    scaling_driver, frequencies = _frequency_data(sys_path, cpus)
+    # ENV-02: solo drivers físicos conocidos y más de una frecuencia son válidos.
+    freq_capable = (
         scaling_driver in {"intel_pstate", "acpi-cpufreq", "amd-pstate"}
         and len(frequencies) > 1
     )
+    rapl_domains, rapl_capable = _rapl_data(sys_path)
 
-    rapl_domains: list[str] = []
-    energy_paths = glob.glob("/sys/class/powercap/intel-rapl/intel-rapl:*/energy_uj")
-    for energy_path in energy_paths:
-        name = read(str(Path(energy_path).with_name("name")))
-        rapl_domains.append(name or Path(energy_path).parent.name)
-    rapl_root_energy = "/sys/class/powercap/intel-rapl/intel-rapl:0/energy_uj"
-    first_energy = read(rapl_root_energy)
-    if first_energy is not None:
-        # ENV-03: minimal synthetic CPU load followed by the required 100 ms delay.
-        deadline = time.perf_counter() + 0.005
-        while time.perf_counter() < deadline:
-            pass
-        time.sleep(0.1)
-    second_energy = read(rapl_root_energy)
-    rapl_capable = (
-        first_energy is not None
-        and second_energy is not None
-        and first_energy != second_energy
-    )
-
-    # ENV-07: record every delegated logical CPU's sibling set and policy.
     smt_siblings: dict[int, list[int]] = {}
-    for cpu in cpus:
-        siblings = read(f"/sys/devices/system/cpu/cpu{cpu}/topology/thread_siblings_list")
-        if siblings:
+    for cpu in delegated:
+        siblings = _read_text(
+            sys_path / "devices/system/cpu" / f"cpu{cpu}" / "topology/thread_siblings_list"
+        )
+        if siblings is not None:
             smt_siblings[cpu] = _parse_cpu_list(siblings)
-
-    # ENV-06: preserve full NUMA topology and the placement of delegated CPUs.
-    numa_cpu_map: dict[int, list[int]] = {}
-    delegated_cpu_numa_nodes: dict[int, int] = {}
-    for node_path in glob.glob("/sys/devices/system/node/node[0-9]*"):
-        try:
-            node = int(Path(node_path).name.removeprefix("node"))
-        except ValueError:
-            continue
-        node_cpus = _parse_cpu_list(read(f"{node_path}/cpulist") or "")
-        numa_cpu_map[node] = node_cpus
-        for cpu in cpus:
-            if cpu in node_cpus:
-                delegated_cpu_numa_nodes[cpu] = node
-
-    # ENV-08: PMU aliases from sysfs are the real supported perf event subset.
-    perf_events_available = sorted(
-        Path(event_path).name
-        for event_path in glob.glob("/sys/bus/event_source/devices/cpu/events/*")
-        if Path(event_path).is_file()
+    numa_cpu_map, delegated_cpu_numa_nodes = _numa_data(sys_path, delegated)
+    perf_events = sorted(
+        path.name
+        for path in (sys_path / "bus/event_source/devices/cpu/events").glob("*")
+        if path.is_file()
     )
     gpu_present = any(
-        Path(card, "device").exists()
-        for card in glob.glob("/sys/class/drm/card[0-9]*")
+        (card / "device").exists()
+        for card in (sys_path / "class/drm").glob("card[0-9]*")
     )
     tier = "hpc_sc3" if os.environ.get("SLURM_JOB_ID") else "local"
-
-    return EnvironmentProfile(
+    profile = EnvironmentProfile(
         tier=tier,
         rapl_capable=rapl_capable,
-        rapl_domains_available=rapl_domains or None,
-        freq_control_capable=freq_control_capable,
+        rapl_domains_available=rapl_domains,
+        freq_control_capable=freq_capable,
         scaling_driver=scaling_driver,
-        numa_nodes=len(numa_cpu_map) or None,
-        smt_siblings=smt_siblings or None,
+        available_frequencies_khz=frequencies,
+        numa_nodes=len(numa_cpu_map),
+        smt_siblings=smt_siblings,
         gpu_present=gpu_present,
-        gpu_exclusive_hint=True if gpu_present and tier == "local" else None,
-        delegated_cpus=cpus,
-        numa_cpu_map=numa_cpu_map,
-        delegated_cpu_numa_nodes=delegated_cpu_numa_nodes,
-        smt_policy=smt_policy,
-        perf_events_available=perf_events_available,
+        gpu_exclusive_hint=gpu_present and tier == "local",
     )
+    # Datos complementarios requeridos por ENV-06 y ENV-08, conservando la API pública.
+    profile.delegated_cpus = delegated
+    profile.numa_cpu_map = numa_cpu_map
+    profile.delegated_cpu_numa_nodes = delegated_cpu_numa_nodes
+    profile.perf_events_available = perf_events
+    return profile
 
 
-def campaign_environment_metadata(
-    profile: EnvironmentProfile, *, rapl_enabled: bool
-) -> dict[str, object]:
-    """Apply the environment constraints that campaign metadata must retain."""
-    # ENV-04: an unsupported manifest request is explicitly overridden.
-    effective_rapl_enabled = rapl_enabled and profile.rapl_capable
-    # ENV-05: no frequency control means exclusion from the training dataset.
-    return {
-        "rapl_enabled": effective_rapl_enabled,
-        "rapl_forced_disabled": rapl_enabled and not profile.rapl_capable,
-        "not_eligible_for_training_dataset": not profile.freq_control_capable,
-        "smt_policy": profile.smt_policy,
-    }
+def validate_environment_vs_manifest(profile: EnvironmentProfile, manifest: dict) -> dict:
+    """Aplica restricciones detectadas y registra las anulaciones en el manifest."""
+    rapl = manifest.get("rapl")
+    if not isinstance(rapl, dict):
+        rapl = {}
+        manifest["rapl"] = rapl
+    overrides = manifest.setdefault("environment_overrides", {})
+    if rapl.get("enabled") is True and not profile.rapl_capable:
+        rapl["enabled"] = False
+        overrides["rapl_forced_disabled"] = True
+        logger.warning("RAPL fue deshabilitado: environment.rapl_capable es false")
+    else:
+        overrides["rapl_forced_disabled"] = False
+    # ENV-05: el perfil determina la elegibilidad sin intentar controlar frecuencia.
+    manifest["not_eligible_for_training_dataset"] = not profile.freq_control_capable
+    return manifest
 
 
 def write_environment_report(profile: EnvironmentProfile, output_dir: str | Path) -> Path:
-    """Serialize the ENV-09 campaign artifact in its already-created output dir."""
-    report_path = Path(output_dir) / "environment_report.json"
-    with report_path.open("w", encoding="utf-8") as report_file:
-        json.dump(asdict(profile), report_file, indent=2, sort_keys=True)
-        report_file.write("\n")
-    return report_path
+    """Serializa environment_report.json en el directorio de la campaña (ENV-09)."""
+    report = asdict(profile)
+    report["delegated_cpus"] = getattr(profile, "delegated_cpus", [])
+    report["numa_cpu_map"] = getattr(profile, "numa_cpu_map", {})
+    report["delegated_cpu_numa_nodes"] = getattr(profile, "delegated_cpu_numa_nodes", {})
+    report["perf_events_available"] = getattr(profile, "perf_events_available", [])
+    path = Path(output_dir) / "environment_report.json"
+    with path.open("w", encoding="utf-8") as output:
+        json.dump(report, output, indent=2, sort_keys=True)
+        output.write("\n")
+    return path
