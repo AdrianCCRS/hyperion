@@ -38,6 +38,7 @@ class DetectionConfig:
     tier_hpc: str
     tier_local: str
     tier_cloud: str
+    tier_override_env_var: str = "HYPERION_ENVIRONMENT_TIER"
 
 
 @dataclass(frozen=True)
@@ -81,5 +82,6 @@ def load_config(path: str | Path | None = None) -> OrchestratorConfig:
             _text(detection_data, "tier_hpc"),
             _text(detection_data, "tier_local"),
             _text(detection_data, "tier_cloud"),
+            _text(detection_data, "tier_override_env_var"),
         ),
     )
