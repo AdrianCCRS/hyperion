@@ -263,5 +263,9 @@ def load(path: str | Path) -> Manifest:
     )
     matrix_size = compute_matrix_size(manifest)
     # MAN-03: cada combinación tiene baseline y telemetry, por eso se duplica.
-    logger.info("Matriz de campaña: %d combinaciones (%d corridas con baseline)", matrix_size, matrix_size * 2)
+    logger.info(
+        "Matriz de campaña: %d combinaciones (×2 por baseline: %d corridas)",
+        matrix_size,
+        matrix_size * 2,
+    )
     return manifest

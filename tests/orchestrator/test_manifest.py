@@ -90,6 +90,13 @@ def test_man_t05_seed_ausente(tmp_path, monkeypatch, catalogo, campaign):
         cargar(tmp_path, monkeypatch, catalogo, campaign)
 
 
+@pytest.mark.parametrize("seed", [3.14, "abc", True])
+def test_man_t05_seed_debe_ser_entero(tmp_path, monkeypatch, catalogo, campaign, seed):
+    campaign["seed"] = seed
+    with pytest.raises(manifest.ManifestValidationError, match="seed"):
+        cargar(tmp_path, monkeypatch, catalogo, campaign)
+
+
 def test_man_t06_solapamiento_de_cores(tmp_path, monkeypatch, catalogo, campaign):
     campaign["cores"]["collector_cpu"] = 3
     with pytest.raises(manifest.ManifestValidationError, match="solaparse"):
@@ -120,6 +127,51 @@ def test_man_t10_fraccion_fuera_de_rango(tmp_path, monkeypatch, catalogo, campai
         cargar(tmp_path, monkeypatch, catalogo, campaign)
 
 
-def test_man_t11_tamano_de_matriz(tmp_path, monkeypatch, catalogo, campaign):
+def test_man_t10_fraccion_negativa(tmp_path, monkeypatch, catalogo, campaign):
+    campaign["frequency_levels"][0]["fraction"] = -0.1
+    with pytest.raises(manifest.ManifestValidationError, match="fraction"):
+        cargar(tmp_path, monkeypatch, catalogo, campaign)
+
+
+@pytest.mark.parametrize(
+    "levels, mensaje",
+    [
+        ([{"id": "F0", "mode": "fixed", "fraction": 1.0}], "exactamente un nivel native_governor"),
+        (
+            [
+                {"id": "REF0", "mode": "native_governor"},
+                {"id": "REF1", "mode": "native_governor"},
+            ],
+            "exactamente un nivel native_governor",
+        ),
+        (
+            [
+                {"id": "F0", "mode": "ondemand", "fraction": 1.0},
+                {"id": "REF", "mode": "native_governor"},
+            ],
+            "debe ser fixed o native_governor",
+        ),
+    ],
+)
+def test_man_t10_modos_de_frecuencia(tmp_path, monkeypatch, catalogo, campaign, levels, mensaje):
+    campaign["frequency_levels"] = levels
+    with pytest.raises(manifest.ManifestValidationError, match=mensaje):
+        cargar(tmp_path, monkeypatch, catalogo, campaign)
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [("running_ratio_min", 0.0), ("running_ratio_min", 1.1), ("interval_ns", 0), ("interval_ns", -1)],
+)
+def test_man_t11_ratio_e_intervalo_validos(tmp_path, monkeypatch, catalogo, campaign, field, value):
+    campaign[field] = value
+    with pytest.raises(manifest.ManifestValidationError, match=field):
+        cargar(tmp_path, monkeypatch, catalogo, campaign)
+
+
+def test_man_t11_tamano_de_matriz_y_log_baseline(tmp_path, monkeypatch, catalogo, campaign, caplog):
+    caplog.set_level("INFO", logger="orchestrator.manifest")
     resultado = cargar(tmp_path, monkeypatch, catalogo, campaign)
     assert manifest.compute_matrix_size(resultado) == 60
+    assert "×2 por baseline" in caplog.text
+    assert "120 corridas" in caplog.text
