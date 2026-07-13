@@ -149,7 +149,18 @@ def detect_environment(
         (card / "device").exists()
         for card in sysfs.drm_root.glob("card[0-9]*")
     )
-    tier = platform.detection.tier_hpc if os.environ.get(platform.detection.slurm_env_var) else platform.detection.tier_local
+    detected_tiers = {
+        platform.detection.tier_local,
+        platform.detection.tier_cloud,
+        platform.detection.tier_hpc,
+    }
+    configured_tier = os.environ.get(platform.detection.tier_override_env_var)
+    if configured_tier in detected_tiers:
+        tier = configured_tier
+    elif os.environ.get(platform.detection.slurm_env_var):
+        tier = platform.detection.tier_hpc
+    else:
+        tier = platform.detection.tier_local
     profile = EnvironmentProfile(
         tier=tier,
         rapl_capable=rapl_capable,
@@ -185,6 +196,9 @@ def validate_environment_vs_manifest(profile: EnvironmentProfile, manifest: dict
         overrides["rapl_forced_disabled"] = False
     # ENV-05: el perfil determina la elegibilidad sin intentar controlar frecuencia.
     manifest["not_eligible_for_training_dataset"] = not profile.freq_control_capable
+    # ENV-07: la política declarada queda disponible para la metadata de campaña.
+    metadata = manifest.setdefault("environment_metadata", {})
+    metadata["smt_policy"] = manifest.get("smt_policy")
     return manifest
 
 
