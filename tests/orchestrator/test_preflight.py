@@ -167,3 +167,75 @@ def test_post_calibracion_rechaza_datos_no_plausibles():
     )
     assert [(result.factor_id, result.blocking) for result in results] == [("D02", True), ("D03", True), ("D04", False)]
     assert results[1].passed is False and results[2].passed is False
+
+
+def test_e01_snapshot_y_deriva_turbo_hwp(tmp_path):
+    intel_pstate = tmp_path / "cpu/intel_pstate"
+    intel_pstate.mkdir(parents=True)
+    (intel_pstate / "no_turbo").write_text("0")
+    (intel_pstate / "status").write_text("active")
+    snapshot = preflight.check_turbo_hwp(tmp_path / "cpu")
+    assert snapshot.passed is True and snapshot.observed["no_turbo"] == "0"
+    (intel_pstate / "no_turbo").write_text("1")
+    changed = preflight.check_turbo_hwp_unchanged(snapshot.observed, tmp_path / "cpu")
+    assert (changed.factor_id, changed.passed, changed.blocking) == ("E01", False, True)
+
+
+def test_e02_temperatura_y_e06_procesos_ajenos():
+    assert preflight.check_temperature(55.0).passed is True
+    temperature = preflight.check_temperature(95.0)
+    foreign = preflight.check_foreign_processes([1234])
+    assert (temperature.factor_id, temperature.passed) == ("E02", False)
+    assert (foreign.factor_id, foreign.passed) == ("E06", False)
+
+
+def test_c03_success_check_valido_e_invalido():
+    valid = SimpleNamespace(success_check={"type": "stdout_regex", "pattern": "OK$"})
+    invalid = SimpleNamespace(success_check={"type": "stdout_regex", "pattern": "["})
+    assert preflight.check_success_check(valid).passed is True
+    assert preflight.check_success_check(invalid).passed is False
+
+
+def test_d01_toolchain_y_checks_de_recursos(monkeypatch, tmp_path):
+    monkeypatch.setattr(preflight.shutil, "which", lambda tool: f"/bin/{tool}")
+    monkeypatch.setattr(preflight.shutil, "disk_usage", lambda path: SimpleNamespace(free=10))
+    assert preflight.check_toolchain(True).passed is True
+    assert preflight.check_rapl_domains(["package"], ["package", "dram"], True).passed is True
+    assert preflight.check_disk_space(tmp_path / "salida", 11).passed is False
+    assert preflight.check_perf_counter_capacity(["cycles", "instructions"], 1).passed is False
+    assert preflight.check_core_hour_budget(1.0, 2.0).passed is False
+
+
+def test_gpu_reporta_actividad_y_estado_indisponible():
+    class GpuConProblemas:
+        def active_processes(self): return [4321]
+        def persistence_mode(self): return None
+        def mig_configuration(self): return None
+
+    results = preflight.check_gpu(GpuConProblemas())
+    assert [(result.factor_id, result.passed) for result in results] == [("G01", False), ("G02", False), ("G03", False)]
+
+
+def test_caminos_validos_e05_e07_d02_y_preflight_reducido(tmp_path):
+    governor = tmp_path / "cpu2/cpufreq"
+    governor.mkdir(parents=True)
+    (governor / "scaling_governor").write_text("userspace")
+    binary = tmp_path / "kernel"
+    binary.write_text("#!/bin/sh\nexit 0\n")
+    binary.chmod(0o755)
+    checksum = f"sha256:{hashlib.sha256(binary.read_bytes()).hexdigest()}"
+    entry = SimpleNamespace(exec_path=binary, binary_checksum=checksum, success_check={"type": "exit_code"}, estimated_memory_bytes=1)
+    manifest = {"cores": {"delegated_cpus": [2]}, "smt_policy": "all_threads", "output_dir": tmp_path / "salida", "overwrite": False}
+    assert preflight.check_governor([2], "userspace", tmp_path).passed is True
+    assert preflight.check_calibration_output("Best Rate MB/s: 42", "Peak GFLOPS: 350").passed is True
+    results = preflight.run_reduced_preflight(manifest, None, entry, "run-1", cpu_root=tmp_path, load_reader=lambda: (0.1, 0.0, 0.0))
+    assert all(result.passed for result in results)
+
+
+def test_d04_es_advertencia_con_d02_y_d03_validos():
+    calibration = SimpleNamespace(stream_stdout="Best Rate MB/s: 40", ert_stdout="Peak GFLOPS: 400", bw_pico_bytes_per_s=40e9, p_pico_flops_per_s=400e9)
+    results = preflight.run_post_calibration_preflight(
+        calibration, SimpleNamespace(cv_pct=8.5), {"bw_pico_bytes_per_s": 40e9, "p_pico_flops_per_s": 400e9}
+    )
+    assert results[0].passed and results[1].passed
+    assert (results[2].factor_id, results[2].passed, results[2].blocking) == ("D04", False, False)

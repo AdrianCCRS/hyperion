@@ -10,7 +10,7 @@ output_dir: runs/pilot_2026_07_local_v1
 overwrite: false
 
 #Kernel catalog
-catalog_path: schemas/kernels/catalog.yaml
+catalog_path: kernels/catalog.yaml
 
 #Calibration kernels to be used in the campaign
 calibration:
