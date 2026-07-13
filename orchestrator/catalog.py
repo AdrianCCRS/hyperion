@@ -7,6 +7,8 @@ import re
 
 import yaml
 
+from .config import HarnessConfig, load_config
+
 @dataclass
 class KernelEntry:
     """
@@ -138,7 +140,10 @@ def verify_binary(entry: KernelEntry) -> bool:
     # CAT-02 / C02: reject a binary changed since the catalog was generated.
     return checksum == entry.binary_checksum
 
-def resolve_exec_command(entry: KernelEntry) -> list[str]:
+def resolve_exec_command(
+    entry: KernelEntry, harness: HarnessConfig | None = None
+) -> list[str]:
     """Traduce una entrada al argv del launcher, sin inferir argumentos."""
-    # CAT-06: exec_args is the sole source of suite arguments; keep empty values.
-    return ["--exec", entry.exec_path, "--exec-args", entry.exec_args]
+    # CAT-06: los flags vienen de la configuración de plataforma; exec_args es la única fuente de argumentos de suite.
+    launcher = harness or load_config().harness
+    return [launcher.exec_flag, entry.exec_path, launcher.exec_args_flag, entry.exec_args]
