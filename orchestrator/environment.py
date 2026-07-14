@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import json
 import logging
 import os
@@ -25,6 +25,11 @@ class EnvironmentProfile:
     smt_siblings: dict[int, list[int]]  # Mapeo de CPU a sus hermanos SMT
     gpu_present: bool
     gpu_exclusive_hint: bool            # Heurística: local=True, hpc_sc3=Nunca True
+    frequency_levels_supported: bool = False
+    frequency_write_capable: bool = False
+    frequency_control_strategy: str = "unavailable"
+    frequency_control_paths: dict[int, dict[str, str]] = field(default_factory=dict)
+    rapl_domain_paths: dict[str, str] = field(default_factory=dict)
 
 
 def _read_text(path: Path) -> str | None:
@@ -56,11 +61,18 @@ def _available_cpus(sysfs: SysfsPaths, delegated: list[int]) -> list[int]:
     )
 
 
-def _frequency_data(sysfs: SysfsPaths, cpus: list[int]) -> tuple[str, list[int]]:
+def _cpufreq_directory(sysfs: SysfsPaths, cpu: int) -> Path:
+    """Obtiene la interfaz por CPU o policyN, según lo que exponga el kernel."""
+    per_cpu = sysfs.cpu_root / f"cpu{cpu}" / "cpufreq"
+    policy = sysfs.cpu_root / "cpufreq" / f"policy{cpu}"
+    return per_cpu if per_cpu.exists() else policy
+
+
+def _frequency_data(sysfs: SysfsPaths, cpus: list[int]) -> tuple[str, list[int], dict[int, dict[str, str]]]:
     driver = ""
     frequencies: set[int] = set()
     for cpu in cpus:
-        cpu_path = sysfs.cpu_root / f"cpu{cpu}" / "cpufreq"
+        cpu_path = _cpufreq_directory(sysfs, cpu)
         if not driver:
             driver = _read_text(cpu_path / "scaling_driver") or ""
         values = _read_text(cpu_path / "scaling_available_frequencies")
@@ -70,25 +82,40 @@ def _frequency_data(sysfs: SysfsPaths, cpus: list[int]) -> tuple[str, list[int]]
                     frequencies.add(int(value))
                 except ValueError:
                     continue
-    return driver, sorted(frequencies)
+    controls: dict[int, dict[str, str]] = {}
+    for cpu in cpus:
+        cpu_path = _cpufreq_directory(sysfs, cpu)
+        paths = {
+            name: str(cpu_path / name)
+            for name in ("scaling_governor", "scaling_min_freq", "scaling_max_freq")
+            if (cpu_path / name).exists()
+        }
+        if paths:
+            controls[cpu] = paths
+    return driver, sorted(frequencies), controls
 
 
-def _rapl_data(sysfs: SysfsPaths) -> tuple[list[str], bool]:
+def _rapl_data(sysfs: SysfsPaths) -> tuple[list[str], dict[str, str], bool]:
     rapl_root = sysfs.rapl_root
-    domains: list[str] = []
-    for domain_path in rapl_root.glob("intel-rapl:*"):
+    domain_paths: dict[str, str] = {}
+    for domain_path in sorted(rapl_root.rglob("intel-rapl:*")):
         if not domain_path.is_dir():
             continue
-        domains.append(_read_text(domain_path / "name") or domain_path.name)
+        name = _read_text(domain_path / "name") or domain_path.name
+        parent_name = _read_text(domain_path.parent / "name")
+        alias = f"{name}-{parent_name}" if parent_name else name
+        if alias in domain_paths:
+            alias = f"{alias}@{domain_path.name}"
+        domain_paths[alias] = str(domain_path)
 
     root_energy = rapl_root / "intel-rapl:0" / "energy_uj"
     first = _read_text(root_energy)
     if first is None:
-        return domains, False
+        return list(domain_paths), domain_paths, False
     # ENV-03: dos lecturas separadas por 100 ms, sin escribir en sysfs.
     time.sleep(0.1)
     second = _read_text(root_energy)
-    return domains, second is not None and first != second
+    return list(domain_paths), domain_paths, second is not None and first != second
 
 
 def _numa_data(sysfs: SysfsPaths, delegated: list[int]) -> tuple[dict[int, list[int]], dict[int, int]]:
@@ -124,13 +151,21 @@ def detect_environment(
     sysfs = platform.sysfs if base_sys_path == "/sys" else SysfsPaths.from_base(base_sys_path)
     delegated = _parse_cpu_list(delegated_cpus)
     cpus = _available_cpus(sysfs, delegated)
-    scaling_driver, frequencies = _frequency_data(sysfs, cpus)
+    scaling_driver, frequencies, control_paths = _frequency_data(sysfs, cpus)
     # ENV-02: solo drivers físicos conocidos y más de una frecuencia son válidos.
     freq_capable = (
         scaling_driver in {"intel_pstate", "acpi-cpufreq", "amd-pstate"}
         and len(frequencies) > 1
     )
-    rapl_domains, rapl_capable = _rapl_data(sysfs)
+    rapl_domains, rapl_domain_paths, rapl_capable = _rapl_data(sysfs)
+    frequency_write_capable = bool(control_paths) and all(
+        os.access(path, os.W_OK)
+        for controls in control_paths.values()
+        for path in controls.values()
+    )
+    strategy = "discrete_bounds" if scaling_driver == "acpi-cpufreq" and freq_capable else (
+        "bounded_range" if freq_capable else "unavailable"
+    )
 
     smt_siblings: dict[int, list[int]] = {}
     for cpu in delegated:
@@ -172,6 +207,11 @@ def detect_environment(
         smt_siblings=smt_siblings,
         gpu_present=gpu_present,
         gpu_exclusive_hint=gpu_present and tier == "local",
+        frequency_levels_supported=freq_capable,
+        frequency_write_capable=frequency_write_capable,
+        frequency_control_strategy=strategy,
+        frequency_control_paths=control_paths,
+        rapl_domain_paths=rapl_domain_paths,
     )
     # Datos complementarios requeridos por ENV-06 y ENV-08, conservando la API pública.
     profile.delegated_cpus = delegated
@@ -195,7 +235,9 @@ def validate_environment_vs_manifest(profile: EnvironmentProfile, manifest: dict
     else:
         overrides["rapl_forced_disabled"] = False
     # ENV-05: el perfil determina la elegibilidad sin intentar controlar frecuencia.
-    manifest["not_eligible_for_training_dataset"] = not profile.freq_control_capable
+    manifest["not_eligible_for_training_dataset"] = not (
+        profile.freq_control_capable and profile.frequency_write_capable
+    )
     # ENV-07: la política declarada queda disponible para la metadata de campaña.
     metadata = manifest.setdefault("environment_metadata", {})
     metadata["smt_policy"] = manifest.get("smt_policy")

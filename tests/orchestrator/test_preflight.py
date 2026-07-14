@@ -110,11 +110,14 @@ def test_pre_t13_preflight_completo_correcto(tmp_path, env):
         "gpu": {"enabled": False},
         "output_dir": output,
         "overwrite": False,
-        "calibration": ["cal"],
-        "kernels": ["dataset"],
-    }
+            "calibration": ["cal"],
+            "kernels": ["dataset"],
+            "projected_campaign_bytes": 0,
+            "remaining_core_hours": 1.0,
+            "projected_core_hours": 0.5,
+        }
     results = preflight.run_campaign_preflight(
-        manifest, env, {"cal": entry, "dataset": entry}, sysfs=SysfsPaths.from_base(tmp_path / "sys")
+        manifest, env, {"cal": entry, "dataset": entry}, sysfs=SysfsPaths.from_base(tmp_path / "sys"), node_profile=SimpleNamespace(pmc_count=0)
     )
     assert results and all(result.passed for result in results)
 
@@ -239,3 +242,28 @@ def test_d04_es_advertencia_con_d02_y_d03_validos():
     )
     assert results[0].passed and results[1].passed
     assert (results[2].factor_id, results[2].passed, results[2].blocking) == ("D04", False, False)
+
+
+def test_nivel_nativo_no_exige_governor_ni_permiso_de_frecuencia(tmp_path, env):
+    binary = tmp_path / "kernel"
+    binary.write_text("#!/bin/sh\nexit 0\n")
+    binary.chmod(0o755)
+    entry = SimpleNamespace(
+        exec_path=binary,
+        binary_checksum=f"sha256:{hashlib.sha256(binary.read_bytes()).hexdigest()}",
+        success_check={"type": "exit_code"},
+        estimated_memory_bytes=1,
+    )
+    env.freq_control_capable = True
+    manifest = {
+        "cores": {"delegated_cpus": [2]}, "smt_policy": "all_threads",
+        "rapl": {"enabled": False}, "gpu": {"enabled": False},
+        "output_dir": tmp_path / "campaign", "overwrite": False,
+        "frequency_levels": [{"id": "REF", "mode": "native_governor"}],
+        "calibration": ["cal"], "kernels": [], "projected_campaign_bytes": 0,
+        "remaining_core_hours": 1.0, "projected_core_hours": 0.5,
+    }
+    results = preflight.run_campaign_preflight(
+        manifest, env, {"cal": entry}, sysfs=SysfsPaths.from_base(tmp_path / "sys"), node_profile=SimpleNamespace(pmc_count=0)
+    )
+    assert {result.factor_id for result in results}.isdisjoint({"E07", "E09"})
