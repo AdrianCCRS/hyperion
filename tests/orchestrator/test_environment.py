@@ -131,6 +131,28 @@ def test_env_t08_eventos_perf_disponibles(tmp_path):
     assert environment.detect_environment("2-5", str(raiz)).perf_events_available == ["cycles"]
 
 
+def test_rapl_descubre_subdominios_con_identificadores_unicos(tmp_path):
+    raiz = crear_sysfs(tmp_path, rapl=10)
+    core = raiz / "class/powercap/intel-rapl/intel-rapl:0/intel-rapl:0:0"
+    core.mkdir()
+    (core / "name").write_text("core")
+    perfil = environment.detect_environment("2-5", str(raiz))
+    assert "core-package-0" in perfil.rapl_domains_available
+    assert perfil.rapl_domain_paths["core-package-0"].endswith("intel-rapl:0:0")
+
+
+def test_entorno_separa_niveles_y_permiso_de_escritura(tmp_path):
+    raiz = crear_sysfs(tmp_path, driver="acpi-cpufreq")
+    for cpu in range(2, 6):
+        cpufreq = raiz / f"devices/system/cpu/cpu{cpu}/cpufreq"
+        for name in ("scaling_governor", "scaling_min_freq", "scaling_max_freq"):
+            (cpufreq / name).write_text("valor")
+    perfil = environment.detect_environment("2-5", str(raiz))
+    assert perfil.frequency_levels_supported is True
+    assert perfil.frequency_control_strategy == "discrete_bounds"
+    assert perfil.frequency_write_capable is True
+
+
 def test_env_t09_deteccion_no_escribe_archivos(tmp_path, monkeypatch):
     raiz = crear_sysfs(tmp_path)
     escrituras = []

@@ -45,6 +45,15 @@ def _cores(manifest: Any) -> list[int]:
     return list(delegated)
 
 
+def _requires_frequency_control(manifest: Any) -> bool:
+    """Solo los niveles fixed requieren permisos de escritura y userspace."""
+    for level in _value(manifest, "frequency_levels", ()):
+        mode = _value(level, "mode")
+        if mode == "fixed":
+            return True
+    return False
+
+
 def check_numa(delegated_cpus: Iterable[int], numa_cpu_map: Mapping[int, Iterable[int]]) -> CheckResult:
     delegated = set(delegated_cpus)
     nodes = {
@@ -64,12 +73,16 @@ def check_smt(env: Any, manifest: Any) -> CheckResult:
 def check_turbo_hwp(cpu_root: str | Path | None = None) -> CheckResult:
     root = Path(cpu_root) if cpu_root is not None else load_config().sysfs.cpu_root
     intel_pstate = root / "intel_pstate"
+    amd_pstate = root / "amd_pstate"
+    cpufreq = root / "cpufreq"
     observed = {
+        "scaling_driver": _read(root / "cpu0" / "cpufreq" / "scaling_driver"),
         "no_turbo": _read(intel_pstate / "no_turbo"),
         "status": _read(intel_pstate / "status"),
+        "amd_pstate_status": _read(amd_pstate / "status"),
+        "cpufreq_boost": _read(cpufreq / "boost"),
     }
-    # En plataformas sin intel_pstate no existe una interfaz Turbo/HWP equivalente.
-    return _result("E01", "Estado Turbo/HWP", True, True, observed, "Estado Turbo/HWP registrado para compararlo durante la campaña")
+    return _result("E01", "Estado Turbo/HWP/CPB", True, True, observed, "Estado Turbo/HWP/CPB registrado para compararlo durante la campaña")
 
 
 def check_turbo_hwp_unchanged(snapshot: Mapping[str, Any], cpu_root: str | Path | None = None) -> CheckResult:
@@ -84,30 +97,37 @@ def check_cgroup_clean(cgroup_path: str | Path, *, factor_id: str = "E03") -> Ch
     return _result(factor_id, "cgroup sin procesos", not pids, True, {"pids": pids}, "El cgroup delegado debe estar vacío")
 
 
-def check_governor(delegated_cpus: Iterable[int], expected: str, cpu_root: str | Path | None = None) -> CheckResult:
+def check_governor(delegated_cpus: Iterable[int], expected: str, cpu_root: str | Path | None = None, control_paths: Mapping[int, Mapping[str, str]] | None = None) -> CheckResult:
     root = Path(cpu_root) if cpu_root is not None else load_config().sysfs.cpu_root
     observed = {
-        cpu: _read(root / f"cpu{cpu}" / "cpufreq/scaling_governor")
+        cpu: _read(Path(control_paths[cpu]["scaling_governor"]))
+        if control_paths and cpu in control_paths and "scaling_governor" in control_paths[cpu]
+        else _read(root / f"cpu{cpu}" / "cpufreq/scaling_governor")
         for cpu in delegated_cpus
     }
     passed = bool(observed) and all(value == expected for value in observed.values())
     return _result("E07", "Governor efectivo", passed, True, {"governors": observed, "expected": expected}, "El governor efectivo no coincide con el esperado")
 
 
-def check_frequency_write_permission(delegated_cpus: Iterable[int], cpu_root: str | Path | None = None) -> CheckResult:
+def check_frequency_write_permission(delegated_cpus: Iterable[int], cpu_root: str | Path | None = None, control_paths: Mapping[int, Mapping[str, str]] | None = None) -> CheckResult:
     root = Path(cpu_root) if cpu_root is not None else load_config().sysfs.cpu_root
-    paths = [
-        root / f"cpu{cpu}" / "cpufreq" / filename
-        for cpu in delegated_cpus
-        for filename in ("scaling_governor", "scaling_setspeed")
-    ]
+    paths = (
+        [Path(path) for cpu in delegated_cpus for path in (control_paths or {}).get(cpu, {}).values()]
+        if control_paths is not None
+        else [
+            root / f"cpu{cpu}" / "cpufreq" / filename
+            for cpu in delegated_cpus
+            for filename in ("scaling_governor", "scaling_min_freq", "scaling_max_freq")
+        ]
+    )
     writable = {str(path): os.access(path, os.W_OK) for path in paths}
-    return _result("E09", "Permisos de control de frecuencia", all(writable.values()), True, {"writable": writable}, "No hay permiso de escritura en todos los controles de frecuencia")
+    return _result("E09", "Permisos de control de frecuencia", bool(writable) and all(writable.values()), True, {"writable": writable}, "No hay permiso de escritura en todos los controles de frecuencia")
 
 
-def check_external_load(threshold: float, load_reader: Callable[[], tuple[float, float, float]] = os.getloadavg) -> CheckResult:
+def check_external_load(threshold: float, load_reader: Callable[[], tuple[float, float, float]] = os.getloadavg, cpu_count: int = 1) -> CheckResult:
     load = float(load_reader()[0])
-    return _result("E08", "Carga externa", load <= threshold, True, {"load_1m": load, "threshold": threshold}, "La carga externa supera el umbral")
+    normalized = load / max(cpu_count, 1)
+    return _result("E08", "Carga externa", normalized <= threshold, True, {"load_1m": load, "normalized_load_1m": normalized, "cpu_count": max(cpu_count, 1), "threshold": threshold}, "La carga externa supera el umbral")
 
 
 def check_temperature(temperature_c: float | None, minimum_c: float = 0.0, maximum_c: float = 90.0) -> CheckResult:
@@ -197,13 +217,13 @@ def check_toolchain(rebuild: bool) -> CheckResult:
 def check_perf_counter_capacity(requested_events: Iterable[str], pmc_count: int | None) -> CheckResult:
     requested = list(requested_events)
     if pmc_count is None:
-        return _result("D05", "Capacidad PMC", True, True, {"requested": len(requested), "pmc_count": "not_declared"}, "La capacidad PMC se verificará con node_profile")
+        return _result("D05", "Capacidad PMC", False, True, {"requested": len(requested), "pmc_count": "not_declared"}, "node_profile debe declarar la capacidad PMC")
     return _result("D05", "Capacidad PMC", len(requested) <= pmc_count, True, {"requested": len(requested), "pmc_count": pmc_count}, "Se solicitaron más eventos que PMCs disponibles")
 
 
 def check_core_hour_budget(remaining: float | None, projected: float | None) -> CheckResult:
     if remaining is None or projected is None:
-        return _result("OPS-01", "Presupuesto hora-núcleo", True, True, {"status": "not_declared"}, "El presupuesto se verificará cuando esté declarado")
+        return _result("OPS-01", "Presupuesto hora-núcleo", False, True, {"status": "not_declared"}, "El presupuesto y la proyección deben estar declarados")
     return _result("OPS-01", "Presupuesto hora-núcleo", remaining >= projected, True, {"remaining": remaining, "projected": projected}, "El presupuesto restante es insuficiente")
 
 
@@ -283,13 +303,18 @@ def run_campaign_preflight(
     cgroup_path = _value(manifest, "cgroup_path")
     if cgroup_path:
         results.append(check_cgroup_clean(cgroup_path))
-    if _value(env, "freq_control_capable", False):
-        results.append(check_frequency_write_permission(cores, sysfs.cpu_root))
-        results.append(check_governor(cores, "userspace", sysfs.cpu_root))
+    if _requires_frequency_control(manifest):
+        control_paths = _value(env, "frequency_control_paths", None)
+        results.append(check_frequency_write_permission(cores, sysfs.cpu_root, control_paths))
+        results.append(check_governor(cores, "userspace", sysfs.cpu_root, control_paths))
     results.append(check_rapl_domains(_value(rapl, "domains", []), _value(env, "rapl_domains_available", []), bool(_value(rapl, "enabled", False))))
     output_dir, overwrite = _value(manifest, "output_dir"), bool(_value(manifest, "overwrite", False))
     results.append(_result("I07", "Directorio de campaña", overwrite or not Path(output_dir).exists(), True, {"output_dir": str(output_dir)}, "output_dir ya existe"))
-    results.append(check_disk_space(output_dir, int(_value(manifest, "projected_campaign_bytes", 0))))
+    projected = _value(manifest, "projected_campaign_bytes")
+    if isinstance(projected, int) and projected >= 0:
+        results.append(check_disk_space(output_dir, projected))
+    else:
+        results.append(_result("I09", "Espacio libre", False, True, {"projected_bytes": "not_declared"}, "Debe declararse projected_campaign_bytes"))
     if _value(gpu, "enabled", False):
         results.extend(check_gpu(gpu_inspector))
     refs = tuple(_value(manifest, "calibration", ())) + tuple(_value(manifest, "kernels", ()))
@@ -307,13 +332,14 @@ def run_reduced_preflight(manifest: Any, env: Any, entry: Any, run_id: str, *, e
     results = [
         check_temperature(_value(manifest, "package_temperature_c"), _value(manifest, "temperature_min_c", 0.0), _value(manifest, "temperature_max_c", 90.0)),
         check_foreign_processes(_value(manifest, "foreign_affinity_pids", ())),
-        check_governor(_cores(manifest), expected_governor, cpu_root),
-        check_external_load(load_threshold, load_reader),
+        check_external_load(load_threshold, load_reader, max(len(_cores(manifest)), 1)),
         check_run_id_unique(_value(manifest, "output_dir"), run_id, bool(_value(manifest, "overwrite", False))),
         check_binary_exists(entry),
         check_binary_checksum(entry),
         check_success_check(entry),
     ]
+    if _requires_frequency_control(manifest):
+        results.append(check_governor(_cores(manifest), expected_governor, cpu_root, _value(env, "frequency_control_paths", None)))
     if turbo_snapshot is not None:
         results.append(check_turbo_hwp_unchanged(turbo_snapshot, cpu_root))
     return results
