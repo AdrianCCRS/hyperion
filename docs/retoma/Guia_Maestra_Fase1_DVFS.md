@@ -561,7 +561,7 @@ Cada regla tiene un ID único MÓDULO-NN y una casilla para marcar cuando el mó
 | CAL-08 | ☑ | node\_profile.json incluye todos los campos del dataclass NodeProfile. |
 | CAL-09 | ☑ | build\_calibration\_references() corre ≥5 repeticiones del kernel de referencia para calcular P95. |
 | CAL-10 | ☑ | Si cv\_pct \> umbral (defecto 5.0%): accepted=False. **Parcial:** el warning en el reporte de campaña depende de report.py (F2.8, aún no construido). |
-| CAL-11 | ☐ | Los tres artefactos (roofline\_calibration.json, node\_profile.json, calibration\_references.json) se generan en la misma fase de campaña, antes de la matriz de dataset. Las tres funciones existen y quedan probadas por separado; falta la orquestación conjunta, que corresponde a campaign.py (F2.7). |
+| CAL-11 | ☑ | Los tres artefactos (roofline\_calibration.json, node\_profile.json, calibration\_references.json) se generan en la misma fase de campaña, antes de la matriz de dataset: `campaign.run_campaign()` (F2.7) las orquesta en ese orden exacto antes de `build_matrix()`. |
 
 ### **12.7 Runner (RUN-01 a RUN-08) — 8 reglas**
 
@@ -580,13 +580,13 @@ Cada regla tiene un ID único MÓDULO-NN y una casilla para marcar cuando el mó
 
 | ID | ✓ | Regla de validación / invariante técnica |
 | :---- | :---: | :---- |
-| CAM-01 | ☐ | Aleatorizar SIEMPRE con random.Random(seed).shuffle(). Nunca en bloques por kernel o frecuencia. |
-| CAM-02 | ☐ | La semilla y el orden completo de run\_ids ejecutados quedan en la metadata de campaña. |
-| CAM-03 | ☐ | Reanudación: accepted=True → saltar; accepted=False → reintentar (un rechazo no es lo mismo que hecho). |
-| CAM-04 | ☐ | Baseline y telemetry son par ATÓMICO. No se separan en el orden aleatorizado. |
-| CAM-05 | ☐ | Contabilizar hora-núcleo de la campaña piloto antes de lanzar la completa. |
-| CAM-06 | ☐ | Timeouts por fase. La campaña nunca se queda colgada esperando indefinidamente. |
-| CAM-07 | ☐ | Al cierre (normal o por interrupción), SIEMPRE llamar freqctl.restore\_original\_state() y verificar por lectura. |
+| CAM-01 | ☑ | Aleatorizar SIEMPRE con random.Random(seed).shuffle(). Nunca en bloques por kernel o frecuencia (`build_matrix`, reproducible por seed). |
+| CAM-02 | ☑ | La semilla y el orden completo de run\_ids ejecutados quedan en la metadata de campaña (`campaign_metadata.json`, escrito incrementalmente por si la campaña se interrumpe). |
+| CAM-03 | ☑ | Reanudación: accepted=True → saltar (el par completo, baseline incluido); accepted=False → reintentar (un rechazo no es lo mismo que hecho). |
+| CAM-04 | ☑ | Baseline y telemetry son par ATÓMICO (`schedule_runs`, run_id + sufijo `__baseline`). No se separan en el orden aleatorizado. |
+| CAM-05 | ☑ | Se contabilizan hora-núcleo acumuladas (`CampaignProgress.total_core_hours`) por corrida. **Parcial:** la decisión operativa de "detenerse antes de lanzar la campaña completa" es una política humana (OPS-01), no automatizada aquí. |
+| CAM-06 | ☑ | `campaign_timeout_seconds` aborta la matriz completa si se excede, además del timeout por corrida ya garantizado por runner.py (RUN-03). |
+| CAM-07 | ☑ | Al cierre (normal o por interrupción, incluida una excepción durante la calibración) SIEMPRE se llama freqctl.restore\_original\_state() desde un `finally`, además de `install_emergency_handlers` para SIGINT/SIGTERM/atexit. |
 
 ### **12.9 Post-procesamiento (POST-01 a POST-16) — 16 reglas**
 
