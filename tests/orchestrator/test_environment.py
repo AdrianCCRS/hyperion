@@ -185,6 +185,39 @@ def test_env_t10_reporte_de_entorno(tmp_path):
     assert datos["numa_cpu_map"]["0"] == [0, 1, 2, 3]
 
 
+def test_env_t11_dominio_de_frecuencia_por_socket(tmp_path):
+    raiz = crear_sysfs(tmp_path, driver="acpi-cpufreq")
+    for cpu in (2, 3, 4, 5):
+        cpufreq = raiz / f"devices/system/cpu/cpu{cpu}/cpufreq"
+        (cpufreq / "freqdomain_cpus").write_text("0-7")
+    perfil = environment.detect_environment("2-5", str(raiz))
+    assert perfil.frequency_domain_cpus == {
+        2: [0, 1, 2, 3, 4, 5, 6, 7],
+        3: [0, 1, 2, 3, 4, 5, 6, 7],
+        4: [0, 1, 2, 3, 4, 5, 6, 7],
+        5: [0, 1, 2, 3, 4, 5, 6, 7],
+    }
+
+
+def test_env_t12_dominio_de_frecuencia_usa_related_cpus_si_falta_freqdomain(tmp_path):
+    raiz = crear_sysfs(tmp_path, driver="acpi-cpufreq")
+    (raiz / "devices/system/cpu/cpu2/cpufreq/related_cpus").write_text("2-3")
+    perfil = environment.detect_environment("2-3", str(raiz))
+    assert perfil.frequency_domain_cpus == {2: [2, 3]}
+    assert 3 not in perfil.frequency_domain_cpus
+
+
+def test_env_t13_reporte_incluye_dominio_de_frecuencia(tmp_path):
+    raiz = crear_sysfs(tmp_path, driver="acpi-cpufreq")
+    (raiz / "devices/system/cpu/cpu2/cpufreq/freqdomain_cpus").write_text("2-3")
+    perfil = environment.detect_environment("2-3", str(raiz))
+    salida = tmp_path / "salida"
+    salida.mkdir()
+    reporte = environment.write_environment_report(perfil, salida)
+    datos = json.loads(reporte.read_text(encoding="utf-8"))
+    assert datos["frequency_domain_cpus"]["2"] == [2, 3]
+
+
 def test_config_inyectada_define_rutas_y_tier_cloud(tmp_path, monkeypatch):
     raiz = crear_sysfs(tmp_path)
     configuracion_toml = tmp_path / "orchestrator.toml"

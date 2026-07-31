@@ -95,6 +95,25 @@ def _frequency_data(sysfs: SysfsPaths, cpus: list[int]) -> tuple[str, list[int],
     return driver, sorted(frequencies), controls
 
 
+def _frequency_domain_data(sysfs: SysfsPaths, cpus: list[int]) -> dict[int, list[int]]:
+    """Lee la agrupación real de control de frecuencia por CPU (E10).
+
+    En hardware antiguo (ej. acpi-cpufreq por socket) ``freqdomain_cpus``
+    puede abarcar más CPUs que los delegados a la campaña, exponiendo el
+    riesgo de que fijar la frecuencia afecte cores de otro job. Se prueban
+    los tres nombres de archivo que el kernel usa según el driver.
+    """
+    domains: dict[int, list[int]] = {}
+    for cpu in cpus:
+        cpu_path = _cpufreq_directory(sysfs, cpu)
+        for filename in ("freqdomain_cpus", "related_cpus", "affected_cpus"):
+            value = _read_text(cpu_path / filename)
+            if value:
+                domains[cpu] = _parse_cpu_list(value)
+                break
+    return domains
+
+
 def _rapl_data(sysfs: SysfsPaths) -> tuple[list[str], dict[str, str], bool]:
     rapl_root = sysfs.rapl_root
     domain_paths: dict[str, str] = {}
@@ -175,6 +194,7 @@ def detect_environment(
         if siblings is not None:
             smt_siblings[cpu] = _parse_cpu_list(siblings)
     numa_cpu_map, delegated_cpu_numa_nodes = _numa_data(sysfs, delegated)
+    frequency_domain_cpus = _frequency_domain_data(sysfs, delegated)
     perf_events = sorted(
         path.name
         for path in sysfs.perf_events_root.glob("*")
@@ -218,6 +238,7 @@ def detect_environment(
     profile.numa_cpu_map = numa_cpu_map
     profile.delegated_cpu_numa_nodes = delegated_cpu_numa_nodes
     profile.perf_events_available = perf_events
+    profile.frequency_domain_cpus = frequency_domain_cpus
     return profile
 
 
@@ -251,6 +272,7 @@ def write_environment_report(profile: EnvironmentProfile, output_dir: str | Path
     report["numa_cpu_map"] = getattr(profile, "numa_cpu_map", {})
     report["delegated_cpu_numa_nodes"] = getattr(profile, "delegated_cpu_numa_nodes", {})
     report["perf_events_available"] = getattr(profile, "perf_events_available", [])
+    report["frequency_domain_cpus"] = getattr(profile, "frequency_domain_cpus", {})
     path = Path(output_dir) / "environment_report.json"
     with path.open("w", encoding="utf-8") as output:
         json.dump(report, output, indent=2, sort_keys=True)

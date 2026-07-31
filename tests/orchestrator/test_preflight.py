@@ -148,6 +148,22 @@ def test_e09_requiere_permisos_en_todos_los_cores(monkeypatch):
     assert (result.factor_id, result.passed, result.blocking) == ("E09", False, True)
 
 
+def test_e10_dominio_de_frecuencia_excede_los_cores_delegados():
+    result = preflight.check_frequency_domain([2, 3], {2: [0, 1, 2, 3, 4, 5, 6, 7], 3: [0, 1, 2, 3, 4, 5, 6, 7]})
+    assert (result.factor_id, result.passed, result.blocking) == ("E10", False, True)
+    assert result.observed["leaking_cpus"][2] == [0, 1, 4, 5, 6, 7]
+
+
+def test_e10_dominio_cubierto_por_completo_pasa():
+    result = preflight.check_frequency_domain([2, 3], {2: [2, 3], 3: [2, 3]})
+    assert (result.factor_id, result.passed) == ("E10", True)
+
+
+def test_e10_sin_datos_de_dominio_no_bloquea():
+    result = preflight.check_frequency_domain([2, 3], None)
+    assert (result.factor_id, result.passed) == ("E10", True)
+
+
 def test_c05_memoria_declarada_no_cabe():
     entry = SimpleNamespace(estimated_memory_bytes=9)
     result = preflight.check_memory_size(entry, ram_bytes=8)
