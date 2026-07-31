@@ -124,6 +124,32 @@ def check_frequency_write_permission(delegated_cpus: Iterable[int], cpu_root: st
     return _result("E09", "Permisos de control de frecuencia", bool(writable) and all(writable.values()), True, {"writable": writable}, "No hay permiso de escritura en todos los controles de frecuencia")
 
 
+def check_frequency_domain(delegated_cpus: Iterable[int], frequency_domain_cpus: Mapping[int, Iterable[int]] | None) -> CheckResult:
+    """E10: el dominio real de control de frecuencia no debe exceder los cores delegados.
+
+    En hardware donde el control es por socket (ej. acpi-cpufreq en Nehalem-EX),
+    fijar la frecuencia de un core delegado también cambia la de cores ajenos que
+    compartan el dominio. Si el kernel no expone datos de dominio (driver moderno
+    sin ese archivo), no se bloquea por falta de evidencia.
+    """
+    delegated = set(delegated_cpus)
+    domains = frequency_domain_cpus or {}
+    leaking = {
+        cpu: sorted(set(cpus) - delegated)
+        for cpu, cpus in domains.items()
+        if cpu in delegated and not set(cpus).issubset(delegated)
+    }
+    passed = not leaking
+    return _result(
+        "E10",
+        "Dominio de frecuencia compartido",
+        passed,
+        True,
+        {"domains": {cpu: sorted(cpus) for cpu, cpus in domains.items()}, "leaking_cpus": leaking},
+        "El dominio de control de frecuencia incluye CPUs fuera de los cores delegados (riesgo de afectar a otro job)",
+    )
+
+
 def check_external_load(threshold: float, load_reader: Callable[[], tuple[float, float, float]] = os.getloadavg, cpu_count: int = 1) -> CheckResult:
     load = float(load_reader()[0])
     normalized = load / max(cpu_count, 1)
@@ -307,6 +333,7 @@ def run_campaign_preflight(
         control_paths = _value(env, "frequency_control_paths", None)
         results.append(check_frequency_write_permission(cores, sysfs.cpu_root, control_paths))
         results.append(check_governor(cores, "userspace", sysfs.cpu_root, control_paths))
+        results.append(check_frequency_domain(cores, _value(env, "frequency_domain_cpus", None)))
     results.append(check_rapl_domains(_value(rapl, "domains", []), _value(env, "rapl_domains_available", []), bool(_value(rapl, "enabled", False))))
     output_dir, overwrite = _value(manifest, "output_dir"), bool(_value(manifest, "overwrite", False))
     results.append(_result("I07", "Directorio de campaña", overwrite or not Path(output_dir).exists(), True, {"output_dir": str(output_dir)}, "output_dir ya existe"))

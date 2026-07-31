@@ -405,6 +405,7 @@ Preflight de campaña (una vez, bloqueante o advertencia):
 | E04 | NUMA: delegated\_cpus en un único nodo NUMA. | Sí |
 | E05 | SMT: política declarada explícitamente en el manifest. | Sí |
 | E09 | Si hay niveles fixed: frequency\_write\_capable=True. | Sí si hay fixed |
+| E10 | Si hay niveles fixed: el dominio real de control de frecuencia (freqdomain\_cpus/related\_cpus/affected\_cpus) de cada core delegado debe estar contenido en delegated\_cpus (evita afectar cores de otro job en hardware con control por socket, ej. felix). Sin datos de dominio no bloquea. | Sí si hay fixed |
 | I05 | Si rapl\_domains\_available vacío: forzar rapl.enabled a False sin bloquear. | No |
 | I07 | output\_dir no existe (o overwrite: true). | Sí |
 | I08 | manifest.rapl.domains ⊆ rapl\_domains\_available (alias reales). | Sí si rapl |
@@ -502,7 +503,7 @@ Cada regla tiene un ID único MÓDULO-NN y una casilla para marcar cuando el mó
 | ENV-11 | ☐ | Alias únicos por dominio RAPL (package-0, core-package-0, ...) nunca nombres genéricos. |
 | ENV-12 | ☐ | gpu\_vendor por detección real del dispositivo, nunca por nombre del nodo o modelo de CPU. |
 
-### **12.4 Preflight (PRE-E01 a PRE-OPS01) — 25 reglas**
+### **12.4 Preflight (PRE-E01 a PRE-OPS01) — 26 reglas**
 
 | ID | ✓ | Regla de validación / invariante técnica |
 | :---- | :---: | :---- |
@@ -515,6 +516,7 @@ Cada regla tiene un ID único MÓDULO-NN y una casilla para marcar cuando el mó
 | PRE-E07 | ☐ | Atributo real de gobierno coincide con el esperado (solo si hay niveles fixed). |
 | PRE-E08 | ☐ | Carga externa del nodo bajo umbral configurado en el manifest. |
 | PRE-E09 | ☐ | Si el manifest solicita algún nivel fixed: frequency\_write\_capable=True. Bloqueante. |
+| PRE-E10 | ☑ | Dominio real de control de frecuencia (freqdomain\_cpus/related\_cpus/affected\_cpus) contenido en delegated\_cpus; sin datos de dominio no bloquea. Bloqueante. Regla nueva, fuera del alcance original — ver ARC-30. |
 | PRE-I05 | ☐ | Si rapl\_domains\_available vacío, forzar rapl.enabled a False. No bloqueante. |
 | PRE-I07 | ☐ | output\_dir y run\_id no existen ya en disco. Bloqueante. |
 | PRE-I08 | ☐ | manifest.rapl.domains ⊆ rapl\_domains\_available del nodo (alias reales). Bloqueante si rapl.enabled. |
