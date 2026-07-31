@@ -69,7 +69,7 @@ def _fake_run_single(calls):
             run_id=run_id, kernel_ref=kernel_ref, freq_level_id=freq_level_id, repetition_index=repetition_index,
             exit_code=0, timed_out=False, success=True, elapsed_seconds=1.0, run_dir=run_dir,
             stdout_path=run_dir / "stdout.txt", stderr_path=run_dir / "stderr.txt",
-            metadata={"samples_collected": 10, "push_retries": 0},
+            metadata={"samples_collected": 10, "push_retries": 0}, applied_frequency=None,
         )
     return run_single
 
@@ -105,6 +105,7 @@ def _freqctl_fakes():
     install_calls = []
     return dict(
         apply_frequency=lambda cpus, level_id, env: None,
+        read_observed_frequency_khz=lambda env, cpu: None,
         snapshot_original_state=lambda cpus, env: "SNAPSHOT",
         restore_original_state=lambda state, env: restore_calls.append(state) or True,
         install_emergency_handlers=lambda restore: install_calls.append(restore),
@@ -172,6 +173,45 @@ def test_campana_completa_corre_baseline_telemetry_y_postprocesa(tmp_path):
     assert metadata["accepted_run_ids"] == ["camp01__npb_ep__REF__rep01"]
     assert metadata["skipped_run_ids"] == []  # MET-06
     assert metadata["frequency_restored_verified"] is True  # MET-02
+
+
+def test_frq03_frq10_frecuencia_solicitada_aplicada_y_observada_llegan_a_postprocess(tmp_path):
+    manifest = _manifest(
+        tmp_path, frequency_levels=(FrequencyLevel("F0", "fixed", 1.0),),
+    )
+    catalog = _catalog(tmp_path)
+    calibration_deps, postprocess_calls = _fake_calibration_deps()
+    freqctl_deps, _, _ = _freqctl_fakes()
+
+    applied = SimpleNamespace(requested_khz=2261000, applied_khz=2261000, governor_applied="userspace")
+
+    def run_single(entry, manifest, kernel_ref, freq_level_id, repetition_index, *,
+                    environment_profile=None, node_id=None, apply_frequency=None, calibration_refs=None):
+        base_run_id = runner_module.build_run_id(manifest.campaign_id, kernel_ref, freq_level_id, repetition_index)
+        run_id = base_run_id if manifest.perf_enabled else f"{base_run_id}__baseline"
+        run_dir = Path(manifest.output_dir) / run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+        return SimpleNamespace(
+            run_id=run_id, kernel_ref=kernel_ref, freq_level_id=freq_level_id, repetition_index=repetition_index,
+            exit_code=0, timed_out=False, success=True, elapsed_seconds=1.0, run_dir=run_dir,
+            stdout_path=run_dir / "stdout.txt", stderr_path=run_dir / "stderr.txt",
+            metadata={"samples_collected": 10, "push_retries": 0},
+            applied_frequency=applied if manifest.perf_enabled else None,
+        )
+
+    freqctl_deps["read_observed_frequency_khz"] = lambda env, cpu: 2261000
+
+    campaign.run_campaign(
+        manifest, catalog, SimpleNamespace(frequency_write_capable=True),
+        node_id="felix-sc3", reference_kernel_ref="npb_ep",
+        run_single=run_single, **calibration_deps, **freqctl_deps,
+    )
+
+    assert len(postprocess_calls) == 1
+    _, kwargs = postprocess_calls[0]
+    assert kwargs["freq_khz_requested"] == 2261000
+    assert kwargs["freq_khz_applied"] == 2261000
+    assert kwargs["freq_khz_observed"] == 2261000
 
 
 def test_cam03_reanudacion_salta_combinacion_ya_aceptada(tmp_path):
