@@ -14,6 +14,7 @@ from typing import Any, Callable, Iterable, Mapping
 
 from .catalog import KernelEntry, resolve_exec_command, verify_binary
 from .config import HarnessConfig, load_config
+from .metadata_schema import merge_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -145,13 +146,6 @@ def _read_launcher_metadata(run_dir: Path) -> dict[str, Any]:
         return {}
 
 
-def _disjoint_update(base: dict[str, Any], extra: Mapping[str, Any], context: str) -> None:
-    collisions = set(base) & set(extra)
-    if collisions:
-        raise ValueError(f"{context}: colisión de claves de metadata: {sorted(collisions)}")
-    base.update(extra)
-
-
 def _merge_metadata(
     launcher_metadata: Mapping[str, Any],
     entry: KernelEntry,
@@ -163,9 +157,8 @@ def _merge_metadata(
     calibration_refs: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
     """RUN-06: merge launcher metadata (samples_collected, push_retries,
-    perf_attach_mode, measured_pids, ...) with orchestrator-level metadata.
-    Never {**a, **b}: any key collision is a bug and must fail loudly
-    (see MET-01)."""
+    perf_attach_mode, measured_pids, ...) with orchestrator-level metadata,
+    via metadata_schema.merge_metadata() (MET-01: never {**a, **b})."""
     orchestrator_fields: dict[str, Any] = {
         "campaign_id": manifest.campaign_id,
         "kernel_ref": kernel_ref,
@@ -177,11 +170,9 @@ def _merge_metadata(
         "binary_checksum": entry.binary_checksum,
     }
     if calibration_refs:
-        _disjoint_update(orchestrator_fields, calibration_refs, "RUN-06")
+        orchestrator_fields = merge_metadata(orchestrator_fields, calibration_refs, context="RUN-06")
 
-    merged = dict(launcher_metadata)
-    _disjoint_update(merged, orchestrator_fields, "RUN-06")
-    return merged
+    return merge_metadata(launcher_metadata, orchestrator_fields, context="RUN-06")
 
 
 def run_single(
