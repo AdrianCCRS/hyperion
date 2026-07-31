@@ -25,6 +25,9 @@ class NodeProfile:
     cache_l2_kb: int
     cache_llc_kb: int
     cache_llc_shared: bool
+    # POST-10: fuente real de LLC_LINE_SIZE_BYTES para bytes_moved_window en
+    # postprocess.py. Nunca se asume 64 bytes sin leerlo de sysfs.
+    cache_line_size_bytes: int
     freq_min_khz: int
     freq_max_khz: int
     scaling_driver: str
@@ -102,18 +105,21 @@ def _parse_cache_size_kb(text: str) -> int | None:
         return None
 
 
-def _cache_data(sysfs: SysfsPaths, cpus: Iterable[int]) -> tuple[int, int, int, bool]:
+def _cache_data(sysfs: SysfsPaths, cpus: Iterable[int]) -> tuple[int, int, int, bool, int]:
     """Lee /sys/devices/system/cpu/cpu*/cache/index*/ (solo lectura, CAL-07).
 
-    Devuelve (l1_kb, l2_kb, llc_kb, llc_shared): el tamaño de cada nivel es
-    el declarado por una sola instancia representativa (todas las instancias
-    del mismo nivel reportan el mismo tamaño por diseño de la cache); llc es
-    el nivel más alto observado; llc_shared es True si su shared_cpu_list
-    abarca más de un CPU lógico.
+    Devuelve (l1_kb, l2_kb, llc_kb, llc_shared, llc_line_size_bytes): el
+    tamaño de cada nivel es el declarado por una sola instancia
+    representativa (todas las instancias del mismo nivel reportan el mismo
+    tamaño por diseño de la cache); llc es el nivel más alto observado;
+    llc_shared es True si su shared_cpu_list abarca más de un CPU lógico;
+    llc_line_size_bytes viene de coherency_line_size del mismo índice LLC
+    (POST-10: nunca se asume 64 bytes sin leerlo).
     """
     l1_kb = l2_kb = llc_kb = 0
     llc_level = -1
     llc_shared = False
+    llc_line_size_bytes = 0
     seen_levels: set[int] = set()
     for cpu in cpus:
         cache_root = sysfs.cpu_root / f"cpu{cpu}" / "cache"
@@ -142,8 +148,13 @@ def _cache_data(sysfs: SysfsPaths, cpus: Iterable[int]) -> tuple[int, int, int, 
                     llc_level = level
                     llc_kb = size_kb
                     llc_shared = len(shared_cpus) > 1
+                    line_size_text = _read_text(index_dir / "coherency_line_size")
+                    try:
+                        llc_line_size_bytes = int(line_size_text) if line_size_text else 0
+                    except ValueError:
+                        llc_line_size_bytes = 0
             seen_levels.add(level)
-    return l1_kb, l2_kb, llc_kb, llc_shared
+    return l1_kb, l2_kb, llc_kb, llc_shared, llc_line_size_bytes
 
 
 def _parse_cpu_range(text: str) -> list[int]:
@@ -185,7 +196,7 @@ def build_node_profile(
     cpu_model, sockets, cores_total, threads_per_core = _parse_cpuinfo(cpuinfo_text)
 
     resolved_sysfs = sysfs or SysfsPaths.from_base("/sys")
-    l1_kb, l2_kb, llc_kb, llc_shared = _cache_data(resolved_sysfs, cpus)
+    l1_kb, l2_kb, llc_kb, llc_shared, llc_line_size_bytes = _cache_data(resolved_sysfs, cpus)
 
     available = list(getattr(env, "available_frequencies_khz", []) or [])
     freq_min_khz = min(available) if available else 0
@@ -203,6 +214,7 @@ def build_node_profile(
         cache_l2_kb=l2_kb,
         cache_llc_kb=llc_kb,
         cache_llc_shared=llc_shared,
+        cache_line_size_bytes=llc_line_size_bytes,
         freq_min_khz=freq_min_khz,
         freq_max_khz=freq_max_khz,
         scaling_driver=str(getattr(env, "scaling_driver", "")),
