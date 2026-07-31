@@ -12,10 +12,16 @@ namespace telemetry {
     /**
      * @brief perf_event reader for a cgroup across explicit CPUs.
      *
+     * @deprecated Superseded by PerfReader with PID + inherit=1
+     * (Guia_Maestra_Fase1_DVFS.md section 3/4). telemetry_kernel_launcher no
+     * longer opens perf through a cgroup: measurement now attaches to the
+     * measured PID directly, so it works without knowing or resolving the
+     * Slurm cgroup path. Kept for the existing CTest coverage only; do not
+     * wire new callers to this class.
+     *
      * Linux perf cgroup mode is opened per CPU with PERF_FLAG_PID_CGROUP. This
      * reader opens the same hardware-counter group on each requested CPU and
-     * aggregates values into one CpuSample per read. It is the preferred CPU
-     * backend for multithreaded workload experiments.
+     * aggregates values into one CpuSample per read.
      */
     class PerfCgroupReader {
     public:

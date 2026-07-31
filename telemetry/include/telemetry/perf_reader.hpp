@@ -20,11 +20,16 @@ namespace telemetry {
     }
 
     /**
-     * @brief Simple process/CPU perf_event reader.
+     * @brief perf_event reader attached to an external process by PID.
      *
-     * This reader measures one process/CPU scope and is mainly useful for local
-     * tests, smoke checks, and simple single-threaded use. The multithreaded
-     * launcher uses PerfCgroupReader instead.
+     * This is the CPU counter backend used by telemetry_kernel_launcher: it
+     * opens hardware counters on a target PID (typically a freshly forked and
+     * still-stopped child) with inherit=1, so descendant processes spawned by
+     * the measured workload are covered too. inherit=1 forces the kernel to
+     * reject grouped reads (PERF_FORMAT_GROUP), so each event is opened as an
+     * independent file descriptor and read separately; this introduces a
+     * microsecond-scale skew between events that is negligible against
+     * millisecond sampling intervals.
      */
     class PerfReader {
         public:
@@ -33,14 +38,16 @@ namespace telemetry {
          * @param cpu CPU to monitor. cpu=-1 lets perf choose any CPU allowed by
          * the selected pid scope.
          *
-         * The implementation uses inherit=false to keep interpretation simple:
-         * this class does not try to measure child processes or thread trees.
+         * inherit=1 is always set: descendants of pid (if any) are covered by
+         * the same counters. Reading remains live per-fd while pid is alive;
+         * inherited children are only folded back on their own exit, which is
+         * irrelevant here because pid itself is the one being sampled.
          */
         explicit PerfReader(pid_t pid = 0, int cpu = -1);
         ~PerfReader();
-        
+
         /**
-         * @brief Open and enable the hardware-counter group.
+         * @brief Open one independent fd per hardware counter and enable them.
          *
          * Throws std::runtime_error on permission or perf_event_open failures.
          */
@@ -48,44 +55,42 @@ namespace telemetry {
 
         /** @brief Disable and close every perf file descriptor. */
         void close() noexcept;
-    
+
         /**
-         * @brief Read the whole perf group into a CpuSample.
+         * @brief Read every counter into a CpuSample.
          *
          * Returns false if the reader is closed or the kernel returns an
-         * unexpected short/invalid read.
+         * unexpected short/invalid read for any event.
          */
         bool read(CpuSample& out) noexcept;
-    
-        /** @brief Enable the perf group. */
+
+        /** @brief Enable every counter fd. */
         void enable()  noexcept;
 
-        /** @brief Disable the perf group. */
+        /** @brief Disable every counter fd. */
         void disable() noexcept;
-    
-        /** @return true when the leader file descriptor is open. */
-        bool is_open() const noexcept { return group_fd_ >= 0; }
+
+        /** @return true while the reader has open perf file descriptors. */
+        bool is_open() const noexcept { return !fds_.empty(); }
 
         private:
-            static constexpr uint64_t kExpectedCounters = 4;
-            static constexpr uint64_t kMaxReadCounters = 8;
+            // Fixed open order, also the read/index order: instructions, cycles,
+            // cache references, cache misses.
+            static constexpr size_t kInstructions = 0;
+            static constexpr size_t kCycles = 1;
+            static constexpr size_t kCacheReferences = 2;
+            static constexpr size_t kCacheMisses = 3;
+            static constexpr size_t kEventCount = 4;
 
             pid_t pid_;
             int   cpu_;
-            int   group_fd_ = -1;   // leader fd
-            std::vector<int> member_fds_;
-        
-            /**
-             * @brief Kernel read layout for grouped perf reads.
-             *
-             * Event ids are not requested because the open order is fixed:
-             * instructions, cycles, cache references, cache misses.
-             */
+            std::vector<int> fds_;
+
+            /** Kernel read layout for one ungrouped fd with time diagnostics. */
             struct ReadFormat {
-                uint64_t nr;
+                uint64_t value;
                 uint64_t time_enabled;
                 uint64_t time_running;
-                uint64_t values[kMaxReadCounters];
             };
         };
 }

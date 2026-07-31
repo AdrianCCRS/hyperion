@@ -3,6 +3,7 @@
 #include "telemetry/rapl_reader.hpp"
 
 #include <atomic>
+#include <cctype>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
@@ -26,8 +27,10 @@
  * @brief Manual experiment runner for CPU multithreaded telemetry captures.
  *
  * The launcher owns orchestration, not kernel work. For each repetition it runs
- * one baseline child and then one telemetry child. The telemetry child is moved
- * into the configured cgroup, the collector and consumer are started, and all
+ * one baseline child and then one telemetry child. Every child stops itself
+ * with SIGSTOP right after fork; the parent opens perf on that exact PID with
+ * inherit=1 (optionally also moving it into a delegated cgroup for isolation)
+ * before sending SIGCONT, so no workload instruction runs unmeasured. All
  * samples are exported after the measured window finishes.
  */
 namespace {
@@ -41,6 +44,7 @@ namespace {
      */
     struct Options {
         std::string kernel = "stream_triad";
+        bool kernel_explicit = false;
         size_t size = 1'000'000;
         int iterations = 10;
         int warmup = 1;
@@ -59,6 +63,12 @@ namespace {
         fs::path output_dir = "runs";
         std::string run_id;
         fs::path workload_bin;
+        // External binary mode: when exec_path is non-empty, the launcher
+        // measures a real binary instead of the synthetic telemetry_kernel_workload.
+        // The fork+exec target is replaced; the rest of the measurement pipeline
+        // (cgroup, affinity, perf by PID/cgroup, RAPL, file export) is agnostic.
+        fs::path exec_path;
+        std::vector<std::string> exec_argv;
     };
 
     /** @brief Result captured from one child workload process. */
@@ -66,6 +76,7 @@ namespace {
         uint64_t elapsed_ns = 0;
         int exit_code = -1;
         std::string output;
+        pid_t pid = -1;
     };
 
     /** @brief Sample plus repetition id, used to avoid cross-run deltas. */
@@ -85,12 +96,19 @@ namespace {
 
     [[noreturn]] void usage(const char* argv0) {
         std::fprintf(stderr,
-                     "usage: %s --kernel <name> --size <N> --iterations <N> "
+                     "usage: %s (synthetic)  --kernel <name> --size <N> --iterations <N> "
                      "--warmup <N> --threads <N> --repetitions <N> "
                      "--perf-cpus <list> "
                      "[--pin-workload-cpus <list> --pin-workers] "
                      "--collector-cpu <cpu> --consumer-cpu <cpu> "
+                     "--cgroup-path <path> --output-dir <dir> --run-id <id>\n"
+                     "       %s (external)   --exec <path> [--exec-args <string>] "
+                     "--repetitions <N> "
+                     "--perf-cpus <list> "
+                     "[--pin-workload-cpus <list>] "
+                     "--collector-cpu <cpu> --consumer-cpu <cpu> "
                      "--cgroup-path <path> --output-dir <dir> --run-id <id>\n",
+                     argv0,
                      argv0);
         std::exit(2);
     }
@@ -98,6 +116,22 @@ namespace {
     fs::path default_workload_path(const char* argv0) {
         fs::path self = fs::absolute(argv0);
         return self.parent_path() / "telemetry_kernel_workload";
+    }
+
+    // Simple whitespace tokenizer for --exec-args. Quoting/escaping is not
+    // supported on purpose: external dataset binaries are expected to expose
+    // flag-style arguments that do not need shell parsing.
+    std::vector<std::string> split_whitespace(const std::string& text) {
+        std::vector<std::string> result;
+        size_t i = 0;
+        while(i < text.size()) {
+            while(i < text.size() && std::isspace(static_cast<unsigned char>(text[i]))) ++i;
+            if(i >= text.size()) break;
+            const size_t begin = i;
+            while(i < text.size() && !std::isspace(static_cast<unsigned char>(text[i]))) ++i;
+            result.push_back(text.substr(begin, i - begin));
+        }
+        return result;
     }
 
     Options parse_args(int argc, char** argv) {
@@ -117,6 +151,7 @@ namespace {
 
             if(arg == "--kernel") {
                 opt.kernel = need_value();
+                opt.kernel_explicit = true;
             } else if(arg == "--size") {
                 opt.size = static_cast<size_t>(std::stoull(need_value()));
             } else if(arg == "--iterations") {
@@ -155,6 +190,10 @@ namespace {
                 opt.run_id = need_value();
             } else if(arg == "--workload-bin") {
                 opt.workload_bin = need_value();
+            } else if(arg == "--exec") {
+                opt.exec_path = need_value();
+            } else if(arg == "--exec-args") {
+                opt.exec_argv = split_whitespace(need_value());
             } else if(arg == "--help") {
                 usage(argv[0]);
             } else {
@@ -162,26 +201,44 @@ namespace {
             }
         }
 
-        if(!telemetry::experiment::is_supported_kernel(opt.kernel)) {
-            throw std::invalid_argument("unsupported kernel: " + opt.kernel);
+        // External binary mode: the synthetic kernel parameters do not apply.
+        // The default kernel label becomes the exec basename so the dataset
+        // metadata still identifies the run. All other knobs (cgroup, perf,
+        // RAPL, affinity, output) keep their existing semantics.
+        if(!opt.exec_path.empty()) {
+            if(!opt.kernel_explicit) {
+                opt.kernel = opt.exec_path.filename().string();
+            }
+            opt.size = 0;
+            opt.iterations = 0;
+            opt.warmup = 0;
+            opt.threads = 0;
+            // --pin-workers targets the synthetic workload's thread pool and
+            // has no meaning for an external binary. It is silently ignored.
+            opt.pin_workers = false;
+        } else {
+            if(!telemetry::experiment::is_supported_kernel(opt.kernel)) {
+                throw std::invalid_argument("unsupported kernel: " + opt.kernel);
+            }
+            if(opt.size == 0) throw std::invalid_argument("--size must be positive");
+            if(opt.iterations <= 0) throw std::invalid_argument("--iterations must be positive");
+            if(opt.warmup < 0) throw std::invalid_argument("--warmup must be non-negative");
+            if(opt.threads <= 0) throw std::invalid_argument("--threads must be positive");
+            if(opt.pin_workers && opt.pin_workload_cpus.empty()) {
+                throw std::invalid_argument("--pin-workers requires --pin-workload-cpus");
+            }
+            if(opt.pin_workers && static_cast<size_t>(opt.threads) > opt.pin_workload_cpus.size()) {
+                throw std::invalid_argument("--threads must not exceed --pin-workload-cpus count when --pin-workers is used");
+            }
         }
-        if(opt.size == 0) throw std::invalid_argument("--size must be positive");
-        if(opt.iterations <= 0) throw std::invalid_argument("--iterations must be positive");
-        if(opt.warmup < 0) throw std::invalid_argument("--warmup must be non-negative");
-        if(opt.threads <= 0) throw std::invalid_argument("--threads must be positive");
         if(opt.repetitions <= 0) throw std::invalid_argument("--repetitions must be positive");
         if(opt.interval_ns <= 0) throw std::invalid_argument("--interval-ns must be positive");
-        if(opt.enable_perf && opt.cgroup_path.empty()) {
-            throw std::invalid_argument("--cgroup-path is required when perf is enabled");
-        }
+        // --cgroup-path is optional (CPP-05): perf now attaches by PID with
+        // inherit=1, never through a cgroup. When present it is only used to
+        // move the measured child into a delegated cgroup as an additional
+        // isolation mechanism.
         if(opt.enable_perf && opt.perf_cpus.empty()) {
             throw std::invalid_argument("--perf-cpus is required when perf is enabled");
-        }
-        if(opt.pin_workers && opt.pin_workload_cpus.empty()) {
-            throw std::invalid_argument("--pin-workers requires --pin-workload-cpus");
-        }
-        if(opt.pin_workers && static_cast<size_t>(opt.threads) > opt.pin_workload_cpus.size()) {
-            throw std::invalid_argument("--threads must not exceed --pin-workload-cpus count when --pin-workers is used");
         }
         return opt;
     }
@@ -290,6 +347,18 @@ namespace {
     }
 
     std::vector<std::string> build_workload_args(const Options& opt, int ready_fd, int go_fd) {
+        if(!opt.exec_path.empty()) {
+            // External binary mode: the harness only sets up the measured process.
+            // The ready/go handshake does not apply because the external binary
+            // does not know the protocol; elapsed time is taken from the parent.
+            std::vector<std::string> args;
+            args.reserve(1 + opt.exec_argv.size());
+            args.push_back(opt.exec_path.string());
+            for(const auto& a : opt.exec_argv) args.push_back(a);
+            (void)ready_fd;
+            (void)go_fd;
+            return args;
+        }
         std::vector<std::string> args = {
             opt.workload_bin.string(),
             "--kernel", opt.kernel,
@@ -338,50 +407,94 @@ namespace {
                           uint64_t reserve_samples,
                           uint64_t& push_retries,
                           int repetition) {
-        // The ready/go pipes delimit the measured region. The child reports
-        // ready after setup and warmup; the parent sends go after optional
-        // cgroup placement plus collector/consumer startup.
-        int ready_pipe[2];
-        int go_pipe[2];
+        // The ready/go pipes delimit the measured region for the synthetic
+        // workload on top of the SIGSTOP/SIGCONT handshake below: the child
+        // reports ready after setup and warmup; the parent sends go once perf
+        // is armed. External binaries do not speak this protocol, so the
+        // pipes (and the wait/send steps in the parent) are skipped in --exec
+        // mode; SIGCONT alone releases straight into execv().
+        const bool use_ready_go = opt.exec_path.empty();
+        int ready_pipe[2] = {-1, -1};
+        int go_pipe[2] = {-1, -1};
         int stdout_pipe[2];
-        if(::pipe(ready_pipe) != 0 || ::pipe(go_pipe) != 0 || ::pipe(stdout_pipe) != 0) {
+        if(::pipe(stdout_pipe) != 0) {
             throw std::runtime_error("pipe failed");
+        }
+        if(use_ready_go) {
+            if(::pipe(ready_pipe) != 0 || ::pipe(go_pipe) != 0) {
+                ::close(stdout_pipe[0]);
+                ::close(stdout_pipe[1]);
+                throw std::runtime_error("pipe failed");
+            }
         }
 
         const pid_t pid = ::fork();
         if(pid < 0) throw std::runtime_error("fork failed");
 
         if(pid == 0) {
+            // Stop immediately, before touching any fd or doing any setup, so
+            // the parent can open perf on this exact PID (stop->open->resume,
+            // Guia_Maestra_Fase1_DVFS.md section 3.1/4.2) before a single
+            // instruction of the measured workload runs.
+            ::raise(SIGSTOP);
             try {
-                ::close(ready_pipe[0]);
-                ::close(go_pipe[1]);
+                if(use_ready_go) {
+                    ::close(ready_pipe[0]);
+                    ::close(go_pipe[1]);
+                }
                 ::close(stdout_pipe[0]);
                 if(::dup2(stdout_pipe[1], STDOUT_FILENO) < 0) _exit(126);
                 set_affinity(0, opt.pin_workload_cpus);
 
-                // Replace the child with the workload binary. Communication
-                // after execv is only through pipes and stdout text.
+                // Replace the child with the measured binary. For the synthetic
+                // workload this is opt.workload_bin; for --exec mode it is the
+                // external binary at opt.exec_path. The ready/go fds are unused
+                // in external mode and ignored by build_workload_args.
                 std::vector<std::string> args = build_workload_args(opt, ready_pipe[1], go_pipe[0]);
                 std::vector<char*> argv;
                 argv.reserve(args.size() + 1);
                 for(auto& arg : args) argv.push_back(arg.data());
                 argv.push_back(nullptr);
-                ::execv(opt.workload_bin.c_str(), argv.data());
+                const char* target = use_ready_go ? opt.workload_bin.c_str() : opt.exec_path.c_str();
+                ::execv(target, argv.data());
             } catch(...) {
             }
             _exit(127);
         }
 
-        ::close(ready_pipe[1]);
-        ::close(go_pipe[0]);
+        if(use_ready_go) {
+            ::close(ready_pipe[1]);
+            ::close(go_pipe[0]);
+        }
         ::close(stdout_pipe[1]);
+
+        // Confirm the child actually reached the stopped state before doing
+        // anything else with it. If it died before raise(SIGSTOP) could take
+        // effect (e.g. fork-side resource exhaustion), fail fast instead of
+        // opening perf on a PID that no longer means what we think it means.
+        {
+            int wstatus = 0;
+            if(::waitpid(pid, &wstatus, WUNTRACED) < 0 || !WIFSTOPPED(wstatus)) {
+                if(!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus)) {
+                    ::kill(pid, SIGKILL);
+                    int ignored = 0;
+                    ::waitpid(pid, &ignored, 0);
+                }
+                if(use_ready_go) { ::close(ready_pipe[0]); ::close(go_pipe[1]); }
+                ::close(stdout_pipe[0]);
+                throw std::runtime_error("child did not reach stopped state for perf setup");
+            }
+        }
 
         telemetry::Collector::Ring ring;
         telemetry::CollectorConfig cfg;
         cfg.enable_perf = opt.enable_perf;
         cfg.interval_ns = opt.interval_ns;
         cfg.producer_cpu = opt.collector_cpu;
-        cfg.perf_cgroup_path = opt.cgroup_path;
+        // perf_cgroup_path is intentionally left empty: measurement always
+        // attaches by PID with inherit=1 (CPP-01/CPP-05). --cgroup-path, if
+        // given, only isolates the child via move_pid_to_cgroup below.
+        cfg.target_pid = pid;
         cfg.perf_cpus = opt.perf_cpus;
         cfg.rapl_pkg_path = opt.rapl_pkg_path;
         cfg.rapl_dram_path = opt.rapl_dram_path;
@@ -389,14 +502,17 @@ namespace {
 
         std::atomic<bool> stop_consumer{false};
         std::thread consumer;
+        // Wall-clock start for the measured window in --exec mode. Captured
+        // immediately before the collector starts so fork/cgroup placement
+        // stay outside the measured region; SIGCONT (and thus execv) only
+        // happens after this point, mirroring the synthetic path.
+        uint64_t wall_start_ns = 0;
+        uint64_t wall_end_ns = 0;
 
         try {
+            // The child is still stopped here: cgroup placement and perf
+            // setup both happen before it can run a single instruction.
             move_pid_to_cgroup(pid, opt.cgroup_path);
-
-            char ready = 0;
-            if(::read(ready_pipe[0], &ready, 1) != 1 || ready != 'R') {
-                throw std::runtime_error("workload failed before ready signal");
-            }
 
             if(collect) {
                 // Reserve before the consumer starts so vector growth does not
@@ -408,12 +524,27 @@ namespace {
                                        std::ref(samples),
                                        opt.consumer_cpu,
                                        repetition);
-                // Start collection before releasing the measured workload.
+                // Start collection (opens+arms perf on the stopped pid) before
+                // releasing the measured workload.
+                wall_start_ns = telemetry::experiment::now_ns();
                 collector.start();
             }
 
-            const char go = 'G';
-            write_all(go_pipe[1], &go, 1);
+            // Release the child unconditionally: it stopped itself right
+            // after fork regardless of whether this repetition collects
+            // telemetry (baseline runs still need to resume).
+            if(::kill(pid, SIGCONT) != 0) {
+                throw std::runtime_error(std::string("SIGCONT failed: ") + std::strerror(errno));
+            }
+
+            if(use_ready_go) {
+                char ready = 0;
+                if(::read(ready_pipe[0], &ready, 1) != 1 || ready != 'R') {
+                    throw std::runtime_error("workload failed before ready signal");
+                }
+                const char go = 'G';
+                write_all(go_pipe[1], &go, 1);
+            }
         } catch(...) {
             ::kill(pid, SIGKILL);
             int ignored = 0;
@@ -423,16 +554,16 @@ namespace {
                 stop_consumer.store(true, std::memory_order_relaxed);
                 if(consumer.joinable()) consumer.join();
             }
-            ::close(ready_pipe[0]);
-            ::close(go_pipe[1]);
+            if(use_ready_go) ::close(ready_pipe[0]);
+            if(use_ready_go) ::close(go_pipe[1]);
             ::close(stdout_pipe[0]);
             throw;
         }
 
         std::string output;
         char buffer[4096];
-        // Capture stdout completely. On success it contains elapsed_ns; on
-        // failure it helps diagnose the workload process.
+        // Capture stdout completely. On success it contains elapsed_ns (synthetic)
+        // or the external binary's own diagnostics; on failure it helps diagnose.
         while(true) {
             const ssize_t n = ::read(stdout_pipe[0], buffer, sizeof(buffer));
             if(n > 0) output.append(buffer, static_cast<size_t>(n));
@@ -441,6 +572,7 @@ namespace {
 
         int status = 0;
         ::waitpid(pid, &status, 0);
+        wall_end_ns = telemetry::experiment::now_ns();
 
         if(collect) {
             collector.stop();
@@ -449,14 +581,21 @@ namespace {
             if(consumer.joinable()) consumer.join();
         }
 
-        ::close(ready_pipe[0]);
-        ::close(go_pipe[1]);
+        if(use_ready_go) ::close(ready_pipe[0]);
+        if(use_ready_go) ::close(go_pipe[1]);
         ::close(stdout_pipe[0]);
 
         ChildResult result;
         result.output = output;
         result.exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
-        if(result.exit_code == 0) result.elapsed_ns = parse_elapsed_ns(output);
+        result.pid = pid;
+        if(use_ready_go) {
+            if(result.exit_code == 0) result.elapsed_ns = parse_elapsed_ns(output);
+        } else if(collect && result.exit_code == 0) {
+            // External binary: trust the parent's wall clock across the same
+            // window the synthetic path covers with the child's own timer.
+            result.elapsed_ns = wall_end_ns - wall_start_ns;
+        }
         return result;
     }
 
@@ -506,6 +645,16 @@ namespace {
         return "UNKNOWN";
     }
 
+    // The dataset label is normally derived from the synthetic kernel mapping.
+    // External binaries (or any kernel outside the synthetic set) fall back to
+    // the kernel name itself so metadata still carries a meaningful identifier
+    // instead of the generic "unknown" bucket.
+    std::string dataset_label(const std::string& kernel) {
+        const char* mapped = telemetry::experiment::kernel_label(kernel);
+        if(mapped[0] != 'u' || mapped[1] != 'n') return std::string(mapped);
+        return kernel;
+    }
+
     void write_samples_csv(const fs::path& path,
                            const Options& opt,
                            const std::vector<RecordedSample>& samples) {
@@ -519,7 +668,7 @@ namespace {
                "cache_references,cache_misses,time_enabled_ns,time_running_ns,"
                "pkg_uj,dram_uj,pkg_delta_uj,dram_delta_uj,energy_delta_valid,"
                "gpu_power_mw,gpu_util_pct\n";
-        const char* label = telemetry::experiment::kernel_label(opt.kernel);
+        const std::string label = dataset_label(opt.kernel);
 
         auto write_prefix = [&](const RecordedSample& record,
                                 uint64_t timestamp,
@@ -613,7 +762,8 @@ namespace {
                              const std::vector<uint64_t>& telemetry_elapsed_ns,
                              const std::vector<double>& overheads,
                              const std::vector<RecordedSample>& samples,
-                             const std::vector<uint64_t>& push_retries_by_repetition) {
+                             const std::vector<uint64_t>& push_retries_by_repetition,
+                             const std::vector<pid_t>& measured_pids) {
         const auto jitter = sampling_jitter(samples);
         const double ratio = perf_running_ratio_min(samples);
         const RaplSummary rapl_summary = compute_rapl_summary(opt, samples);
@@ -637,7 +787,7 @@ namespace {
         out << "{\n";
         out << "  \"run_id\": \"" << telemetry::experiment::json_escape(opt.run_id) << "\",\n";
         out << "  \"kernel\": \"" << telemetry::experiment::json_escape(opt.kernel) << "\",\n";
-        out << "  \"label\": \"" << telemetry::experiment::kernel_label(opt.kernel) << "\",\n";
+        out << "  \"label\": \"" << dataset_label(opt.kernel) << "\",\n";
         out << "  \"size\": " << opt.size << ",\n";
         out << "  \"iterations\": " << opt.iterations << ",\n";
         out << "  \"warmup\": " << opt.warmup << ",\n";
@@ -645,6 +795,10 @@ namespace {
         out << "  \"repetitions\": " << opt.repetitions << ",\n";
         out << "  \"interval_ns\": " << opt.interval_ns << ",\n";
         out << "  \"enable_perf\": " << (opt.enable_perf ? "true" : "false") << ",\n";
+        out << "  \"perf_attach_mode\": \"pid_inherit\",\n";
+        out << "  \"measured_pids\": ";
+        write_json_array(out, measured_pids);
+        out << ",\n";
         out << "  \"perf_cpus\": \"" << telemetry::experiment::format_cpu_list(opt.perf_cpus) << "\",\n";
         out << "  \"pin_workload_cpus\": \"" << telemetry::experiment::format_cpu_list(opt.pin_workload_cpus) << "\",\n";
         out << "  \"pin_workers\": " << (opt.pin_workers ? "true" : "false") << ",\n";
@@ -707,7 +861,7 @@ namespace {
         std::ofstream out(path);
         out << "run_id=" << opt.run_id << "\n";
         out << "kernel=" << opt.kernel << "\n";
-        out << "label=" << telemetry::experiment::kernel_label(opt.kernel) << "\n";
+        out << "label=" << dataset_label(opt.kernel) << "\n";
         out << "repetitions=" << opt.repetitions << "\n";
         out << "baseline_elapsed_ns_mean=" << baseline_stats.mean << "\n";
         out << "baseline_elapsed_ns_sd=" << baseline_stats.sd << "\n";
@@ -731,19 +885,51 @@ int main(int argc, char** argv) {
 
         // Store timing arrays separately from samples because baseline runs do
         // not collect telemetry rows. The repetition index links telemetry rows
-        // to the corresponding telemetry elapsed value.
+        // to the corresponding telemetry elapsed value. External binary mode
+        // leaves the baseline arrays empty: there is no uninstrumented twin
+        // of a real binary to compare against.
         std::vector<uint64_t> baseline_elapsed_ns;
         std::vector<uint64_t> telemetry_elapsed_ns;
         std::vector<double> overheads;
         std::vector<uint64_t> push_retries_by_repetition;
         std::vector<RecordedSample> samples;
+        std::vector<pid_t> measured_pids;
+        const bool external_mode = !opt.exec_path.empty();
 
-        baseline_elapsed_ns.reserve(static_cast<size_t>(opt.repetitions));
         telemetry_elapsed_ns.reserve(static_cast<size_t>(opt.repetitions));
-        overheads.reserve(static_cast<size_t>(opt.repetitions));
         push_retries_by_repetition.reserve(static_cast<size_t>(opt.repetitions));
+        if(!external_mode) {
+            baseline_elapsed_ns.reserve(static_cast<size_t>(opt.repetitions));
+            overheads.reserve(static_cast<size_t>(opt.repetitions));
+        }
 
         for(int repetition = 1; repetition <= opt.repetitions; ++repetition) {
+            if(external_mode) {
+                // No baseline child: the real binary is its own reference.
+                // The reserve is a coarse heuristic since the binary's runtime
+                // is not known a priori; it only affects when the samples vector
+                // reallocates, not correctness.
+                const uint64_t expected_samples = 4096;
+                uint64_t push_retries = 0;
+                const ChildResult telemetry = run_child(opt,
+                                                        true,
+                                                        samples,
+                                                        expected_samples,
+                                                        push_retries,
+                                                        repetition);
+                if(telemetry.exit_code != 0) {
+                    std::fprintf(stderr, "external workload failed: repetition=%d exit=%d\n%s",
+                                 repetition,
+                                 telemetry.exit_code,
+                                 telemetry.output.c_str());
+                    return 1;
+                }
+                telemetry_elapsed_ns.push_back(telemetry.elapsed_ns);
+                push_retries_by_repetition.push_back(push_retries);
+                measured_pids.push_back(telemetry.pid);
+                continue;
+            }
+
             std::vector<RecordedSample> discarded;
             uint64_t ignored_push_retries = 0;
             // Baseline and telemetry run sequentially, never concurrently.
@@ -792,6 +978,7 @@ int main(int argc, char** argv) {
                 static_cast<double>(telemetry.elapsed_ns)
             ));
             push_retries_by_repetition.push_back(push_retries);
+            measured_pids.push_back(telemetry.pid);
         }
 
         const fs::path run_dir = opt.output_dir / opt.run_id;
@@ -803,7 +990,8 @@ int main(int argc, char** argv) {
                             telemetry_elapsed_ns,
                             overheads,
                             samples,
-                            push_retries_by_repetition);
+                            push_retries_by_repetition,
+                            measured_pids);
         write_summary(run_dir / "summary.txt",
                       opt,
                       baseline_elapsed_ns,
