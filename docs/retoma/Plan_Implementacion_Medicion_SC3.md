@@ -176,7 +176,9 @@ El eslabón más débil del etiquetado es `bytes_moved_window` (LLC misses × 64
 - Comparar bytes teóricos vs `Σ delta_cache_misses × 64` medidos (y también vs `LLC-load-misses + LLC-store-misses + LLC-prefetch-misses` si se decide ampliar el set de eventos — felix los expone).
 - **Criterio:** acuerdo dentro de ±30%. Si el evento genérico `cache-misses` subestima gravemente (prefetchers), registrar enmienda ARC proponiendo el set LLC-* explícito y actualizar harness/postprocess en consecuencia. Documentar el resultado en `docs/retoma/` — este número acota la incertidumbre de `operational_intensity` y por tanto del ground truth.
 
-**Criterio de salida Fase 3:** catálogo completo con checksums reales de felix; tiempos medidos; informe de validación de bytes con desviación cuantificada.
+**Estado (2026-07-31):** F3.1/F3.2/F3.3 completados en felix — ver ARC-31 (decisión ERT) y ARC-32 (compilación, selección de clase NPB, checksums y regex reales) en `Registro_Cambios_Fuera_Plan_Original.md`. Los 8 binarios (6 NPB clase B + STREAM + ert_probe) están compilados en `~/hyperion-kernels/bin` en felix, con checksums reales en `orchestrator/schemas/kernels/catalog.yaml`. F3.4 (validación de bytes bajo el launcher C++) queda pendiente: requiere compilar el harness en felix, que se solapa con F4.1.
+
+**Criterio de salida Fase 3:** catálogo completo con checksums reales de felix (☑); tiempos medidos (☑); informe de validación de bytes con desviación cuantificada (☐, pendiente F3.4/F4.1).
 
 ---
 

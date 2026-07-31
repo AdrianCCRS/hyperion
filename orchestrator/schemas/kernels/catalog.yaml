@@ -1,44 +1,132 @@
+# Catálogo con ground truth real (F3.1/F3.2), compilado y ejecutado en felix
+# el 2026-07-31 (ver docs/orchestator/agents/Registro_Cambios_Fuera_Plan_Original.md,
+# ARC-31/ARC-32 para las decisiones de diseño y evidencia completa).
+#
+# Convención de exec_path: rutas relativas a la raíz de binarios compilados
+# (~/hyperion-kernels/bin en felix hoy). El orquestador debe lanzarse con esa
+# carpeta como cwd (`cd ~/hyperion-kernels && python -m orchestrator...`).
+# Se mantiene relativo (no absoluto a $HOME de un usuario) para que el mismo
+# catálogo sea reproducible en un clúster distinto sin editar cada exec_path.
+#
+# Procedencia NPB (CAT-01, provenance): NPB3.4.4.tar.gz descargado de
+# https://www.nas.nasa.gov/assets/npb/NPB3.4.4.tar.gz,
+# sha256:1ae219398e02a0a79ad51b7460fcffbf7b5df83a69d5d3d3a9dc2d8acf523549.
+# Compilado en felix con el módulo gnu14 (gfortran/gcc 14.2.0), flags por
+# defecto del suite (config/make.def.template sin modificar: FFLAGS/CFLAGS =
+# -O3 -fopenmp, sin -march=native, MLT-07). NPB3.4-OMP, clase B para dataset
+# (clase S se usa solo como smoke test local, no está en este catálogo).
+#
+# Procedencia STREAM (CAT-01): stream.c oficial de John D. McCalpin,
+# https://www.cs.virginia.edu/stream/FTP/Code/stream.c,
+# sha256:a52bae5e175bea3f7832112af9c085adab47117f7d2ce219165379849231692b,
+# vendorizado sin modificar en kernels/stream/stream.c. Compilado con
+# -O3 -fopenmp -DSTREAM_ARRAY_SIZE=64000000 (~512 MB/arreglo, muy por
+# encima de los 24 MB de L3 por socket de felix -- ver ARC-32).
+#
+# Procedencia ERT (CAT-01): kernels/ert/ert_probe.c, driver propio que
+# reimplementa la aritmética de ERT (kernel1.c, ERT_FLOP=16) -- decisión
+# documentada en ARC-31, amparada por CAL-03 (ERT completo requiere
+# plantillas Batch/Config específicas de clúster no disponibles en SC3).
+
 kernels:
   - id: stream_official
     suite: STREAM
     role: calibration
     exec_path: bin/stream_c
-    reports_bandwidth_stdout: true #Si la suite reporta el ancho de banda por stdout
-    bandwidth_stdout_pattern: "Triad:\\s+([0-9.]+)" #CAL-02: grupo de captura numérico sobre stdout de STREAM (MB/s); confirmar contra el binario real
-    success_check: {type: exit_code}
-    binary_checksum: "sha256:..." #Se completa al compilar el binario
+    reports_bandwidth_stdout: true
+    bandwidth_stdout_pattern: "Triad:\\s+([0-9.]+)" # MB/s; confirmado contra stdout real en felix
+    success_check: {type: stdout_regex, pattern: "Solution Validates"}
+    binary_checksum: "sha256:357ef034acf95ede768bf8788a7cdabf92f9afeadbaf79321730659b3cd9199c"
 
   - id: ert_probe
     suite: ERT
     role: calibration
     exec_path: bin/ert_probe
-    reports_flops_stdout: true #Si la suite reporta los flops por stdout
-    flops_stdout_pattern: "GFLOPs/sec:\\s+([0-9.]+)" #CAL-03: grupo de captura numérico sobre stdout de ERT; confirmar contra el binario real
+    reports_flops_stdout: true
+    flops_stdout_pattern: "GFLOPs/sec:\\s+([0-9.]+)" # confirmado contra stdout real en felix
     success_check: {type: exit_code}
-    binary_checksum: "sha256:..." #Se completa al compilar el binario
+    binary_checksum: "sha256:aafd773346eb05a51a77720e08f45e7bd4cfc5aae31bc25d9f1273c49ed0e0d9"
 
   - id: npb_ep
-    suite: NPB
+    suite: NPB-OMP
     role: dataset
-    exec_path: bin/ep.S.x
-    phase_label_hint: compute_bound #Según literatura, NO es etiqueta de entrenamiento, sino de inferencia
-    size_variant: S
-    expected_runtime_seconds: 4 #Revisar esto, no estoy seguro si es correcto, pero es un valor de referencia para la ejecución de la suite
-    warmup_seconds: 1.0 #Revisar también, es un valor de referencia para la ejecución de la suite. ESPECIAL ATENCIÓN
-    estimated_memory_bytes: 67108864 #Estimación conservadora; confirmar contra el build objetivo.
-    success_check: {type: exit_code}
-    binary_checksum: "sha256:..." #Se completa al compilar el binario
-  
+    exec_path: bin/ep.B.x
+    phase_label_hint: compute_bound
+    size_variant: B
+    expected_runtime_seconds: 8 # medido en felix (8 cores, nomultithread): 5.9 s
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum: "sha256:b34d5d9c69280716276bb472e7165df4276312259a9c81aefe6b67303d327502"
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+
   - id: npb_mg
     suite: NPB-OMP
     role: dataset
-    exec_path: bin/mg.S.x
+    exec_path: bin/mg.B.x
     phase_label_hint: memory_bound
-    size_variant: S
-    expected_runtime_seconds: 6
-    warmup_seconds: 1.0
-    estimated_memory_bytes: 67108864 #Estimación conservadora; confirmar contra el build objetivo.
-    success_check: {type: stdout_regex, pattern: "VERIFICATION SUCCESSFUL"}
-    binary_checksum: "sha256:..."
+    size_variant: B
+    expected_runtime_seconds: 4 # medido en felix: 2.6-2.9 s
+    warmup_seconds: 0.3
+    estimated_memory_bytes: 536870912
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum: "sha256:6eba21f92fc8bb65824d5f6a7a0f34c038eb65e5d5b7643ddc69520721f84d10"
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
 
-#Así con todos los kernels que se quieran agregar al catálogo. Se pueden agregar kernels de cualquier suite, siempre y cuando se tenga el binario compilado y se pueda ejecutar en el entorno de ejecución.
+  - id: npb_cg
+    suite: NPB-OMP
+    role: dataset
+    exec_path: bin/cg.B.x
+    phase_label_hint: memory_bound
+    size_variant: B
+    expected_runtime_seconds: 26 # medido en felix: 21.7-22.8 s
+    warmup_seconds: 1.0
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum: "sha256:c9cdc9cb1a21551064f1eef75c5f1a81681a5c7d16f33d77205c19b2050f4fd5"
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+
+  - id: npb_is
+    suite: NPB-OMP
+    role: dataset
+    exec_path: bin/is.B.x
+    phase_label_hint: memory_bound
+    size_variant: B
+    expected_runtime_seconds: 3 # medido en felix: 0.8-1.6 s (el más corto de los seis)
+    warmup_seconds: 0.1
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum: "sha256:25fd6c1a43ee6a0b7256fdb73e19ea7baabd22349f481c00aedca11af8156eac"
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+
+  - id: npb_ft
+    suite: NPB-OMP
+    role: dataset
+    exec_path: bin/ft.B.x
+    phase_label_hint: intermedio
+    size_variant: B
+    expected_runtime_seconds: 14 # medido en felix: 11.1-11.9 s
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 536870912
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum: "sha256:aa7d6a201e8ac1c2a39d8ab1f6b08b1cbb399f4b692fa750093e029070afee72"
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+
+  - id: npb_lu
+    suite: NPB-OMP
+    role: dataset
+    exec_path: bin/lu.B.x
+    phase_label_hint: intermedio
+    size_variant: B
+    expected_runtime_seconds: 40 # medido en felix: 35.5-35.9 s (el más largo de los seis)
+    warmup_seconds: 1.0
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum: "sha256:22499545e3bf2546320ca9826de930b6a772ce74bb8b8a30f1a44d10d9c3eaf5"
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"

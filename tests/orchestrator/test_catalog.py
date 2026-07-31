@@ -1,0 +1,62 @@
+from pathlib import Path
+import sys
+
+import pytest
+import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from orchestrator import catalog
+
+
+def _dataset_kwargs(**overrides):
+    base = dict(
+        id="npb_ep", suite="NPB", role="dataset", exec_path="bin/ep.B.x",
+        binary_checksum="sha256:abc", phase_label_hint="compute_bound", size_variant="B",
+        expected_runtime_seconds=6, warmup_seconds=1.0, success_check={"type": "exit_code"},
+        estimated_memory_bytes=1,
+    )
+    base.update(overrides)
+    return base
+
+
+def test_cat05_flops_rate_stdout_pattern_valido():
+    entry = catalog.KernelEntry(
+        **_dataset_kwargs(
+            flops_rate_stdout_pattern=r"Mop/s total\s*=\s*([0-9.]+)",
+            runtime_seconds_stdout_pattern=r"Time in seconds\s*=\s*([0-9.]+)",
+        )
+    )
+    assert entry.flops_rate_stdout_pattern is not None
+    assert entry.runtime_seconds_stdout_pattern is not None
+
+
+def test_cat05_flops_rate_stdout_pattern_sin_grupo_de_captura_falla():
+    with pytest.raises(ValueError, match="CAT-05"):
+        catalog.KernelEntry(**_dataset_kwargs(flops_rate_stdout_pattern=r"Mop/s total sin grupo"))
+
+
+def test_cat05_runtime_seconds_stdout_pattern_regex_invalido_falla():
+    with pytest.raises(ValueError, match="CAT-05"):
+        catalog.KernelEntry(**_dataset_kwargs(runtime_seconds_stdout_pattern="["))
+
+
+def test_load_catalog_lee_flops_rate_y_runtime_seconds(tmp_path):
+    catalog_path = tmp_path / "catalog.yaml"
+    catalog_path.write_text(
+        yaml.safe_dump(
+            {
+                "kernels": [
+                    {
+                        **_dataset_kwargs(),
+                        "flops_rate_stdout_pattern": r"Mop/s total\s*=\s*([0-9.]+)",
+                        "runtime_seconds_stdout_pattern": r"Time in seconds\s*=\s*([0-9.]+)",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    entries = catalog.load_catalog(str(catalog_path))
+    assert entries["npb_ep"].flops_rate_stdout_pattern == r"Mop/s total\s*=\s*([0-9.]+)"
+    assert entries["npb_ep"].runtime_seconds_stdout_pattern == r"Time in seconds\s*=\s*([0-9.]+)"

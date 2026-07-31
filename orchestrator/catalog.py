@@ -39,6 +39,12 @@ class KernelEntry:
     # windows quality_status="intensity_undefined") until the real suite
     # stdout format is confirmed in Fase 3.
     flops_total_stdout_pattern: str | None = None
+    # F3.2: algunas suites (NPB) no imprimen un total de FLOPs, solo una tasa
+    # ("Mop/s total") y la duración de la corrida ("Time in seconds"). Cuando
+    # flops_total_stdout_pattern no aplica, postprocess.py multiplica ambos
+    # capturados por estos dos patrones para obtener el total equivalente.
+    flops_rate_stdout_pattern: str | None = None
+    runtime_seconds_stdout_pattern: str | None = None
     exec_args: str = ""
 
     def __post_init__(self):
@@ -104,6 +110,10 @@ class KernelEntry:
             self._validate_metric_pattern("flops_stdout_pattern", self.flops_stdout_pattern)
         if self.flops_total_stdout_pattern is not None:
             self._validate_metric_pattern("flops_total_stdout_pattern", self.flops_total_stdout_pattern)
+        if self.flops_rate_stdout_pattern is not None:
+            self._validate_metric_pattern("flops_rate_stdout_pattern", self.flops_rate_stdout_pattern)
+        if self.runtime_seconds_stdout_pattern is not None:
+            self._validate_metric_pattern("runtime_seconds_stdout_pattern", self.runtime_seconds_stdout_pattern)
 
     def _validate_metric_pattern(self, field_name: str, pattern: str | None) -> None:
         if not isinstance(pattern, str) or not pattern:
@@ -150,6 +160,8 @@ def load_catalog(catalog_path: str) -> dict[str, KernelEntry]:
             bandwidth_stdout_pattern=kernel.get("bandwidth_stdout_pattern"),
             flops_stdout_pattern=kernel.get("flops_stdout_pattern"),
             flops_total_stdout_pattern=kernel.get("flops_total_stdout_pattern"),
+            flops_rate_stdout_pattern=kernel.get("flops_rate_stdout_pattern"),
+            runtime_seconds_stdout_pattern=kernel.get("runtime_seconds_stdout_pattern"),
             exec_args=kernel.get("exec_args", ""),
         )
         if not isinstance(entry.exec_args, str):
