@@ -369,15 +369,7 @@ def write_windows_csv(windows: Sequence[dict[str, Any]], output_path: str | Path
     return path
 
 
-def extract_run_flops_total(kernel_entry: Any, stdout_text: str) -> float | None:
-    """POST-09: total FLOPs the kernel itself reported on stdout, never a PMU
-    counter. Returns None (never raises) when the catalog entry has no
-    flops_total_stdout_pattern or the pattern does not match, so the caller
-    ends up with quality_status="intensity_undefined" windows instead of a
-    hard failure — the real NPB/STREAM/ERT stdout formats are only confirmed
-    once the binaries are compiled on felix (Fase 3).
-    """
-    pattern = getattr(kernel_entry, "flops_total_stdout_pattern", None)
+def _extract_stdout_number(pattern: str | None, stdout_text: str) -> float | None:
     if not pattern:
         return None
     match = re.search(pattern, stdout_text)
@@ -387,6 +379,30 @@ def extract_run_flops_total(kernel_entry: Any, stdout_text: str) -> float | None
         return float(match.group(1))
     except ValueError:
         return None
+
+
+def extract_run_flops_total(kernel_entry: Any, stdout_text: str) -> float | None:
+    """POST-09: total FLOPs the kernel itself reported on stdout, never a PMU
+    counter. Returns None (never raises) when the catalog entry has no
+    flops_total_stdout_pattern or the pattern does not match, so the caller
+    ends up with quality_status="intensity_undefined" windows instead of a
+    hard failure.
+
+    F3.2: NPB (confirmed on felix) never prints an absolute FLOP total, only
+    a rate ("Mop/s total") and the run duration ("Time in seconds"). When
+    flops_total_stdout_pattern is absent, fall back to
+    flops_rate_stdout_pattern (Mop/s) x 1e6 x runtime_seconds_stdout_pattern
+    (seconds) — both regexes read from the kernel's own stdout, still never
+    a PMU counter.
+    """
+    total = _extract_stdout_number(getattr(kernel_entry, "flops_total_stdout_pattern", None), stdout_text)
+    if total is not None:
+        return total
+    rate = _extract_stdout_number(getattr(kernel_entry, "flops_rate_stdout_pattern", None), stdout_text)
+    runtime = _extract_stdout_number(getattr(kernel_entry, "runtime_seconds_stdout_pattern", None), stdout_text)
+    if rate is None or runtime is None:
+        return None
+    return rate * 1e6 * runtime
 
 
 def run_postprocess(

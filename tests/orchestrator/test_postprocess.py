@@ -336,6 +336,44 @@ def test_post15_run_postprocess_rechaza_calibracion_no_plausible(tmp_path):
         )
 
 
+def test_post09_flops_total_directo_tiene_prioridad_sobre_tasa():
+    entry = SimpleNamespace(
+        flops_total_stdout_pattern=r"TOTAL_FLOPS\s+([0-9.]+)",
+        flops_rate_stdout_pattern=r"Mop/s total\s*=\s*([0-9.]+)",
+        runtime_seconds_stdout_pattern=r"Time in seconds\s*=\s*([0-9.]+)",
+    )
+    stdout = "TOTAL_FLOPS 42.0\nMop/s total     =    372.35\nTime in seconds =      0.09\n"
+    assert postprocess.extract_run_flops_total(entry, stdout) == 42.0
+
+
+def test_post09_npb_sin_total_directo_usa_tasa_por_tiempo():
+    entry = SimpleNamespace(
+        flops_total_stdout_pattern=None,
+        flops_rate_stdout_pattern=r"Mop/s total\s*=\s*([0-9.]+)",
+        runtime_seconds_stdout_pattern=r"Time in seconds\s*=\s*([0-9.]+)",
+    )
+    stdout = "Mop/s total     =    372.35\nTime in seconds =      0.09\n"
+    resultado = postprocess.extract_run_flops_total(entry, stdout)
+    assert resultado == pytest.approx(372.35 * 1e6 * 0.09)
+
+
+def test_post09_sin_ningun_patron_devuelve_none():
+    entry = SimpleNamespace(
+        flops_total_stdout_pattern=None, flops_rate_stdout_pattern=None, runtime_seconds_stdout_pattern=None,
+    )
+    assert postprocess.extract_run_flops_total(entry, "cualquier salida") is None
+
+
+def test_post09_falta_uno_de_los_dos_patrones_de_tasa_devuelve_none():
+    entry = SimpleNamespace(
+        flops_total_stdout_pattern=None,
+        flops_rate_stdout_pattern=r"Mop/s total\s*=\s*([0-9.]+)",
+        runtime_seconds_stdout_pattern=None,
+    )
+    stdout = "Mop/s total     =    372.35\n"
+    assert postprocess.extract_run_flops_total(entry, stdout) is None
+
+
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
 

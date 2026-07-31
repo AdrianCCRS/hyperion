@@ -477,14 +477,14 @@ Cada regla tiene un ID único MÓDULO-NN y una casilla para marcar cuando el mó
 
 | ID | ✓ | Regla de validación / invariante técnica |
 | :---- | :---: | :---- |
-| CAT-01 | ☐ | C01: exec\_path existe y es ejecutable (os.access X\_OK). |
-| CAT-02 | ☐ | C02: sha256(exec\_path) coincide con binary\_checksum. Hash real, nunca por tamaño ni fecha. |
-| CAT-03 | ☐ | C03: success\_check es tipo reconocido (exit\_code o stdout\_regex) y el regex compila. |
-| CAT-04 | ☐ | Kernel con role=dataset tiene phase\_label\_hint, size\_variant, expected\_runtime\_seconds y warmup\_seconds. |
-| CAT-05 | ☐ | Kernel con role=calibration tiene exactamente uno de reports\_bandwidth\_stdout/reports\_flops\_stdout en true. |
-| CAT-06 | ☐ | resolve\_exec\_command() no inventa argumentos: exec\_args vacío → pasar cadena vacía, no omitir. |
-| CAT-07 | ☐ | C01/C02 se repiten antes de cada corrida individual (no solo al inicio de campaña). |
-| CAT-08 | ☐ | IDs únicos en el catálogo. Duplicados → CatalogValidationError. |
+| CAT-01 | ☑ | C01: exec\_path existe y es ejecutable (os.access X\_OK). Verificado con los 8 binarios reales compilados en felix (F3.1). |
+| CAT-02 | ☑ | C02: sha256(exec\_path) coincide con binary\_checksum. Hash real, nunca por tamaño ni fecha. `catalog.yaml` tiene los sha256 reales de felix (F3.2). |
+| CAT-03 | ☑ | C03: success\_check es tipo reconocido (exit\_code o stdout\_regex) y el regex compila. Los 6 kernels NPB comparten el patrón `Verification\s*=\s*SUCCESSFUL` confirmado contra stdout real (línea común de `print_results`, distinta del texto sugerido originalmente en el plan). |
+| CAT-04 | ☑ | Kernel con role=dataset tiene phase\_label\_hint, size\_variant, expected\_runtime\_seconds y warmup\_seconds. `expected_runtime_seconds`/`warmup_seconds` calculados a partir de tiempos medidos en felix (F3.3), no estimados. |
+| CAT-05 | ☑ | Kernel con role=calibration tiene exactamente uno de reports\_bandwidth\_stdout/reports\_flops\_stdout en true. Patrones confirmados contra stdout real de STREAM/ert\_probe. |
+| CAT-06 | ☑ | resolve\_exec\_command() no inventa argumentos: exec\_args vacío → pasar cadena vacía, no omitir. Los 8 kernels reales usan `exec_args` vacío (sin argumentos CLI, tamaño fijado en compilación vía CLASS). |
+| CAT-07 | ☑ | C01/C02 se repiten antes de cada corrida individual (no solo al inicio de campaña). Cubierto por `run_reduced_preflight()`, sin cambios de F3. |
+| CAT-08 | ☑ | IDs únicos en el catálogo. Duplicados → CatalogValidationError. 8 IDs únicos en el catálogo real (2 calibration + 6 dataset). |
 
 ### **12.3 Entorno (ENV-01 a ENV-12) — 12 reglas**
 
@@ -602,7 +602,7 @@ Cada regla tiene un ID único MÓDULO-NN y una casilla para marcar cuando el mó
 | POST-06 | ☑ | RAPL inválido (energy\_delta\_valid=0) → pkg\_delta\_uj/dram\_delta\_uj/power\_w quedan en None, nunca se reporta como consumo real. |
 | POST-07 | ☑ | Ventanas dentro de warmup\_seconds del catálogo → quality\_status='warmup\_excluded'. Se conservan en windows.csv. |
 | POST-08 | ☑ | bytes\_moved\_window \== 0 → operational\_intensity=NaN y quality\_status='intensity\_undefined'. Nunca dividir por cero. |
-| POST-09 | ☑ | FLOPs totales del stdout del binario (regex `flops_total_stdout_pattern` nuevo en catalog.py), prorrateados por ventana proporcionalmente a delta\_instructions (Plan\_Implementacion\_Medicion\_SC3.md F2.5). Método confirmado por el director sobre la alternativa de `docs/orchestator/plan_v3/guia-tecnica.md` (prorrateo por tiempo, descartado): los FLOPs son subconjunto de instrucciones retiradas, el tiempo está confundido por stalls de memoria. Ver ARC-27. |
+| POST-09 | ☑ | FLOPs totales del stdout del binario (regex `flops_total_stdout_pattern` nuevo en catalog.py), prorrateados por ventana proporcionalmente a delta\_instructions (Plan\_Implementacion\_Medicion\_SC3.md F2.5). Método confirmado por el director sobre la alternativa de `docs/orchestator/plan_v3/guia-tecnica.md` (prorrateo por tiempo, descartado): los FLOPs son subconjunto de instrucciones retiradas, el tiempo está confundido por stalls de memoria. Ver ARC-27. F3.2 (2026-07-31): NPB confirmado en felix nunca imprime un total absoluto, solo `Mop/s total` (tasa) y `Time in seconds`; se agregaron `flops_rate_stdout_pattern`/`runtime_seconds_stdout_pattern` a `catalog.py`/`postprocess.extract_run_flops_total()` como fallback (tasa × 1e6 × tiempo) cuando `flops_total_stdout_pattern` está ausente. Ver ARC-32. |
 | POST-10 | ☑ | LLC\_LINE\_SIZE\_BYTES del node\_profile real (`NodeProfile.cache_line_size_bytes`, leído de `coherency_line_size` en sysfs). Nunca hardcodeado como 64 bytes sin verificar. |
 | POST-11 | ☑ | phase\_label\_train SIEMPRE por Roofline (operational\_intensity vs i\_ridge). Nunca copiado de phase\_label\_hint (probado explícitamente con hint contradictorio). |
 | POST-12 | ☑ | Features relativas (ipc\_relative, mpki\_relative, miss\_rate\_relative) calculadas SIEMPRE que la feature absoluta y las referencias de calibración existan. |
