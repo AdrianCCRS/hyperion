@@ -41,7 +41,13 @@ class CampaignProgress:
     run_ids_in_order: list[str] = field(default_factory=list)
     accepted_run_ids: list[str] = field(default_factory=list)
     rejected_run_ids: list[str] = field(default_factory=list)
+    # MET-06: the resumed/skipped run_ids are a distinct bucket from
+    # freshly-accepted ones, not folded into accepted_run_ids.
+    skipped_run_ids: list[str] = field(default_factory=list)
     total_core_hours: float = 0.0
+    # MET-02: set from the boolean restore_original_state() itself returns
+    # (a post-restore sysfs re-read, never "the write command didn't error").
+    frequency_restored_verified: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -111,7 +117,9 @@ def write_campaign_metadata(progress: CampaignProgress, manifest: Any, output_di
                 "run_ids_in_order": progress.run_ids_in_order,
                 "accepted_run_ids": progress.accepted_run_ids,
                 "rejected_run_ids": progress.rejected_run_ids,
+                "skipped_run_ids": progress.skipped_run_ids,
                 "total_core_hours": progress.total_core_hours,
+                "frequency_restored_verified": progress.frequency_restored_verified,
             },
             metadata_file, indent=2, sort_keys=True,
         )
@@ -179,6 +187,14 @@ def run_campaign(
             environment_profile=environment_profile, run_single=run_single,
         )
 
+        # MET-07: every run's own metadata.json carries the same calibration
+        # references windows.csv rows do, not just the windows themselves.
+        calibration_refs = {
+            "roofline_calibration_ref": str(Path(manifest.output_dir) / "roofline_calibration.json"),
+            "node_profile_ref": str(Path(manifest.output_dir) / "node_profile.json"),
+            "calibration_ref": str(Path(manifest.output_dir) / "calibration_references.json"),
+        }
+
         combinations = build_matrix(manifest, seed=manifest.seed)
         progress.run_ids_in_order = [
             runner_module.build_run_id(
@@ -211,8 +227,8 @@ def run_campaign(
             previous = _previous_verdict(manifest.output_dir, telemetry_run_id)
             if previous is not None and previous.accepted:
                 seen_run_ids.add(telemetry_run_id)
-                if telemetry_run_id not in progress.accepted_run_ids:
-                    progress.accepted_run_ids.append(telemetry_run_id)
+                if telemetry_run_id not in progress.skipped_run_ids:
+                    progress.skipped_run_ids.append(telemetry_run_id)  # MET-06
                 continue
 
             for item in schedule_runs([combination]):  # CAM-04: atomic baseline+telemetry pair
@@ -222,6 +238,7 @@ def run_campaign(
                     entry, active_manifest, item.combination.kernel_ref,
                     item.combination.frequency_level.id, item.combination.repetition_index,
                     environment_profile=environment_profile, node_id=node_id, apply_frequency=apply_frequency,
+                    calibration_refs=calibration_refs,
                 )
                 progress.total_core_hours += result.elapsed_seconds * len(delegated_cpus) / 3600.0  # CAM-05/OPS-01
 
@@ -251,8 +268,11 @@ def run_campaign(
             calibration_references=references,
         )
     finally:
-        # CAM-07: always restore, normal close or interruption. In
-        # "unavailable" strategy this verifies there was nothing to restore
-        # (freqctl.restore_original_state handles that branch itself).
-        restore_original_state(original_state, environment_profile)
+        # CAM-07/MET-02: always restore, normal close or interruption, and
+        # keep the boolean restore_original_state() itself returns (a
+        # post-restore sysfs re-read, never "the write command didn't
+        # error"). In "unavailable" strategy this verifies there was
+        # nothing to restore (freqctl.restore_original_state handles that
+        # branch itself).
+        progress.frequency_restored_verified = bool(restore_original_state(original_state, environment_profile))
         write_campaign_metadata(progress, manifest, manifest.output_dir)
