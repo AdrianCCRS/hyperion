@@ -107,6 +107,52 @@ denied`; propietario/permisos del directorio raíz confirmados vía `stat`.
 
 ---
 
+## P4. Acceso de lectura a contadores de uncore/memory controller (iMC)
+
+**Qué se pide:** permiso de lectura para el usuario sobre los contadores
+de uncore/iMC (memory controller) de `felix` — vía `perf stat` con
+eventos `uncore_imc_*` y/o LIKWID (`likwid-perfctr -g MEM`, que también
+necesita acceso a MSR mediante `/dev/cpu/*/msr` o el daemon
+`likwid-accessD`). Hoy no está confirmado si el usuario puede leer estos
+eventos bajo el `perf_event_paranoid` actual del nodo, ni si LIKWID está
+instalado.
+
+**Por qué se necesita:** en la validación de bytes de la Fase 3 (F3.4)
+encontramos que el contador per-core genérico que usamos hoy
+(`cache-misses`, vía `perf_event_open`) subestima el tráfico real de
+memoria de STREAM en ~30-34% frente al valor analítico conocido. Tres
+mediciones independientes a nivel de *core* (nuestro harness, `perf stat`
+nativo, y el desglose en `LLC-load-misses`/`LLC-store-misses`)
+coincidieron entre sí, lo que descarta un error de medición pero no
+explica la causa — la hipótesis con más respaldo es que el prefetcher de
+hardware de este Xeon (Nehalem-EX) trae datos a L1/L2 antes de que el
+acceso de demanda los pida, así que el contador *per-core* de "LLC miss"
+nunca los ve, aunque el dato sí haya viajado por el bus de memoria.
+
+Los contadores de **uncore/memory controller** sí ven ese tráfico
+(cuentan transacciones reales hacia DRAM, no accesos de demanda perdidos
+en el core), así que son la validación cruzada correcta para confirmar o
+descartar esa hipótesis. Esto no es un capricho de instrumentación: si el
+sesgo es real y afecta más a unos kernels que a otros, puede alterar la
+intensidad operacional calculada para los kernels "intermedios" (los más
+cercanos al ridge point) lo suficiente como para **clasificarlos mal**
+en el modelo Roofline que etiqueta el dataset de entrenamiento — el
+riesgo no es cosmético, es de calidad de las etiquetas.
+
+**Nota técnica para SC3:** a diferencia de los contadores por-PID que ya
+usamos (que no requieren privilegios especiales, confirmado con
+`perf_event_paranoid=1`), los contadores de uncore son *del socket
+completo*, no por proceso — nuestro uso sería puntual, para validación de
+calibración con el socket en uso exclusivo por nuestro job, no para
+medición continua por ventana durante campañas.
+
+**Evidencia de respaldo:** desviación de -33.8% cuantificada y
+reproducida en tres mediciones independientes en felix, documentada en
+`docs/retoma/Informe_Piloto_F3_2026-07-31.md` y ARC-33 del registro de
+cambios.
+
+---
+
 ## Resueltos, no requieren solicitud
 
 Para que quede claro en el correo qué **no** hace falta pedir:
@@ -133,7 +179,7 @@ Para que quede claro en el correo qué **no** hace falta pedir:
 > comportamiento de energía y rendimiento de cargas de cómputo en función
 > de la frecuencia de CPU (DVFS) sobre el nodo `felix`. Ya hicimos un
 > diagnóstico completo de solo lectura del nodo (sin modificar nada) y
-> necesitamos tres permisos puntuales para poder avanzar:
+> necesitamos cuatro permisos puntuales para poder avanzar:
 >
 > **1. Escritura sobre control de frecuencia (cpufreq) en los cores que
 > Slurm nos asigne en `felix`.** Confirmamos que el governor `userspace`
@@ -162,6 +208,16 @@ Para que quede claro en el correo qué **no** hace falta pedir:
 > escribible para nuestro usuario. ¿Podrían habilitarnos un subdirectorio
 > propio ahí, o confirmarnos que la cuota de `$HOME` (actualmente ~20 GB)
 > es la vía recomendada para nuestro volumen de datos?
+>
+> **4. Lectura de contadores de uncore/memory controller** (vía `perf
+> stat` con eventos `uncore_imc_*`, y/o LIKWID si está instalado). Detectamos
+> que nuestro método actual de medir bytes movidos (contadores per-core de
+> "cache miss") subestima el tráfico real de memoria en cargas con acceso
+> muy secuencial, muy probablemente por el prefetcher de hardware del
+> procesador. Los contadores de uncore sí verían ese tráfico y nos
+> permitirían confirmarlo y corregirlo. Es un uso puntual de validación,
+> no medición continua durante campañas — ¿hay alguna restricción de
+> privilegios (MSR) para leerlos como usuario no-root?
 >
 > Quedamos atentos y con gusto compartimos el diagnóstico técnico completo
 > si es útil para evaluar la solicitud.
