@@ -178,6 +178,41 @@ def test_run08_invoca_apply_frequency_si_hay_permiso(tmp_path, monkeypatch):
     assert calls == [((2, 3, 4, 5), "F0", env_profile)]
 
 
+def test_frq03_frecuencia_solicitada_y_aplicada_llegan_a_la_metadata_de_la_corrida(tmp_path, monkeypatch):
+    monkeypatch.delenv("FAKE_LAUNCHER_BEHAVIOR", raising=False)
+    entry = _make_entry(tmp_path)
+    manifest = _make_manifest(tmp_path)
+    env_profile = SimpleNamespace(frequency_write_capable=True)
+    applied = SimpleNamespace(
+        level_id="F0", strategy="discrete_bounds", requested_khz=2261000, applied_khz=2261000,
+        per_cpu_applied_khz={2: 2261000}, governor_applied="userspace", write_skipped_reason=None,
+    )
+
+    result = runner.run_single(
+        entry, manifest, "npb_ep", "F0", 1,
+        harness=_harness(), environment_profile=env_profile,
+        apply_frequency=lambda cpus, level, env: applied,
+    )
+
+    # FRQ-03: ni "solo lo solicitado" ni "solo lo aplicado" -- ambos, y
+    # nunca se pierden entre freqctl y la metadata.json persistida.
+    assert result.applied_frequency is applied
+    assert result.metadata["freq_khz_requested"] == 2261000
+    assert result.metadata["freq_khz_applied"] == 2261000
+    assert result.metadata["freq_governor_applied"] == "userspace"
+
+
+def test_frq03_sin_apply_frequency_no_agrega_campos_de_frecuencia(tmp_path, monkeypatch):
+    monkeypatch.delenv("FAKE_LAUNCHER_BEHAVIOR", raising=False)
+    entry = _make_entry(tmp_path)
+    manifest = _make_manifest(tmp_path)
+
+    result = runner.run_single(entry, manifest, "npb_ep", "REF", 1, harness=_harness())
+
+    assert result.applied_frequency is None
+    assert "freq_khz_requested" not in result.metadata
+
+
 def _leftover_hang_sleep_pids() -> list[int]:
     # The fake launcher's "hang" behavior spawns exactly `sleep 300`; matching
     # on the full cmdline keeps this from tripping on unrelated sleeps.

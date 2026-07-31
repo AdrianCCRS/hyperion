@@ -50,6 +50,11 @@ class RunResult:
     stdout_path: Path
     stderr_path: Path
     metadata: Mapping[str, Any]
+    # FRQ-03: the freqctl.AppliedFrequency this run used (or None when
+    # apply_frequency was never invoked, e.g. RUN-08 / frequency_write_capable
+    # False). Exposed directly so callers (campaign.py) don't have to dig it
+    # back out of `metadata`.
+    applied_frequency: Any = None
 
 
 def build_run_id(campaign_id: str, kernel_ref: str, freq_level_id: str, repetition_index: int) -> str:
@@ -155,6 +160,7 @@ def _merge_metadata(
     repetition_index: int,
     node_id: str | None,
     calibration_refs: Mapping[str, Any] | None,
+    applied_frequency: Any = None,
 ) -> dict[str, Any]:
     """RUN-06: merge launcher metadata (samples_collected, push_retries,
     perf_attach_mode, measured_pids, ...) with orchestrator-level metadata,
@@ -169,6 +175,14 @@ def _merge_metadata(
         "node_id": node_id,
         "binary_checksum": entry.binary_checksum,
     }
+    if applied_frequency is not None:
+        # FRQ-03: both the requested and the applied value, never only one,
+        # and never silently dropped between freqctl.apply_frequency() and
+        # this run's own persisted metadata.
+        orchestrator_fields["freq_khz_requested"] = getattr(applied_frequency, "requested_khz", None)
+        orchestrator_fields["freq_khz_applied"] = getattr(applied_frequency, "applied_khz", None)
+        orchestrator_fields["freq_governor_applied"] = getattr(applied_frequency, "governor_applied", None)
+        orchestrator_fields["freq_write_skipped_reason"] = getattr(applied_frequency, "write_skipped_reason", None)
     if calibration_refs:
         orchestrator_fields = merge_metadata(orchestrator_fields, calibration_refs, context="RUN-06")
 
@@ -186,13 +200,17 @@ def run_single(
     harness: HarnessConfig | None = None,
     node_id: str | None = None,
     calibration_refs: Mapping[str, Any] | None = None,
-    apply_frequency: Callable[[Any, Any, Any], None] | None = None,
+    apply_frequency: Callable[[Any, Any, Any], Any] | None = None,
 ) -> RunResult:
     """Run one telemetry_kernel_launcher invocation and collect its result.
 
     `apply_frequency`, if given, is only ever called when
     environment_profile.frequency_write_capable is True (RUN-08); freqctl.py
-    is the caller's concern, run_single just enforces the gate.
+    is the caller's concern, run_single just enforces the gate. Its return
+    value (a freqctl.AppliedFrequency, or whatever the caller's fake
+    returns) is kept on RunResult.applied_frequency and folded into this
+    run's metadata.json (FRQ-03): the requested/applied frequency must never
+    be computed and then silently dropped before it reaches persisted data.
     """
     harness = harness or load_config().harness
 
@@ -201,9 +219,10 @@ def run_single(
     if not verify_binary(entry):
         raise ValueError(f"C02: checksum de {entry.exec_path!r} no coincide antes de ejecutar")
 
+    applied_frequency = None
     if apply_frequency is not None:
         if environment_profile is not None and getattr(environment_profile, "frequency_write_capable", False):
-            apply_frequency(manifest.cores.delegated_cpus, freq_level_id, environment_profile)
+            applied_frequency = apply_frequency(manifest.cores.delegated_cpus, freq_level_id, environment_profile)
         else:
             logger.debug(
                 "RUN-08: frequency_write_capable=False, omitiendo apply_frequency para %s/%s",
@@ -260,6 +279,7 @@ def run_single(
         repetition_index,
         node_id,
         calibration_refs,
+        applied_frequency,
     )
 
     return RunResult(
@@ -276,4 +296,5 @@ def run_single(
         stdout_path=stdout_path,
         stderr_path=stderr_path,
         metadata=metadata,
+        applied_frequency=applied_frequency,
     )

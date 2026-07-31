@@ -138,6 +138,7 @@ def run_campaign(
     campaign_timeout_seconds: float | None = None,
     run_single: Callable[..., Any] = runner_module.run_single,
     apply_frequency: Callable[..., Any] = freqctl_module.apply_frequency,
+    read_observed_frequency_khz: Callable[..., Any] = freqctl_module.read_observed_frequency_khz,
     snapshot_original_state: Callable[..., Any] = freqctl_module.snapshot_original_state,
     restore_original_state: Callable[..., Any] = freqctl_module.restore_original_state,
     install_emergency_handlers: Callable[..., Any] = freqctl_module.install_emergency_handlers,
@@ -251,10 +252,20 @@ def run_campaign(
 
                 if verdict.accepted:
                     progress.accepted_run_ids.append(run_id)
+                    # FRQ-03/FRQ-10: whatever this run actually requested/
+                    # applied (None when apply_frequency was never invoked,
+                    # e.g. frequency_write_capable=False) plus the observed
+                    # scaling_cur_freq right after the run, never dropped
+                    # between freqctl and windows.csv.
+                    applied = result.applied_frequency
+                    freq_khz_observed = read_observed_frequency_khz(environment_profile, delegated_cpus[0])
                     run_postprocess(
                         result.run_dir, run_id=run_id, repetition=item.combination.repetition_index,
                         kernel_ref=item.combination.kernel_ref, kernel_entry=entry, node_id=node_id,
                         freq_level_id=item.combination.frequency_level.id, calibration_dir=manifest.output_dir,
+                        freq_khz_requested=getattr(applied, "requested_khz", None),
+                        freq_khz_applied=getattr(applied, "applied_khz", None),
+                        freq_khz_observed=freq_khz_observed,
                         warmup_seconds=entry.warmup_seconds or 0.0, running_ratio_min=manifest.running_ratio_min,
                         rapl_enabled=bool(manifest.rapl.get("enabled", False)), calibration_references=references,
                     )
