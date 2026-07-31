@@ -46,6 +46,21 @@ El acceso es `ssh guane` (llaves ya configuradas, usuario `yacacerest01`). Estos
 4. **`bytes_moved` puede medirse mejor que con `cache-misses` genérico:** felix expone `LLC-load-misses`/`LLC-store-misses`/`LLC-prefetch-misses`. Ver F3.4 (validación de bytes contra STREAM).
 5. Los FLOPs vienen del stdout de las suites (POST-09/CAL-02/CAL-03) — NPB reporta `Mop/s total` y verificación interna `VERIFICATION SUCCESSFUL`; STREAM reporta bandwidth; ERT reporta GFLOPs. Nunca de PMU.
 
+### Ampliación 2026-07-31 (srun de solo lectura adicional en felix)
+
+| Campo | Valor confirmado |
+|---|---|
+| **Dominio de frecuencia** | `freqdomain_cpus` de cpu0 = `0-7,32-39` (todo el socket 0: 8 cores físicos + sus 8 hilos SMT). **El control de cpufreq es POR SOCKET, no por core.** |
+| Governors disponibles | `conservative ondemand userspace powersave performance schedutil` — **`userspace` sí está disponible**, H1 es puramente un tema de permisos de escritura, no de módulos faltantes |
+| `scaling_setspeed` | Existe como archivo ya con `governor=performance` activo (no solo bajo `userspace`) |
+| `/scratch` | **NO escribible** (`root:root 0755`, `touch` → Permission denied). Corrige la nota anterior ("verificar escritura") |
+| `~/hyperion` en clúster | El checkout real (con `.git`, último commit 2026-07-13) está anidado en `~/hyperion/hyperion/`, no en `~/hyperion/` — artefacto de un rsync sin barra final. **Desactualizado**: no incluye ningún commit de Fase 1/Fase 2 (hasta `4e84b8a`) |
+| GPU | Confirmada con `--gres=gpu:1`: GTX TITAN X, driver 570.195.03, 12288 MiB (resuelve H5) |
+| cache/cpuinfo | `coherency_line_size=64` en los 4 niveles, L3 compartida por todo el socket, 32 núcleos físicos × 2 SMT = 64 lógicos — validado contra hardware real, coincide con lo que `node_profile.py` ya calcula |
+| Módulos Fase 3 | `cmake/3.29.3` existe como módulo pero el `cmake` activo por defecto es 3.26.5 (cargar módulo explícito si se necesita 3.29.3); `openmpi5/5.0.7`, `mpi/openmpi-gcc11/4.1.6` disponibles por si NPB-MZ/MPI los requiere |
+
+**Consecuencia crítica nueva (6):** como el dominio de frecuencia es por socket, fijar la frecuencia de un core con `scaling_setspeed` cambia la de **todo el socket**, incluidos cores que pudieran pertenecer a la asignación Slurm de otro usuario si la reserva de la campaña no cubre el socket completo. Una asignación de 4 CPUs sin `--hint=nomultithread` (auditada 2026-07-30) dio un cpuset (`0-1,32-33`) que es subconjunto estricto del dominio del socket — ese escenario habría compartido el dominio de frecuencia con quien tuviera el resto del socket 0. **Toda campaña DVFS real debe reservar el socket completo** (`--cpus-per-task=8 --hint=nomultithread` dio exactamente `0-7,32-39` = el dominio entero). Esto debe ir explícito en la solicitud H1 (no solo "delegar escritura", también "confirmar que la asignación cubre el dominio de frecuencia completo") y como un nuevo check de preflight **propuesto, aún no implementado**: verificar que `delegated_cpus` coincide exactamente con `freqdomain_cpus`, no es un subconjunto.
+
 ---
 
 ## Parte A — Reglas de ejecución para el agente
@@ -198,7 +213,7 @@ El eslabón más débil del etiquetado es `bytes_moved_window` (LLC misses × 64
 
 | # | Acción | Desbloquea | Estado |
 |---|---|---|---|
-| H1 | Solicitar a administración SC3 la delegación de escritura cpufreq (`scaling_setspeed`/governor `userspace`) sobre cores delegados en felix | Niveles F0–F4 → dataset DVFS real | Pendiente — el diagnóstico F4.2 aporta la evidencia técnica para la solicitud |
+| H1 | Solicitar a administración SC3 la delegación de escritura cpufreq (`scaling_setspeed`/governor `userspace`, ya confirmado disponible) sobre cores delegados en felix. **Incluir explícitamente**: confirmar que la asignación Slurm de la campaña siempre cubrirá el dominio de frecuencia completo (`freqdomain_cpus` = todo el socket, 8 cores físicos + 8 SMT), para que el control de frecuencia nunca se filtre a cores de otro usuario en el mismo socket | Niveles F0–F4 → dataset DVFS real, sin riesgo de interferencia entre usuarios | Pendiente — el diagnóstico F4.2 aporta la evidencia técnica para la solicitud; la ampliación 2026-07-31 (dominio por socket) ya es evidencia adicional lista para incluir |
 | H2 | Preguntar a SC3 por medición de energía externa (PDU/IPMI del rack) — RAPL es imposible en felix por hardware | Features de energía/EDP | Pendiente |
 | H3 | Prueba de caos de freqctl (INT-T03) en PC local bare-metal con root | Declarar freqctl terminado; requisito previo a usar F0–F4 cuando H1 se conceda | Pendiente (irrelevante mientras solo haya REF) |
 | H4 | Decisiones del director: alcance multinodo (A/B/C), nomenclatura F0/REF (ARC-15), clase NPB definitiva | Alcance formal; matriz definitiva | Pendiente — llevar el reporte del piloto F4.4 como insumo |
