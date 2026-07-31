@@ -1,0 +1,153 @@
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from orchestrator import cli
+
+
+def test_diagnose_reenvia_argumentos_a_diagnostics_main(monkeypatch):
+    calls = []
+    monkeypatch.setattr(cli.diagnostics_module, "main", lambda argv: calls.append(argv) or 0)
+
+    exit_code = cli.main([
+        "diagnose", "--manifest", "camp.yaml", "--output-dir", "out", "--use-allowed-cpus",
+    ])
+
+    assert exit_code == 0
+    assert calls == [["--manifest", "camp.yaml", "--output-dir", "out", "--use-allowed-cpus"]]
+
+
+def test_calibrate_dispara_calibracion_node_profile_y_referencias(monkeypatch, tmp_path):
+    manifest = _fake_manifest(tmp_path)
+    catalog = {"npb_ep": object()}
+    monkeypatch.setattr(cli.manifest_module, "load", lambda path: manifest)
+    monkeypatch.setattr(cli.catalog_module, "load_catalog", lambda path: catalog)
+    monkeypatch.setattr(cli, "_detect_environment", lambda manifest, config: "ENV")
+
+    calls = {}
+    monkeypatch.setattr(cli.calibration_module, "run_calibration", lambda *a, **k: (
+        calls.setdefault("run_calibration", (a, k)),
+        _fake_roofline(),
+    )[1])
+    monkeypatch.setattr(cli.node_profile_module, "build_node_profile", lambda *a, **k: (
+        calls.setdefault("build_node_profile", (a, k)), "PROFILE"
+    )[1])
+    monkeypatch.setattr(cli.node_profile_module, "write_node_profile", lambda *a, **k: calls.setdefault("write_node_profile", (a, k)))
+    monkeypatch.setattr(cli.calibration_module, "run_calibration_references", lambda *a, **k: (
+        calls.setdefault("run_calibration_references", (a, k)), _fake_references()
+    )[1])
+
+    exit_code = cli.main([
+        "calibrate", "--manifest", "camp.yaml", "--node-id", "felix-sc3", "--reference-kernel-ref", "npb_ep",
+    ])
+
+    assert exit_code == 0
+    assert calls["run_calibration"][1]["node_id"] == "felix-sc3"
+    assert calls["build_node_profile"][1]["node_id"] == "felix-sc3"
+    assert calls["run_calibration_references"][1]["node_id"] == "felix-sc3"
+
+
+def test_run_campaign_pasa_los_argumentos_correctos(monkeypatch, tmp_path):
+    manifest = _fake_manifest(tmp_path)
+    monkeypatch.setattr(cli.manifest_module, "load", lambda path: manifest)
+    monkeypatch.setattr(cli.catalog_module, "load_catalog", lambda path: {})
+    monkeypatch.setattr(cli, "_detect_environment", lambda manifest, config: "ENV")
+
+    calls = {}
+
+    def fake_run_campaign(manifest_arg, catalog_arg, env_arg, **kwargs):
+        calls["args"] = (manifest_arg, catalog_arg, env_arg, kwargs)
+        return _fake_campaign_result()
+
+    monkeypatch.setattr(cli.campaign_module, "run_campaign", fake_run_campaign)
+
+    exit_code = cli.main([
+        "run-campaign", "--manifest", "camp.yaml", "--node-id", "felix-sc3",
+        "--reference-kernel-ref", "npb_ep", "--campaign-timeout-seconds", "3600",
+    ])
+
+    assert exit_code == 0
+    _, _, env_arg, kwargs = calls["args"]
+    assert env_arg == "ENV"
+    assert kwargs["node_id"] == "felix-sc3"
+    assert kwargs["reference_kernel_ref"] == "npb_ep"
+    assert kwargs["campaign_timeout_seconds"] == 3600.0
+
+
+def test_postprocess_resuelve_el_kernel_desde_el_catalogo(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    manifest = _fake_manifest(tmp_path)
+    entry = SimpleNamespace(warmup_seconds=0.5)
+    monkeypatch.setattr(cli.manifest_module, "load", lambda path: manifest)
+    monkeypatch.setattr(cli.catalog_module, "load_catalog", lambda path: {"npb_ep": entry})
+
+    calls = {}
+
+    def fake_run_postprocess(run_dir, **kwargs):
+        calls["run_dir"] = run_dir
+        calls["kwargs"] = kwargs
+        return Path(run_dir) / "windows.csv"
+
+    monkeypatch.setattr(cli.postprocess_module, "run_postprocess", fake_run_postprocess)
+
+    exit_code = cli.main([
+        "postprocess", "--manifest", "camp.yaml", "--run-dir", str(tmp_path / "run_x"),
+        "--run-id", "run_x", "--repetition", "1", "--kernel-ref", "npb_ep",
+        "--node-id", "felix-sc3", "--freq-level-id", "REF",
+    ])
+
+    assert exit_code == 0
+    assert calls["kwargs"]["kernel_entry"] is entry
+    assert calls["kwargs"]["node_id"] == "felix-sc3"
+
+
+def test_report_lee_metadata_y_veredictos(monkeypatch, tmp_path):
+    campaign_dir = tmp_path / "campaign"
+    campaign_dir.mkdir()
+    (campaign_dir / "campaign_metadata.json").write_text(
+        '{"campaign_id": "camp01", "accepted_run_ids": ["r1"], "rejected_run_ids": [], "total_core_hours": 1.0}'
+    )
+    run_dir = campaign_dir / "r1"
+    run_dir.mkdir()
+    cli.validation_module.write_verdict(cli.validation_module.Verdict(True, None, "ok"), run_dir)
+
+    written = {}
+    monkeypatch.setattr(cli.report_module, "write_report", lambda data, output_dir: written.setdefault("data", data) or Path(output_dir) / "campaign_report.json")
+
+    exit_code = cli.main(["report", "--campaign-dir", str(campaign_dir)])
+
+    assert exit_code == 0
+    assert written["data"]["campaign_id"] == "camp01"
+    assert written["data"]["total_runs"] == 1
+
+
+def _fake_manifest(tmp_path: Path):
+    from types import SimpleNamespace
+    output_dir = tmp_path / "out"
+    output_dir.mkdir(exist_ok=True)
+    return SimpleNamespace(
+        cores=SimpleNamespace(delegated_cpus=(2, 3)),
+        output_dir=output_dir, running_ratio_min=0.9, rapl={"enabled": False},
+        catalog_path=tmp_path / "catalog.yaml",
+    )
+
+
+def _fake_roofline():
+    from types import SimpleNamespace
+    return SimpleNamespace(plausibility_check_passed=True)
+
+
+def _fake_references():
+    from types import SimpleNamespace
+    return SimpleNamespace(accepted=True)
+
+
+def _fake_campaign_result():
+    from types import SimpleNamespace
+    progress = SimpleNamespace(
+        accepted_run_ids=["r1"], rejected_run_ids=[], skipped_run_ids=[],
+        total_core_hours=1.0, frequency_restored_verified=True,
+    )
+    return SimpleNamespace(progress=progress)

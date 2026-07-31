@@ -626,13 +626,13 @@ Cada regla tiene un ID único MÓDULO-NN y una casilla para marcar cuando el mó
 
 | ID | ✓ | Regla de validación / invariante técnica |
 | :---- | :---: | :---- |
-| MET-01 | ☐ | merge(launcher\_meta, orchestrator\_meta) detecta colisiones de clave con valores distintos. Nunca {\*\*dict1, \*\*dict2}. |
-| MET-02 | ☐ | governor\_restored\_verified es el resultado de una LECTURA posterior a la restauración, no del éxito del comando. |
-| MET-03 | ☐ | node\_id es un identificador estable del nodo entre campañas. Nunca el hostname de sesión. |
-| MET-04 | ☐ | El reporte de campaña muestra tabla por factor\_id con conteo y porcentaje que suman exactamente 100%. |
-| MET-05 | ☐ | Si cv\_pct \> umbral, el reporte lo señala como advertencia visible. |
-| MET-06 | ☐ | La semilla y el orden completo de run\_ids ejecutados (incluyendo los saltados) quedan en la metadata de campaña. |
-| MET-07 | ☐ | Trazabilidad completa: run\_id, kernel\_ref, node\_id, roofline\_calibration\_ref, node\_profile\_ref, calibration\_ref y binary\_checksum en corrida Y en cada fila de windows.csv. |
+| MET-01 | ☑ | merge(launcher\_meta, orchestrator\_meta) detecta colisiones de clave. Nunca {\*\*dict1, \*\*dict2}: `metadata_schema.merge_metadata()` es la única implementación (runner.py refactorizado para usarla). |
+| MET-02 | ☑ | `frequency_restored_verified` en campaign\_metadata.json es el booleano que `freqctl.restore_original_state()` retorna tras releer sysfs, nunca del éxito del comando de escritura. |
+| MET-03 | ☑ | node\_id es un identificador estable del nodo entre campañas, nunca el hostname de sesión: es un argumento explícito y obligatorio en `campaign.run_campaign()` y en `cli.py --node-id`; ningún código lo deriva de `socket.gethostname()`. |
+| MET-04 | ☑ | El reporte de campaña muestra tabla por factor\_id con conteo y porcentaje que suman exactamente 100% (`report.build_factor_table`, la última fila absorbe el residuo del redondeo). |
+| MET-05 | ☑ | Si cv\_pct \> umbral, el reporte lo señala como advertencia visible (`report.calibration_stability_warning`, D04). |
+| MET-06 | ☑ | La semilla y el orden completo de run\_ids ejecutados quedan en `campaign_metadata.json`, incluyendo `skipped_run_ids` como categoría separada de `accepted_run_ids`. |
+| MET-07 | ☑ | Trazabilidad completa: run\_id, kernel\_ref, node\_id, roofline\_calibration\_ref, node\_profile\_ref, calibration\_ref y binary\_checksum en la metadata.json de cada corrida (via `calibration_refs` pasado desde campaign.py) Y en cada fila de windows.csv. |
 
 ### **12.12 Estrategia multinodo (MLT-01 a MLT-08) — 8 reglas**
 
