@@ -1,0 +1,207 @@
+from pathlib import Path
+import hashlib
+import sys
+from types import SimpleNamespace
+
+import psutil
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from orchestrator import runner
+from orchestrator.catalog import KernelEntry
+from orchestrator.config import HarnessConfig
+
+FAKE_LAUNCHER = Path(__file__).resolve().parent / "fixtures" / "fake_launcher.py"
+
+
+def _make_entry(tmp_path: Path, *, success_check: dict | None = None) -> KernelEntry:
+    binary = tmp_path / "npb_ep.x"
+    binary.write_bytes(b"#!/bin/sh\necho fake npb binary\n")
+    binary.chmod(0o755)
+    checksum = f"sha256:{hashlib.sha256(binary.read_bytes()).hexdigest()}"
+    return KernelEntry(
+        id="npb_ep",
+        suite="npb",
+        role="dataset",
+        exec_path=str(binary),
+        binary_checksum=checksum,
+        phase_label_hint="compute_bound",
+        size_variant="S",
+        expected_runtime_seconds=1,
+        warmup_seconds=0.0,
+        success_check=success_check or {"type": "stdout_regex", "pattern": "VERIFICATION SUCCESSFUL"},
+        estimated_memory_bytes=1024,
+    )
+
+
+def _make_manifest(tmp_path: Path, *, cgroup_path: str | None = None, perf_enabled: bool = True) -> SimpleNamespace:
+    output_dir = tmp_path / "runs"
+    output_dir.mkdir()
+    return SimpleNamespace(
+        campaign_id="camp01",
+        output_dir=output_dir,
+        interval_ns=1_000_000,
+        cgroup_path=cgroup_path,
+        perf_enabled=perf_enabled,
+        cores=SimpleNamespace(delegated_cpus=(2, 3, 4, 5), collector_cpu=0, consumer_cpu=1),
+        timeouts_seconds=SimpleNamespace(ready=5, run=5, shutdown=5),
+    )
+
+
+def _harness() -> HarnessConfig:
+    return HarnessConfig(exec_flag="--exec", exec_args_flag="--exec-args", binary_path=str(FAKE_LAUNCHER))
+
+
+def test_run01_comando_se_construye_desde_catalogo_y_manifest(tmp_path):
+    entry = _make_entry(tmp_path)
+    manifest = _make_manifest(tmp_path, cgroup_path="/delegated/cgroup")
+    command = runner.build_command(entry, manifest, "run_x", _harness())
+
+    assert command[0] == str(FAKE_LAUNCHER)
+    assert "--exec" in command and entry.exec_path in command
+    assert "--perf-cpus" in command
+    assert command[command.index("--perf-cpus") + 1] == "2,3,4,5"
+    assert command[command.index("--collector-cpu") + 1] == "0"
+    assert command[command.index("--consumer-cpu") + 1] == "1"
+    assert command[command.index("--output-dir") + 1] == str(manifest.output_dir)
+    assert command[command.index("--run-id") + 1] == "run_x"
+    assert command[command.index("--cgroup-path") + 1] == "/delegated/cgroup"
+
+
+def test_run01_sin_cgroup_path_no_agrega_la_bandera(tmp_path):
+    entry = _make_entry(tmp_path)
+    manifest = _make_manifest(tmp_path, cgroup_path=None)
+    command = runner.build_command(entry, manifest, "run_x", _harness())
+    assert "--cgroup-path" not in command
+
+
+def test_run02_run_id_determinista():
+    run_id = runner.build_run_id("camp01", "npb_ep", "REF", 3)
+    assert run_id == "camp01__npb_ep__REF__rep03"
+
+
+def test_run05_run06_run07_corrida_exitosa(tmp_path, monkeypatch):
+    monkeypatch.delenv("FAKE_LAUNCHER_BEHAVIOR", raising=False)
+    entry = _make_entry(tmp_path)
+    manifest = _make_manifest(tmp_path)
+
+    result = runner.run_single(
+        entry, manifest, "npb_ep", "REF", 1, harness=_harness(), node_id="felix-sc3"
+    )
+
+    assert result.success is True
+    assert result.timed_out is False
+    assert result.exit_code == 0
+    # RUN-07: stdout/stderr completos en output_dir/<run_id>/
+    assert result.stdout_path.read_text().strip() == "VERIFICATION SUCCESSFUL"
+    assert result.stdout_path.parent == result.run_dir
+    assert result.run_dir == manifest.output_dir / result.run_id
+    # RUN-06: metadata fusionada (launcher + orquestador), sin pisar campos.
+    assert result.metadata["samples_collected"] == 0
+    assert result.metadata["perf_attach_mode"] == "pid_inherit"
+    assert result.metadata["campaign_id"] == "camp01"
+    assert result.metadata["node_id"] == "felix-sc3"
+    assert result.metadata["binary_checksum"] == entry.binary_checksum
+
+
+def test_run05_success_check_falla_si_falta_el_patron(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_LAUNCHER_BEHAVIOR", "fail")
+    entry = _make_entry(tmp_path)
+    manifest = _make_manifest(tmp_path)
+
+    result = runner.run_single(entry, manifest, "npb_ep", "REF", 1, harness=_harness())
+
+    assert result.exit_code == 1
+    assert result.success is False
+    assert "simulated failure" in result.stderr_path.read_text()
+
+
+def test_run06_colision_de_metadata_lanza_error(tmp_path, monkeypatch):
+    monkeypatch.delenv("FAKE_LAUNCHER_BEHAVIOR", raising=False)
+    entry = _make_entry(tmp_path)
+    manifest = _make_manifest(tmp_path)
+
+    with pytest.raises(ValueError, match="RUN-06"):
+        runner.run_single(
+            entry,
+            manifest,
+            "npb_ep",
+            "REF",
+            1,
+            harness=_harness(),
+            # "campaign_id" ya lo agrega runner.py: cualquier referencia de
+            # calibración que repita una clave debe fallar en vez de pisarla.
+            calibration_refs={"campaign_id": "otra_campana"},
+        )
+
+
+def test_run08_no_invoca_apply_frequency_si_no_hay_permiso(tmp_path, monkeypatch):
+    monkeypatch.delenv("FAKE_LAUNCHER_BEHAVIOR", raising=False)
+    entry = _make_entry(tmp_path)
+    manifest = _make_manifest(tmp_path)
+    env_profile = SimpleNamespace(frequency_write_capable=False)
+    calls = []
+
+    runner.run_single(
+        entry,
+        manifest,
+        "npb_ep",
+        "REF",
+        1,
+        harness=_harness(),
+        environment_profile=env_profile,
+        apply_frequency=lambda cpus, level, env: calls.append((cpus, level, env)),
+    )
+
+    assert calls == []
+
+
+def test_run08_invoca_apply_frequency_si_hay_permiso(tmp_path, monkeypatch):
+    monkeypatch.delenv("FAKE_LAUNCHER_BEHAVIOR", raising=False)
+    entry = _make_entry(tmp_path)
+    manifest = _make_manifest(tmp_path)
+    env_profile = SimpleNamespace(frequency_write_capable=True)
+    calls = []
+
+    runner.run_single(
+        entry,
+        manifest,
+        "npb_ep",
+        "F0",
+        1,
+        harness=_harness(),
+        environment_profile=env_profile,
+        apply_frequency=lambda cpus, level, env: calls.append((cpus, level, env)),
+    )
+
+    assert calls == [((2, 3, 4, 5), "F0", env_profile)]
+
+
+def _leftover_hang_sleep_pids() -> list[int]:
+    # The fake launcher's "hang" behavior spawns exactly `sleep 300`; matching
+    # on the full cmdline keeps this from tripping on unrelated sleeps.
+    return [
+        proc.pid
+        for proc in psutil.process_iter(["cmdline"])
+        if (proc.info["cmdline"] or []) == ["sleep", "300"]
+    ]
+
+
+def test_run03_run04_timeout_mata_grupo_completo_sin_dejar_procesos(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_LAUNCHER_BEHAVIOR", "hang")
+    entry = _make_entry(tmp_path)
+    # expected_runtime_seconds x SAFETY_MARGIN debe expirar mucho antes de
+    # que el fake launcher despierte de su sleep(300).
+    entry.expected_runtime_seconds = 1
+    manifest = _make_manifest(tmp_path)
+
+    assert _leftover_hang_sleep_pids() == []
+
+    result = runner.run_single(entry, manifest, "npb_ep", "REF", 1, harness=_harness())
+
+    assert result.timed_out is True
+    assert result.success is False
+    # RUN-04: ni el fake launcher ni el "sleep 300" que lanzó (grandchild,
+    # cubierto por el process group) deben seguir vivos.
+    assert _leftover_hang_sleep_pids() == []

@@ -1,6 +1,7 @@
 [harness]
 exec_flag = "--exec"
 exec_args_flag = "--exec-args"
+binary_path = "telemetry/build/telemetry_kernel_launcher"
 
 [sysfs]
 cpu_root = "/sys/devices/system/cpu"

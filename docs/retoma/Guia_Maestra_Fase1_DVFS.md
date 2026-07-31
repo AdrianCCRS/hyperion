@@ -567,14 +567,14 @@ Cada regla tiene un ID único MÓDULO-NN y una casilla para marcar cuando el mó
 
 | ID | ✓ | Regla de validación / invariante técnica |
 | :---- | :---: | :---- |
-| RUN-01 | ☐ | El comando del launcher se construye SIEMPRE desde KernelEntry del catálogo. Nunca hardcodeado. |
-| RUN-02 | ☐ | run\_id determinista: f'{campaign\_id}\_\_{kernel\_ref}\_\_{freq\_level.id}\_\_rep{n:02d}'. |
-| RUN-03 | ☐ | Timeout \= entry.expected\_runtime\_seconds × SAFETY\_MARGIN (≥3×). Si expira, matar el proceso. |
-| RUN-04 | ☐ | Verificar que no quedan procesos hijos vivos antes de continuar con la siguiente combinación. |
-| RUN-05 | ☐ | Aplicar entry.success\_check (exit\_code o stdout\_regex) contra el resultado real. |
-| RUN-06 | ☐ | Metadata final \= fusión launcher (samples\_collected, push\_retries) \+ orquestador (node\_id, binary\_checksum, refs de calibración). |
-| RUN-07 | ☐ | stdout.txt y stderr.txt completos guardados en output\_dir/\<run\_id\>/. |
-| RUN-08 | ☐ | Si frequency\_write\_capable=False: NO invocar freqctl.apply\_frequency(). |
+| RUN-01 | ☑ | El comando del launcher se construye SIEMPRE desde KernelEntry del catálogo. Nunca hardcodeado. |
+| RUN-02 | ☑ | run\_id determinista: f'{campaign\_id}\_\_{kernel\_ref}\_\_{freq\_level.id}\_\_rep{n:02d}'. |
+| RUN-03 | ☑ | Timeout \= entry.expected\_runtime\_seconds × SAFETY\_MARGIN (≥3×). Si expira, matar el proceso. |
+| RUN-04 | ☑ | Verificar que no quedan procesos hijos vivos antes de continuar con la siguiente combinación. |
+| RUN-05 | ☑ | Aplicar entry.success\_check (exit\_code o stdout\_regex) contra el resultado real. |
+| RUN-06 | ☑ | Metadata final \= fusión launcher (samples\_collected, push\_retries) \+ orquestador (node\_id, binary\_checksum, refs de calibración). |
+| RUN-07 | ☑ | stdout.txt y stderr.txt completos guardados en output\_dir/\<run\_id\>/. |
+| RUN-08 | ☑ | Si frequency\_write\_capable=False: NO invocar freqctl.apply\_frequency() (verificado vía inyección de `apply_frequency` en `run_single`; freqctl.py aún no existe — F2.2). |
 
 ### **12.8 Campaign (CAM-01 a CAM-07) — 7 reglas**
 
