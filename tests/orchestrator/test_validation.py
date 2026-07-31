@@ -1,0 +1,150 @@
+import hashlib
+from pathlib import Path
+import sys
+from types import SimpleNamespace
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from orchestrator import validation
+from orchestrator.catalog import KernelEntry
+from orchestrator.preflight import CheckResult
+
+
+def _kernel_entry(tmp_path: Path) -> KernelEntry:
+    binary = tmp_path / "npb_ep.x"
+    binary.write_bytes(b"#!/bin/sh\necho ok\n")
+    binary.chmod(0o755)
+    checksum = f"sha256:{hashlib.sha256(binary.read_bytes()).hexdigest()}"
+    return KernelEntry(
+        id="npb_ep", suite="npb", role="dataset", exec_path=str(binary), binary_checksum=checksum,
+        phase_label_hint="compute_bound", size_variant="S", expected_runtime_seconds=1,
+        warmup_seconds=0.0, success_check={"type": "exit_code"}, estimated_memory_bytes=1024,
+    )
+
+
+def _run_result(*, run_id="camp__npb_ep__REF__rep01", success=True, samples_collected=100,
+                 push_retries=0) -> SimpleNamespace:
+    return SimpleNamespace(
+        run_id=run_id, success=success,
+        metadata={"samples_collected": samples_collected, "push_retries": push_retries},
+    )
+
+
+def test_val01_i04_samples_collected_cero_rechaza(tmp_path):
+    entry = _kernel_entry(tmp_path)
+    verdict = validation.validate_run(_run_result(samples_collected=0), entry)
+    assert verdict.accepted is False
+    assert verdict.factor_id == "I04"
+
+
+def test_val01_i04_push_retries_positivo_rechaza(tmp_path):
+    entry = _kernel_entry(tmp_path)
+    verdict = validation.validate_run(_run_result(push_retries=3), entry)
+    assert verdict.accepted is False
+    assert verdict.factor_id == "I04"
+
+
+def test_val03_c02_checksum_discrepante_rechaza_aunque_la_corrida_termine_bien(tmp_path):
+    entry = _kernel_entry(tmp_path)
+    # El binario cambia despues de calcular el checksum del catalogo.
+    Path(entry.exec_path).write_bytes(b"#!/bin/sh\necho cambiado\n")
+
+    verdict = validation.validate_run(_run_result(success=True), entry)
+
+    assert verdict.accepted is False
+    assert verdict.factor_id == "C02"
+
+
+def test_val04_c03_success_check_no_cumplido_rechaza(tmp_path):
+    entry = _kernel_entry(tmp_path)
+    verdict = validation.validate_run(_run_result(success=False), entry)
+    assert verdict.accepted is False
+    assert verdict.factor_id == "C03"
+
+
+def test_val07_orden_determinista_i04_antes_que_c02(tmp_path):
+    entry = _kernel_entry(tmp_path)
+    # Checksum roto Y samples_collected=0 a la vez: I04 debe ganar, no C02.
+    Path(entry.exec_path).write_bytes(b"#!/bin/sh\necho cambiado\n")
+
+    verdict = validation.validate_run(_run_result(samples_collected=0), entry)
+
+    assert verdict.factor_id == "I04"
+
+
+def test_val07_orden_determinista_c02_antes_que_c03(tmp_path):
+    entry = _kernel_entry(tmp_path)
+    Path(entry.exec_path).write_bytes(b"#!/bin/sh\necho cambiado\n")
+
+    verdict = validation.validate_run(_run_result(success=False), entry)
+
+    assert verdict.factor_id == "C02"
+
+
+def test_val07_orden_determinista_e06_e07_e08_antes_del_resto(tmp_path):
+    entry = _kernel_entry(tmp_path)
+    foreign = CheckResult("E06", "Procesos ajenos", False, True, {}, "proceso ajeno detectado")
+    governor = CheckResult("E07", "Governor", False, True, {}, "governor cambio")
+
+    verdict = validation.validate_run(
+        _run_result(run_id="dup"), entry,
+        foreign_processes=foreign, governor=governor, run_id_seen={"dup"},
+    )
+
+    # E06 se evalua antes que E07 y antes que I07 (run_id duplicado).
+    assert verdict.factor_id == "E06"
+
+
+def test_val02_i07_run_id_duplicado_rechaza(tmp_path):
+    entry = _kernel_entry(tmp_path)
+    verdict = validation.validate_run(
+        _run_result(run_id="camp__npb_ep__REF__rep01"), entry,
+        run_id_seen={"camp__npb_ep__REF__rep01"},
+    )
+    assert verdict.accepted is False
+    assert verdict.factor_id == "I07"
+
+
+def test_corrida_limpia_se_acepta(tmp_path):
+    entry = _kernel_entry(tmp_path)
+    verdict = validation.validate_run(_run_result(), entry, run_id_seen=set())
+    assert verdict.accepted is True
+    assert verdict.factor_id is None
+
+
+def test_val05_d03_calibracion_no_plausible_rechaza_toda_la_campana():
+    calibration = SimpleNamespace(plausibility_check_passed=False, plausibility_message="D03: fuera de rango")
+    verdict = validation.validate_campaign_calibration(calibration)
+    assert verdict.accepted is False
+    assert verdict.factor_id == "D03"
+
+
+def test_val05_calibracion_plausible_acepta():
+    calibration = SimpleNamespace(plausibility_check_passed=True)
+    verdict = validation.validate_campaign_calibration(calibration)
+    assert verdict.accepted is True
+
+
+def test_val08_rechazo_de_ventana_no_invalida_la_corrida(tmp_path):
+    """validate_run ni siquiera recibe windows.csv como argumento: no hay
+    forma de que un quality_status de ventana (I01/I02/I03/warmup/
+    intensity_undefined) llegue a influir el veredicto de la corrida."""
+    import inspect
+    signature = inspect.signature(validation.validate_run)
+    assert "windows" not in signature.parameters
+    assert "quality_status" not in signature.parameters
+
+
+def test_val06_write_verdict_nunca_borra_conserva_rechazo(tmp_path):
+    run_dir = tmp_path / "run_x"
+    run_dir.mkdir()
+    (run_dir / "samples.csv").write_text("crudo")
+
+    verdict = validation.Verdict(accepted=False, factor_id="C02", message="checksum discrepante")
+    path = validation.write_verdict(verdict, run_dir)
+
+    assert path.exists()
+    assert (run_dir / "samples.csv").exists()  # el crudo se conserva
+
+    loaded = validation.load_verdict(run_dir)
+    assert loaded == verdict
