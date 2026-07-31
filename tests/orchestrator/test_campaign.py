@@ -59,7 +59,7 @@ def _catalog(tmp_path: Path) -> dict[str, KernelEntry]:
 
 def _fake_run_single(calls):
     def run_single(entry, manifest, kernel_ref, freq_level_id, repetition_index, *,
-                    environment_profile=None, node_id=None, apply_frequency=None):
+                    environment_profile=None, node_id=None, apply_frequency=None, calibration_refs=None):
         base_run_id = runner_module.build_run_id(manifest.campaign_id, kernel_ref, freq_level_id, repetition_index)
         run_id = base_run_id if manifest.perf_enabled else f"{base_run_id}__baseline"
         run_dir = Path(manifest.output_dir) / run_id
@@ -170,6 +170,8 @@ def test_campana_completa_corre_baseline_telemetry_y_postprocesa(tmp_path):
     assert metadata["seed"] == 42  # CAM-02
     assert metadata["run_ids_in_order"] == ["camp01__npb_ep__REF__rep01"]
     assert metadata["accepted_run_ids"] == ["camp01__npb_ep__REF__rep01"]
+    assert metadata["skipped_run_ids"] == []  # MET-06
+    assert metadata["frequency_restored_verified"] is True  # MET-02
 
 
 def test_cam03_reanudacion_salta_combinacion_ya_aceptada(tmp_path):
@@ -191,7 +193,8 @@ def test_cam03_reanudacion_salta_combinacion_ya_aceptada(tmp_path):
 
     # Ni el baseline ni el telemetry de la combinacion ya aceptada se repiten.
     assert calls == []
-    assert result.progress.accepted_run_ids == ["camp01__npb_ep__REF__rep01"]
+    assert result.progress.accepted_run_ids == []
+    assert result.progress.skipped_run_ids == ["camp01__npb_ep__REF__rep01"]  # MET-06
     assert postprocess_calls == []
 
 
