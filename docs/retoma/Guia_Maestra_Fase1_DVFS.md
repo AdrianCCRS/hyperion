@@ -613,14 +613,14 @@ Cada regla tiene un ID único MÓDULO-NN y una casilla para marcar cuando el mó
 
 | ID | ✓ | Regla de validación / invariante técnica |
 | :---- | :---: | :---- |
-| VAL-01 | ☐ | I04: samples\_collected==0 o push\_retries\>0 → rechazo inmediato. |
-| VAL-02 | ☐ | I07: run\_id duplicado → rechazo, aunque no se detectara en el preflight. |
-| VAL-03 | ☐ | C02: checksum del binario ejecutado discrepante → rechazo, aunque la corrida terminara bien. |
-| VAL-04 | ☐ | C03: success\_check no cumplido → rechazo. |
-| VAL-05 | ☐ | D03: calibración no plausible → rechazo de TODA LA CAMPAÑA, no solo de una corrida. |
-| VAL-06 | ☐ | Corridas rechazadas NUNCA se borran. Se conservan con accepted=False y rejection\_factor\_id. |
-| VAL-07 | ☐ | Orden determinista de evaluación: I04 primero, luego C02/C03, luego E06-E08, luego el resto. |
-| VAL-08 | ☐ | Rechazo a nivel de ventana (I02, I03, warmup, intensity\_undefined) no invalida la corrida completa. |
+| VAL-01 | ☑ | I04: samples\_collected==0 o push\_retries\>0 → rechazo inmediato. |
+| VAL-02 | ☑ | I07: run\_id duplicado → rechazo, aunque no se detectara en el preflight (defensa adicional vía `run_id_seen`). |
+| VAL-03 | ☑ | C02: checksum del binario ejecutado discrepante → rechazo, aunque la corrida terminara bien (segunda verificación independiente de la de runner.py/CAT-07). |
+| VAL-04 | ☑ | C03: success\_check no cumplido → rechazo. |
+| VAL-05 | ☑ | D03: calibración no plausible → rechazo de TODA LA CAMPAÑA, no solo de una corrida (`validate_campaign_calibration`; en la práctica ya bloqueado antes por `calibration.run_calibration`/`load_calibration`). |
+| VAL-06 | ☑ | Corridas rechazadas NUNCA se borran. `write_verdict()` solo agrega `verdict.json`; ninguna función del módulo borra archivos. |
+| VAL-07 | ☑ | Orden determinista de evaluación: I04 primero, luego C02/C03, luego E06-E08, luego I07. |
+| VAL-08 | ☑ | Rechazo a nivel de ventana (I01/I02/I03, warmup, intensity\_undefined) no invalida la corrida completa: `validate_run()` no recibe windows.csv ni quality\_status como argumento, estructuralmente no puede verse afectado por eso. |
 
 ### **12.11 Metadata y reporte (MET-01 a MET-07) — 7 reglas**
 
