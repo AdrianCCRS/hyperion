@@ -203,6 +203,8 @@ telemetry_kernel_launcher [opciones]
 | `--output-dir` | Directorio | `runs` | No | Directorio base de resultados. |
 | `--run-id` | String | `run_<timestamp>` | No | Nombre de la corrida. El resultado queda en `output-dir/run-id`. |
 | `--workload-bin` | Ruta | Junto al launcher | No | Permite usar otro binario compatible con la interfaz del workload. |
+| `--exec` | Ruta | Vacío | No (activa modo externo) | Modo binario externo para dataset. El fork+exec lanza este binario en lugar de `telemetry_kernel_workload`. Omite el protocolo ready/go (el binario real no lo conoce) y mide elapsed con wall-clock del padre; no hay corrida baseline. Incompatible con los flags sintéticos (`--kernel` se vuelve opcional y vale el basename; `--size/--iterations/--warmup/--threads/--pin-workers` se ignoran). |
+| `--exec-args` | String | Vacío | No | Argumentos whitespace-separados que se pasan al binario `--exec` (sin quoting). |
 | `--help` | Flag | - | No | Muestra uso básico. |
 
 Validaciones actuales:
