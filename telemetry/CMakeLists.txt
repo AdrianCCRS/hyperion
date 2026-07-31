@@ -86,6 +86,13 @@ add_executable(perf_reader_test
 target_link_libraries(perf_reader_test PRIVATE telemetry pthread)
 add_test(NAME perf_reader_test COMMAND perf_reader_test)
 
+add_executable(perf_reader_pid_live_test
+  tests/test_perf_reader_pid_live.cpp
+)
+target_link_libraries(perf_reader_pid_live_test PRIVATE telemetry pthread)
+add_test(NAME perf_reader_pid_live_test COMMAND perf_reader_pid_live_test)
+set_tests_properties(perf_reader_pid_live_test PROPERTIES SKIP_RETURN_CODE 77)
+
 add_executable(perf_cgroup_reader_test
   tests/test_perf_cgroup_reader.cpp
 )

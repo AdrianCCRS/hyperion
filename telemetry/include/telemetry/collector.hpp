@@ -36,16 +36,22 @@ namespace telemetry {
         /** Nominal sampling period in nanoseconds. Default is 1 ms. */
         long interval_ns = 1'000'000;
 
-        /** Enables CPU counters through PerfReader or PerfCgroupReader. */
+        /** Enables CPU counters through PerfReader (or the deprecated PerfCgroupReader). */
         bool enable_perf = true;
 
         /** Enables NVML GPU samples. Requires TELEMETRY_WITH_GPU at build time. */
         bool enable_gpu = false;
 
-        /** Target PID for the simple PerfReader path. 0 means current process. */
+        /**
+         * Target PID for PerfReader (PID + inherit=1). This is the launcher's
+         * only CPU measurement path; 0 means current process.
+         */
         pid_t target_pid = 0;
 
-        /** Cgroup path for multithreaded cgroup-based perf measurement. */
+        /**
+         * Cgroup path for the deprecated PerfCgroupReader backend. Left empty
+         * by telemetry_kernel_launcher; kept only for existing tests.
+         */
         std::string perf_cgroup_path;
 
         /** CPUs where perf cgroup events are opened. This does not pin workload. */

@@ -14,7 +14,11 @@
 
 /**
  * @file perf_cgroup_reader.cpp
- * @brief Cgroup-scoped perf_event reader used by multithreaded experiments.
+ * @brief Cgroup-scoped perf_event reader.
+ *
+ * @deprecated Not used by telemetry_kernel_launcher anymore; see the
+ * deprecation note in perf_cgroup_reader.hpp. Kept only so the existing
+ * CTest coverage keeps passing.
  *
  * perf cgroup mode is opened per CPU. The configured cgroup defines which tasks
  * are attributed; the configured CPU list defines where events are observed.
