@@ -9,6 +9,7 @@ import tomllib
 class HarnessConfig:
     exec_flag: str
     exec_args_flag: str
+    binary_path: str
 
 
 @dataclass(frozen=True)
@@ -68,8 +69,19 @@ def load_config(path: str | Path | None = None) -> OrchestratorConfig:
         raise ValueError(f"orchestrator.toml: sección obligatoria ausente: {error.args[0]}") from error
     if not all(isinstance(section, dict) for section in (harness_data, sysfs_data, detection_data)):
         raise ValueError("orchestrator.toml: cada sección debe ser una tabla")
+    # binary_path is relative to the repo root (this file's parent directory)
+    # unless it is already absolute, mirroring how manifest.py resolves
+    # catalog_path relative to the manifest source file.
+    binary_path = _text(harness_data, "binary_path")
+    resolved_binary_path = Path(binary_path)
+    if not resolved_binary_path.is_absolute():
+        resolved_binary_path = config_path.parent / resolved_binary_path
     return OrchestratorConfig(
-        harness=HarnessConfig(_text(harness_data, "exec_flag"), _text(harness_data, "exec_args_flag")),
+        harness=HarnessConfig(
+            _text(harness_data, "exec_flag"),
+            _text(harness_data, "exec_args_flag"),
+            str(resolved_binary_path),
+        ),
         sysfs=SysfsPaths(
             Path(_text(sysfs_data, "cpu_root")),
             Path(_text(sysfs_data, "rapl_root")),

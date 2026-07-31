@@ -192,6 +192,7 @@ def test_config_inyectada_define_rutas_y_tier_cloud(tmp_path, monkeypatch):
         f'''[harness]
 exec_flag = "--programa"
 exec_args_flag = "--argumentos"
+binary_path = "bin/lanzador"
 [sysfs]
 cpu_root = "{raiz / "devices/system/cpu"}"
 rapl_root = "{raiz / "class/powercap/intel-rapl"}"
