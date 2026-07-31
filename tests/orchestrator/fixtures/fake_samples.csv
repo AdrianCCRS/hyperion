@@ -1,0 +1,7 @@
+run_id,repetition,kernel,label,timestamp_ns,tag,instructions,cycles,cache_references,cache_misses,time_enabled_ns,time_running_ns,pkg_uj,dram_uj,pkg_delta_uj,dram_delta_uj,energy_delta_valid,gpu_power_mw,gpu_util_pct
+fake_run,1,npb_ep,npb_ep,1000000000,CPU,0,0,0,0,0,0,,,,,,,
+fake_run,1,npb_ep,npb_ep,1000500000,CPU,500000,250000,25000,250,500000,500000,,,,,,,
+fake_run,1,npb_ep,npb_ep,1001500000,CPU,3000000,1500000,150000,1500,1500000,1500000,,,,,,,
+fake_run,1,npb_ep,npb_ep,1002500000,CPU,2800000,1900000,155000,1550,2500000,2500000,,,,,,,
+fake_run,1,npb_ep,npb_ep,1003500000,CPU,5800000,2900000,305000,3050,3500000,2600000,,,,,,,
+fake_run,1,npb_ep,npb_ep,1004500000,CPU,7800000,3900000,405000,3050,4500000,4500000,,,,,,,

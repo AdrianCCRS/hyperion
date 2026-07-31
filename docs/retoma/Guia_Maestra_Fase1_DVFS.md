@@ -592,22 +592,22 @@ Cada regla tiene un ID único MÓDULO-NN y una casilla para marcar cuando el mó
 
 | ID | ✓ | Regla de validación / invariante técnica |
 | :---- | :---: | :---- |
-| POST-01 | ☐ | Primera muestra de cada repetición → quality\_status='first\_sample\_no\_delta'. Nunca imputar un delta artificial. |
-| POST-02 | ☐ | Delta negativo de contador de hardware sin corrección de wrap → invalidar la ventana. |
-| POST-03 | ☐ | running\_ratio \< running\_ratio\_min → quality\_status='pmu\_degraded'. Ventana no apta para entrenar. |
-| POST-04 | ☐ | Calcular tasas con el intervalo REAL medido (delta\_t\_ns real), nunca con el nominal de \--interval-ns. |
-| POST-05 | ☐ | Corrección de wrap RAPL con max\_energy\_range\_uj si existe. Si no existe y el delta es negativo → energy\_valid=False. |
-| POST-06 | ☐ | RAPL que retorna 0 ante error propagarse como invalidez, nunca como consumo real. |
-| POST-07 | ☐ | Ventanas dentro de warmup\_seconds del catálogo → quality\_status='warmup\_excluded'. Conservar en windows.csv. |
-| POST-08 | ☐ | bytes\_moved\_window \== 0 → operational\_intensity=NaN y quality\_status='intensity\_undefined'. Nunca dividir por cero. |
-| POST-09 | ☐ | FLOPs totales del stdout del binario NPB/STREAM/ERT. Nunca de contadores de PMU de hardware. |
-| POST-10 | ☐ | LLC\_LINE\_SIZE\_BYTES del node\_profile real. Nunca hardcodeado como 64 bytes sin verificar. |
-| POST-11 | ☐ | phase\_label\_train SIEMPRE por Roofline (operational\_intensity vs i\_ridge). Nunca copiado de phase\_label\_hint. |
-| POST-12 | ☐ | Features relativas (ipc\_relative, mpki\_relative, miss\_rate\_relative) calculadas SIEMPRE para toda fila válida. |
-| POST-13 | ☐ | Las features relativas NO se recortan a \[0, 1\]. Un ratio \> 1 es información válida. |
-| POST-14 | ☐ | node\_id, node\_profile\_ref y calibration\_ref en CADA FILA de windows.csv. |
-| POST-15 | ☐ | load\_calibration() rechaza con excepción si plausibility\_check\_passed=False. Nunca etiquetar con calibración sospechosa. |
-| POST-16 | ☐ | windows.csv contiene TANTO features absolutas COMO features relativas. Ambas siempre presentes. |
+| POST-01 | ☑ | Primera muestra de cada repetición → quality\_status='first\_sample\_no\_delta'. Nunca imputar un delta artificial. |
+| POST-02 | ☑ | Delta negativo de contador de hardware sin corrección de wrap → invalidar la ventana (mapeado a quality\_status='pmu\_degraded'; no hay un status dedicado en la lista de 7 valores). |
+| POST-03 | ☑ | running\_ratio \< running\_ratio\_min → quality\_status='pmu\_degraded'. Ventana no apta para entrenar. |
+| POST-04 | ☑ | Calcular tasas con el intervalo REAL medido (delta\_t\_ns real), nunca con el nominal de \--interval-ns. |
+| POST-05 | ☑ | El launcher C++ ya aplica la corrección de wrap RAPL con max\_energy\_range\_uj y calcula energy\_delta\_valid por muestra (telemetry_kernel_launcher.cpp); postprocess.py solo propaga esos valores, nunca los recalcula ni los trata como reales cuando energy\_delta\_valid=0. |
+| POST-06 | ☑ | RAPL inválido (energy\_delta\_valid=0) → pkg\_delta\_uj/dram\_delta\_uj/power\_w quedan en None, nunca se reporta como consumo real. |
+| POST-07 | ☑ | Ventanas dentro de warmup\_seconds del catálogo → quality\_status='warmup\_excluded'. Se conservan en windows.csv. |
+| POST-08 | ☑ | bytes\_moved\_window \== 0 → operational\_intensity=NaN y quality\_status='intensity\_undefined'. Nunca dividir por cero. |
+| POST-09 | ☑ | FLOPs totales del stdout del binario (regex `flops_total_stdout_pattern` nuevo en catalog.py), prorrateados por ventana proporcionalmente a delta\_instructions (Plan\_Implementacion\_Medicion\_SC3.md F2.5). **Nota de contradicción:** `docs/orchestator/plan_v3/guia-tecnica.md` (no autoritativo para esta tarea) prorratea por tiempo (`delta_t_ns/run_duration_ns`) en vez de por instrucciones; se siguió el plan ejecutable, documentado como ARC-27. |
+| POST-10 | ☑ | LLC\_LINE\_SIZE\_BYTES del node\_profile real (`NodeProfile.cache_line_size_bytes`, leído de `coherency_line_size` en sysfs). Nunca hardcodeado como 64 bytes sin verificar. |
+| POST-11 | ☑ | phase\_label\_train SIEMPRE por Roofline (operational\_intensity vs i\_ridge). Nunca copiado de phase\_label\_hint (probado explícitamente con hint contradictorio). |
+| POST-12 | ☑ | Features relativas (ipc\_relative, mpki\_relative, miss\_rate\_relative) calculadas SIEMPRE que la feature absoluta y las referencias de calibración existan. |
+| POST-13 | ☑ | Las features relativas NO se recortan a \[0, 1\]. Un ratio \> 1 es información válida (probado con ratio=2.0). |
+| POST-14 | ☑ | node\_id, node\_profile\_ref y calibration\_ref en CADA FILA de windows.csv, incluida la primera (first\_sample\_no\_delta). |
+| POST-15 | ☑ | load\_calibration() rechaza con excepción si plausibility\_check\_passed=False; run\_postprocess() la invoca antes de generar ninguna fila. |
+| POST-16 | ☑ | windows.csv contiene TANTO features absolutas COMO features relativas: write\_windows\_csv() escribe las 39 REQUIRED\_OUTPUT\_COLUMNS en cada fila, siempre. |
 
 ### **12.10 Validación (VAL-01 a VAL-08) — 8 reglas**
 

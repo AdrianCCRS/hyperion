@@ -17,21 +17,23 @@ CPUINFO_2S_2C_2T = "\n\n".join(
 ) + "\n"
 
 
-def _write_cache(sys_root: Path, cpu: int, *, l1_kb=32, l2_kb=256, llc_kb=24576, shared: str) -> None:
+def _write_cache(sys_root: Path, cpu: int, *, l1_kb=32, l2_kb=256, llc_kb=24576, shared: str,
+                  llc_line_size=64) -> None:
     cache_root = sys_root / f"devices/system/cpu/cpu{cpu}/cache"
     entries = [
-        ("index0", "1", "Data", f"{l1_kb}K", str(cpu)),
-        ("index1", "1", "Instruction", f"{l1_kb}K", str(cpu)),
-        ("index2", "2", "Unified", f"{l2_kb}K", str(cpu)),
-        ("index3", "3", "Unified", f"{llc_kb}K", shared),
+        ("index0", "1", "Data", f"{l1_kb}K", str(cpu), 64),
+        ("index1", "1", "Instruction", f"{l1_kb}K", str(cpu), 64),
+        ("index2", "2", "Unified", f"{l2_kb}K", str(cpu), 64),
+        ("index3", "3", "Unified", f"{llc_kb}K", shared, llc_line_size),
     ]
-    for name, level, kind, size, shared_list in entries:
+    for name, level, kind, size, shared_list, line_size in entries:
         index_dir = cache_root / name
         index_dir.mkdir(parents=True)
         (index_dir / "level").write_text(level)
         (index_dir / "type").write_text(kind)
         (index_dir / "size").write_text(size)
         (index_dir / "shared_cpu_list").write_text(shared_list)
+        (index_dir / "coherency_line_size").write_text(str(line_size))
 
 
 def test_cal07_build_node_profile_es_solo_lectura_y_agrega_datos_existentes(tmp_path):
@@ -68,6 +70,7 @@ def test_cal07_build_node_profile_es_solo_lectura_y_agrega_datos_existentes(tmp_
     assert profile.cache_l2_kb == 256
     assert profile.cache_llc_kb == 24576
     assert profile.cache_llc_shared is True  # shared_cpu_list "2-3" -> 2 cpus
+    assert profile.cache_line_size_bytes == 64
     assert profile.freq_min_khz == 1064000
     assert profile.freq_max_khz == 2261000
     assert profile.scaling_driver == "acpi-cpufreq"
@@ -97,8 +100,8 @@ def test_cal08_cal11_roundtrip_json(tmp_path):
     profile = node_profile.NodeProfile(
         node_id="felix-sc3", hostname="felix", cpu_model="X7560", sockets=4, cores_total=32,
         threads_per_core=2, numa_nodes=4, cache_l1_kb=32, cache_l2_kb=256, cache_llc_kb=24576,
-        cache_llc_shared=True, freq_min_khz=1064000, freq_max_khz=2261000, scaling_driver="acpi-cpufreq",
-        perf_events_supported=("cycles",), rapl_domains_available=(), pmc_count=4,
+        cache_llc_shared=True, cache_line_size_bytes=64, freq_min_khz=1064000, freq_max_khz=2261000,
+        scaling_driver="acpi-cpufreq", perf_events_supported=("cycles",), rapl_domains_available=(), pmc_count=4,
     )
     path = node_profile.write_node_profile(profile, tmp_path)
     assert path.name == "node_profile.json"
