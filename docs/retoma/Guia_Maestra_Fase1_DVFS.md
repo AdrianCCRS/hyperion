@@ -536,16 +536,16 @@ Cada regla tiene un ID único MÓDULO-NN y una casilla para marcar cuando el mó
 
 | ID | ✓ | Regla de validación / invariante técnica |
 | :---- | :---: | :---- |
-| FRQ-01 | ☐ | snapshot\_original\_state() llamado UNA SOLA VEZ al inicio de campaña. |
-| FRQ-02 | ☐ | apply\_frequency() verifica por relectura del atributo real de frequency\_control\_paths (nunca asume scaling\_setspeed). |
-| FRQ-03 | ☐ | Guardar TANTO el valor solicitado COMO el aplicado en metadata. Nunca solo uno. |
-| FRQ-04 | ☐ | restore\_original\_state() es idempotente y verifica por lectura que la restauración ocurrió. |
-| FRQ-05 | ☐ | install\_emergency\_handlers(): atexit, SIGINT y SIGTERM. Los tres registrados. |
-| FRQ-06 | ☐ | Si frequency\_write\_capable=False: no escribir NADA en sysfs. Registrar 'unavailable' en metadata. |
-| FRQ-07 | ☐ | La calibración Roofline corre a frecuencia máxima/nativa. freqctl fija F0 antes y restaura al terminar. |
-| FRQ-08 | ☐ | PRUEBA DE CAOS en hardware real OBLIGATORIA antes de usar contra el SC3. |
-| FRQ-09 | ☐ | El control de frecuencia afecta SOLO a delegated\_cpus, nunca global del nodo. |
-| FRQ-10 | ☐ | Registrar frecuencia observada (scaling\_cur\_freq) por ventana en windows.csv. |
+| FRQ-01 | ☑ | snapshot\_original\_state() llamado UNA SOLA VEZ al inicio de campaña (contrato: el caller la invoca una vez; la función es idempotente/de solo lectura por diseño). |
+| FRQ-02 | ☑ | apply\_frequency() verifica por relectura del atributo real de frequency\_control\_paths (nunca asume scaling\_setspeed): discrete\_bounds usa governor=userspace+scaling\_setspeed, bounded\_range usa scaling\_min\_freq/scaling\_max\_freq. |
+| FRQ-03 | ☑ | Guardar TANTO el valor solicitado COMO el aplicado en metadata (AppliedFrequency.requested\_khz/applied\_khz). Nunca solo uno. |
+| FRQ-04 | ☑ | restore\_original\_state() es idempotente y verifica por lectura que la restauración ocurrió. |
+| FRQ-05 | ☑ | install\_emergency\_handlers(): atexit, SIGINT y SIGTERM. Los tres registrados. |
+| FRQ-06 | ☑ | Si frequency\_write\_capable=False: no escribir NADA en sysfs. Registrar 'unavailable' en metadata (write\_skipped\_reason). |
+| FRQ-07 | ☐ | La calibración Roofline corre a frecuencia máxima/nativa. freqctl fija F0 antes y restaura al terminar. **Pendiente: requiere calibration.py (F2.3), aún no implementado.** |
+| FRQ-08 | ☐ | PRUEBA DE CAOS en hardware real OBLIGATORIA antes de usar contra el SC3. **Pendiente — Parte H3, acción humana en bare-metal con root; no se ejecuta desde este entorno de desarrollo.** |
+| FRQ-09 | ☑ | El control de frecuencia afecta SOLO a delegated\_cpus, nunca global del nodo (cpus siempre viene explícito del caller; probado con un cpu no delegado que queda intacto). |
+| FRQ-10 | ☐ | Registrar frecuencia observada (scaling\_cur\_freq) por ventana en windows.csv. `freqctl.read_observed_frequency_khz()` ya existe como soporte de solo lectura; falta la integración en postprocess.py (F2.5). |
 
 ### **12.6 Calibración (CAL-01 a CAL-11) — 11 reglas**
 
