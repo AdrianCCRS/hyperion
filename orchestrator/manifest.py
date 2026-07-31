@@ -72,6 +72,10 @@ class Manifest:
     rapl: Mapping[str, Any]
     gpu: Mapping[str, Any]
     timeouts_seconds: Timeouts
+    # D03/CAL-04: valores de ficha técnica declarados para el chequeo de
+    # plausibilidad de la calibración Roofline (±40%). Ausente = el chequeo
+    # D03 no puede aprobarse (ver calibration.py); nunca se infiere.
+    hardware_datasheet: Mapping[str, float] | None = None
 
 
 def _error(rule_id: str, field: str, message: str) -> None:
@@ -138,6 +142,25 @@ def _parse_frequency_levels(value: Any) -> tuple[FrequencyLevel, ...]:
     if native_levels != 1:
         _error("MAN-10", "frequency_levels", "debe contener exactamente un nivel native_governor")
     return tuple(levels)
+
+
+_DATASHEET_KEYS = ("bw_pico_bytes_per_s", "p_pico_flops_per_s")
+
+
+def _parse_hardware_datasheet(value: Any) -> Mapping[str, float] | None:
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        _error("MAN-00", "hardware_datasheet", "debe ser un objeto o estar ausente")
+    parsed: dict[str, float] = {}
+    for key in _DATASHEET_KEYS:
+        raw = value.get(key)
+        if raw is None:
+            continue
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)) or raw <= 0:
+            _error("MAN-00", f"hardware_datasheet.{key}", "debe ser numérico y positivo")
+        parsed[key] = float(raw)
+    return parsed or None
 
 
 def compute_matrix_size(manifest: Manifest) -> int:
@@ -260,10 +283,13 @@ def load(path: str | Path) -> Manifest:
     if any(isinstance(value, bool) or not isinstance(value, int) or value <= 0 for value in (timeouts.ready, timeouts.run, timeouts.shutdown)):
         _error("MAN-00", "timeouts_seconds", "todos los valores deben ser enteros positivos")
 
+    hardware_datasheet = _parse_hardware_datasheet(document.get("hardware_datasheet"))
+
     manifest = Manifest(
         campaign_id, tier, seed, output_dir, overwrite, catalog_path, calibration, kernels,
         frequency_levels, repetitions, target_windows, interval_ns, float(running_ratio),
         cores, smt_policy, cgroup_path, perf_enabled, dict(rapl), dict(gpu), timeouts,
+        hardware_datasheet,
     )
     matrix_size = compute_matrix_size(manifest)
     # MAN-03: cada combinación tiene baseline y telemetry, por eso se duplica.

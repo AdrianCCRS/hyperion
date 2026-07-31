@@ -27,6 +27,11 @@ class KernelEntry:
     estimated_memory_bytes: int | None = None
     reports_bandwidth_stdout: bool = False
     reports_flops_stdout: bool = False
+    # CAL-02/CAL-03: regex with exactly one capturing group around the numeric
+    # value, applied to the suite's own stdout. Required when the matching
+    # reports_*_stdout flag is set; never used to read PMU counters.
+    bandwidth_stdout_pattern: str | None = None
+    flops_stdout_pattern: str | None = None
     exec_args: str = ""
 
     def __post_init__(self):
@@ -83,6 +88,23 @@ class KernelEntry:
                 f"CAT-05: kernel calibration {self.id!r} debe reportar exactamente "
                 "una de bandwidth_stdout o flops_stdout"
             )
+        # CAL-02/CAL-03: the regex that will extract the peak metric from
+        # stdout must be declared and valid at catalog-load time, not
+        # discovered as a KeyError mid-calibration.
+        if self.reports_bandwidth_stdout:
+            self._validate_metric_pattern("bandwidth_stdout_pattern", self.bandwidth_stdout_pattern)
+        if self.reports_flops_stdout:
+            self._validate_metric_pattern("flops_stdout_pattern", self.flops_stdout_pattern)
+
+    def _validate_metric_pattern(self, field_name: str, pattern: str | None) -> None:
+        if not isinstance(pattern, str) or not pattern:
+            raise ValueError(f"CAT-05: {field_name} de {self.id!r} debe ser un string no vacío")
+        try:
+            compiled = re.compile(pattern)
+        except re.error as error:
+            raise ValueError(f"CAT-05: {field_name} de {self.id!r} inválido: {error}") from error
+        if compiled.groups < 1:
+            raise ValueError(f"CAT-05: {field_name} de {self.id!r} debe tener un grupo de captura numérico")
         
 def load_catalog(catalog_path: str) -> dict[str, KernelEntry]:
     with open(catalog_path, encoding="utf-8") as catalog_file:
@@ -116,6 +138,8 @@ def load_catalog(catalog_path: str) -> dict[str, KernelEntry]:
             estimated_memory_bytes=kernel.get("estimated_memory_bytes"),
             reports_bandwidth_stdout=kernel.get("reports_bandwidth_stdout", False),
             reports_flops_stdout=kernel.get("reports_flops_stdout", False),
+            bandwidth_stdout_pattern=kernel.get("bandwidth_stdout_pattern"),
+            flops_stdout_pattern=kernel.get("flops_stdout_pattern"),
             exec_args=kernel.get("exec_args", ""),
         )
         if not isinstance(entry.exec_args, str):

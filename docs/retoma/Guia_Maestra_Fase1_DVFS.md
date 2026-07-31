@@ -551,17 +551,17 @@ Cada regla tiene un ID único MÓDULO-NN y una casilla para marcar cuando el mó
 
 | ID | ✓ | Regla de validación / invariante técnica |
 | :---- | :---: | :---- |
-| CAL-01 | ☐ | La calibración corre a frecuencia máxima/nativa. Ejecutarla a frecuencia reducida subestimaría I\_ridge. |
-| CAL-02 | ☐ | BW\_pico del stdout de STREAM (auto-reportado por la suite). Nunca de contadores de PMU. |
-| CAL-03 | ☐ | P\_pico del stdout de ERT. Nunca de FP\_ARITH\_INST\_RETIRED ni equivalentes. |
-| CAL-04 | ☐ | I\_ridge \= P\_pico / BW\_pico. El check D03 ocurre en la misma función. Si D03 falla, excepción bloqueante. |
-| CAL-05 | ☐ | roofline\_calibration.json incluye todos los campos: campaign\_id, timestamp, delegated\_cpus, BW/P/I\_ridge, stdout crudo, plausibility\_check\_passed. |
-| CAL-06 | ☐ | load\_calibration() rechaza (excepción) si plausibility\_check\_passed=False. No etiquetar con calibración inválida. |
-| CAL-07 | ☐ | build\_node\_profile() es de SOLO LECTURA: /proc/cpuinfo, /sys/devices/system/cpu/\*/cache/index\*/, /sys/.../node/. |
-| CAL-08 | ☐ | node\_profile.json incluye todos los campos del dataclass NodeProfile. |
-| CAL-09 | ☐ | build\_calibration\_references() corre ≥5 repeticiones del kernel de referencia para calcular P95. |
-| CAL-10 | ☐ | Si cv\_pct \> umbral (defecto 5.0%): accepted=False. Check D04 genera advertencia en el reporte. |
-| CAL-11 | ☐ | Los tres artefactos (roofline\_calibration.json, node\_profile.json, calibration\_references.json) se generan en la misma fase de campaña, antes de la matriz de dataset. |
+| CAL-01 | ☑ | La calibración corre a frecuencia máxima/nativa. Ejecutarla a frecuencia reducida subestimaría I\_ridge. (En felix REF≈F0 por `governor=performance`; el pineo explícito de F0 vía freqctl para tiers con escritura queda en FRQ-07, pendiente.) |
+| CAL-02 | ☑ | BW\_pico del stdout de STREAM (auto-reportado por la suite). Nunca de contadores de PMU. |
+| CAL-03 | ☑ | P\_pico del stdout de ERT. Nunca de FP\_ARITH\_INST\_RETIRED ni equivalentes. |
+| CAL-04 | ☑ | I\_ridge \= P\_pico / BW\_pico. El check D03 ocurre en la misma función. Si D03 falla, excepción bloqueante. |
+| CAL-05 | ☑ | roofline\_calibration.json incluye todos los campos: campaign\_id, timestamp, delegated\_cpus, BW/P/I\_ridge, stdout crudo, plausibility\_check\_passed. |
+| CAL-06 | ☑ | load\_calibration() rechaza (excepción) si plausibility\_check\_passed=False. No etiquetar con calibración inválida. |
+| CAL-07 | ☑ | build\_node\_profile() es de SOLO LECTURA: /proc/cpuinfo, /sys/devices/system/cpu/\*/cache/index\*/, /sys/.../node/. |
+| CAL-08 | ☑ | node\_profile.json incluye todos los campos del dataclass NodeProfile. |
+| CAL-09 | ☑ | build\_calibration\_references() corre ≥5 repeticiones del kernel de referencia para calcular P95. |
+| CAL-10 | ☑ | Si cv\_pct \> umbral (defecto 5.0%): accepted=False. **Parcial:** el warning en el reporte de campaña depende de report.py (F2.8, aún no construido). |
+| CAL-11 | ☐ | Los tres artefactos (roofline\_calibration.json, node\_profile.json, calibration\_references.json) se generan en la misma fase de campaña, antes de la matriz de dataset. Las tres funciones existen y quedan probadas por separado; falta la orquestación conjunta, que corresponde a campaign.py (F2.7). |
 
 ### **12.7 Runner (RUN-01 a RUN-08) — 8 reglas**
 
