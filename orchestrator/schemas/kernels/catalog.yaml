@@ -4,6 +4,7 @@ kernels:
     role: calibration
     exec_path: bin/stream_c
     reports_bandwidth_stdout: true #Si la suite reporta el ancho de banda por stdout
+    bandwidth_stdout_pattern: "Triad:\\s+([0-9.]+)" #CAL-02: grupo de captura numérico sobre stdout de STREAM (MB/s); confirmar contra el binario real
     success_check: {type: exit_code}
     binary_checksum: "sha256:..." #Se completa al compilar el binario
 
@@ -12,6 +13,7 @@ kernels:
     role: calibration
     exec_path: bin/ert_probe
     reports_flops_stdout: true #Si la suite reporta los flops por stdout
+    flops_stdout_pattern: "GFLOPs/sec:\\s+([0-9.]+)" #CAL-03: grupo de captura numérico sobre stdout de ERT; confirmar contra el binario real
     success_check: {type: exit_code}
     binary_checksum: "sha256:..." #Se completa al compilar el binario
 
