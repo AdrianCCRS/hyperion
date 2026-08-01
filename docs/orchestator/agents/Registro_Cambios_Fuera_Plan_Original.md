@@ -37,19 +37,32 @@ Tests o de proponer módulos nuevos.
 1. El plan original sigue definiendo la arquitectura final, pero **no describe
    completamente las restricciones observadas en SC3**. Las enmiendas ARC de
    este archivo son obligatorias para cualquier revisión del plan.
-2. Los módulos con contrato ya implementado y pruebas unitarias son
-   `catalog.py`, `config.py`, `environment.py`, `manifest.py`, `preflight.py`,
-   `node_profile.py` y `diagnostics.py`. No declarar listo el pipeline completo:
-   `freqctl.py`, calibración, runner, campaign, metadata, postproceso y GPU aún
-   requieren integración completa con los contratos actualizados.
+2. **Actualizado 2026-08-01:** todos los módulos del orquestador tienen
+   contrato implementado y pruebas unitarias (`catalog.py`, `config.py`,
+   `environment.py`, `manifest.py`, `preflight.py`, `node_profile.py`,
+   `diagnostics.py`, `freqctl.py`, `calibration.py`, `runner.py`,
+   `campaign.py`, `metadata_schema.py`, `postprocess.py`, `validation.py`,
+   `report.py`, `cli.py`). Auditoría de checklist §12.1-12.4/12.12-12.13
+   reconciliada contra código real ese mismo día (todas las reglas MAN/ENV/
+   PRE-E/PRE-I/PRE-C/PRE-D/PRE-OPS/PRE-G/MLT/CPP pasaron a ☑ salvo ENV-12
+   (`gpu_vendor`) y MLT-06 (commit hash en metadata), confirmados ausentes
+   — ver Guía Maestra. Lo que SÍ sigue sin ejecutarse contra hardware real
+   es una campaña completa de punta a punta (`campaign.run_campaign()` con
+   kernels reales, F4.4) y la prueba de caos de `freqctl.py` (H3, FRQ-08).
 3. La rama de despliegue es `hpc-startup-diagnostic`. Hitos relevantes:
-   `9dcd733` añadió diagnóstico/Conda/plantilla SC3 y `dc1047f` adaptó
-   environment/preflight a las capacidades reales. La suite local asociada
-   terminó con 69 pruebas aprobadas; una campaña real todavía necesita pruebas
-   de hardware y de caos.
+   `9dcd733` añadió diagnóstico/Conda/plantilla SC3, `dc1047f` adaptó
+   environment/preflight a las capacidades reales, y el 2026-08-01
+   `environment.detect_environment()` y `preflight.run_campaign_preflight()`
+   corrieron contra felix por primera vez (F4.2, ARC-36/ARC-37): 42/42
+   checks en verde con el catálogo real de 8 kernels. La suite local llegó
+   a 176 pruebas aprobadas; sigue pendiente la prueba de caos de hardware
+   (H3/FRQ-08) y la campaña piloto completa (F4.4).
 4. `startup_diagnostic.json` confirma carga estructural de manifest y catálogo,
    topología, RAPL, perf y cpuset. No reemplaza C01/C02, preflight de campaña,
-   calibración ni una corrida del harness.
+   calibración ni una corrida del harness. (El preflight real de F4.2 sí
+   reemplaza esa verificación — usar `environment_report.json`/
+   `node_profile.json` de esa corrida como referencia, no `startup_diagnostic.json`,
+   que quedó desactualizado desde julio.)
 5. Para conflictos entre documentación y nodo real, prevalecen: (a) el cpuset
    efectivo del job, (b) `EnvironmentProfile`, (c) el preflight y (d) este
    registro. No inferir permisos ni control DVFS desde el modelo de CPU.
@@ -265,7 +278,7 @@ deben implementar antes de declarar listo el preflight para campañas reales.
 | ARC-17 | Usar un cgroup hijo de workload, vacío antes de cada corrida; no usar el cgroup de la step que contiene al orquestador. Resolver su ruta en tiempo de job. | MAN-01, E03, E06. | Pendiente; contrato de jerarquía definido y requiere acuerdo con administración SC3. |
 | ARC-18 | Hacer E01 agnóstico de fabricante: Intel Turbo/HWP y AMD CPB/CPPC. Si no hay interfaz legible/controlable, registrar el estado y degradar la campaña a nativa en vez de afirmar control fijo. | E01, FRQ-01, FRQ-07. | Implementado para lectura/snapshot; pendiente la política de degradación en `freqctl.py`. |
 | ARC-19 | Temperatura y procesos ajenos deben ser observados, no campos declarativos del manifest. Temperatura no disponible es advertencia; procesos ajenos se inspeccionan en cgroup/afinidad reales. | E02, E06. | Pendiente. |
-| ARC-20 | No aprobar D05, I09 ni OPS-01 por datos ausentes. La capacidad PMC, proyección de bytes y presupuesto deben estar presentes o marcar el check como bloqueante/no verificable según tier. | D05, I09, OPS-01. | Implementado; falta alimentar los valores desde el planificador y perfil de nodo. |
+| ARC-20 | No aprobar D05, I09 ni OPS-01 por datos ausentes. La capacidad PMC, proyección de bytes y presupuesto deben estar presentes o marcar el check como bloqueante/no verificable según tier. | D05, I09, OPS-01. | Implementado. D05 cerrado el 2026-08-01 con `environment.probe_pmc_count()` (detección empírica real, ver ARC-37); I09/OPS-01 dependen de que el manifest real declare `projected_campaign_bytes`/`remaining_core_hours`/`projected_core_hours` (siguen siendo entradas del planificador/operador, no auto-detectables como pmc_count). |
 | ARC-21 | Normalizar E08 por CPUs efectivos/asignados y, cuando sea posible, medir el cgroup de campaña. | E08. | Implementado para CPUs delegados; pendiente medición específica del cgroup. |
 | ARC-22 | Verificar GPU NVIDIA asignada por Slurm e implementar un inspector NVIDIA compatible. No usar ROCm ni los nodos AMD descartados mientras el requisito NVIDIA siga vigente. | G01, G02, G03. | Pendiente. |
 | ARC-23 | C01/C02 se consideran verificados solo después de compilar/desplegar binarios en el nodo y actualizar checksums en catálogo. | CAT-01, CAT-02, C01, C02. | Pendiente operativo. |

@@ -57,12 +57,16 @@ def test_env_t02_una_frecuencia_no_es_controlable(tmp_path):
 
 def test_env_t03_driver_desconocido_no_es_controlable(tmp_path):
     raiz = crear_sysfs(tmp_path, driver="hypervisor-virtual")
-    assert environment.detect_environment("2-5", str(raiz)).freq_control_capable is False
+    perfil = environment.detect_environment("2-5", str(raiz))
+    assert perfil.freq_control_capable is False
+    assert perfil.frequency_control_strategy == "unavailable"  # ENV-10
 
 
 def test_env_t02_amd_pstate_es_controlable(tmp_path):
     raiz = crear_sysfs(tmp_path, driver="amd-pstate")
-    assert environment.detect_environment("2-5", str(raiz)).freq_control_capable is True
+    perfil = environment.detect_environment("2-5", str(raiz))
+    assert perfil.freq_control_capable is True
+    assert perfil.frequency_control_strategy == "bounded_range"  # ENV-10
 
 
 def test_env_t04_rapl_ausente(tmp_path):
