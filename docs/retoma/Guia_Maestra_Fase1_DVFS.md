@@ -461,17 +461,17 @@ Cada regla tiene un ID único MÓDULO-NN y una casilla para marcar cuando el mó
 
 | ID | ✓ | Regla de validación / invariante técnica |
 | :---- | :---: | :---- |
-| MAN-01 | ☐ | cgroup\_path es OPCIONAL en todos los tiers. No es requisito para que perf mida correctamente. |
-| MAN-02 | ☐ | Rechazar si repetitions\_per\_combination \< 3\. |
-| MAN-03 | ☐ | Calcular y loguear tamaño de la matriz antes de continuar. |
-| MAN-04 | ☐ | Rechazar si output\_dir existe y overwrite: false (factor I07). |
-| MAN-05 | ☐ | Rechazar si seed ausente — nunca generar semilla aleatoria (rompe reproducibilidad). |
-| MAN-06 | ☐ | Rechazar si delegated\_cpus, collector\_cpu y consumer\_cpu se solapan. |
-| MAN-07 | ☐ | calibration debe tener ≥1 kernel reports\_bandwidth\_stdout y ≥1 reports\_flops\_stdout. |
-| MAN-08 | ☐ | Roles calibration/dataset sin solape entre secciones. |
-| MAN-09 | ☐ | Todo kernel\_ref debe existir en catalog\_path. |
-| MAN-10 | ☐ | frequency\_levels con exactamente un REF y los demás fixed con fraction ∈ \[0.0, 1.0\]. |
-| MAN-11 | ☐ | running\_ratio\_min ∈ (0.0, 1.0\] y interval\_ns \> 0\. |
+| MAN-01 | ☑ | cgroup\_path es OPCIONAL en todos los tiers. No es requisito para que perf mida correctamente. Excepción: obligatorio si environment\_tier es hpc\_sc3 (`manifest.py`, test\_man\_t02). |
+| MAN-02 | ☑ | Rechazar si repetitions\_per\_combination \< 3\. (test\_man\_t03) |
+| MAN-03 | ☑ | Calcular y loguear tamaño de la matriz antes de continuar. (test\_man\_t11\_tamano\_de\_matriz\_y\_log\_baseline) |
+| MAN-04 | ☑ | Rechazar si output\_dir existe y overwrite: false (factor I07). (test\_man\_t04) |
+| MAN-05 | ☑ | Rechazar si seed ausente — nunca generar semilla aleatoria (rompe reproducibilidad). (test\_man\_t05) |
+| MAN-06 | ☑ | Rechazar si delegated\_cpus, collector\_cpu y consumer\_cpu se solapan. (test\_man\_t06) |
+| MAN-07 | ☑ | calibration debe tener ≥1 kernel reports\_bandwidth\_stdout y ≥1 reports\_flops\_stdout. (test\_man\_t07) |
+| MAN-08 | ☑ | Roles calibration/dataset sin solape entre secciones. (test\_man\_t08) |
+| MAN-09 | ☑ | Todo kernel\_ref debe existir en catalog\_path. (test\_man\_t09) |
+| MAN-10 | ☑ | frequency\_levels con exactamente un REF y los demás fixed con fraction ∈ \[0.0, 1.0\]. (test\_man\_t10, varios casos) |
+| MAN-11 | ☑ | running\_ratio\_min ∈ (0.0, 1.0\] y interval\_ns \> 0\. (test\_man\_t11) |
 
 ### **12.2 Catálogo (CAT-01 a CAT-08) — 8 reglas**
 
@@ -490,49 +490,49 @@ Cada regla tiene un ID único MÓDULO-NN y una casilla para marcar cuando el mó
 
 | ID | ✓ | Regla de validación / invariante técnica |
 | :---- | :---: | :---- |
-| ENV-01 | ☐ | detect\_environment() es de SOLO LECTURA. Ningún otro módulo repite la detección. |
-| ENV-02 | ☐ | frequency\_levels\_supported \= False si el driver no es real o solo hay una frecuencia disponible. |
-| ENV-03 | ☐ | RAPL se descubre recursivamente bajo /sys/class/powercap/. Si no existe ningún dominio o energy\_uj no cambia, rapl\_capable \= False. |
-| ENV-04 | ☐ | El manifest no puede forzar rapl.enabled: true si environment.py determina rapl\_capable: false. |
-| ENV-05 | ☐ | frequency\_write\_capable se determina con os.access(path, os.W\_OK), INDEPENDIENTE de frequency\_levels\_supported. |
-| ENV-06 | ☐ | Topología NUMA completa: nodos, cores por nodo, a qué nodo pertenecen los delegated\_cpus. |
-| ENV-07 | ☐ | Siblings SMT de cada core delegado y política elegida en metadata. |
-| ENV-08 | ☐ | Subconjunto real de eventos de perf soportados por esta PMU. |
-| ENV-09 | ☐ | environment\_report.json generado al inicio de campaña con todos los campos. |
-| ENV-10 | ☐ | frequency\_control\_strategy ('discrete\_bounds', 'bounded\_range', 'unavailable') por atributos escribibles. |
-| ENV-11 | ☐ | Alias únicos por dominio RAPL (package-0, core-package-0, ...) nunca nombres genéricos. |
-| ENV-12 | ☐ | gpu\_vendor por detección real del dispositivo, nunca por nombre del nodo o modelo de CPU. |
+| ENV-01 | ☑ | detect\_environment() es de SOLO LECTURA. Ningún otro módulo repite la detección. (test\_env\_t09\_deteccion\_no\_escribe\_archivos; confirmado en hardware real, F4.2) |
+| ENV-02 | ☑ | frequency\_levels\_supported \= False si el driver no es real o solo hay una frecuencia disponible. (test\_env\_t02/t03) |
+| ENV-03 | ☑ | RAPL se descubre recursivamente bajo /sys/class/powercap/. Si no existe ningún dominio o energy\_uj no cambia, rapl\_capable \= False. (test\_env\_t04/t05/t06; confirmado en felix: rapl\_capable=False, hardware anterior a RAPL) |
+| ENV-04 | ☑ | El manifest no puede forzar rapl.enabled: true si environment.py determina rapl\_capable: false. (test\_env\_t07\_rapl\_del\_manifest\_se\_anula) |
+| ENV-05 | ☑ | frequency\_write\_capable se determina con os.access(path, os.W\_OK), INDEPENDIENTE de frequency\_levels\_supported. (test\_entorno\_separa\_niveles...; confirmado en felix: frequency\_levels\_supported=True, frequency\_write\_capable=False, justo el caso que exige distinguir ambos campos) |
+| ENV-06 | ☑ | Topología NUMA completa: nodos, cores por nodo, a qué nodo pertenecen los delegated\_cpus. (test\_env\_t08\_topologia\_numa\_delegada; confirmado en felix) |
+| ENV-07 | ☑ | Siblings SMT de cada core delegado y política elegida en metadata. (test\_env\_t07\_politica\_smt\_se\_conserva\_en\_metadata; confirmado en felix) |
+| ENV-08 | ☑ | Subconjunto real de eventos de perf soportados por esta PMU. (test\_env\_t08\_eventos\_perf\_disponibles; confirmado en felix) |
+| ENV-09 | ☑ | environment\_report.json generado al inicio de campaña con todos los campos. (test\_env\_t10\_reporte\_de\_entorno; artefacto real escrito en felix en F4.2) |
+| ENV-10 | ☑ | frequency\_control\_strategy ('discrete\_bounds', 'bounded\_range', 'unavailable') por atributos escribibles. Las tres ramas cubiertas explícitamente (test\_entorno\_separa\_niveles..., test\_env\_t02\_amd\_pstate\_es\_controlable, test\_env\_t03\_driver\_desconocido); confirmado en felix: discrete\_bounds (acpi-cpufreq). |
+| ENV-11 | ☑ | Alias únicos por dominio RAPL (package-0, core-package-0, ...) nunca nombres genéricos. (test\_rapl\_descubre\_subdominios\_con\_identificadores\_unicos) |
+| ENV-12 | ☐ | gpu\_vendor por detección real del dispositivo, nunca por nombre del nodo o modelo de CPU. **No implementado**: no existe el campo `gpu_vendor` en `EnvironmentProfile`, solo `gpu_present` (booleano). Requiere el inspector NVML real de ARC-22, todavía pendiente. |
 
 ### **12.4 Preflight (PRE-E01 a PRE-OPS01) — 26 reglas**
 
 | ID | ✓ | Regla de validación / invariante técnica |
 | :---- | :---: | :---- |
-| PRE-E01 | ☐ | Turbo/HWP (Intel) o CPB/CPPC (AMD): leer y fijar para toda la campaña. |
-| PRE-E02 | ☐ | Temperatura de paquete dentro de rango normal (si hay sensor). |
-| PRE-E03 | ☐ | Si hay cgroup delegado: cgroup HIJO de workload vacío. NUNCA contra el cgroup de la step del orquestador. |
-| PRE-E04 | ☐ | NUMA: delegated\_cpus en un único nodo NUMA. Bloqueante. |
-| PRE-E05 | ☐ | SMT: política declarada explícitamente en el manifest. Bloqueante. |
-| PRE-E06 | ☐ | Sin procesos ajenos con afinidad a delegated\_cpus (Cpus\_allowed), NO por cgroup. Bloqueante. |
-| PRE-E07 | ☐ | Atributo real de gobierno coincide con el esperado (solo si hay niveles fixed). |
-| PRE-E08 | ☐ | Carga externa del nodo bajo umbral configurado en el manifest. |
-| PRE-E09 | ☐ | Si el manifest solicita algún nivel fixed: frequency\_write\_capable=True. Bloqueante. |
+| PRE-E01 | ☑ | Turbo/HWP (Intel) o CPB/CPPC (AMD): leer y fijar para toda la campaña. (test\_e01\_snapshot\_y\_deriva\_turbo\_hwp; confirmado en felix, F4.2) |
+| PRE-E02 | ☑ | Temperatura de paquete dentro de rango normal (si hay sensor). (test\_e02\_temperatura\_y\_e06\_procesos\_ajenos) |
+| PRE-E03 | ☑ | Si hay cgroup delegado: cgroup HIJO de workload vacío. NUNCA contra el cgroup de la step del orquestador. (test\_pre\_t03\_cgroup\_con\_procesos) |
+| PRE-E04 | ☑ | NUMA: delegated\_cpus en un único nodo NUMA. Bloqueante. (test\_pre\_t01\_numa\_en\_dos\_nodos; confirmado en felix, F4.2) |
+| PRE-E05 | ☑ | SMT: política declarada explícitamente en el manifest. Bloqueante. (test\_pre\_t02\_politica\_smt\_obligatoria; confirmado en felix, F4.2) |
+| PRE-E06 | ☑ | Sin procesos ajenos con afinidad a delegated\_cpus (Cpus\_allowed), NO por cgroup. Bloqueante. (test\_e02\_temperatura\_y\_e06\_procesos\_ajenos) |
+| PRE-E07 | ☑ | Atributo real de gobierno coincide con el esperado (solo si hay niveles fixed). (test\_pre\_t04\_governor\_distinto, test\_caminos\_validos\_e05\_e07\_d02...) |
+| PRE-E08 | ☑ | Carga externa del nodo bajo umbral configurado en el manifest. (test\_pre\_t05\_carga\_externa\_supera\_umbral) |
+| PRE-E09 | ☑ | Si el manifest solicita algún nivel fixed: frequency\_write\_capable=True. Bloqueante. (test\_e09\_requiere\_permisos\_en\_todos\_los\_cores) |
 | PRE-E10 | ☑ | Dominio real de control de frecuencia (freqdomain\_cpus/related\_cpus/affected\_cpus) contenido en delegated\_cpus; sin datos de dominio no bloquea. Bloqueante. Regla nueva, fuera del alcance original — ver ARC-30. **Verificado en hardware real (F4.2, 2026-08-01):** el primer preflight contra felix reveló que `_parse_cpu_list()` no entendía el formato real de `freqdomain_cpus` (lista separada por espacios, no por comas), dejando el check sin datos con qué bloquear pese a que los tests con mocks pasaban. Corregido — ver ARC-36. |
-| PRE-I05 | ☐ | Si rapl\_domains\_available vacío, forzar rapl.enabled a False. No bloqueante. |
-| PRE-I07 | ☐ | output\_dir y run\_id no existen ya en disco. Bloqueante. |
-| PRE-I08 | ☐ | manifest.rapl.domains ⊆ rapl\_domains\_available del nodo (alias reales). Bloqueante si rapl.enabled. |
-| PRE-I09 | ☐ | Espacio libre en disco ≥ tamaño proyectado de la campaña completa. Bloqueante. |
-| PRE-C01 | ☐ | Binario existe y es ejecutable. Bloqueante. |
-| PRE-C02 | ☐ | Checksum del binario coincide con el catálogo. Bloqueante. |
-| PRE-C03 | ☐ | success\_check bien configurado antes de ejecutar. Bloqueante. |
-| PRE-D01 | ☐ | Toolchain disponible si se va a recompilar. Bloqueante solo si se recompila. |
-| PRE-D02 | ☐ | Calibración STREAM/ERT ejecutada y parseable. Bloqueante si el nodo tiene RAPL. |
-| PRE-D03 | ☐ | BW\_pico y P\_pico dentro de ±40% de la ficha técnica declarada. Bloqueante si aplica D02. |
-| PRE-D04 | ☐ | CV% de referencias P95 ≤ umbral. Solo advertencia (no bloqueante). |
+| PRE-I05 | ☑ | Si rapl\_domains\_available vacío, forzar rapl.enabled a False. No bloqueante. (test\_pre\_t07\_rapl\_wrap\_no\_disponible; confirmado en felix) |
+| PRE-I07 | ☑ | output\_dir y run\_id no existen ya en disco. Bloqueante. (test\_pre\_t06\_run\_id\_existente; confirmado en felix) |
+| PRE-I08 | ☑ | manifest.rapl.domains ⊆ rapl\_domains\_available del nodo (alias reales). Bloqueante si rapl.enabled. (test\_d01\_toolchain\_y\_checks\_de\_recursos) |
+| PRE-I09 | ☑ | Espacio libre en disco ≥ tamaño proyectado de la campaña completa. Bloqueante. (test\_d01\_toolchain\_y\_checks\_de\_recursos; confirmado en felix con free\_bytes real) |
+| PRE-C01 | ☑ | Binario existe y es ejecutable. Bloqueante. (test\_pre\_t08\_binario\_inexistente; confirmado en felix contra los 8 binarios reales de F3) |
+| PRE-C02 | ☑ | Checksum del binario coincide con el catálogo. Bloqueante. (test\_pre\_t09\_checksum\_incorrecto; confirmado en felix con checksums reales) |
+| PRE-C03 | ☑ | success\_check bien configurado antes de ejecutar. Bloqueante. (test\_c03\_success\_check\_valido\_e\_invalido; confirmado en felix) |
+| PRE-D01 | ☑ | Toolchain disponible si se va a recompilar. Bloqueante solo si se recompila. (test\_d01\_toolchain\_y\_checks\_de\_recursos) |
+| PRE-D02 | ☑ | Calibración STREAM/ERT ejecutada y parseable. Bloqueante si el nodo tiene RAPL. (test\_pre\_t10\_calibracion\_no\_parseable, test\_caminos\_validos...) |
+| PRE-D03 | ☑ | BW\_pico y P\_pico dentro de ±40% de la ficha técnica declarada. Bloqueante si aplica D02. (test\_pre\_t11\_calibracion\_no\_plausible, test\_d04\_es\_advertencia\_con\_d02\_y\_d03\_validos) |
+| PRE-D04 | ☑ | CV% de referencias P95 ≤ umbral. Solo advertencia (no bloqueante). (test\_pre\_t12\_calibracion\_inestable\_es\_advertencia) |
 | PRE-D05 | ☑ | Eventos de perf solicitados ≤ PMCs disponibles. Bloqueante. `pmc_count` medido empíricamente con `environment.probe_pmc_count()` (nunca por modelo de CPU) — verificado en felix: 5 contadores simultáneos sin multiplexar. Ver ARC-37. |
-| PRE-OPS01 | ☐ | Presupuesto de hora-núcleo ≥ proyección. Bloqueante. |
-| PRE-G01 | ☐ | GPU NVIDIA confirmada, sin procesos CUDA ajenos. GPU AMD → deshabilitada. Bloqueante si gpu.enabled. |
-| PRE-G02 | ☐ | Persistence mode leído. No bloqueante. |
-| PRE-G03 | ☐ | Configuración MIG leída. No bloqueante. |
+| PRE-OPS01 | ☑ | Presupuesto de hora-núcleo ≥ proyección. Bloqueante. (test\_d01\_toolchain\_y\_checks\_de\_recursos; confirmado en felix) |
+| PRE-G01 | ☑ | GPU NVIDIA confirmada, sin procesos CUDA ajenos. GPU AMD → deshabilitada. Bloqueante si gpu.enabled. Mecánica implementada y testeada con adaptador mock (test\_checks\_gpu\_mediante\_adaptador\_mock, test\_gpu\_reporta\_actividad\_y\_estado\_indisponible); GPU confirmada real vía `--gres=gpu:1` (H5), pero el adaptador NVML real para producción sigue pendiente — ver ARC-22. |
+| PRE-G02 | ☑ | Persistence mode leído. No bloqueante. Misma nota que G01: mecánica lista, adaptador NVML real pendiente (ARC-22). |
+| PRE-G03 | ☑ | Configuración MIG leída. No bloqueante. Misma nota que G01: mecánica lista, adaptador NVML real pendiente (ARC-22). |
 
 ### **12.5 Control de frecuencia (FRQ-01 a FRQ-10) — 10 reglas**
 
@@ -641,27 +641,27 @@ Cada regla tiene un ID único MÓDULO-NN y una casilla para marcar cuando el mó
 
 | ID | ✓ | Regla de validación / invariante técnica |
 | :---- | :---: | :---- |
-| MLT-01 | ☐ | node\_id en CADA corrida y en CADA FILA de windows.csv. |
-| MLT-02 | ☐ | node\_profile.json generado ANTES de la matriz de dataset, en la fase de calibración. |
-| MLT-03 | ☐ | calibration\_references.json con ≥5 repeticiones del kernel de referencia. |
-| MLT-04 | ☐ | Features relativas calculadas SIEMPRE, aunque la Propuesta B no se adopte. |
-| MLT-05 | ☐ | Los manifests son parametrizables cambiando SOLO environment\_tier y cores. |
-| MLT-06 | ☐ | Commit hash del protocolo completo (harness, catálogo, orquestador) en la metadata de cada corrida. |
-| MLT-07 | ☐ | \-march=native es aceptable si el modelo final es por nodo (Propuesta C). |
-| MLT-08 | ☐ | NO ejecutar la matriz completa en un segundo nodo sin la decisión formal del director. |
+| MLT-01 | ☑ | node\_id en CADA corrida y en CADA FILA de windows.csv. Mismo mecanismo que POST-14/MET-03 (`node_id` es argumento explícito obligatorio, nunca `socket.gethostname()`). |
+| MLT-02 | ☑ | node\_profile.json generado ANTES de la matriz de dataset, en la fase de calibración. `campaign.run_campaign()`: `build_node_profile()`/`write_node_profile()` se llaman inmediatamente después de `run_calibration()` y antes de `build_matrix()`. |
+| MLT-03 | ☑ | calibration\_references.json con ≥5 repeticiones del kernel de referencia. `calibration.MIN_REFERENCE_REPETITIONS`, `ValueError` (CAL-09) si se pide menos. |
+| MLT-04 | ☑ | Features relativas calculadas SIEMPRE, aunque la Propuesta B no se adopte. Mismo mecanismo que POST-12. |
+| MLT-05 | ☑ | Los manifests son parametrizables cambiando SOLO environment\_tier y cores. Por diseño: ninguna ruta ni valor de felix está hardcodeado en el código del orquestador (todas las rutas sysfs vienen de `orchestrator.toml`/`SysfsPaths`, el catálogo de kernels es externo). No hay un test dedicado que instancie un segundo perfil sintético de nodo para verificarlo explícitamente — brecha menor de cobertura, no de implementación. |
+| MLT-06 | ☐ | Commit hash del protocolo completo (harness, catálogo, orquestador) en la metadata de cada corrida. **No implementado**: no existe ningún campo `commit_hash` en `metadata_schema.py` ni en `runner.py`. Confirmado ausente en esta auditoría (2026-08-01). |
+| MLT-07 | ☑ | \-march=native es aceptable si el modelo final es por nodo (Propuesta C). Decisión tomada y seguida en la práctica: el harness de telemetría se compila con `-march=native` (`telemetry/CMakeLists.txt`), mientras que NPB/STREAM/ert\_probe se compilan explícitamente SIN esa flag (ARC-32) porque sí son parte del dataset etiquetado. |
+| MLT-08 | ☑ | NO ejecutar la matriz completa en un segundo nodo sin la decisión formal del director. Se cumple por ausencia: no existe ningún camino de código para orquestar ejecución multi-nodo hoy (`campaign.py` opera sobre un único `delegated_cpus`/nodo). Revisar esta regla si se implementa esa capacidad — ver H4 (decisión de alcance pendiente). |
 
 ### **12.13 Subsistema C++ (CPP-01 a CPP-08) — 8 reglas**
 
 | ID | ✓ | Regla de validación / invariante técnica |
 | :---- | :---: | :---- |
-| CPP-01 | ☐ | PerfReader acepta PID externo con inherit=1; un fd por evento separado (no PERF\_FORMAT\_GROUP con inherit activo). |
-| CPP-02 | ☐ | Launcher implementa stop→open→resume: fork, hijo se detiene (SIGSTOP), padre abre perf sobre PID del hijo, padre inicia collector/consumer, padre envía SIGCONT. |
-| CPP-03 | ☐ | Modo \--exec funcional: el hijo, tras SIGCONT, hace execvp del binario externo. Sin handshake ready/go. |
-| CPP-04 | ☐ | Modo \--kernel existente sin regresión. Los 9 tests CTest actuales siguen pasando. |
-| CPP-05 | ☐ | \--cgroup-path es opcional/deprecated. Si no se pasa, no se intenta ninguna operación de cgroup. |
-| CPP-06 | ☐ | PerfCgroupReader marcado como deprecated; deja de ser la ruta principal del launcher. |
-| CPP-07 | ☐ | El collector recibe PerfReader con PID externo sin cambios en su ruta caliente. |
-| CPP-08 | ☐ | Test nuevo: apertura de perf sobre proceso hijo trivial (sleep) con PID externo; lecturas en vivo y no planas. |
+| CPP-01 | ☑ | PerfReader acepta PID externo con inherit=1; un fd por evento separado (no PERF\_FORMAT\_GROUP con inherit activo). `perf_reader.cpp::open()`: cada evento es su propio group leader (`group_fd=-1`), `inherit=1`. |
+| CPP-02 | ☑ | Launcher implementa stop→open→resume: fork, hijo se detiene (SIGSTOP), padre abre perf sobre PID del hijo, padre inicia collector/consumer, padre envía SIGCONT. `telemetry_kernel_launcher.cpp::run_child()`. |
+| CPP-03 | ☑ | Modo \--exec funcional: el hijo, tras SIGCONT, hace execvp del binario externo. Sin handshake ready/go. `build_workload_args()`: en modo externo los fds ready/go no se usan. Verificado en hardware real corriendo NPB/STREAM/ert\_probe bajo `--exec` (Fase 3, F3.4). |
+| CPP-04 | ☑ | Modo \--kernel existente sin regresión. Los 9 (ahora 10, con CPP-08) tests CTest pasan. Confirmado en felix: los 10 CTest pasan en el nodo real (F3.4/F4.1). |
+| CPP-05 | ☑ | \--cgroup-path es opcional/deprecated. Si no se pasa, no se intenta ninguna operación de cgroup. Comentario explícito en el código ("--cgroup-path is optional (CPP-05)"). |
+| CPP-06 | ☑ | PerfCgroupReader marcado como deprecated; deja de ser la ruta principal del launcher. `@deprecated` en el docstring de `perf_cgroup_reader.hpp`/`.cpp`. |
+| CPP-07 | ☑ | El collector recibe PerfReader con PID externo sin cambios en su ruta caliente. `collector.cpp`: `perf_reader_(cfg_.target_pid, -1)`, misma ruta `clock_gettime → read(fd) → try_push → flush_producer → clock_nanosleep`. |
+| CPP-08 | ☑ | Test nuevo: apertura de perf sobre proceso hijo trivial (sleep) con PID externo; lecturas en vivo y no planas. `perf_reader_pid_live_test` — confirmado pasando en felix (5.35s, F3.4). |
 
 **Parte VI — Plan de Tests de Integración**
 
