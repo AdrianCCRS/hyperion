@@ -241,12 +241,17 @@ def run_campaign(
                 continue
 
             # PRE-E06: verificar CADA VEZ, justo antes de medir, que no haya
-            # procesos ajenos con afinidad a delegated_cpus -- por Cpus_allowed
-            # real de /proc, nunca por membresía de cgroup. PID+inherit ya
-            # garantiza que perf atribuye las muestras al proceso correcto;
-            # esto cubre un problema físico distinto (contención de L3/ancho
-            # de banda de memoria con otro proceso en los mismos cores) que
-            # la atribución correcta no puede detectar ni evitar.
+            # procesos ajenos CORRIENDO AHORA MISMO en delegated_cpus -- por
+            # el campo "processor" real de /proc/<pid>/stat, nunca por
+            # membresía de cgroup ni por Cpus_allowed (ver ARC-44: casi todo
+            # proceso del sistema en reposo tiene Cpus_allowed sin
+            # restringir, así que filtrar solo por esa máscara marca como
+            # "ajeno" a decenas de daemons inactivos que no compiten por
+            # nada). PID+inherit ya garantiza que perf atribuye las muestras
+            # al proceso correcto; esto cubre un problema físico distinto
+            # (contención de L3/ancho de banda de memoria con otro proceso
+            # activo en los mismos cores) que la atribución correcta no
+            # puede detectar ni evitar.
             foreign_pids = detect_foreign_affinity_pids(
                 delegated_cpus, own_pids=(os.getpid(),)
             )
