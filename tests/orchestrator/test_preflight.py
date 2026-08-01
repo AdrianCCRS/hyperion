@@ -148,6 +148,51 @@ def test_e09_requiere_permisos_en_todos_los_cores(monkeypatch):
     assert (result.factor_id, result.passed, result.blocking) == ("E09", False, True)
 
 
+def _crear_proceso_falso(proc_root: Path, pid: int, *, cpus_allowed_hex: str, cmdline: bytes = b"algo\0"):
+    proc_dir = proc_root / str(pid)
+    proc_dir.mkdir(parents=True)
+    (proc_dir / "cmdline").write_bytes(cmdline)
+    (proc_dir / "status").write_text(f"Name:\tfake\nCpus_allowed:\t{cpus_allowed_hex}\n")
+
+
+def test_e06_detecta_proceso_ajeno_con_afinidad_solapada(tmp_path):
+    # mascara 0xf = cpus 0-3
+    _crear_proceso_falso(tmp_path, 4242, cpus_allowed_hex="f")
+    result = preflight.detect_foreign_affinity_pids([2, 3], proc_root=tmp_path)
+    assert result == [4242]
+
+
+def test_e06_ignora_hilos_de_kernel_sin_cmdline(tmp_path):
+    _crear_proceso_falso(tmp_path, 99, cpus_allowed_hex="f", cmdline=b"")
+    assert preflight.detect_foreign_affinity_pids([2, 3], proc_root=tmp_path) == []
+
+
+def test_e06_excluye_own_pids(tmp_path):
+    _crear_proceso_falso(tmp_path, 555, cpus_allowed_hex="ffffffff")
+    assert preflight.detect_foreign_affinity_pids([2, 3], proc_root=tmp_path, own_pids=[555]) == []
+
+
+def test_e06_sin_solapamiento_no_es_ajeno(tmp_path):
+    # mascara 0x30 = cpus 4-5, no se solapa con delegated_cpus=[2,3]
+    _crear_proceso_falso(tmp_path, 4242, cpus_allowed_hex="30")
+    assert preflight.detect_foreign_affinity_pids([2, 3], proc_root=tmp_path) == []
+
+
+def test_e06_maneja_mascara_con_comas_de_kernels_multisocket(tmp_path):
+    # formato real de /proc/<pid>/status en sistemas de muchos cores: grupos
+    # de 8 hex separados por coma. "00000000,0000000f" = cpus 0-3.
+    _crear_proceso_falso(tmp_path, 777, cpus_allowed_hex="00000000,0000000f")
+    assert preflight.detect_foreign_affinity_pids([2], proc_root=tmp_path) == [777]
+
+
+def test_e06_check_foreign_processes_usa_la_lista_detectada(tmp_path):
+    _crear_proceso_falso(tmp_path, 4242, cpus_allowed_hex="f")
+    detectados = preflight.detect_foreign_affinity_pids([2, 3], proc_root=tmp_path)
+    result = preflight.check_foreign_processes(detectados)
+    assert (result.factor_id, result.passed, result.blocking) == ("E06", False, True)
+    assert result.observed["foreign_pids"] == [4242]
+
+
 def test_e10_dominio_de_frecuencia_excede_los_cores_delegados():
     result = preflight.check_frequency_domain([2, 3], {2: [0, 1, 2, 3, 4, 5, 6, 7], 3: [0, 1, 2, 3, 4, 5, 6, 7]})
     assert (result.factor_id, result.passed, result.blocking) == ("E10", False, True)
