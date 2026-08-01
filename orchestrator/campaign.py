@@ -48,6 +48,10 @@ class CampaignProgress:
     # MET-02: set from the boolean restore_original_state() itself returns
     # (a post-restore sysfs re-read, never "the write command didn't error").
     frequency_restored_verified: bool | None = None
+    # CAM-08: (telemetry.elapsed_seconds - baseline.elapsed_seconds) /
+    # baseline.elapsed_seconds * 100, one entry per baseline+telemetry pair
+    # actually executed this run (skipped/resumed pairs don't add one).
+    overhead_pct_values: list[float] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -120,6 +124,7 @@ def write_campaign_metadata(progress: CampaignProgress, manifest: Any, output_di
                 "skipped_run_ids": progress.skipped_run_ids,
                 "total_core_hours": progress.total_core_hours,
                 "frequency_restored_verified": progress.frequency_restored_verified,
+                "overhead_pct_values": progress.overhead_pct_values,
             },
             metadata_file, indent=2, sort_keys=True,
         )
@@ -232,6 +237,7 @@ def run_campaign(
                     progress.skipped_run_ids.append(telemetry_run_id)  # MET-06
                 continue
 
+            baseline_elapsed_seconds: float | None = None
             for item in schedule_runs([combination]):  # CAM-04: atomic baseline+telemetry pair
                 run_id = _run_id_for(manifest, item)
                 active_manifest = manifest if item.mode == "telemetry" else baseline_manifest
@@ -244,7 +250,18 @@ def run_campaign(
                 progress.total_core_hours += result.elapsed_seconds * len(delegated_cpus) / 3600.0  # CAM-05/OPS-01
 
                 if item.mode == "baseline":
+                    baseline_elapsed_seconds = result.elapsed_seconds
                     continue  # solo mide overhead; no se valida ni se postprocesa
+
+                # CAM-08: overhead de instrumentacion = cuanto mas lenta corre
+                # telemetry frente a su gemelo baseline (mismo kernel/nivel/
+                # repeticion, --no-perf). Solo se calcula si el baseline de
+                # ESTE par realmente corrio (nunca contra un baseline viejo).
+                if baseline_elapsed_seconds is not None and baseline_elapsed_seconds > 0:
+                    overhead_pct = (
+                        (result.elapsed_seconds - baseline_elapsed_seconds) / baseline_elapsed_seconds * 100.0
+                    )
+                    progress.overhead_pct_values.append(overhead_pct)
 
                 verdict = validation_module.validate_run(result, entry, run_id_seen=seen_run_ids)
                 validation_module.write_verdict(verdict, result.run_dir)

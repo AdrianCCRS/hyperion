@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import sys
 
@@ -121,6 +122,26 @@ def test_report_lee_metadata_y_veredictos(monkeypatch, tmp_path):
     assert exit_code == 0
     assert written["data"]["campaign_id"] == "camp01"
     assert written["data"]["total_runs"] == 1
+
+
+def test_cam08_report_propaga_overhead_pct_values(monkeypatch, tmp_path):
+    campaign_dir = tmp_path / "campaign"
+    campaign_dir.mkdir()
+    (campaign_dir / "campaign_metadata.json").write_text(
+        json.dumps({
+            "campaign_id": "camp01", "accepted_run_ids": [], "rejected_run_ids": [],
+            "total_core_hours": 1.0, "overhead_pct_values": [5.0, 50.0, 5.0],
+        })
+    )
+
+    written = {}
+    monkeypatch.setattr(cli.report_module, "write_report", lambda data, output_dir: written.setdefault("data", data) or Path(output_dir) / "campaign_report.json")
+
+    exit_code = cli.main(["report", "--campaign-dir", str(campaign_dir)])
+
+    assert exit_code == 0
+    assert written["data"]["overhead_pct_samples"] == 3
+    assert written["data"]["overhead_stability_warning"] is not None
 
 
 def _fake_manifest(tmp_path: Path):
