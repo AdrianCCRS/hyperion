@@ -262,3 +262,37 @@ tier_cloud = "nube"
     perfil = environment.detect_environment("2-5", config=load_config(configuracion_toml))
     assert perfil.tier == "nube"
     assert perfil.scaling_driver == "intel_pstate"
+
+
+def _perf_stat_hasta_n_eventos(limite: int):
+    """Fake de run_perf_stat: sin multiplexado hasta `limite` eventos,
+    reproduce la anotacion real de perf stat (`<not counted>`/`(NN.NN%)`)
+    a partir de ahi -- mismo patron observado en felix (N=5 limpio, N=6
+    con `branch-misses <not counted>` y porcentajes bajo 100%)."""
+    def run_perf_stat(events):
+        if len(events) <= limite:
+            return ""
+        return "     <not counted>      branch-misses                                    (0.00%)\n"
+    return run_perf_stat
+
+
+def test_d05_probe_pmc_count_para_en_el_primer_n_con_multiplexado():
+    assert environment.probe_pmc_count(run_perf_stat=_perf_stat_hasta_n_eventos(5)) == 5
+
+
+def test_d05_probe_pmc_count_sin_multiplexado_hasta_el_maximo():
+    assert environment.probe_pmc_count(max_events=4, run_perf_stat=_perf_stat_hasta_n_eventos(99)) == 4
+
+
+def test_d05_probe_pmc_count_cero_si_perf_no_esta_disponible():
+    def run_perf_stat(events):
+        raise FileNotFoundError("perf: command not found")
+    assert environment.probe_pmc_count(run_perf_stat=run_perf_stat) == 0
+
+
+def test_d05_probe_pmc_count_detecta_porcentaje_sin_not_counted():
+    def run_perf_stat(events):
+        if len(events) <= 2:
+            return ""
+        return "  1,234  cycles                                            (61.38%)\n"
+    assert environment.probe_pmc_count(run_perf_stat=run_perf_stat) == 2

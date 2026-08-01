@@ -5,8 +5,10 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
+import subprocess
 import time
-from typing import Any
+from typing import Any, Callable
 
 from .config import OrchestratorConfig, SysfsPaths, load_config
 
@@ -99,6 +101,62 @@ def _frequency_data(sysfs: SysfsPaths, cpus: list[int]) -> tuple[str, list[int],
         if paths:
             controls[cpu] = paths
     return driver, sorted(frequencies), controls
+
+
+# D05: los 10 eventos genéricos de PERF_TYPE_HARDWARE definidos por el
+# kernel (linux/perf_event.h, PERF_COUNT_HW_*). Nombres tal como los acepta
+# `perf stat -e` -- portables entre Intel/AMD, no configs crudos.
+_GENERIC_HARDWARE_EVENTS = (
+    "instructions", "cycles", "cache-references", "cache-misses",
+    "branch-instructions", "branch-misses", "bus-cycles", "ref-cycles",
+    "stalled-cycles-frontend", "stalled-cycles-backend",
+)
+
+_MULTIPLEXING_MARKER = re.compile(r"not counted|\(\s*\d+\.\d+%\)")
+
+
+def _run_perf_stat_probe(events: tuple[str, ...]) -> str:
+    """Corre `perf stat` sobre un `sleep` corto solo para ver si el kernel
+    logra programar todos los eventos pedidos sin multiplexar -- no mide
+    ningún workload real, D05 no necesita valores, solo saber cuántos
+    contadores caben a la vez."""
+    result = subprocess.run(
+        ["perf", "stat", "-e", ",".join(events), "--", "sleep", "0.2"],
+        capture_output=True, text=True, timeout=10, check=False,
+    )
+    return result.stderr
+
+
+def probe_pmc_count(
+    max_events: int = len(_GENERIC_HARDWARE_EVENTS),
+    *,
+    run_perf_stat: Callable[[tuple[str, ...]], str] = _run_perf_stat_probe,
+) -> int:
+    """D05: número real de contadores de hardware que este nodo puede
+    programar SIMULTÁNEAMENTE sin multiplexar, medido empíricamente.
+
+    Nunca asumido por modelo de CPU ni por una tabla fija -- la regla del
+    Handoff en Registro_Cambios_Fuera_Plan_Original.md es explícita: "PMCs
+    no pueden aprobarse por omisión, deben obtenerse de una fuente real o
+    bloquear". Se van pidiendo más eventos genéricos de PERF_TYPE_HARDWARE
+    a `perf stat` hasta que aparece evidencia de multiplexado (`<not
+    counted>` o la anotación de porcentaje que perf imprime cuando
+    time_running < time_enabled); el último N sin esa evidencia es el
+    conteo real. Si `perf` no está disponible o falla en la primera
+    corrida, retorna 0 (D05 bloquea con datos ausentes, no aprueba por
+    omisión).
+    """
+    best = 0
+    for n in range(1, max_events + 1):
+        subset = _GENERIC_HARDWARE_EVENTS[:n]
+        try:
+            output = run_perf_stat(subset)
+        except (OSError, subprocess.SubprocessError):
+            break
+        if _MULTIPLEXING_MARKER.search(output):
+            break
+        best = n
+    return best
 
 
 def _frequency_domain_data(sysfs: SysfsPaths, cpus: list[int]) -> dict[int, list[int]]:
