@@ -178,8 +178,15 @@ def run_calibration(
     stream_raw = stream_result.stdout_path.read_text(errors="replace")
     ert_raw = ert_result.stdout_path.read_text(errors="replace")
 
+    # ARC-43: el regex captura la unidad nativa que la suite imprime (STREAM
+    # reporta MB/s, no B/s) -- convertir a unidad SI base antes de guardar
+    # como bw_pico_bytes_per_s/p_pico_flops_per_s, o i_ridge = p_pico/bw_pico
+    # queda sesgado por el cociente entre los dos prefijos (p.ej. GFLOP/s
+    # sobre MB/s da un i_ridge 1000x menor que el flops/byte real).
     bw_pico = _extract_metric(stream_kernel.bandwidth_stdout_pattern, stream_raw, label="BW_pico")
+    bw_pico *= getattr(stream_kernel, "bandwidth_stdout_unit_multiplier", 1.0)
     p_pico = _extract_metric(ert_kernel.flops_stdout_pattern, ert_raw, label="P_pico")
+    p_pico *= getattr(ert_kernel, "flops_stdout_unit_multiplier", 1.0)
     if bw_pico <= 0:
         raise CalibrationError(f"CAL-04: BW_pico debe ser positivo, se obtuvo {bw_pico}")
 

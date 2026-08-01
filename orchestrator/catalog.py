@@ -32,6 +32,13 @@ class KernelEntry:
     # reports_*_stdout flag is set; never used to read PMU counters.
     bandwidth_stdout_pattern: str | None = None
     flops_stdout_pattern: str | None = None
+    # CAL-02/CAL-03/ARC-43: el número que captura el regex está en la unidad
+    # nativa que la suite imprime (STREAM reporta MB/s, no B/s; nuestro
+    # ert_probe reporta GFLOP/s, no FLOP/s) -- calibration.py multiplica por
+    # esto antes de guardarlo como bw_pico_bytes_per_s/p_pico_flops_per_s.
+    # Default 1.0 = el regex ya captura la unidad SI base (bytes/s, FLOP/s).
+    bandwidth_stdout_unit_multiplier: float = 1.0
+    flops_stdout_unit_multiplier: float = 1.0
     # POST-09: regex with one capturing group around the total FLOP count a
     # dataset kernel (NPB/...) reports on its own stdout, used to prorate
     # flops_window_estimate. Optional: entries without it simply cannot
@@ -159,6 +166,8 @@ def load_catalog(catalog_path: str) -> dict[str, KernelEntry]:
             reports_flops_stdout=kernel.get("reports_flops_stdout", False),
             bandwidth_stdout_pattern=kernel.get("bandwidth_stdout_pattern"),
             flops_stdout_pattern=kernel.get("flops_stdout_pattern"),
+            bandwidth_stdout_unit_multiplier=kernel.get("bandwidth_stdout_unit_multiplier", 1.0),
+            flops_stdout_unit_multiplier=kernel.get("flops_stdout_unit_multiplier", 1.0),
             flops_total_stdout_pattern=kernel.get("flops_total_stdout_pattern"),
             flops_rate_stdout_pattern=kernel.get("flops_rate_stdout_pattern"),
             runtime_seconds_stdout_pattern=kernel.get("runtime_seconds_stdout_pattern"),

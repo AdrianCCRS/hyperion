@@ -60,3 +60,27 @@ def test_load_catalog_lee_flops_rate_y_runtime_seconds(tmp_path):
     entries = catalog.load_catalog(str(catalog_path))
     assert entries["npb_ep"].flops_rate_stdout_pattern == r"Mop/s total\s*=\s*([0-9.]+)"
     assert entries["npb_ep"].runtime_seconds_stdout_pattern == r"Time in seconds\s*=\s*([0-9.]+)"
+
+
+def test_arc42_multiplicadores_de_unidad_default_a_uno():
+    entry = catalog.KernelEntry(**_dataset_kwargs())
+    assert entry.bandwidth_stdout_unit_multiplier == 1.0
+    assert entry.flops_stdout_unit_multiplier == 1.0
+
+
+def test_arc42_load_catalog_lee_multiplicadores_de_unidad(tmp_path):
+    catalog_path = tmp_path / "catalog.yaml"
+    catalog_path.write_text(
+        yaml.safe_dump({
+            "kernels": [{
+                **_dataset_kwargs(id="stream_official", role="calibration", phase_label_hint=None,
+                                   size_variant=None, expected_runtime_seconds=None, warmup_seconds=None,
+                                   estimated_memory_bytes=None, reports_bandwidth_stdout=True,
+                                   bandwidth_stdout_pattern=r"Triad:\s+([0-9.]+)"),
+                "bandwidth_stdout_unit_multiplier": 1_000_000,
+            }]
+        }),
+        encoding="utf-8",
+    )
+    entries = catalog.load_catalog(str(catalog_path))
+    assert entries["stream_official"].bandwidth_stdout_unit_multiplier == 1_000_000

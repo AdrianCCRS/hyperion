@@ -70,6 +70,37 @@ def test_cal01_cal02_cal03_run_calibration_extrae_del_stdout_no_de_pmu(tmp_path)
     assert result.i_ridge_flops_per_byte == pytest.approx(result.p_pico_flops_per_s / result.bw_pico_bytes_per_s)
 
 
+def test_arc42_multiplicador_de_unidad_convierte_antes_de_guardar(tmp_path):
+    # STREAM imprime MB/s, no B/s; ert_probe imprime GFLOP/s, no FLOP/s.
+    # Sin el multiplicador, bw_pico/p_pico quedarian en la unidad nativa de
+    # cada suite y el ridge point saldria sesgado por el cociente entre
+    # prefijos (GFLOP/s sobre MB/s = 1000x menor que el flops/byte real).
+    stream_entry = _kernel_entry(
+        id="stream", reports_bandwidth_stdout=True, bandwidth_stdout_pattern=r"Triad:\s+([0-9.]+)",
+        bandwidth_stdout_unit_multiplier=1_000_000,
+    )
+    ert_entry = _kernel_entry(
+        id="ert", reports_flops_stdout=True, flops_stdout_pattern=r"GFLOPs/sec:\s+([0-9.]+)",
+        flops_stdout_unit_multiplier=1_000_000_000,
+    )
+    manifest = _manifest(tmp_path, datasheet={"bw_pico_bytes_per_s": 1.47e10, "p_pico_flops_per_s": 2.4e10})
+    catalog = {"stream": stream_entry, "ert": ert_entry}
+
+    def fake_run_single(entry, manifest, kernel_ref, freq_level_id, repetition, **kwargs):
+        run_dir = tmp_path / kernel_ref
+        run_dir.mkdir(exist_ok=True)
+        if entry is stream_entry:
+            (run_dir / "stdout.txt").write_text("Triad:    14718.6   0.10  0.10  0.10\n")
+        else:
+            (run_dir / "stdout.txt").write_text("GFLOPs/sec:    23.966\n")
+        return _fake_run_result(run_dir)
+
+    result = calibration.run_calibration(manifest, catalog, run_single=fake_run_single)
+
+    assert result.bw_pico_bytes_per_s == pytest.approx(14718.6 * 1_000_000)
+    assert result.p_pico_flops_per_s == pytest.approx(23.966 * 1_000_000_000)
+
+
 def test_cal04_d03_falla_si_esta_fuera_de_rango_y_bloquea(tmp_path):
     stream_entry = _kernel_entry(id="stream", reports_bandwidth_stdout=True, bandwidth_stdout_pattern=r"BW=([0-9.]+)")
     ert_entry = _kernel_entry(id="ert", reports_flops_stdout=True, flops_stdout_pattern=r"FLOPS=([0-9.]+)")
