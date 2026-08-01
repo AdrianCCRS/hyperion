@@ -154,8 +154,10 @@ FT, LU) **+ DGEMM**.
 
 ## 5. Recomendación concreta
 
-- **Ahora:** agregar `DGEMM/OpenBLAS` al catálogo (F3.1/F3.2 para ese
-  kernel) cuando volvamos a conectar con felix. Deja el dataset en 7.
+- **Implementado (2026-08-01, ARC-38):** `DGEMM/OpenBLAS` agregado al
+  catálogo con checksum real de felix (`dgemm_n2048`, N=2048, ~12.18 s,
+  `Verification SUCCESSFUL`). El dataset queda en 7 kernels. Preflight
+  completo re-verificado con el catálogo de 7: 46/46 checks en verde.
 - **Más adelante, solo si el modelo lo pide:** evaluar `RandomAccess`,
   `SpMV` o `Graph500-BFS` como segunda ronda dirigida por dónde falla el
   modelo entrenado, no antes.
