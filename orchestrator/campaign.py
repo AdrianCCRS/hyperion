@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 import json
 import logging
+import os
 from pathlib import Path
 import random
 import time
@@ -12,6 +13,7 @@ from . import calibration as calibration_module
 from . import freqctl as freqctl_module
 from . import node_profile as node_profile_module
 from . import postprocess as postprocess_module
+from . import preflight as preflight_module
 from . import runner as runner_module
 from . import validation as validation_module
 from .manifest import Combination
@@ -152,6 +154,7 @@ def run_campaign(
     write_node_profile: Callable[..., Any] = node_profile_module.write_node_profile,
     run_calibration_references: Callable[..., Any] = calibration_module.run_calibration_references,
     run_postprocess: Callable[..., Any] = postprocess_module.run_postprocess,
+    detect_foreign_affinity_pids: Callable[..., Any] = preflight_module.detect_foreign_affinity_pids,
 ) -> CampaignResult:
     """Orchestrates one full campaign, in order: snapshot original frequency
     state -> Roofline calibration -> node_profile -> calibration_references
@@ -235,6 +238,36 @@ def run_campaign(
                 seen_run_ids.add(telemetry_run_id)
                 if telemetry_run_id not in progress.skipped_run_ids:
                     progress.skipped_run_ids.append(telemetry_run_id)  # MET-06
+                continue
+
+            # PRE-E06: verificar CADA VEZ, justo antes de medir, que no haya
+            # procesos ajenos con afinidad a delegated_cpus -- por Cpus_allowed
+            # real de /proc, nunca por membresía de cgroup. PID+inherit ya
+            # garantiza que perf atribuye las muestras al proceso correcto;
+            # esto cubre un problema físico distinto (contención de L3/ancho
+            # de banda de memoria con otro proceso en los mismos cores) que
+            # la atribución correcta no puede detectar ni evitar.
+            foreign_pids = detect_foreign_affinity_pids(
+                delegated_cpus, own_pids=(os.getpid(),)
+            )
+            foreign_check = preflight_module.check_foreign_processes(foreign_pids)
+            if not foreign_check.passed:
+                logger.warning(
+                    "E06: procesos ajenos con afinidad a delegated_cpus, se salta la combinación (run_id=%s, foreign_pids=%s)",
+                    telemetry_run_id, foreign_pids,
+                )
+                run_dir = Path(manifest.output_dir) / telemetry_run_id
+                run_dir.mkdir(parents=True, exist_ok=True)
+                validation_module.write_verdict(
+                    validation_module.Verdict(
+                        accepted=False, factor_id="E06",
+                        message=f"Procesos ajenos con afinidad a delegated_cpus: {foreign_pids}",
+                    ),
+                    run_dir,
+                )
+                progress.rejected_run_ids.append(telemetry_run_id)
+                seen_run_ids.add(telemetry_run_id)
+                write_campaign_metadata(progress, manifest, manifest.output_dir)  # CAM-02
                 continue
 
             baseline_elapsed_seconds: float | None = None

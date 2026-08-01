@@ -168,6 +168,68 @@ def check_foreign_processes(foreign_pids: Iterable[int]) -> CheckResult:
     return _result("E06", "Procesos ajenos", not pids, True, {"foreign_pids": pids}, "Hay procesos ajenos con afinidad a los cores delegados")
 
 
+def _parse_cpus_allowed(mask_hex: str) -> set[int]:
+    mask = int(mask_hex.replace(",", ""), 16)
+    return {i for i in range(mask.bit_length()) if mask & (1 << i)}
+
+
+def detect_foreign_affinity_pids(
+    delegated_cpus: Iterable[int],
+    *,
+    proc_root: str | Path = "/proc",
+    own_pids: Iterable[int] = (),
+) -> list[int]:
+    """E06: escanea /proc/*/status buscando procesos VIVOS cuyo Cpus_allowed
+    se solape con delegated_cpus -- nunca por membresía de cgroup, que no
+    detecta contención real de caché/ancho de banda de memoria entre
+    procesos que comparten los mismos cores físicos (un efecto físico
+    independiente de que perf_event_open con PID+inherit atribuya bien las
+    muestras al proceso correcto -- eso resuelve atribución, no contención).
+
+    Excluye hilos de kernel (sin /proc/<pid>/cmdline, no son carga de
+    trabajo real) y `own_pids` (el propio proceso del orquestador, que
+    normalmente hereda el cpuset completo del job y por eso se solaparía
+    consigo mismo si no se excluye explícitamente).
+    """
+    delegated = set(delegated_cpus)
+    excluded = set(own_pids)
+    root = Path(proc_root)
+    foreign: list[int] = []
+    try:
+        entries = sorted(root.iterdir())
+    except OSError:
+        return foreign
+    for entry in entries:
+        if not entry.name.isdigit():
+            continue
+        pid = int(entry.name)
+        if pid in excluded:
+            continue
+        try:
+            if not (entry / "cmdline").read_bytes():
+                continue  # hilo de kernel, sin argv
+        except OSError:
+            continue  # el proceso murió entre el listado y la lectura
+        try:
+            status_text = (entry / "status").read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        mask_hex = None
+        for line in status_text.splitlines():
+            if line.startswith("Cpus_allowed:"):
+                mask_hex = line.split(":", 1)[1].strip()
+                break
+        if mask_hex is None:
+            continue
+        try:
+            allowed = _parse_cpus_allowed(mask_hex)
+        except ValueError:
+            continue
+        if allowed & delegated:
+            foreign.append(pid)
+    return foreign
+
+
 def check_run_id_unique(output_dir: str | Path, run_id: str, overwrite: bool = False) -> CheckResult:
     path = Path(output_dir) / run_id
     passed = overwrite or not path.exists()

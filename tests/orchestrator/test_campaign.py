@@ -109,6 +109,12 @@ def _freqctl_fakes():
         snapshot_original_state=lambda cpus, env: "SNAPSHOT",
         restore_original_state=lambda state, env: restore_calls.append(state) or True,
         install_emergency_handlers=lambda restore: install_calls.append(restore),
+        # E06: por defecto nadie es "ajeno" -- los tests que sí quieren
+        # ejercitar el rechazo sobreescriben esta clave explícitamente.
+        # Sin este default, la implementación real escanearía el /proc real
+        # de la máquina que corre los tests (no hermético, y casi seguro
+        # rechazaría todo ya que nada está pinneado a los cores del test).
+        detect_foreign_affinity_pids=lambda cpus, **kwargs: [],
     ), restore_calls, install_calls
 
 
@@ -235,6 +241,50 @@ def test_cam08_reanudacion_no_agrega_overhead_para_combinacion_saltada(tmp_path)
 
     assert calls == []  # CAM-03: combinacion ya aceptada, no vuelve a correr el par
     assert result.progress.overhead_pct_values == []
+
+
+def test_e06_procesos_ajenos_saltan_la_combinacion_sin_medir(tmp_path):
+    manifest = _manifest(tmp_path)
+    catalog = _catalog(tmp_path)
+    calibration_deps, postprocess_calls = _fake_calibration_deps()
+    freqctl_deps, _, _ = _freqctl_fakes()
+    freqctl_deps["detect_foreign_affinity_pids"] = lambda cpus, **kwargs: [9999]
+    calls: list[tuple[str, bool]] = []
+
+    result = campaign.run_campaign(
+        manifest, catalog, SimpleNamespace(frequency_write_capable=False),
+        node_id="felix-sc3", reference_kernel_ref="npb_ep",
+        run_single=_fake_run_single(calls), **calibration_deps, **freqctl_deps,
+    )
+
+    # No se ejecuta ni el baseline ni el telemetry -- se salta ANTES de medir.
+    assert calls == []
+    assert len(postprocess_calls) == 0
+    run_id = "camp01__npb_ep__REF__rep01"
+    assert result.progress.rejected_run_ids == [run_id]
+    assert result.progress.accepted_run_ids == []
+
+    verdict = validation_module.load_verdict(manifest.output_dir / run_id)
+    assert verdict.accepted is False
+    assert verdict.factor_id == "E06"
+    assert "9999" in verdict.message
+
+
+def test_e06_sin_procesos_ajenos_corre_normalmente(tmp_path):
+    manifest = _manifest(tmp_path)
+    catalog = _catalog(tmp_path)
+    calibration_deps, _ = _fake_calibration_deps()
+    freqctl_deps, _, _ = _freqctl_fakes()
+    calls: list[tuple[str, bool]] = []
+
+    result = campaign.run_campaign(
+        manifest, catalog, SimpleNamespace(frequency_write_capable=False),
+        node_id="felix-sc3", reference_kernel_ref="npb_ep",
+        run_single=_fake_run_single(calls), **calibration_deps, **freqctl_deps,
+    )
+
+    assert calls == [("camp01__npb_ep__REF__rep01__baseline", False), ("camp01__npb_ep__REF__rep01", True)]
+    assert result.progress.accepted_run_ids == ["camp01__npb_ep__REF__rep01"]
 
 
 def test_frq03_frq10_frecuencia_solicitada_aplicada_y_observada_llegan_a_postprocess(tmp_path):
