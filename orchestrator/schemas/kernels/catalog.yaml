@@ -50,6 +50,7 @@ kernels:
     exec_path: bin/stream_c
     reports_bandwidth_stdout: true
     bandwidth_stdout_pattern: "Triad:\\s+([0-9.]+)" # MB/s; confirmado contra stdout real en felix
+    bandwidth_stdout_unit_multiplier: 1000000 # MB/s -> B/s (ARC-42)
     success_check: {type: stdout_regex, pattern: "Solution Validates"}
     binary_checksum: "sha256:357ef034acf95ede768bf8788a7cdabf92f9afeadbaf79321730659b3cd9199c"
     # 3 arreglos x 8 bytes x STREAM_ARRAY_SIZE (64_000_000) = 1_536_000_000 B;
@@ -63,6 +64,7 @@ kernels:
     exec_path: bin/ert_probe
     reports_flops_stdout: true
     flops_stdout_pattern: "GFLOPs/sec:\\s+([0-9.]+)" # confirmado contra stdout real en felix
+    flops_stdout_unit_multiplier: 1000000000 # GFLOP/s -> FLOP/s (ARC-42)
     success_check: {type: exit_code}
     # Buffer maximo del barrido (4 MiB/hilo) x hasta 8 hilos, x2 de margen.
     estimated_memory_bytes: 67108864
