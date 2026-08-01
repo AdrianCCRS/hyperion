@@ -148,45 +148,55 @@ def test_e09_requiere_permisos_en_todos_los_cores(monkeypatch):
     assert (result.factor_id, result.passed, result.blocking) == ("E09", False, True)
 
 
-def _crear_proceso_falso(proc_root: Path, pid: int, *, cpus_allowed_hex: str, cmdline: bytes = b"algo\0"):
+def _crear_proceso_falso(proc_root: Path, pid: int, *, state: str = "R", processor: int = 0, cmdline: bytes = b"algo\0", comm: str = "fake"):
     proc_dir = proc_root / str(pid)
     proc_dir.mkdir(parents=True)
     (proc_dir / "cmdline").write_bytes(cmdline)
-    (proc_dir / "status").write_text(f"Name:\tfake\nCpus_allowed:\t{cpus_allowed_hex}\n")
+    # /proc/<pid>/stat real: "pid (comm) state ppid ... processor ...", 52
+    # campos en total; solo state (campo 3) y processor (campo 39) importan
+    # aca, el resto se rellena con ceros para mantener el offset correcto.
+    campos_post_comm = [state] + ["0"] * 35 + [str(processor)] + ["0"] * 14
+    (proc_dir / "stat").write_text(f"{pid} ({comm}) " + " ".join(campos_post_comm) + "\n")
 
 
-def test_e06_detecta_proceso_ajeno_con_afinidad_solapada(tmp_path):
-    # mascara 0xf = cpus 0-3
-    _crear_proceso_falso(tmp_path, 4242, cpus_allowed_hex="f")
+def test_e06_detecta_proceso_corriendo_ahora_en_un_core_delegado(tmp_path):
+    _crear_proceso_falso(tmp_path, 4242, state="R", processor=2)
     result = preflight.detect_foreign_affinity_pids([2, 3], proc_root=tmp_path)
     assert result == [4242]
 
 
 def test_e06_ignora_hilos_de_kernel_sin_cmdline(tmp_path):
-    _crear_proceso_falso(tmp_path, 99, cpus_allowed_hex="f", cmdline=b"")
+    _crear_proceso_falso(tmp_path, 99, state="R", processor=2, cmdline=b"")
     assert preflight.detect_foreign_affinity_pids([2, 3], proc_root=tmp_path) == []
 
 
 def test_e06_excluye_own_pids(tmp_path):
-    _crear_proceso_falso(tmp_path, 555, cpus_allowed_hex="ffffffff")
+    _crear_proceso_falso(tmp_path, 555, state="R", processor=2)
     assert preflight.detect_foreign_affinity_pids([2, 3], proc_root=tmp_path, own_pids=[555]) == []
 
 
 def test_e06_sin_solapamiento_no_es_ajeno(tmp_path):
-    # mascara 0x30 = cpus 4-5, no se solapa con delegated_cpus=[2,3]
-    _crear_proceso_falso(tmp_path, 4242, cpus_allowed_hex="30")
+    _crear_proceso_falso(tmp_path, 4242, state="R", processor=5)  # cpu 5, fuera de [2, 3]
     assert preflight.detect_foreign_affinity_pids([2, 3], proc_root=tmp_path) == []
 
 
-def test_e06_maneja_mascara_con_comas_de_kernels_multisocket(tmp_path):
-    # formato real de /proc/<pid>/status en sistemas de muchos cores: grupos
-    # de 8 hex separados por coma. "00000000,0000000f" = cpus 0-3.
-    _crear_proceso_falso(tmp_path, 777, cpus_allowed_hex="00000000,0000000f")
-    assert preflight.detect_foreign_affinity_pids([2], proc_root=tmp_path) == [777]
+def test_e06_proceso_dormido_en_core_delegado_no_es_ajeno(tmp_path):
+    # El caso real que motivo este rediseno (F4.4, primer piloto en felix):
+    # un proceso puede tener Cpus_allowed solapado con delegated_cpus sin
+    # estar corriendo ahi -- la gran mayoria de daemons del sistema en
+    # reposo caen en este caso. Si no esta en estado 'R' (corriendo AHORA),
+    # no genera contencion real de cache/ancho de banda.
+    _crear_proceso_falso(tmp_path, 4242, state="S", processor=2)  # dormido, aunque el processor coincida
+    assert preflight.detect_foreign_affinity_pids([2, 3], proc_root=tmp_path) == []
+
+
+def test_e06_comm_con_espacios_y_parentesis_no_rompe_el_parseo(tmp_path):
+    _crear_proceso_falso(tmp_path, 4242, state="R", processor=2, comm="my (weird) name")
+    assert preflight.detect_foreign_affinity_pids([2, 3], proc_root=tmp_path) == [4242]
 
 
 def test_e06_check_foreign_processes_usa_la_lista_detectada(tmp_path):
-    _crear_proceso_falso(tmp_path, 4242, cpus_allowed_hex="f")
+    _crear_proceso_falso(tmp_path, 4242, state="R", processor=2)
     detectados = preflight.detect_foreign_affinity_pids([2, 3], proc_root=tmp_path)
     result = preflight.check_foreign_processes(detectados)
     assert (result.factor_id, result.passed, result.blocking) == ("E06", False, True)

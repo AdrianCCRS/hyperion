@@ -168,9 +168,18 @@ def check_foreign_processes(foreign_pids: Iterable[int]) -> CheckResult:
     return _result("E06", "Procesos ajenos", not pids, True, {"foreign_pids": pids}, "Hay procesos ajenos con afinidad a los cores delegados")
 
 
-def _parse_cpus_allowed(mask_hex: str) -> set[int]:
-    mask = int(mask_hex.replace(",", ""), 16)
-    return {i for i in range(mask.bit_length()) if mask & (1 << i)}
+def _parse_stat_state_and_processor(stat_text: str) -> tuple[str, int] | None:
+    """/proc/<pid>/stat: campo 2 (comm) puede tener espacios/parentesis, asi
+    que se ubica por el ULTIMO ')' antes de partir el resto por espacios.
+    Desde ahi: campo[0]=state (field 3), campo[36]=processor (field 39) --
+    ver `man proc`."""
+    close = stat_text.rfind(")")
+    if close < 0:
+        return None
+    rest = stat_text[close + 1:].split()
+    if len(rest) <= 36:
+        return None
+    return rest[0], int(rest[36])
 
 
 def detect_foreign_affinity_pids(
@@ -179,17 +188,28 @@ def detect_foreign_affinity_pids(
     proc_root: str | Path = "/proc",
     own_pids: Iterable[int] = (),
 ) -> list[int]:
-    """E06: escanea /proc/*/status buscando procesos VIVOS cuyo Cpus_allowed
-    se solape con delegated_cpus -- nunca por membresía de cgroup, que no
-    detecta contención real de caché/ancho de banda de memoria entre
-    procesos que comparten los mismos cores físicos (un efecto físico
-    independiente de que perf_event_open con PID+inherit atribuya bien las
-    muestras al proceso correcto -- eso resuelve atribución, no contención).
+    """E06: escanea /proc/*/stat buscando procesos que están CORRIENDO
+    ACTIVAMENTE en este instante (state='R') sobre uno de delegated_cpus
+    (campo "processor" de /proc/<pid>/stat) -- nunca por membresía de
+    cgroup, que no detecta contención real de caché/ancho de banda de
+    memoria entre procesos que comparten los mismos cores físicos (un
+    efecto físico independiente de que perf_event_open con PID+inherit
+    atribuya bien las muestras al proceso correcto -- eso resuelve
+    atribución, no contención).
+
+    Deliberadamente NO usa Cpus_allowed (aunque un proceso lo tenga
+    solapado, no está causando contención si no está corriendo ahí AHORA):
+    en la práctica casi todo proceso del sistema en reposo tiene
+    Cpus_allowed sin restringir, así que filtrar solo por esa máscara
+    marca como "ajeno" a decenas de daemons inactivos en cualquier
+    máquina real -- confirmado en el primer piloto real contra felix
+    (F4.4), donde eso hizo que las 6 combinaciones se rechazaran sin
+    ninguna contención real. `processor` + state='R' es una foto del
+    scheduler en este instante: solo atrapa lo que de verdad está
+    ejecutando ciclos ahí ahora mismo.
 
     Excluye hilos de kernel (sin /proc/<pid>/cmdline, no son carga de
-    trabajo real) y `own_pids` (el propio proceso del orquestador, que
-    normalmente hereda el cpuset completo del job y por eso se solaparía
-    consigo mismo si no se excluye explícitamente).
+    trabajo real) y `own_pids` (el propio proceso del orquestador).
     """
     delegated = set(delegated_cpus)
     excluded = set(own_pids)
@@ -211,21 +231,14 @@ def detect_foreign_affinity_pids(
         except OSError:
             continue  # el proceso murió entre el listado y la lectura
         try:
-            status_text = (entry / "status").read_text(encoding="utf-8", errors="replace")
+            stat_text = (entry / "stat").read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        mask_hex = None
-        for line in status_text.splitlines():
-            if line.startswith("Cpus_allowed:"):
-                mask_hex = line.split(":", 1)[1].strip()
-                break
-        if mask_hex is None:
+        parsed = _parse_stat_state_and_processor(stat_text)
+        if parsed is None:
             continue
-        try:
-            allowed = _parse_cpus_allowed(mask_hex)
-        except ValueError:
-            continue
-        if allowed & delegated:
+        state, processor = parsed
+        if state == "R" and processor in delegated:
             foreign.append(pid)
     return foreign
 
