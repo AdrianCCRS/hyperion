@@ -27,6 +27,21 @@
 # reimplementa la aritmética de ERT (kernel1.c, ERT_FLOP=16) -- decisión
 # documentada en ARC-31, amparada por CAL-03 (ERT completo requiere
 # plantillas Batch/Config específicas de clúster no disponibles en SC3).
+#
+# Procedencia DGEMM (CAT-01, F3.1 ampliación 2026-08-01): kernels/dgemm/dgemm_bench.c,
+# driver propio sobre cblas_dgemm sin escribir álgebra lineal propia --
+# usa OpenBLAS del sistema (openblas-devel, confirmado instalado en felix,
+# sin necesidad de módulo). Séptimo kernel del dataset, decidido en
+# docs/retoma/Propuesta_Seleccion_Kernels_Dataset.md sección 4: EP es un
+# extremo compute-bound tan pronunciado (casi sin tráfico de memoria) que
+# no puebla la zona cercana al ridge point desde el lado derecho; DGEMM sí,
+# y el tamaño de matriz (--size, pasado por CLI, no en tiempo de compilación)
+# permite agregar más size_variant después sin recompilar. N=2048 fue el
+# primer tamaño evaluado con runtime real razonable (~12s con 6 iteraciones);
+# reposicionar en el plano Roofline exacto queda pendiente de la calibración
+# real (F4.2/F4.3, i_ridge todavía no medido). Comparte success_check y los
+# patrones flops_rate/runtime_seconds con los kernels NPB (mismo formato de
+# salida, "Time in seconds"/"Mop/s total"/"Verification").
 
 kernels:
   - id: stream_official
@@ -134,5 +149,20 @@ kernels:
     estimated_memory_bytes: 268435456
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum: "sha256:22499545e3bf2546320ca9826de930b6a772ce74bb8b8a30f1a44d10d9c3eaf5"
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+
+  - id: dgemm_n2048
+    suite: DGEMM-OpenBLAS
+    role: dataset
+    exec_path: bin/dgemm_bench
+    exec_args: "--size 2048 --iterations 6"
+    phase_label_hint: compute_bound
+    size_variant: N2048
+    expected_runtime_seconds: 15 # medido en felix (6 hilos): 12.18 s
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 134217728 # 3 arreglos x 2048^2 x 8 B ~= 96 MB, con margen
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum: "sha256:289e373178e6f4d0c949fa324c39b3caee6a19b42653a941157298a87b5176ad"
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
