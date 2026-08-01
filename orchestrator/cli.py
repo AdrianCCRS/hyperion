@@ -124,6 +124,7 @@ def cmd_report(args: argparse.Namespace) -> int:
         campaign_id=campaign_metadata["campaign_id"], verdicts=verdicts,
         calibration_references=calibration_references,
         total_core_hours=campaign_metadata.get("total_core_hours", 0.0),
+        overhead_pct_values=campaign_metadata.get("overhead_pct_values", []),
     )
     path = report_module.write_report(data, campaign_dir)
     print(path)

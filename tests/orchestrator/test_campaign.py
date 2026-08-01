@@ -175,6 +175,68 @@ def test_campana_completa_corre_baseline_telemetry_y_postprocesa(tmp_path):
     assert metadata["frequency_restored_verified"] is True  # MET-02
 
 
+def _fake_run_single_con_elapsed_distinto(calls, *, baseline_elapsed, telemetry_elapsed):
+    def run_single(entry, manifest, kernel_ref, freq_level_id, repetition_index, *,
+                    environment_profile=None, node_id=None, apply_frequency=None, calibration_refs=None):
+        base_run_id = runner_module.build_run_id(manifest.campaign_id, kernel_ref, freq_level_id, repetition_index)
+        run_id = base_run_id if manifest.perf_enabled else f"{base_run_id}__baseline"
+        run_dir = Path(manifest.output_dir) / run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+        calls.append((run_id, manifest.perf_enabled))
+        elapsed = telemetry_elapsed if manifest.perf_enabled else baseline_elapsed
+        return SimpleNamespace(
+            run_id=run_id, kernel_ref=kernel_ref, freq_level_id=freq_level_id, repetition_index=repetition_index,
+            exit_code=0, timed_out=False, success=True, elapsed_seconds=elapsed, run_dir=run_dir,
+            stdout_path=run_dir / "stdout.txt", stderr_path=run_dir / "stderr.txt",
+            metadata={"samples_collected": 10, "push_retries": 0}, applied_frequency=None,
+        )
+    return run_single
+
+
+def test_cam08_overhead_de_instrumentacion_se_calcula_por_par(tmp_path):
+    manifest = _manifest(tmp_path)
+    catalog = _catalog(tmp_path)
+    calls: list[tuple[str, bool]] = []
+    calibration_deps, _ = _fake_calibration_deps()
+    freqctl_deps, _, _ = _freqctl_fakes()
+
+    result = campaign.run_campaign(
+        manifest, catalog, SimpleNamespace(frequency_write_capable=False),
+        node_id="felix-sc3", reference_kernel_ref="npb_ep",
+        run_single=_fake_run_single_con_elapsed_distinto(calls, baseline_elapsed=2.0, telemetry_elapsed=3.0),
+        **calibration_deps, **freqctl_deps,
+    )
+
+    # (3.0 - 2.0) / 2.0 * 100 = 50%
+    assert result.progress.overhead_pct_values == [50.0]
+
+    metadata = json.loads((manifest.output_dir / "campaign_metadata.json").read_text())
+    assert metadata["overhead_pct_values"] == [50.0]
+
+
+def test_cam08_reanudacion_no_agrega_overhead_para_combinacion_saltada(tmp_path):
+    manifest = _manifest(tmp_path)
+    catalog = _catalog(tmp_path)
+    run_id = "camp01__npb_ep__REF__rep01"
+    run_dir = manifest.output_dir / run_id
+    run_dir.mkdir(parents=True)
+    validation_module.write_verdict(
+        validation_module.Verdict(accepted=True, factor_id=None, message=""), run_dir
+    )
+    calibration_deps, _ = _fake_calibration_deps()
+    freqctl_deps, _, _ = _freqctl_fakes()
+    calls: list[tuple[str, bool]] = []
+
+    result = campaign.run_campaign(
+        manifest, catalog, SimpleNamespace(frequency_write_capable=False),
+        node_id="felix-sc3", reference_kernel_ref="npb_ep",
+        run_single=_fake_run_single(calls), **calibration_deps, **freqctl_deps,
+    )
+
+    assert calls == []  # CAM-03: combinacion ya aceptada, no vuelve a correr el par
+    assert result.progress.overhead_pct_values == []
+
+
 def test_frq03_frq10_frecuencia_solicitada_aplicada_y_observada_llegan_a_postprocess(tmp_path):
     manifest = _manifest(
         tmp_path, frequency_levels=(FrequencyLevel("F0", "fixed", 1.0),),

@@ -69,3 +69,36 @@ def test_build_report_y_write_report(tmp_path):
     assert path.name == "campaign_report.json"
     loaded = json.loads(path.read_text())
     assert loaded == data
+
+
+def test_cam08_overhead_stats_vacio_no_es_cero():
+    stats = report.overhead_stats([])
+    assert stats == {"overhead_pct_mean": None, "overhead_pct_cv": None, "overhead_pct_samples": 0}
+    assert report.overhead_stats(None) == stats
+
+
+def test_cam08_overhead_stats_calcula_media_y_cv():
+    stats = report.overhead_stats([10.0, 10.0, 10.0])
+    assert stats["overhead_pct_mean"] == 10.0
+    assert stats["overhead_pct_cv"] == 0.0
+    assert stats["overhead_pct_samples"] == 3
+
+
+def test_cam08_advertencia_f44_si_cv_supera_umbral():
+    warning = report.overhead_stability_warning([5.0, 50.0, 5.0], threshold_pct=10.0)
+    assert warning is not None
+    assert "F4.4" in warning
+
+
+def test_cam08_sin_advertencia_si_cv_dentro_del_umbral():
+    assert report.overhead_stability_warning([10.0, 11.0, 9.0], threshold_pct=10.0) is None
+    assert report.overhead_stability_warning([], threshold_pct=10.0) is None
+
+
+def test_build_report_incluye_estadisticas_de_overhead(tmp_path):
+    verdicts = [Verdict(True, None, "ok")]
+    data = report.build_report(
+        campaign_id="camp01", verdicts=verdicts, overhead_pct_values=[5.0, 50.0, 5.0],
+    )
+    assert data["overhead_pct_samples"] == 3
+    assert data["overhead_stability_warning"] is not None

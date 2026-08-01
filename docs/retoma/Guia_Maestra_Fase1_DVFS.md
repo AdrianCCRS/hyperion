@@ -578,7 +578,7 @@ Cada regla tiene un ID único MÓDULO-NN y una casilla para marcar cuando el mó
 | RUN-07 | ☑ | stdout.txt y stderr.txt completos guardados en output\_dir/\<run\_id\>/. |
 | RUN-08 | ☑ | Si frequency\_write\_capable=False: NO invocar freqctl.apply\_frequency() (verificado vía inyección de `apply_frequency` en `run_single`; freqctl.py aún no existe — F2.2). |
 
-### **12.8 Campaign (CAM-01 a CAM-07) — 7 reglas**
+### **12.8 Campaign (CAM-01 a CAM-08) — 8 reglas**
 
 | ID | ✓ | Regla de validación / invariante técnica |
 | :---- | :---: | :---- |
@@ -589,6 +589,7 @@ Cada regla tiene un ID único MÓDULO-NN y una casilla para marcar cuando el mó
 | CAM-05 | ☑ | Se contabilizan hora-núcleo acumuladas (`CampaignProgress.total_core_hours`) por corrida. **Parcial:** la decisión operativa de "detenerse antes de lanzar la campaña completa" es una política humana (OPS-01), no automatizada aquí. |
 | CAM-06 | ☑ | `campaign_timeout_seconds` aborta la matriz completa si se excede, además del timeout por corrida ya garantizado por runner.py (RUN-03). |
 | CAM-07 | ☑ | Al cierre (normal o por interrupción, incluida una excepción durante la calibración) SIEMPRE se llama freqctl.restore\_original\_state() desde un `finally`, además de `install_emergency_handlers` para SIGINT/SIGTERM/atexit. |
+| CAM-08 | ☑ | Overhead de instrumentación (`(telemetry.elapsed_seconds - baseline.elapsed_seconds) / baseline.elapsed_seconds * 100`) calculado por CADA par baseline+telemetry realmente ejecutado (no en pares reanudados por CAM-03), acumulado en `CampaignProgress.overhead_pct_values` y persistido en `campaign_metadata.json`. `report.py` expone `overhead_pct_mean`/`overhead_pct_cv`/`overhead_pct_samples` y una advertencia no bloqueante si `overhead_pct_cv` supera el 10% (gate de F4.4). Regla nueva, fuera del alcance original — ver ARC-34. |
 
 ### **12.9 Post-procesamiento (POST-01 a POST-16) — 16 reglas**
 
