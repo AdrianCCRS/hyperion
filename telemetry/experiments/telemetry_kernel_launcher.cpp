@@ -924,6 +924,16 @@ int main(int argc, char** argv) {
                                  telemetry.output.c_str());
                     return 1;
                 }
+                // CAL-02/CAL-03/POST-09 parse BW_pico/P_pico/FLOPs from the
+                // measured binary's OWN stdout (never a PMU counter). Before
+                // this, run_child() captured it into ChildResult::output but
+                // only ever printed it on the failure path above -- on
+                // success it was silently discarded, so the orchestrator's
+                // stdout.txt (which is this process's own stdout, captured
+                // by runner.py) never actually contained the child's program
+                // output to regex-match against. Found running the real
+                // orchestrator against felix for the first time (F4.4).
+                std::fputs(telemetry.output.c_str(), stdout);
                 telemetry_elapsed_ns.push_back(telemetry.elapsed_ns);
                 push_retries_by_repetition.push_back(push_retries);
                 measured_pids.push_back(telemetry.pid);
@@ -970,6 +980,8 @@ int main(int argc, char** argv) {
                              telemetry.output.c_str());
                 return 1;
             }
+            // See the matching comment in the external-mode branch above.
+            std::fputs(telemetry.output.c_str(), stdout);
 
             baseline_elapsed_ns.push_back(baseline.elapsed_ns);
             telemetry_elapsed_ns.push_back(telemetry.elapsed_ns);
