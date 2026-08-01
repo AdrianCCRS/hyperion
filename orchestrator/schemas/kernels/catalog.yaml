@@ -37,6 +37,10 @@ kernels:
     bandwidth_stdout_pattern: "Triad:\\s+([0-9.]+)" # MB/s; confirmado contra stdout real en felix
     success_check: {type: stdout_regex, pattern: "Solution Validates"}
     binary_checksum: "sha256:357ef034acf95ede768bf8788a7cdabf92f9afeadbaf79321730659b3cd9199c"
+    # 3 arreglos x 8 bytes x STREAM_ARRAY_SIZE (64_000_000) = 1_536_000_000 B;
+    # 1.5 GiB con margen para el allocator. F4.2, C05 no distingue role, asi
+    # que las entradas de calibracion tambien necesitan este campo.
+    estimated_memory_bytes: 1610612736
 
   - id: ert_probe
     suite: ERT
@@ -45,6 +49,8 @@ kernels:
     reports_flops_stdout: true
     flops_stdout_pattern: "GFLOPs/sec:\\s+([0-9.]+)" # confirmado contra stdout real en felix
     success_check: {type: exit_code}
+    # Buffer maximo del barrido (4 MiB/hilo) x hasta 8 hilos, x2 de margen.
+    estimated_memory_bytes: 67108864
     binary_checksum: "sha256:aafd773346eb05a51a77720e08f45e7bd4cfc5aae31bc25d9f1273c49ed0e0d9"
 
   - id: npb_ep

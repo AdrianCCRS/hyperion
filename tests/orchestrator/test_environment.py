@@ -199,6 +199,23 @@ def test_env_t11_dominio_de_frecuencia_por_socket(tmp_path):
     }
 
 
+def test_env_t11b_dominio_de_frecuencia_formato_separado_por_espacios(tmp_path):
+    """F4.2 (2026-08-01): freqdomain_cpus en felix real usa una lista plana
+    separada por espacios ("0 1 2 ... 39"), no el formato con rangos y comas
+    ("0-7,32-39") que asumian los tests anteriores. Sin el fix a
+    _parse_cpu_list, este formato parseaba a una lista vacia y E10 nunca
+    tenia datos con que bloquear."""
+    raiz = crear_sysfs(tmp_path, driver="acpi-cpufreq")
+    for cpu in (2, 3, 4, 5):
+        cpufreq = raiz / f"devices/system/cpu/cpu{cpu}/cpufreq"
+        (cpufreq / "freqdomain_cpus").write_text("0 1 2 3 4 5 6 7 32 33 34 35 36 37 38 39")
+    perfil = environment.detect_environment("2-5", str(raiz))
+    dominio_esperado = [0, 1, 2, 3, 4, 5, 6, 7, 32, 33, 34, 35, 36, 37, 38, 39]
+    assert perfil.frequency_domain_cpus == {
+        2: dominio_esperado, 3: dominio_esperado, 4: dominio_esperado, 5: dominio_esperado,
+    }
+
+
 def test_env_t12_dominio_de_frecuencia_usa_related_cpus_si_falta_freqdomain(tmp_path):
     raiz = crear_sysfs(tmp_path, driver="acpi-cpufreq")
     (raiz / "devices/system/cpu/cpu2/cpufreq/related_cpus").write_text("2-3")
