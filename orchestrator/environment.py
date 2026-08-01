@@ -41,8 +41,14 @@ def _read_text(path: Path) -> str | None:
 
 
 def _parse_cpu_list(cpu_list: str) -> list[int]:
+    """Acepta tanto listas con rangos separadas por coma ("0-3,5,7-9", el
+    formato de cpuset.cpus/CLI) como listas planas separadas por espacio
+    ("0 1 2 3", el formato real de freqdomain_cpus/related_cpus en felix —
+    confirmado por auditoría F4.2 el 2026-08-01; sin este manejo, esos dos
+    archivos siempre parseaban a una lista vacía y el check E10 nunca tenía
+    datos con qué bloquear)."""
     cpus: set[int] = set()
-    for token in cpu_list.split(","):
+    for token in cpu_list.replace(",", " ").split():
         try:
             first, last = token.split("-", 1) if "-" in token else (token, token)
             cpus.update(range(int(first), int(last) + 1))
