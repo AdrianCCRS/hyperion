@@ -33,7 +33,17 @@ def _load_manifest_and_catalog(manifest_path: str):
 
 def _detect_environment(manifest, config_path: str | None):
     config = load_config(config_path) if config_path else load_config()
-    return environment_module.detect_environment(_delegated_cpus_arg(manifest), config=config)
+    env = environment_module.detect_environment(_delegated_cpus_arg(manifest), config=config)
+    # D05: probado en vivo aquí (no dentro de detect_environment(), que debe
+    # seguir siendo una lectura pura de sysfs, ENV-01) porque requiere correr
+    # `perf stat` como subproceso. Si perf no está disponible, queda en 0 --
+    # D05 bloquea con datos ausentes en vez de aprobar por omisión.
+    try:
+        env.pmc_count = environment_module.probe_pmc_count()
+    except Exception:
+        logger.warning("No se pudo medir pmc_count con perf stat; D05 bloqueará hasta resolverlo", exc_info=True)
+        env.pmc_count = 0
+    return env
 
 
 def cmd_diagnose(args: argparse.Namespace) -> int:
