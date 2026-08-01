@@ -528,7 +528,7 @@ Cada regla tiene un ID único MÓDULO-NN y una casilla para marcar cuando el mó
 | PRE-D02 | ☐ | Calibración STREAM/ERT ejecutada y parseable. Bloqueante si el nodo tiene RAPL. |
 | PRE-D03 | ☐ | BW\_pico y P\_pico dentro de ±40% de la ficha técnica declarada. Bloqueante si aplica D02. |
 | PRE-D04 | ☐ | CV% de referencias P95 ≤ umbral. Solo advertencia (no bloqueante). |
-| PRE-D05 | ☐ | Eventos de perf solicitados ≤ PMCs disponibles. Bloqueante. |
+| PRE-D05 | ☑ | Eventos de perf solicitados ≤ PMCs disponibles. Bloqueante. `pmc_count` medido empíricamente con `environment.probe_pmc_count()` (nunca por modelo de CPU) — verificado en felix: 5 contadores simultáneos sin multiplexar. Ver ARC-37. |
 | PRE-OPS01 | ☐ | Presupuesto de hora-núcleo ≥ proyección. Bloqueante. |
 | PRE-G01 | ☐ | GPU NVIDIA confirmada, sin procesos CUDA ajenos. GPU AMD → deshabilitada. Bloqueante si gpu.enabled. |
 | PRE-G02 | ☐ | Persistence mode leído. No bloqueante. |
