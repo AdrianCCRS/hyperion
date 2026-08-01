@@ -461,7 +461,7 @@ Cada regla tiene un ID único MÓDULO-NN y una casilla para marcar cuando el mó
 
 | ID | ✓ | Regla de validación / invariante técnica |
 | :---- | :---: | :---- |
-| MAN-01 | ☑ | cgroup\_path es OPCIONAL en todos los tiers. No es requisito para que perf mida correctamente. Excepción: obligatorio si environment\_tier es hpc\_sc3 (`manifest.py`, test\_man\_t02). |
+| MAN-01 | ☑ | cgroup\_path es OPCIONAL en todos los tiers, incluido hpc\_sc3. No es requisito para que perf mida correctamente (PID+inherit, no cgroup). **Corrección 2026-08-01 (ARC-41):** el código tenía una excepción no documentada aquí que exigía cgroup\_path no nulo para hpc\_sc3 — un resabio de antes de la migración a PID+inherit (Fase 1). Contradecía la regla tal como está escrita arriba. Eliminada; `test_man_t02_hpc_sc3_no_requiere_cgroup` cubre el caso. |
 | MAN-02 | ☑ | Rechazar si repetitions\_per\_combination \< 3\. (test\_man\_t03) |
 | MAN-03 | ☑ | Calcular y loguear tamaño de la matriz antes de continuar. (test\_man\_t11\_tamano\_de\_matriz\_y\_log\_baseline) |
 | MAN-04 | ☑ | Rechazar si output\_dir existe y overwrite: false (factor I07). (test\_man\_t04) |

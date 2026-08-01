@@ -211,8 +211,14 @@ def load(path: str | Path) -> Manifest:
     tier = _required(document, "environment_tier")
     if not isinstance(tier, str):
         _error("MAN-01", "environment_tier", "debe ser texto")
-    if tier == "hpc_sc3" and not cgroup_path:
-        _error("MAN-01", "cgroup_path", "es obligatorio cuando environment_tier es hpc_sc3")
+    # MAN-01: cgroup_path es opcional en TODOS los tiers, incluido hpc_sc3.
+    # Antes de ARC-40 aquí se exigía un cgroup_path no nulo para hpc_sc3 --
+    # un resabio de cuando perf se adjuntaba por cgroup (previo a la
+    # migración PID+inherit de Fase 1, CPP-01..08). check_foreign_processes
+    # (E06) ya no depende de cgroups: escanea Cpus_allowed real de procesos
+    # vivos, un mecanismo estrictamente más fuerte (detecta contención de
+    # caché/ancho de banda por afinidad real, no por membresía de cgroup,
+    # y no requiere delegación de cgroup del clúster). Ver ARC-41.
 
     repetitions = _required(document, "repetitions_per_combination")
     if isinstance(repetitions, bool) or not isinstance(repetitions, int) or repetitions < 3:
