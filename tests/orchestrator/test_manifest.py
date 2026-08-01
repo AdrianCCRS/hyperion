@@ -66,8 +66,21 @@ def test_man_t01_manifest_valido(tmp_path, monkeypatch, catalogo, campaign):
     assert resultado.timeouts_seconds.run == 300
 
 
-def test_man_t02_hpc_requiere_cgroup(tmp_path, monkeypatch, catalogo, campaign):
+def test_man_t02_hpc_sc3_no_requiere_cgroup(tmp_path, monkeypatch, catalogo, campaign):
+    # MAN-01/ARC-41: cgroup_path es opcional en TODOS los tiers, incluido
+    # hpc_sc3 -- E06 (Cpus_allowed real) ya no depende de cgroups, y en
+    # clústeres sin delegación de cgroup (felix) no hay forma de crear un
+    # hijo vacío para el workload de todas formas.
     campaign["environment_tier"] = "hpc_sc3"
+    campaign["cgroup_path"] = None
+    resultado = cargar(tmp_path, monkeypatch, catalogo, campaign)
+    assert resultado.environment_tier == "hpc_sc3"
+    assert resultado.cgroup_path is None
+
+
+def test_man_t02_cgroup_path_sigue_siendo_campo_obligatorio_aunque_sea_null(tmp_path, monkeypatch, catalogo, campaign):
+    # No se aceptan claves ausentes por descuido (MAN-00): cgroup_path debe
+    # declararse explícitamente como null, no simplemente omitirse.
     campaign.pop("cgroup_path")
     with pytest.raises(manifest.ManifestValidationError, match="cgroup_path"):
         cargar(tmp_path, monkeypatch, catalogo, campaign)
