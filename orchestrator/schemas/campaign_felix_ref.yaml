@@ -1,0 +1,75 @@
+# Manifest real de la campaña piloto minima (F4.4), felix, solo nivel REF
+# (frequency_write_capable=False mientras H1 sigue sin respuesta -- no hay
+# forma de correr niveles fixed todavia). 2 kernels x REF x 3 repeticiones,
+# el minimo que exige MAN-02.
+#
+# cores: delegated_cpus=0-5 (6 threads, un solo NUMA node, E04),
+# collector_cpu=6, consumer_cpu=7 -- el mismo esquema que F3.4/F4.2, dentro
+# del dominio de frecuencia completo del socket 0 (E10, requiere
+# --cpus-per-task=8 --hint=nomultithread en el srun).
+
+campaign_id: felix_ref_pilot_20260801
+environment_tier: hpc_sc3
+seed: 20260801
+
+output_dir: /home/yacacerest01/hyperion-results/campaigns/felix_ref_pilot_20260801
+overwrite: true
+
+catalog_path: kernels/catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: npb_ep
+  - kernel_ref: npb_mg
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+
+repetitions_per_combination: 3
+target_windows_per_repetition: 50
+interval_ns: 1000000  # 1 ms
+
+running_ratio_min: 0.90
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+# MAN-01/ARC-41: opcional en todos los tiers, felix no tiene delegacion de
+# cgroup -- E06 (Cpus_allowed real) cubre lo que esto intentaba resolver.
+cgroup_path: null
+
+perf_enabled: true
+
+rapl:
+  enabled: false  # felix no tiene RAPL (Nehalem-EX, anterior a su introduccion)
+
+gpu:
+  enabled: false  # no se usa GPU en este piloto
+
+timeouts_seconds:
+  ready: 15
+  run: 120
+  shutdown: 15
+
+# D03/CAL-04: sin esto la calibracion Roofline SIEMPRE falla (nunca se
+# aprueba por ausencia de datos). Nehalem-EX (2010) no tiene ficha tecnica
+# publica confiable para BW/FLOPs pico en esta configuracion exacta (6
+# hilos, un socket parcial) -- se usa como referencia la medicion empirica
+# de stream_c/ert_probe con el MISMO conteo de hilos que este piloto
+# (2026-08-01, srun --cpus-per-task=8 --hint=nomultithread, taskset -c 0-5):
+#   ert_probe:  GFLOPs/sec = 23.966  -> p_pico_flops_per_s
+#   stream_c:   Triad = 14718.6 MB/s -> bw_pico_bytes_per_s
+# El +-40% de D03 valida que la calibracion de ESTA corrida sea consistente
+# con esa referencia (detecta anomalias de medicion: build roto, cores mal
+# contados, throttling termico), no que iguale un pico oficial de Intel.
+hardware_datasheet:
+  bw_pico_bytes_per_s: 14718600000
+  p_pico_flops_per_s: 23966000000
