@@ -516,7 +516,7 @@ Cada regla tiene un ID único MÓDULO-NN y una casilla para marcar cuando el mó
 | PRE-E07 | ☐ | Atributo real de gobierno coincide con el esperado (solo si hay niveles fixed). |
 | PRE-E08 | ☐ | Carga externa del nodo bajo umbral configurado en el manifest. |
 | PRE-E09 | ☐ | Si el manifest solicita algún nivel fixed: frequency\_write\_capable=True. Bloqueante. |
-| PRE-E10 | ☑ | Dominio real de control de frecuencia (freqdomain\_cpus/related\_cpus/affected\_cpus) contenido en delegated\_cpus; sin datos de dominio no bloquea. Bloqueante. Regla nueva, fuera del alcance original — ver ARC-30. |
+| PRE-E10 | ☑ | Dominio real de control de frecuencia (freqdomain\_cpus/related\_cpus/affected\_cpus) contenido en delegated\_cpus; sin datos de dominio no bloquea. Bloqueante. Regla nueva, fuera del alcance original — ver ARC-30. **Verificado en hardware real (F4.2, 2026-08-01):** el primer preflight contra felix reveló que `_parse_cpu_list()` no entendía el formato real de `freqdomain_cpus` (lista separada por espacios, no por comas), dejando el check sin datos con qué bloquear pese a que los tests con mocks pasaban. Corregido — ver ARC-36. |
 | PRE-I05 | ☐ | Si rapl\_domains\_available vacío, forzar rapl.enabled a False. No bloqueante. |
 | PRE-I07 | ☐ | output\_dir y run\_id no existen ya en disco. Bloqueante. |
 | PRE-I08 | ☐ | manifest.rapl.domains ⊆ rapl\_domains\_available del nodo (alias reales). Bloqueante si rapl.enabled. |
