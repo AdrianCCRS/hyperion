@@ -194,6 +194,8 @@ El eslabón más débil del etiquetado es `bytes_moved_window` (LLC misses × 64
 - Escribir el manifest real `campaign_felix_ref.yaml`: `environment_tier: hpc_sc3`, niveles = solo `REF`, kernels del catálogo F3.2, `cores` resueltos contra el cpuset efectivo del job (p. ej. con 8 físicos `0-7`: `delegated_cpus: 0-5`, `collector_cpu: 6`, `consumer_cpu: 7` — un solo NUMA, E04), política SMT explícita (`nomultithread`, E05), `rapl.enabled: false`, semilla fija.
 - Correr el preflight completo: todo verde o advertencias justificadas y documentadas.
 
+**Estado (2026-08-01):** primer `run_campaign_preflight()` real corrido contra felix (`delegated_cpus=0-5`, entorno Conda `hyperion-hpc` ya existente en el clúster). Encontró y corrigió dos bloqueadores reales (ver ARC-36): `_parse_cpu_list()` no entendía el formato real de `freqdomain_cpus` (afectaba E10, un check de seguridad), y `catalog.yaml` le faltaba `estimated_memory_bytes` en las entradas de calibración (bloqueaba C05 siempre). Con ambos corregidos, el preflight queda en verde salvo **D05** (capacidad de PMC), pendiente porque `pmc_count` nunca se implementó en `environment.py` (gap ya conocido, ARC-20). Aún no se escribió el manifest real `campaign_felix_ref.yaml` (el catálogo de kernels va a cambiar — DGEMM y posibles ajustes — antes de fijarlo).
+
 ### F4.3 — Verificación de medición en el nodo (INT-T11 real)
 - Launcher sin cgroup sobre `npb_ep.S` OpenMP vs `perf stat` externo del mismo binario: conteos < 5% de diferencia. **Este es el gate que certifica que la librería C++ mide bien en felix.**
 - Inspección anti-error-silencioso: los deltas de `samples.csv` crecen durante toda la corrida (no plano + salto final).
