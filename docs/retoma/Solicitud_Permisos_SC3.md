@@ -107,15 +107,38 @@ denied`; propietario/permisos del directorio raíz confirmados vía `stat`.
 
 ---
 
-## P4. Acceso de lectura a contadores de uncore/memory controller (iMC)
+## P4. Acceso de lectura a contadores de uncore/memory controller
 
-**Qué se pide:** permiso de lectura para el usuario sobre los contadores
-de uncore/iMC (memory controller) de `felix` — vía `perf stat` con
-eventos `uncore_imc_*` y/o LIKWID (`likwid-perfctr -g MEM`, que también
-necesita acceso a MSR mediante `/dev/cpu/*/msr` o el daemon
-`likwid-accessD`). Hoy no está confirmado si el usuario puede leer estos
-eventos bajo el `perf_event_paranoid` actual del nodo, ni si LIKWID está
-instalado.
+**Qué se pide:** bajar `perf_event_paranoid` a `0` (o `-1`), o alternativamente
+otorgar la capability `CAP_PERFMON` al binario `perf` para el usuario, de
+forma que se puedan leer contadores de uncore en `felix` — el equivalente
+en esta arquitectura (Nehalem-EX/Westmere-EX) a lo que en generaciones más
+nuevas de Intel se llama "iMC": aquí el bloque de memoria se expone como
+`uncore_mbox_0`/`uncore_mbox_1` en `/sys/bus/event_source/devices/`.
+
+**Confirmado por auditoría de solo lectura (2026-08-01):** el nodo sí
+expone los PMU de uncore (`uncore_mbox_0/1`, `uncore_cbox_0..7`,
+`uncore_bbox_0/1`, `uncore_rbox_0/1`, `uncore_sbox_0/1`, `uncore_ubox`,
+`uncore_wbox` — 16 dispositivos en total), pero **el usuario no puede
+abrirlos hoy**: `perf stat -e uncore_ubox/event=0x1/ -a -- sleep 1` falla
+con `perf_event_paranoid setting is 1: >=1: Disallow CPU event access` —
+los eventos de uncore son de alcance socket/sistema completo (nunca por
+PID), y `perf_event_paranoid=1` los bloquea explícitamente para usuarios
+sin `CAP_PERFMON`/`CAP_SYS_PTRACE`/`CAP_SYS_ADMIN`. Esto es distinto del
+mecanismo por-PID que ya usamos (`perf_event_open` con `pid` específico),
+que sí funciona hoy sin privilegios adicionales — el bloqueo es
+específicamente para eventos *system-wide*, categoría en la que caen los
+de uncore.
+
+También confirmamos que **LIKWID no está instalado** como módulo
+(`module avail | grep likwid` no devuelve nada) y que `/dev/cpu/*/msr` es
+`root:root` sin acceso de lectura para el usuario — así que la ruta
+LIKWID (que lee MSR directamente, sin pasar por `perf_event_open`)
+necesitaría además que SC3 instale el paquete y, para el modo con
+privilegios (`likwid-accessD` con setuid), una instalación explícita de
+administración. La ruta más simple es la de `perf` + `uncore_mbox_*`, que
+ya está disponible en el nodo y solo necesita el ajuste de
+`perf_event_paranoid` (o `CAP_PERFMON`).
 
 **Por qué se necesita:** en la validación de bytes de la Fase 3 (F3.4)
 encontramos que el contador per-core genérico que usamos hoy
@@ -209,15 +232,22 @@ Para que quede claro en el correo qué **no** hace falta pedir:
 > propio ahí, o confirmarnos que la cuota de `$HOME` (actualmente ~20 GB)
 > es la vía recomendada para nuestro volumen de datos?
 >
-> **4. Lectura de contadores de uncore/memory controller** (vía `perf
-> stat` con eventos `uncore_imc_*`, y/o LIKWID si está instalado). Detectamos
-> que nuestro método actual de medir bytes movidos (contadores per-core de
-> "cache miss") subestima el tráfico real de memoria en cargas con acceso
-> muy secuencial, muy probablemente por el prefetcher de hardware del
-> procesador. Los contadores de uncore sí verían ese tráfico y nos
-> permitirían confirmarlo y corregirlo. Es un uso puntual de validación,
-> no medición continua durante campañas — ¿hay alguna restricción de
-> privilegios (MSR) para leerlos como usuario no-root?
+> **4. Lectura de contadores de uncore** (memory controller, expuestos en
+> `felix` como `uncore_mbox_0`/`uncore_mbox_1` en
+> `/sys/bus/event_source/devices/`). Confirmamos que estos PMU existen en
+> el nodo pero el usuario no puede abrirlos: `perf stat` con un evento de
+> uncore falla con "`perf_event_paranoid setting is 1: Disallow CPU event
+> access`" porque los eventos de uncore son de alcance de todo el
+> socket/sistema, categoría que ese nivel de `perf_event_paranoid`
+> restringe a usuarios con `CAP_PERFMON`. ¿Podrían bajar
+> `perf_event_paranoid` a `0` (o `-1`), u otorgar `CAP_PERFMON` al binario
+> `perf` para nuestro usuario? Detectamos que nuestro método actual de
+> medir bytes movidos (contadores per-core de "cache miss") subestima el
+> tráfico real de memoria en cargas con acceso muy secuencial, muy
+> probablemente por el prefetcher de hardware del procesador — los
+> contadores de uncore sí verían ese tráfico y nos permitirían
+> confirmarlo y corregirlo. Es un uso puntual de validación, no medición
+> continua durante campañas.
 >
 > Quedamos atentos y con gusto compartimos el diagnóstico técnico completo
 > si es útil para evaluar la solicitud.
