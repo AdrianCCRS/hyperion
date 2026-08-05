@@ -63,6 +63,28 @@ def _context(**overrides) -> postprocess.WindowContext:
     return postprocess.WindowContext(**defaults)
 
 
+def test_arc48_repeticion_de_campana_2_no_deja_windows_csv_vacio(tmp_path):
+    # runner.py nunca pasa --repetitions al launcher, asi que
+    # samples.csv SIEMPRE tiene "1" en su propia columna "repetition" --
+    # sin importar si esta es la repeticion 1, 2 o 3 de la campana
+    # (campaign.py). Antes del fix, build_windows() filtraba samples.csv
+    # por context.repetition (2 en este test) y nunca encontraba nada,
+    # devolviendo una lista vacia -- afecto el 100% de las repeticiones
+    # 2 y 3 de los 7 kernels en la primera campana real (F4.4 extendido).
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0),
+        _cpu_row(repetition=1, ts=1_001_000_000, instructions=2_000_000, cycles=1_000_000,
+                 cache_references=100_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000),
+    ])
+    windows = postprocess.build_windows(samples, _context(repetition=2, run_id="r__rep02"))
+
+    assert len(windows) == 2
+    assert windows[0]["repetition"] == 2  # metadata de salida: la repeticion de campana, no la del CSV
+    assert windows[1]["quality_status"] != "first_sample_no_delta"  # la segunda fila si tuvo delta
+
+
 def test_post01_primera_muestra_sin_delta_imputado(tmp_path):
     samples = tmp_path / "samples.csv"
     _write_samples(samples, [
