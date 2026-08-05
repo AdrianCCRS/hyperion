@@ -95,8 +95,23 @@ def _delta(cur: int | None, prev: int | None) -> int | None:
     return cur - prev
 
 
+# ARC-48: runner.py nunca pasa --repetitions al launcher, así que
+# telemetry_kernel_launcher.cpp siempre usa su default (opt.repetitions=1):
+# CADA invocación es un proceso nuevo cuyo bucle interno de repetición
+# corre exactamente una vez, y por eso samples.csv SIEMPRE tiene "1" en su
+# propia columna "repetition" -- sin importar si esta corrida es la
+# repetición 1, 2 o 3 a nivel de campaña (campaign.py). Filtrar
+# samples.csv por el repetition_index de la campaña (como hacía este
+# código antes) solo encontraba filas cuando repetition_index==1; para
+# repetition_index>=2 el filtro nunca matcheaba nada y windows.csv salía
+# vacío en silencio -- encontrado en la primera campaña real de 3
+# repeticiones (F4.4 extendido), afectaba el 100% de las repeticiones 2 y
+# 3 de los 7 kernels (14 de 21 corridas).
+_LAUNCHER_INTERNAL_REPETITION = 1
+
+
 def _split_by_repetition_and_tag(
-    rows: Sequence[dict[str, str]], repetition: int
+    rows: Sequence[dict[str, str]], repetition: int = _LAUNCHER_INTERNAL_REPETITION
 ) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
     cpu_rows = [r for r in rows if r.get("tag") == "CPU" and _to_int(r.get("repetition")) == repetition]
     energy_rows = [r for r in rows if r.get("tag") == "ENERGY" and _to_int(r.get("repetition")) == repetition]
@@ -144,7 +159,11 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
     windows.csv, in REQUIRED_OUTPUT_COLUMNS order-compatible keys.
     """
     rows = _read_rows(samples_csv_path)
-    cpu_rows, energy_rows = _split_by_repetition_and_tag(rows, context.repetition)
+    # ARC-48: NUNCA context.repetition aquí -- ver el comentario de
+    # _split_by_repetition_and_tag. context.repetition es la repetición a
+    # nivel de campaña (para etiquetar windows.csv), no la numeración
+    # interna del launcher dentro de ESTE samples.csv.
+    cpu_rows, energy_rows = _split_by_repetition_and_tag(rows)
     if not cpu_rows:
         return []
 
