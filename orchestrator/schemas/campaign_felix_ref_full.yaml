@@ -1,0 +1,81 @@
+# Campaña real con el catálogo completo (F4.4 extendido), felix, solo nivel
+# REF (frequency_write_capable=False mientras H1 sigue sin respuesta). Los 7
+# kernels de dataset x REF x 3 repeticiones -- ya no es el piloto mínimo de
+# 2 kernels (campaign_felix_ref.yaml), es la primera corrida real con todo
+# lo que hay en el catálogo (ARC-38: incluye dgemm_n2048).
+#
+# reference_kernel_ref pasa a ser npb_mg, no npb_ep (ARC-46): con npb_ep,
+# calibration_references (CAL-09/10) daba cv_pct=56.99% porque EP casi no
+# genera cache-misses (979-4220 en total sobre ~123 mil millones de
+# instrucciones) -- cualquier variación normal del contador se ve enorme en
+# términos relativos sobre un número tan chico. mpki/miss_rate nunca van a
+# ser estables en un kernel que casi no toca memoria; npb_mg sí tiene
+# tráfico de memoria real y medible.
+#
+# cores: delegated_cpus=0-5, collector_cpu=6, consumer_cpu=7 -- mismo
+# esquema de siempre, dentro del dominio de frecuencia completo del socket 0
+# (E10, requiere --cpus-per-task=8 --hint=nomultithread en el srun).
+
+campaign_id: felix_ref_full_20260805
+environment_tier: hpc_sc3
+seed: 20260805
+
+output_dir: /home/yacacerest01/hyperion-results/campaigns/felix_ref_full_20260805
+overwrite: true
+
+catalog_path: kernels/catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: npb_ep
+  - kernel_ref: npb_mg
+  - kernel_ref: npb_cg
+  - kernel_ref: npb_is
+  - kernel_ref: npb_ft
+  - kernel_ref: npb_lu
+  - kernel_ref: dgemm_n2048
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+
+repetitions_per_combination: 3
+target_windows_per_repetition: 50
+interval_ns: 1000000  # 1 ms
+
+running_ratio_min: 0.90
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+# MAN-01/ARC-41: opcional en todos los tiers, felix no tiene delegacion de
+# cgroup -- E06 (processor+state real de /proc/stat, ARC-44) cubre lo que
+# esto intentaba resolver.
+cgroup_path: null
+
+perf_enabled: true
+
+rapl:
+  enabled: false  # felix no tiene RAPL (Nehalem-EX, anterior a su introduccion)
+
+gpu:
+  enabled: false
+
+timeouts_seconds:
+  ready: 15
+  run: 180  # margen sobre npb_lu (~36s medido) y dgemm_n2048 (~12s medido)
+  shutdown: 15
+
+# D03/CAL-04: mismos valores de referencia empírica que campaign_felix_ref.yaml
+# (ver esa nota para la justificación completa) -- BW_pico/P_pico de
+# stream_c/ert_probe con 6 hilos, no una ficha técnica oficial de Intel.
+hardware_datasheet:
+  bw_pico_bytes_per_s: 14718600000
+  p_pico_flops_per_s: 23966000000
