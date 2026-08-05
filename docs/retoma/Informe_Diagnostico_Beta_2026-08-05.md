@@ -23,6 +23,18 @@ nativo del nodo (governor `performance`, un único nivel de frecuencia).
 **No existe hoy ningún dato real de DVFS multi-frecuencia** — todo lo
 verificado en este informe es a una sola frecuencia. Ver sección 6.
 
+**Corrección a este informe (agregada después de una pregunta directa del
+usuario):** la afirmación de "los datos tienen sentido físico" de la
+sección 3 no menciona que `bytes_moved_window`/`operational_intensity` —
+la base de `phase_label_train` — sigue calculándose con el mismo
+contador que F3.4 (ARC-33) ya demostró que subestima el tráfico real de
+memoria en ~30-34% en STREAM, sin cuantificar en los otros 6 kernels.
+**Ese sesgo nunca se corrigió ni se validó con uncore** — P4 (el permiso
+para leer contadores de uncore) sigue sin respuesta de SC3, así que la
+validación cruzada propuesta en F3.4 nunca se hizo. Que la clasificación
+haya salido bien no prueba que el sesgo desapareció; ver sección 6 para
+el detalle completo.
+
 ## 1. Qué se probó
 
 Campaña real (`campaign_felix_ref_full.yaml`) contra felix, vía
@@ -163,6 +175,27 @@ Ninguna de las 4 impide correr campañas reales en el nivel `REF` de hoy.
 
 ## 6. Brechas y riesgos que siguen abiertos (no resueltos en este informe)
 
+- **El ground truth de `bytes_moved_window` sigue sesgado y sin
+  corregir — afecta directamente la clasificación reportada en la
+  sección 3.** `bytes_moved_window = delta_cache_misses ×
+  cache_line_size_bytes` (`postprocess.py`), usando el mismo contador
+  genérico per-core (`PERF_COUNT_HW_CACHE_MISSES` vía PID+inherit) desde
+  Fase 1 — sin cambios desde F3.4 (ARC-33), donde se midió que subestima
+  el tráfico real de memoria en ~30-34% en STREAM (probablemente el
+  prefetcher de hardware de Nehalem-EX ocultando accesos reales al
+  contador de demanda). **No existe ninguna ruta de uncore en el
+  pipeline** — P4 (permiso para leer contadores de uncore, la validación
+  cruzada propuesta para cuantificar/corregir este sesgo) sigue sin
+  respuesta de SC3, y confirmado bloqueado por `perf_event_paranoid=1`
+  (ARC-35). El sesgo se cuantificó *solo* en STREAM; no se sabe si es
+  igual, mayor o menor en los 6 kernels del dataset, cada uno con un
+  patrón de acceso distinto. Que `phase_label_train` haya coincidido
+  bien con `phase_label_hint` en la campaña real (sección 3) es
+  tranquilizador pero no es una prueba de que el sesgo no está
+  presente — los kernels probados están mayormente lejos del ridge
+  point; un kernel genuinamente cercano al límite compute/memory-bound
+  sería mucho más sensible a un error sistemático de esta magnitud en el
+  denominador de `operational_intensity`.
 - **H1 (permiso de escritura cpufreq) sin respuesta de SC3 — el riesgo
   más urgente dado el cronograma.** Todo lo verificado en este informe
   es a una sola frecuencia (governor nativo). El pipeline está listo
