@@ -111,6 +111,12 @@ add_executable(experiment_utils_test
 target_link_libraries(experiment_utils_test PRIVATE telemetry pthread)
 add_test(NAME experiment_utils_test COMMAND experiment_utils_test)
 
+add_executable(gpu_clock_controller_test
+  tests/test_gpu_clock_controller.cpp
+)
+target_link_libraries(gpu_clock_controller_test PRIVATE telemetry pthread)
+add_test(NAME gpu_clock_controller_test COMMAND gpu_clock_controller_test)
+
 if(NOT WITH_GPU)
   add_executable(nvml_reader_cpu_stub_test
     tests/test_nvml_reader_cpu_stub.cpp

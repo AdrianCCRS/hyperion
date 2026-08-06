@@ -249,6 +249,72 @@ control GPU (con permisos), y nunca al revés.
 
 ---
 
+## 3.6 Decisión final de arquitectura (2026-08-06, tras discusión con el usuario)
+
+El usuario confirmó dos cosas que cambian el punto de partida de las secciones
+anteriores: **el permiso de reloj de GPU sí va a llegar** (P4 no es un "por si
+acaso"), y **el harness no debe tratarse como fijo** — se construyó pensando
+sólo en CPU (un solo loop de muestreo a 1 ms, una sola tabla de ventanas en
+`postprocess.py`) y esa arquitectura hay que replantearla para GPU, no
+parchearla.
+
+**Decisión:** el harness pasa de "un loop, una tabla" a **dos dominios de
+control desacoplados**, coordinados por una sola señal compartida:
+
+- **CPU+RAPL**: sigue exactamente igual que hoy — tick de 1 ms, decisión por
+  ventana, cambio de reloj casi instantáneo.
+- **GPU**: deja de vivir dentro de `collector.cpp`/el tick de 1 ms. La unidad
+  de decisión es la **fase** (una corrida maximal de kernels con la misma
+  clasificación), no una ventana de tiempo fijo — porque cambiar el reloj de
+  GPU es caro, decidir cada 1 ms sobre datos de GPU desperdicia más en
+  overhead de transición del que ahorra.
+- **Señal compartida única**: "GPU ocupada" gatea la política de CPU (GPU
+  ocupada ⟹ CPU a mínimo, sin importar la clasificación de la fase GPU — ver
+  3.5.a sobre el peligro del spin-wait). No hay más acoplamiento que ése.
+
+**Mecanismo de límite de fase elegido: llamada directa en el punto de
+lanzamiento, dentro del mismo proceso — no un colector externo leyendo NVML.**
+A diferencia de CPU (donde el kernel es un binario opaco y el harness lo
+observa desde afuera vía PID+`inherit`), los benchmarks de GPU (BabelStream,
+cuBLAS DGEMM, y los que se escriban para el catálogo) **sí son código propio,
+compilado por el proyecto** — así que no hace falta instrumentación externa
+(NVTX leído por otro proceso, o inyección CUPTI) para saber cuándo empieza y
+termina una fase: el propio código que hace `cudaLaunchKernel` puede llamar
+directamente al motor de decisión antes de lanzar el siguiente lote de
+kernels. Esto elimina toda la complejidad de correlacionar eventos entre
+procesos. La inyección CUPTI (`CUDA_INJECTION64_PATH`) queda anotada como
+alternativa futura únicamente para si el proyecto necesitara medir binarios
+GPU de terceros sin acceso al código fuente — no es necesaria para el plan
+actual.
+
+**Implementado hoy:** `telemetry/include/telemetry/gpu_clock_controller.hpp`
+(+ `telemetry/tests/test_gpu_clock_controller.cpp`, 11/11 tests C++ en verde
+incluyendo el nuevo). Es el motor de decisión puro: clasifica la intensidad
+estática de la fase contra `i_ridge` con una banda de histéresis (evita
+reclasificar por ruido cerca del punto de inflexión), aplica un piso de
+permanencia mínima (`min_dwell_ns`) antes de permitir un nuevo cambio de
+reloj, y **no depende de NVML/CUDA en absoluto** — el cambio de reloj real se
+inyecta como una función (`ClockSetter`), igual que `campaign.py` inyecta
+`apply_frequency()` en vez de llamar a `freqctl` directo. Esto permite
+testear toda la lógica de histéresis/dwell/fallo-de-aplicación en cualquier
+máquina, sin GPU. Deliberadamente NO implementado todavía (fuera de alcance
+de "listo hoy"): el wrapper real que llama a
+`nvmlDeviceSetGpuLockedClocks`/`nvidia-smi -lgc` (bloqueado por P4, sin
+permiso no se puede probar en hardware real), y la tabla de intensidad
+estática por kernel (requiere corridas de `ncu` sobre los kernels GPU
+definitivos, que todavía no están escritos).
+
+**Qué falta para que esto corra en hardware real**, en orden:
+1. Que llegue el permiso P4 (bloqueante para probar el `ClockSetter` real).
+2. Escribir los benchmarks GPU del catálogo (BabelStream, cuBLAS DGEMM) con
+   la llamada a `on_phase_begin()` en sus puntos de lanzamiento.
+3. Caracterizar cada uno con `ncu` (ya confirmado que funciona sin permisos,
+   sección 1) para poblar la tabla de intensidad estática.
+4. Medir `T_transición` real en el nodo el día que llegue el permiso, para
+   fijar `min_dwell_ns` con datos en vez de con el valor de literatura.
+
+---
+
 ## 4. Plan sugerido para la semana
 
 1. **Enviar hoy el correo de permisos**, ahora incluyendo el ítem de GPU locked
