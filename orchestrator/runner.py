@@ -67,7 +67,8 @@ def _format_cpu_list(cpus: Iterable[int]) -> str:
 
 
 def build_command(
-    entry: KernelEntry, manifest: Any, run_id: str, harness: HarnessConfig
+    entry: KernelEntry, manifest: Any, run_id: str, harness: HarnessConfig,
+    environment_profile: Any = None,
 ) -> list[str]:
     """RUN-01: the launcher argv is always derived from the catalog entry and
     the manifest, never hardcoded for a specific kernel or campaign."""
@@ -89,6 +90,26 @@ def build_command(
         command += ["--cgroup-path", manifest.cgroup_path]
     if not manifest.perf_enabled:
         command.append("--no-perf")
+    # ARC-54: manifest.rapl.enabled nunca se traducía a --rapl-pkg/--rapl-dram
+    # para el launcher -- la captura de energía nunca funcionó de punta a
+    # punta en ninguna campaña real del proyecto (invisible en felix, que no
+    # tiene RAPL físicamente; encontrado al correr la primera campaña real en
+    # pacca, que sí lo tiene). Resuelve la ruta del dominio RAPL que
+    # corresponde al socket pineado (cores.numa_node_pin) usando los alias
+    # que environment.py ya deriva del archivo `name` de sysfs
+    # ("package-N"/"dram-package-N") -- nunca asume una ruta fija ni el
+    # primer dominio disponible; si no hay coincidencia exacta, RAPL
+    # simplemente no se activa para esta corrida en vez de adivinar.
+    if manifest.rapl.get("enabled") and environment_profile is not None:
+        domain_paths = getattr(environment_profile, "rapl_domain_paths", None) or {}
+        numa_node = getattr(cores, "numa_node_pin", None)
+        if numa_node is not None:
+            pkg_path = domain_paths.get(f"package-{numa_node}")
+            if pkg_path:
+                command += ["--rapl-pkg", pkg_path]
+            dram_path = domain_paths.get(f"dram-package-{numa_node}")
+            if dram_path:
+                command += ["--rapl-dram", dram_path]
     return command
 
 
@@ -216,7 +237,7 @@ def run_single(
 
     # CAT-07: re-verify the binary on disk immediately before every run, not
     # only once during preflight.
-    if not verify_binary(entry):
+    if not verify_binary(entry, node_id):
         raise ValueError(f"C02: checksum de {entry.exec_path!r} no coincide antes de ejecutar")
 
     applied_frequency = None
@@ -234,7 +255,7 @@ def run_single(
     run_dir = Path(manifest.output_dir) / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    command = build_command(entry, manifest, run_id, harness)
+    command = build_command(entry, manifest, run_id, harness, environment_profile)
     timeout_seconds = _resolve_timeout_seconds(entry, manifest)
 
     stdout_path = run_dir / "stdout.txt"

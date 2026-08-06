@@ -18,7 +18,13 @@ class KernelEntry:
     suite: str
     role: str
     exec_path: str
-    binary_checksum: str
+    # str: un solo checksum, valido en cualquier nodo (comportamiento
+    # historico). dict[node_id, checksum]: el mismo codigo fuente compilado
+    # con toolchains distintos por nodo (p.ej. gnu14/14.2.0 en felix vs gcc
+    # 12.4.0 en pacca) produce binarios funcionalmente identicos pero con
+    # hash distinto -- un solo checksum global rompia C02 en cualquier nodo
+    # que no fuera el que lo genero. Ver verify_binary().
+    binary_checksum: str | dict[str, str]
     phase_label_hint: str | None #Solo si role == "dataset"
     size_variant: str | None #Opcional
     expected_runtime_seconds: int | None #Opcional
@@ -178,25 +184,37 @@ def load_catalog(catalog_path: str) -> dict[str, KernelEntry]:
         entries[entry.id] = entry
     return entries
 
-def verify_binary(entry: KernelEntry) -> bool:
+def verify_binary(entry: KernelEntry, node_id: str | None = None) -> bool:
     """
     C02: sha256(entry.exec_path) == entry.binary_checksum.
 
     CAT-07: call this same check during campaign preflight and immediately
     before each individual run; it has no cached result.
     Retorna CheckResult con factor_id "C01" o "C02" segun cual falle.
+
+    Si entry.binary_checksum es un dict (checksum por nodo, ver KernelEntry),
+    node_id es obligatorio para resolverlo -- sin node_id, o si node_id no
+    tiene entrada en el dict, esto falla cerrado (False), nunca aprueba por
+    omisión ni cae de vuelta a "cualquier valor sirve".
     """
     # CAT-01 / C01: require a regular executable file before using it.
     if not os.path.isfile(entry.exec_path) or not os.access(entry.exec_path, os.X_OK):
         return False
-    
+
     try:
         with open(entry.exec_path, "rb") as binary_file:
             checksum = f"sha256:{hashlib.file_digest(binary_file, 'sha256').hexdigest()}"
     except OSError:
         return False
+
+    if isinstance(entry.binary_checksum, dict):
+        if node_id is None or node_id not in entry.binary_checksum:
+            return False
+        expected = entry.binary_checksum[node_id]
+    else:
+        expected = entry.binary_checksum
     # CAT-02 / C02: reject a binary changed since the catalog was generated.
-    return checksum == entry.binary_checksum
+    return checksum == expected
 
 def resolve_exec_command(
     entry: KernelEntry, harness: HarnessConfig | None = None

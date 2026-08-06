@@ -32,6 +32,7 @@ def validate_run(
     governor: Any = None,
     external_load: Any = None,
     run_id_seen: Iterable[str] = (),
+    node_id: str | None = None,
 ) -> Verdict:
     """Accept/reject one completed run (RunResult from runner.run_single).
 
@@ -66,7 +67,7 @@ def validate_run(
     # C02 (VAL-03): the binary actually executed still matches the catalog.
     # runner.run_single() already re-verifies this before launching
     # (CAT-07); this is a second, independent check after the fact.
-    if not verify_binary(kernel_entry):
+    if not verify_binary(kernel_entry, node_id):
         return Verdict(False, "C02", f"checksum de {kernel_entry.exec_path!r} no coincide con el catálogo")
 
     # C03 (VAL-04): success_check against the real result, already applied

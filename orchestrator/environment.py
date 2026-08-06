@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import tempfile
 import time
 from typing import Any, Callable
 
@@ -115,16 +116,74 @@ _GENERIC_HARDWARE_EVENTS = (
 _MULTIPLEXING_MARKER = re.compile(r"not counted|\(\s*\d+\.\d+%\)")
 
 
+_NATIVE_PROBE_SOURCE = Path(__file__).resolve().parent / "native" / "pmc_multiplex_probe.c"
+_native_probe_binary_cache: Path | None = None
+
+
+def _compiled_native_probe() -> Path | None:
+    """ARC-53: compila (una sola vez, resultado cacheado en disco) el
+    helper C (native/pmc_multiplex_probe.c) que reproduce el mismo
+    criterio de multiplexado de D05 sin depender del CLI `perf` -- ausente
+    en paccaA100, confirmado en la auditoría (Auditoria_PaccaA100_Unicartagena.md).
+    Reusa el mismo mecanismo perf_event_open ya validado en
+    telemetry/src/perf_reader.cpp en vez de reimplementar el struct
+    perf_event_attr en Python/ctypes: un ABI de kernel mal replicado de
+    memoria fallaría distinto y en silencio, el mismo riesgo que ya
+    confirmamos con la codificación cruda de stalled cycles (ARC-52).
+    Retorna None si gcc no está disponible o la compilación falla -- ese
+    caso se trata igual que "perf ausente", nunca se aprueba D05 por
+    default."""
+    global _native_probe_binary_cache
+    if _native_probe_binary_cache is not None and _native_probe_binary_cache.exists():
+        return _native_probe_binary_cache
+    if not _NATIVE_PROBE_SOURCE.exists():
+        return None
+    binary_path = Path(tempfile.gettempdir()) / "hyperion_pmc_multiplex_probe"
+    if not binary_path.exists():
+        try:
+            result = subprocess.run(
+                ["gcc", "-O2", "-o", str(binary_path), str(_NATIVE_PROBE_SOURCE)],
+                capture_output=True, text=True, timeout=30, check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if result.returncode != 0 or not binary_path.exists():
+            return None
+    _native_probe_binary_cache = binary_path
+    return binary_path
+
+
 def _run_perf_stat_probe(events: tuple[str, ...]) -> str:
     """Corre `perf stat` sobre un `sleep` corto solo para ver si el kernel
     logra programar todos los eventos pedidos sin multiplexar -- no mide
     ningún workload real, D05 no necesita valores, solo saber cuántos
-    contadores caben a la vez."""
-    result = subprocess.run(
-        ["perf", "stat", "-e", ",".join(events), "--", "sleep", "0.2"],
-        capture_output=True, text=True, timeout=10, check=False,
-    )
-    return result.stderr
+    contadores caben a la vez.
+
+    ARC-53: si el CLI `perf` no está instalado, cae a un helper C propio
+    (_compiled_native_probe) que hace exactamente la misma pregunta por
+    syscall directo. El formato de retorno se mantiene compatible con
+    _MULTIPLEXING_MARKER en ambos casos, así que probe_pmc_count() no
+    necesita saber cuál de los dos caminos se usó.
+    """
+    try:
+        result = subprocess.run(
+            ["perf", "stat", "-e", ",".join(events), "--", "sleep", "0.2"],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+        return result.stderr
+    except FileNotFoundError:
+        binary = _compiled_native_probe()
+        if binary is None:
+            return ""  # ni perf ni gcc disponibles: D05 bloquea con datos ausentes
+        native_result = subprocess.run(
+            [str(binary), *events],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+        if native_result.returncode != 0:
+            # Un evento no abrió (permiso o no soportado) -- tratar como
+            # evidencia de que este N no cabe, igual que "not counted".
+            return "not counted"
+        return native_result.stdout
 
 
 def probe_pmc_count(
