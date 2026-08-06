@@ -27,6 +27,7 @@ def main() -> int:
     parser.add_argument("--exec")
     parser.add_argument("--exec-args", default="")
     parser.add_argument("--perf-cpus")
+    parser.add_argument("--pin-workload-cpus")
     parser.add_argument("--collector-cpu")
     parser.add_argument("--consumer-cpu")
     parser.add_argument("--interval-ns")

@@ -78,6 +78,16 @@ def build_command(
         harness.binary_path,
         *exec_command,
         "--perf-cpus", _format_cpu_list(cores.delegated_cpus),
+        # ARC-55: cores.delegated_cpus se declaraba en cada manifiesto pero
+        # nunca restringía dónde corre el proceso medido -- --perf-cpus solo
+        # le dice a perf_event_open qué CPUs escuchar, no afinidad real. El
+        # launcher ya soporta --pin-workload-cpus (set_affinity() real sobre
+        # el hijo antes de execv, usado manualmente en la validación F3.4 de
+        # felix pero nunca conectado a la ruta de producción). Encontrado al
+        # correr la primera campaña real en pacca: sin esto, ert_probe
+        # corría con 32 hilos (todo el nodo) en vez de los 6 delegados,
+        # sesgando BW_pico/P_pico y por lo tanto i_ridge.
+        "--pin-workload-cpus", _format_cpu_list(cores.delegated_cpus),
         "--collector-cpu", str(cores.collector_cpu),
         "--consumer-cpu", str(cores.consumer_cpu),
         "--interval-ns", str(manifest.interval_ns),
@@ -100,7 +110,7 @@ def build_command(
     # ("package-N"/"dram-package-N") -- nunca asume una ruta fija ni el
     # primer dominio disponible; si no hay coincidencia exacta, RAPL
     # simplemente no se activa para esta corrida en vez de adivinar.
-    if manifest.rapl.get("enabled") and environment_profile is not None:
+    if getattr(manifest, "rapl", {}).get("enabled") and environment_profile is not None:
         domain_paths = getattr(environment_profile, "rapl_domain_paths", None) or {}
         numa_node = getattr(cores, "numa_node_pin", None)
         if numa_node is not None:
@@ -263,11 +273,20 @@ def run_single(
 
     start = time.monotonic()
     timed_out = False
+    # ARC-55: sin esto, binarios OpenMP (STREAM, ERT, NPB) heredan el
+    # OMP_NUM_THREADS del proceso del orquestador (normalmente sin fijar) y
+    # spawean tantos hilos como CPUs ve el nodo, no los delegados a esta
+    # campaña -- confirmado empíricamente en pacca (ert_probe reportaba
+    # OPENMP_THREADS=32 en vez de 6). Complementa --pin-workload-cpus
+    # (afinidad real) con el conteo de hilos que ese subconjunto de cores
+    # justifica; ninguno de los dos por separado alcanza.
+    run_env = dict(os.environ)
+    run_env["OMP_NUM_THREADS"] = str(len(manifest.cores.delegated_cpus))
     # start_new_session=True makes the child its own process group leader, so
     # os.killpg(child.pid, ...) also reaches everything it forks (RUN-03/04).
     with open(stdout_path, "wb") as stdout_file, open(stderr_path, "wb") as stderr_file:
         process = subprocess.Popen(
-            command, stdout=stdout_file, stderr=stderr_file, start_new_session=True
+            command, stdout=stdout_file, stderr=stderr_file, start_new_session=True, env=run_env
         )
         try:
             exit_code = process.wait(timeout=timeout_seconds)

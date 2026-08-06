@@ -245,6 +245,33 @@ def test_post05_energia_valida_calcula_power_w(tmp_path):
     assert window["quality_status"] == "ok"
 
 
+def test_arc56_power_w_usa_el_intervalo_real_de_rapl_no_el_de_la_ventana_cpu(tmp_path):
+    # Reproduce el escenario que causaba picos de power_w de decenas de kW:
+    # una ventana de CPU anomalamente corta (10 ns, jitter de muestreo)
+    # emparejada con un delta de energia que en realidad abarca el
+    # intervalo normal de RAPL (aqui 1 ms, entre las dos muestras ENERGY).
+    # Antes del fix, power_w dividia pkg_delta_uj por los 10 ns de la
+    # ventana CPU -> 2e8 W. Con el fix, usa los 1_000_000 ns reales entre
+    # las dos muestras ENERGY que produjeron ese delta -> 2000 W.
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0),
+        _energy_row(repetition=1, ts=999_000_010, pkg_delta_uj=0, valid=False),
+        _cpu_row(repetition=1, ts=1_000_000_010, instructions=2_000_000, cycles=1_000_000,
+                 cache_references=100_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000),
+        _energy_row(repetition=1, ts=1_000_000_010, pkg_delta_uj=2_000_000, valid=True),  # 2 J, 1 ms real de RAPL
+    ])
+    windows = postprocess.build_windows(samples, _context(rapl_enabled=True, run_flops_total=1_000_000.0))
+
+    window = windows[1]
+    assert window["delta_t_ns"] == 10  # la ventana CPU en si sigue siendo la real, sin tocar
+    assert window["energy_valid"] is True
+    assert window["pkg_delta_uj"] == 2_000_000
+    assert window["power_w"] == pytest.approx(2.0 / 0.001)  # 1 ms real de RAPL, no 10 ns de CPU
+    assert window["power_w"] < 1_000_000  # nunca mas los ~2e8 W del calculo roto
+
+
 def test_post07_ventana_en_warmup_se_conserva_pero_se_marca(tmp_path):
     samples = tmp_path / "samples.csv"
     _write_samples(samples, [

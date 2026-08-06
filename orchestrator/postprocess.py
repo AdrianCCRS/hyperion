@@ -123,21 +123,42 @@ def _split_by_repetition_and_tag(
 
 def _match_energy_windows(
     cpu_rows: Sequence[dict[str, str]], energy_rows: Sequence[dict[str, str]]
-) -> list[dict[str, str] | None]:
+) -> list[tuple[dict[str, str], int | None] | None]:
     """One entry per window (cpu_rows[1:]): the ENERGY row whose own
     (already-computed) delta best represents that window, matched by a
-    single forward pass since both lists are timestamp-sorted."""
-    matches: list[dict[str, str] | None] = []
+    single forward pass since both lists are timestamp-sorted, paired with
+    the REAL elapsed time that delta actually spans (this matched row's own
+    timestamp minus the previous ENERGY row's timestamp -- RAPL's own
+    sampling cadence, not the CPU window's).
+
+    ARC-56: pkg_delta_uj/dram_delta_uj are computed by the launcher between
+    two consecutive ENERGY samples, whose cadence does not have to line up
+    with the CPU window it gets matched into. A CPU window can be
+    anomalously short (sampling jitter) while the matched ENERGY delta still
+    spans RAPL's normal ~1ms interval -- dividing that delta by the CPU
+    window's own (tiny) delta_t_ns produced power_w spikes into the tens of
+    kilowatts, physically impossible for this hardware. The second element
+    of each tuple is exactly the denominator power_w must use instead.
+    """
+    matches: list[tuple[dict[str, str], int | None] | None] = []
     energy_idx = 0
     for i in range(1, len(cpu_rows)):
         window_start = int(cpu_rows[i - 1]["timestamp_ns"])
         window_end = int(cpu_rows[i]["timestamp_ns"])
         match: dict[str, str] | None = None
+        match_idx: int | None = None
         while energy_idx < len(energy_rows) and int(energy_rows[energy_idx]["timestamp_ns"]) <= window_end:
             if int(energy_rows[energy_idx]["timestamp_ns"]) > window_start:
                 match = energy_rows[energy_idx]
+                match_idx = energy_idx
             energy_idx += 1
-        matches.append(match)
+        if match is None:
+            matches.append(None)
+            continue
+        own_delta_ns = None
+        if match_idx is not None and match_idx > 0:
+            own_delta_ns = int(match["timestamp_ns"]) - int(energy_rows[match_idx - 1]["timestamp_ns"])
+        matches.append((match, own_delta_ns))
     return matches
 
 
@@ -284,14 +305,25 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
         # POST-05/POST-06: the launcher already computed pkg_delta_uj with
         # wrap correction and its own validity bit; postprocess only
         # propagates it, it never treats an invalid/zero reading as real.
-        energy_row = energy_matches[i - 1]
+        energy_match = energy_matches[i - 1]
+        energy_row = energy_match[0] if energy_match is not None else None
+        energy_own_delta_ns = energy_match[1] if energy_match is not None else None
         energy_valid = False
         pkg_delta_uj = dram_delta_uj = power_w = None
         if context.rapl_enabled and energy_row is not None and energy_row.get("energy_delta_valid") == "1":
             pkg_delta_uj = _to_int(energy_row.get("pkg_delta_uj"))
             dram_delta_uj = _to_int(energy_row.get("dram_delta_uj"))
-            if pkg_delta_uj is not None and delta_t_ns > 0:
-                power_w = (pkg_delta_uj / 1_000_000.0) / (delta_t_ns / 1_000_000_000.0)
+            # ARC-56: power_w usa el intervalo REAL que pkg_delta_uj abarca
+            # (entre las dos muestras RAPL consecutivas que lo produjeron),
+            # nunca delta_t_ns de la ventana CPU -- son cadencias de
+            # muestreo independientes, y dividir por la ventana CPU cuando
+            # es anómalamente corta producía potencias de decenas de kW,
+            # físicamente imposibles. Sin ese intervalo propio (RAPL
+            # arrancó en esta misma ventana, primera lectura), power_w
+            # queda sin definir en vez de usar un denominador que no le
+            # corresponde a esta medición.
+            if pkg_delta_uj is not None and energy_own_delta_ns is not None and energy_own_delta_ns > 0:
+                power_w = (pkg_delta_uj / 1_000_000.0) / (energy_own_delta_ns / 1_000_000_000.0)
             energy_valid = True
         row["pkg_delta_uj"] = pkg_delta_uj
         row["dram_delta_uj"] = dram_delta_uj
