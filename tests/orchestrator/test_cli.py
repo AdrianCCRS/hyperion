@@ -54,6 +54,8 @@ def test_run_campaign_pasa_los_argumentos_correctos(monkeypatch, tmp_path):
     monkeypatch.setattr(cli.manifest_module, "load", lambda path: manifest)
     monkeypatch.setattr(cli.catalog_module, "load_catalog", lambda path: {})
     monkeypatch.setattr(cli, "_detect_environment", lambda manifest, config: "ENV")
+    monkeypatch.setattr(cli.node_profile_module, "build_node_profile", lambda *a, **k: "PROFILE")
+    monkeypatch.setattr(cli.preflight_module, "run_campaign_preflight", lambda *a, **k: [_passing_check()])
 
     calls = {}
 
@@ -74,6 +76,39 @@ def test_run_campaign_pasa_los_argumentos_correctos(monkeypatch, tmp_path):
     assert kwargs["node_id"] == "felix-sc3"
     assert kwargs["reference_kernel_ref"] == "npb_ep"
     assert kwargs["campaign_timeout_seconds"] == 3600.0
+
+
+def test_run_campaign_arc45_corre_preflight_automaticamente_y_bloquea_si_falla(monkeypatch, tmp_path):
+    """ARC-45: cmd_run_campaign debe invocar run_campaign_preflight() por su
+    cuenta -- antes solo se corría a mano por fuera del CLI (scripts/*)."""
+    manifest = _fake_manifest(tmp_path)
+    monkeypatch.setattr(cli.manifest_module, "load", lambda path: manifest)
+    monkeypatch.setattr(cli.catalog_module, "load_catalog", lambda path: {})
+    monkeypatch.setattr(cli, "_detect_environment", lambda manifest, config: "ENV")
+    monkeypatch.setattr(cli.node_profile_module, "build_node_profile", lambda *a, **k: "PROFILE")
+
+    preflight_calls = {}
+
+    def fake_preflight(manifest_arg, env_arg, catalog_arg, **kwargs):
+        preflight_calls["args"] = (manifest_arg, env_arg, catalog_arg, kwargs)
+        return [_failing_check()]
+
+    monkeypatch.setattr(cli.preflight_module, "run_campaign_preflight", fake_preflight)
+
+    run_campaign_calls = []
+    monkeypatch.setattr(
+        cli.campaign_module, "run_campaign",
+        lambda *a, **k: run_campaign_calls.append((a, k)) or _fake_campaign_result(),
+    )
+
+    exit_code = cli.main([
+        "run-campaign", "--manifest", "camp.yaml", "--node-id", "felix-sc3",
+        "--reference-kernel-ref", "npb_ep",
+    ])
+
+    assert exit_code == 1
+    assert run_campaign_calls == []
+    assert preflight_calls["args"][3]["node_profile"] == "PROFILE"
 
 
 def test_postprocess_resuelve_el_kernel_desde_el_catalogo(monkeypatch, tmp_path):
@@ -163,6 +198,16 @@ def _fake_roofline():
 def _fake_references():
     from types import SimpleNamespace
     return SimpleNamespace(accepted=True)
+
+
+def _passing_check():
+    from orchestrator.preflight import CheckResult
+    return CheckResult("I07", "Directorio de campaña", True, True, {}, "ok")
+
+
+def _failing_check():
+    from orchestrator.preflight import CheckResult
+    return CheckResult("D01", "Turbo/HWP deshabilitado", False, True, {}, "turbo sigue habilitado")
 
 
 def _fake_campaign_result():
