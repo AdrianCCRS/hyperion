@@ -60,6 +60,11 @@ namespace {
         bool enable_perf = true;
         std::string rapl_pkg_path;
         std::string rapl_dram_path;
+        // ARC-68: NVML sampling, gated to its own cadence inside the same
+        // producer thread (see collector.hpp -- SPSCRing is single-producer,
+        // there is no separate GPU thread). Requires TELEMETRY_WITH_GPU.
+        bool enable_gpu = false;
+        long gpu_interval_ns = 100'000'000;
         fs::path output_dir = "runs";
         std::string run_id;
         fs::path workload_bin;
@@ -106,13 +111,15 @@ namespace {
                      "--perf-cpus <list> "
                      "[--pin-workload-cpus <list> --pin-workers] "
                      "--collector-cpu <cpu> --consumer-cpu <cpu> "
-                     "--cgroup-path <path> --output-dir <dir> --run-id <id>\n"
+                     "--cgroup-path <path> --output-dir <dir> --run-id <id> "
+                     "[--enable-gpu [--gpu-interval-ns <ns>]]\n"
                      "       %s (external)   --exec <path> [--exec-args <string>] "
                      "--repetitions <N> "
                      "--perf-cpus <list> "
                      "[--pin-workload-cpus <list>] "
                      "--collector-cpu <cpu> --consumer-cpu <cpu> "
-                     "--cgroup-path <path> --output-dir <dir> --run-id <id>\n",
+                     "--cgroup-path <path> --output-dir <dir> --run-id <id> "
+                     "[--enable-gpu [--gpu-interval-ns <ns>]]\n",
                      argv0,
                      argv0);
         std::exit(2);
@@ -189,6 +196,10 @@ namespace {
                 opt.rapl_pkg_path = need_value();
             } else if(arg == "--rapl-dram") {
                 opt.rapl_dram_path = need_value();
+            } else if(arg == "--enable-gpu") {
+                opt.enable_gpu = true;
+            } else if(arg == "--gpu-interval-ns") {
+                opt.gpu_interval_ns = std::stol(need_value());
             } else if(arg == "--output-dir") {
                 opt.output_dir = need_value();
             } else if(arg == "--run-id") {
@@ -238,6 +249,9 @@ namespace {
         }
         if(opt.repetitions <= 0) throw std::invalid_argument("--repetitions must be positive");
         if(opt.interval_ns <= 0) throw std::invalid_argument("--interval-ns must be positive");
+        if(opt.enable_gpu && opt.gpu_interval_ns <= 0) {
+            throw std::invalid_argument("--gpu-interval-ns must be positive when --enable-gpu is set");
+        }
         // --cgroup-path is optional (CPP-05): perf now attaches by PID with
         // inherit=1, never through a cgroup. When present it is only used to
         // move the measured child into a delegated cgroup as an additional
@@ -503,6 +517,8 @@ namespace {
         cfg.perf_cpus = opt.perf_cpus;
         cfg.rapl_pkg_path = opt.rapl_pkg_path;
         cfg.rapl_dram_path = opt.rapl_dram_path;
+        cfg.enable_gpu = opt.enable_gpu;
+        cfg.gpu_interval_ns = opt.gpu_interval_ns;
         telemetry::Collector collector(cfg, ring);
 
         std::atomic<bool> stop_consumer{false};
@@ -830,6 +846,8 @@ namespace {
         out << "  \"repetitions\": " << opt.repetitions << ",\n";
         out << "  \"interval_ns\": " << opt.interval_ns << ",\n";
         out << "  \"enable_perf\": " << (opt.enable_perf ? "true" : "false") << ",\n";
+        out << "  \"enable_gpu\": " << (opt.enable_gpu ? "true" : "false") << ",\n";
+        out << "  \"gpu_interval_ns\": " << opt.gpu_interval_ns << ",\n";
         out << "  \"perf_attach_mode\": \"pid_inherit\",\n";
         out << "  \"measured_pids\": ";
         write_json_array(out, measured_pids);
