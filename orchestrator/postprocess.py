@@ -22,6 +22,7 @@ REQUIRED_OUTPUT_COLUMNS: tuple[str, ...] = (
     "window_index", "t_start_ns", "t_end_ns", "delta_t_ns",
     "delta_instructions", "delta_cycles", "delta_cache_references", "delta_cache_misses",
     "delta_stalled_cycles_backend", "stall_backend_ratio",
+    "delta_l2_lines_in_all", "bytes_moved_l2_proxy",
     "ipc", "llc_miss_rate", "mpki", "ips",
     "ipc_relative", "mpki_relative", "miss_rate_relative",
     "delta_running_ns", "delta_enabled_ns", "running_ratio",
@@ -200,6 +201,12 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
     stall_backend_supported = any(
         r.get("stalled_cycles_backend") not in (None, "") for r in cpu_rows
     )
+    # ARC-62: same per-node-capability rule as stalled_cycles_backend above --
+    # L2_LINES_IN_ALL is a raw event only opened on Ice Lake-SP, empty (not
+    # "0") for every row when unsupported.
+    l2_lines_in_all_supported = any(
+        r.get("l2_lines_in_all") not in (None, "") for r in cpu_rows
+    )
 
     run_total_instructions = _to_int(cpu_rows[-1].get("instructions"))
     run_start_ns = int(cpu_rows[0]["timestamp_ns"])
@@ -237,6 +244,10 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
             _delta(_to_int(cur.get("stalled_cycles_backend")), _to_int(prev.get("stalled_cycles_backend")))
             if stall_backend_supported else None
         )
+        delta_l2_lines_in_all = (
+            _delta(_to_int(cur.get("l2_lines_in_all")), _to_int(prev.get("l2_lines_in_all")))
+            if l2_lines_in_all_supported else None
+        )
         delta_running_ns = _delta(_to_int(cur.get("time_running_ns")), _to_int(prev.get("time_running_ns")))
         delta_enabled_ns = _delta(_to_int(cur.get("time_enabled_ns")), _to_int(prev.get("time_enabled_ns")))
 
@@ -248,11 +259,11 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
         # only participates in this gate on nodes that support it (ARC-50) --
         # otherwise every window on an unsupported node would be flagged
         # degraded for a counter that was never going to exist.
-        core_deltas = (
-            (delta_instructions, delta_cycles, delta_cache_references, delta_cache_misses, delta_stalled_cycles_backend)
-            if stall_backend_supported
-            else (delta_instructions, delta_cycles, delta_cache_references, delta_cache_misses)
-        )
+        core_deltas = [delta_instructions, delta_cycles, delta_cache_references, delta_cache_misses]
+        if stall_backend_supported:
+            core_deltas.append(delta_stalled_cycles_backend)
+        if l2_lines_in_all_supported:
+            core_deltas.append(delta_l2_lines_in_all)
         counters_negative = any(value is not None and value < 0 for value in core_deltas)
         counters_missing = any(value is None for value in core_deltas)
 
@@ -268,6 +279,7 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
         row["delta_cache_references"] = delta_cache_references
         row["delta_cache_misses"] = delta_cache_misses
         row["delta_stalled_cycles_backend"] = delta_stalled_cycles_backend
+        row["delta_l2_lines_in_all"] = delta_l2_lines_in_all
         row["delta_running_ns"] = delta_running_ns
         row["delta_enabled_ns"] = delta_enabled_ns
         row["running_ratio"] = running_ratio
@@ -357,6 +369,18 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
         row["flops_window_estimate"] = flops_window_estimate
         row["bytes_moved_window"] = bytes_moved_window
 
+        # ARC-62: independent cross-check for bytes_moved_window's bias
+        # (F3.4/ARC-33, ARC-60) -- same line-size multiplier convention, so
+        # it is directly comparable to bytes_moved_window per window. Still
+        # a core-level (L2) proxy, not real DRAM bytes (uncore stays
+        # blocked, ARC-59); never used in operational_intensity/
+        # phase_label_train, purely a reported cross-check column.
+        row["bytes_moved_l2_proxy"] = (
+            delta_l2_lines_in_all * context.llc_line_size_bytes
+            if l2_lines_in_all_supported and delta_l2_lines_in_all is not None
+            else None
+        )
+
         intensity_undefined = (
             bytes_moved_window is None or bytes_moved_window == 0 or flops_window_estimate is None
         )
@@ -406,6 +430,8 @@ def _base_row(context: WindowContext, *, window_index: int) -> dict[str, Any]:
         "delta_cache_misses": None,
         "delta_stalled_cycles_backend": None,
         "stall_backend_ratio": None,
+        "delta_l2_lines_in_all": None,
+        "bytes_moved_l2_proxy": None,
         "ipc": None,
         "llc_miss_rate": None,
         "mpki": None,

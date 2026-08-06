@@ -114,6 +114,17 @@ namespace telemetry {
             }
 
             /**
+             * @brief Whether this run's node could open L2_LINES_IN_ALL.
+             *
+             * ARC-62: same per-node capability semantics as
+             * has_stalled_cycles_backend() -- only ever true on the Ice
+             * Lake-SP family/model this raw encoding was validated on.
+             */
+            bool has_l2_lines_in_all() const noexcept {
+                return perf_reader_.has_l2_lines_in_all();
+            }
+
+            /**
              * @brief Number of failed try_push attempts.
              *
              * A nonzero value indicates that the ring was full at least once.
