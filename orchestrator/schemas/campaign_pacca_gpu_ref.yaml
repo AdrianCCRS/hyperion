@@ -1,0 +1,78 @@
+# Primera campaña real de kernels GPU en paccaA100 (ARC-72) -- Fase 1
+# (caracterización) del plan de trabajo de grado, solo a frecuencia REF
+# (governor nativo, sin escribir ningún reloj de CPU ni de GPU). No depende
+# del permiso P4 (reloj de GPU) ni de ningún otro permiso pendiente --
+# deliberadamente ejecutable hoy.
+#
+# kernels: los 5 kernels GPU nuevos del catálogo (ARC-72) -- calibración
+# Roofline de GPU (BabelStream, cuBLAS DGEMM) + los 3 kernels dataset
+# (rodinia_hotspot, rodinia_backprop, gpu_dgemm_n4096). La calibración CPU
+# (stream_official/ert_probe) sigue siendo obligatoria (run_calibration()
+# la corre siempre, es infraestructura del pipeline, no depende de si hay
+# kernels GPU en la matriz) -- reference_kernel_ref sigue siendo npb_mg,
+# igual que campaign_pacca_ref.yaml.
+#
+# cores/rapl/smt_policy: idénticos a campaign_pacca_ref.yaml, ya validados
+# en hardware real -- los kernels GPU no cambian nada del lado de CPU
+# excepto que corren con el shim de blocking-sync (ARC-72) y NVML habilitado
+# (--enable-gpu, wireado automáticamente por runner.py vía device: gpu en
+# el catálogo).
+#
+# repetitions_per_combination=3: el mínimo permitido por MAN-02, primera
+# corrida real de punta a punta de este subconjunto GPU.
+
+campaign_id: pacca_gpu_ref_20260806
+environment_tier: hpc_sc3
+seed: 20260806
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_gpu_ref_20260806
+overwrite: true
+
+catalog_path: kernels/catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: gpu_stream_bw
+  - kernel_ref: gpu_dgemm_calibration
+  - kernel_ref: gpu_dgemm_n4096
+  - kernel_ref: rodinia_hotspot
+  - kernel_ref: rodinia_backprop
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+
+repetitions_per_combination: 3
+target_windows_per_repetition: 5
+interval_ns: 1000000  # 1 ms
+
+running_ratio_min: 0.90
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+rapl:
+  enabled: true
+
+gpu:
+  enabled: false
+
+timeouts_seconds:
+  ready: 15
+  run: 180
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 58353900000
+  p_pico_flops_per_s: 72004000000
