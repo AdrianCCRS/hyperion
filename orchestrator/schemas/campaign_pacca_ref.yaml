@@ -13,8 +13,16 @@
 # proyecto puede capturar energía real en una campaña.
 #
 # reference_kernel_ref (pasado por CLI, no en este manifest) = npb_mg,
-# nunca npb_ep (ARC-46: npb_ep genera muy pocos cache-misses, cv_pct
+# nunca npb_ep (ARC-46: npb_ep generaba muy pocos cache-misses, cv_pct
 # inestable en calibration_references por ruido de piso de contador).
+#
+# npb_ep y npb_is se quitaron del catálogo (2026-08-06): ninguno de los dos
+# hace punto flotante real (su "Mop/s total" reporta "Random numbers
+# generated" y "keys ranked" respectivamente, no FLOPs) -- usarlo como
+# FLOPs/s en operational_intensity era un error de unidades, no un problema
+# de medición. Reemplazados por npb_bt y npb_sp (ambos confirmados
+# "Operation type = floating point" en pacca). Ver catalog.yaml para el
+# detalle completo.
 #
 # cores: delegated_cpus=0-5, collector_cpu=6, consumer_cpu=7 -- dentro de
 # los hilos primarios del socket 0 (0-7), sin tocar sus siblings SMT
@@ -46,10 +54,10 @@ calibration:
   - kernel_ref: ert_probe
 
 kernels:
-  - kernel_ref: npb_ep
+  - kernel_ref: npb_bt
   - kernel_ref: npb_mg
   - kernel_ref: npb_cg
-  - kernel_ref: npb_is
+  - kernel_ref: npb_sp
   - kernel_ref: npb_ft
   - kernel_ref: npb_lu
   - kernel_ref: dgemm_n2048
