@@ -117,6 +117,13 @@ add_executable(gpu_clock_controller_test
 target_link_libraries(gpu_clock_controller_test PRIVATE telemetry pthread)
 add_test(NAME gpu_clock_controller_test COMMAND gpu_clock_controller_test)
 
+add_executable(collector_gpu_cadence_test
+  tests/test_collector_gpu_cadence.cpp
+)
+target_link_libraries(collector_gpu_cadence_test PRIVATE telemetry pthread)
+add_test(NAME collector_gpu_cadence_test COMMAND collector_gpu_cadence_test)
+set_tests_properties(collector_gpu_cadence_test PROPERTIES SKIP_RETURN_CODE 77)
+
 if(NOT WITH_GPU)
   add_executable(nvml_reader_cpu_stub_test
     tests/test_nvml_reader_cpu_stub.cpp

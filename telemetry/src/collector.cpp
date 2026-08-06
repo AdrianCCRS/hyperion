@@ -64,6 +64,7 @@ namespace telemetry
 
         // Reset experiment-local state only after all enabled readers are open.
         push_retries_.store(0, std::memory_order_relaxed);
+        next_gpu_sample_ns_ = 0;  // ARC-65: sample immediately on (re)start, not on stale timing.
         stop_flag_.store(false, std::memory_order_relaxed);
 
         pthread_attr_t attr;
@@ -145,13 +146,24 @@ namespace telemetry
             }
 
             // NVML is optional and device-level. It is compiled only when the
-            // library is built with TELEMETRY_WITH_GPU.
+            // library is built with TELEMETRY_WITH_GPU. ARC-65: gated to its
+            // own cadence (cfg_.gpu_interval_ns), not every 1 ms tick -- NVML's
+            // own utilization counter barely updates that fast on many
+            // drivers, and every tick paid the ioctl cost of an NVML call
+            // even on iterations where only perf/RAPL needed to run.
             #ifdef TELEMETRY_WITH_GPU
                 if (nvml_reader_.is_open())
                 {
-                    s.tag = SampleTag::GPU;
-                    if(nvml_reader_.read(s.gpu)){
-                        push_sample(s);
+                    struct timespec now_ts;
+                    clock_gettime(CLOCK_MONOTONIC, &now_ts);
+                    const long long now_ns =
+                        static_cast<long long>(now_ts.tv_sec) * 1'000'000'000LL + now_ts.tv_nsec;
+                    if (now_ns >= next_gpu_sample_ns_) {
+                        s.tag = SampleTag::GPU;
+                        if(nvml_reader_.read(s.gpu)){
+                            push_sample(s);
+                        }
+                        next_gpu_sample_ns_ = now_ns + cfg_.gpu_interval_ns;
                     }
                 }
             #endif

@@ -43,6 +43,21 @@ namespace telemetry {
         bool enable_gpu = false;
 
         /**
+         * ARC-65: minimum nanoseconds between two NVML reads, gated inside the
+         * same 1 ms producer loop (the ring is strictly single-producer, see
+         * spsc_ring.hpp -- a second thread cannot push into it, so this is a
+         * timing gate, not a second thread/ring). NVML's own internal
+         * utilization counter only updates on the order of ~1s on many
+         * drivers; polling it every 1 ms stored ~1000 duplicate rows per
+         * second for nothing, and every single tick paid the syscall/ioctl
+         * cost of an NVML call even when perf/RAPL were the only things that
+         * actually needed that instant. Defaults to 100 ms: frequent enough
+         * to attribute GPU activity at phase granularity, coarse enough that
+         * only 1 in ~100 ticks can ever see NVML's latency, not all of them.
+         */
+        long gpu_interval_ns = 100'000'000;
+
+        /**
          * Target PID for PerfReader (PID + inherit=1). This is the launcher's
          * only CPU measurement path; 0 means current process.
          */
@@ -145,6 +160,13 @@ namespace telemetry {
             PerfCgroupReader perf_cgroup_reader_;
             RaplReader rapl_reader_;
             NvmlReader nvml_reader_;
+
+            /**
+             * ARC-65: CLOCK_MONOTONIC timestamp of the last NVML read, in
+             * nanoseconds. 0 means "never sampled yet" (always sample on the
+             * first tick). Only touched by the producer thread.
+             */
+            long long next_gpu_sample_ns_{0};
 
             static void* thread_entry(void* arg);
 
