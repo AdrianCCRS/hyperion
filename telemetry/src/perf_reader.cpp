@@ -89,6 +89,21 @@ namespace telemetry {
         constexpr int kIceLakeSPModel = 106;
         constexpr uint64_t kIceLakeStallsTotalRawConfig =
             0xA3u | (0x04u << 8) | (0x04ull << 24);
+
+        // ARC-62: L2_LINES_IN_ALL (event=0xF1, umask=0x1F -- no CMask needed,
+        // unlike the stalls event above) has no PERF_TYPE_HARDWARE generic
+        // mapping at all, so it is always opened as PERF_TYPE_RAW directly,
+        // never attempted as a generic event first. Encoding cross-checked
+        // against LIKWID's validated table (ARC-60) and confirmed physically
+        // sane in production use: measured against STREAM's own known byte
+        // count, L2_LINES_IN_ALL x line_size landed within 4.6% of the
+        // theoretical value (close to cache-misses' own 5.3% deficit on this
+        // node) -- this is a cache-line-granularity proxy for memory
+        // traffic, still not real DRAM bytes (uncore stays blocked, ARC-59),
+        // but a second independent cross-check against bytes_moved_window's
+        // existing cache-misses-based estimate. Same Ice Lake-SP gate as the
+        // stalls fallback: never applied to a CPU this was not verified on.
+        constexpr uint64_t kIceLakeL2LinesInAllRawConfig = 0xF1u | (0x1Fu << 8);
     }
 
     //Wrapper for perf_event_open syscall, since it's not exposed in glibc headers.
@@ -144,6 +159,7 @@ namespace telemetry {
             PERF_COUNT_HW_CACHE_REFERENCES,
             PERF_COUNT_HW_CACHE_MISSES,
             PERF_COUNT_HW_STALLED_CYCLES_BACKEND,
+            0, // kL2LinesInAll: never opened via this generic path, see below
         };
         static constexpr const char* kContexts[kEventCount] = {
             "perf_event_open instructions failed",
@@ -151,26 +167,41 @@ namespace telemetry {
             "perf_event_open cache references failed",
             "perf_event_open cache misses failed",
             "perf_event_open stalled cycles backend failed",
+            "perf_event_open l2 lines in all failed",
         };
 
         std::vector<int> opened;
         opened.reserve(kEventCount);
         for(size_t i = 0; i < kEventCount; ++i) {
-            auto attr = make_hw_attr(kConfigs[i]);
-            // Every event is its own group leader (group_fd=-1): inherit=1
-            // does not allow grouping siblings under one leader.
-            int fd = (int) perf_event_open(&attr, pid_, cpu_, -1, 0);
-            if(fd < 0 && i == kStalledCyclesBackend) {
-                // ARC-51: the generic event is unmapped on this kernel/PMU
-                // (ENOENT), but the underlying hardware counter may still
-                // exist. Retry once via PERF_TYPE_RAW with a validated,
-                // model-specific encoding -- never on a CPU we have not
-                // confirmed this on.
+            int fd = -1;
+            if(i == kL2LinesInAll) {
+                // ARC-62: no generic PERF_TYPE_HARDWARE mapping exists for
+                // this event at all, so skip straight to the model-gated
+                // raw encoding instead of trying (and always failing) a
+                // generic attempt first.
                 int family = 0, model = 0;
                 if(detect_intel_family_model(family, model) &&
                    family == kIceLakeSPFamily && model == kIceLakeSPModel) {
-                    auto raw_attr = make_raw_attr(kIceLakeStallsTotalRawConfig);
+                    auto raw_attr = make_raw_attr(kIceLakeL2LinesInAllRawConfig);
                     fd = (int) perf_event_open(&raw_attr, pid_, cpu_, -1, 0);
+                }
+            } else {
+                auto attr = make_hw_attr(kConfigs[i]);
+                // Every event is its own group leader (group_fd=-1): inherit=1
+                // does not allow grouping siblings under one leader.
+                fd = (int) perf_event_open(&attr, pid_, cpu_, -1, 0);
+                if(fd < 0 && i == kStalledCyclesBackend) {
+                    // ARC-51: the generic event is unmapped on this kernel/PMU
+                    // (ENOENT), but the underlying hardware counter may still
+                    // exist. Retry once via PERF_TYPE_RAW with a validated,
+                    // model-specific encoding -- never on a CPU we have not
+                    // confirmed this on.
+                    int family = 0, model = 0;
+                    if(detect_intel_family_model(family, model) &&
+                       family == kIceLakeSPFamily && model == kIceLakeSPModel) {
+                        auto raw_attr = make_raw_attr(kIceLakeStallsTotalRawConfig);
+                        fd = (int) perf_event_open(&raw_attr, pid_, cpu_, -1, 0);
+                    }
                 }
             }
             if(fd < 0) {
@@ -212,7 +243,7 @@ namespace telemetry {
         struct timespec ts;
         clock_gettime(CLOCK_MONOTONIC, &ts);
 
-        uint64_t scaled[kEventCount] = {0, 0, 0, 0, 0};
+        uint64_t scaled[kEventCount] = {0, 0, 0, 0, 0, 0};
         uint64_t time_enabled = 0;
         uint64_t time_running = 0;
 
@@ -235,6 +266,7 @@ namespace telemetry {
         sample.cache_references = scaled[kCacheReferences];
         sample.cache_misses = scaled[kCacheMisses];
         sample.stalled_cycles_backend = scaled[kStalledCyclesBackend];
+        sample.l2_lines_in_all = scaled[kL2LinesInAll];
         sample.time_enabled_ns = time_enabled;
         sample.time_running_ns = time_running;
         out = sample;

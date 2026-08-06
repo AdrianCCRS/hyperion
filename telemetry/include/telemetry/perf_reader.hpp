@@ -87,23 +87,43 @@ namespace telemetry {
             return is_open() && fds_[kStalledCyclesBackend] >= 0;
         }
 
+        /**
+         * @brief Whether the optional L2_LINES_IN_ALL counter is live.
+         *
+         * ARC-62: raw event (event=0xF1, umask=0x1F), no generic
+         * PERF_TYPE_HARDWARE mapping exists for it at all, so it is only
+         * ever attempted on the Ice Lake-SP family/model this encoding was
+         * validated on (same gate as has_stalled_cycles_backend's fallback).
+         * A cache-line-granularity cross-check for bytes_moved_window's
+         * existing cache-misses-based estimate -- still not real DRAM
+         * bytes (uncore stays blocked, ARC-59), but confirmed physically
+         * sane against STREAM's known byte count (ARC-60).
+         */
+        bool has_l2_lines_in_all() const noexcept {
+            return is_open() && fds_[kL2LinesInAll] >= 0;
+        }
+
         private:
             // Fixed open order, also the read/index order: instructions, cycles,
-            // cache references, cache misses, stalled cycles (backend). D05/
-            // ARC-37 measured 5 simultaneous generic PERF_TYPE_HARDWARE events
-            // as the multiplexing-free budget on felix -- this is the 5th slot,
+            // cache references, cache misses, stalled cycles (backend),
+            // L2 lines in (all). D05/ARC-37 measured 5 simultaneous generic
+            // PERF_TYPE_HARDWARE events as the multiplexing-free budget on
+            // felix (10 on pacca, ARC-53) -- stalled-cycles-backend was
             // chosen over stalled-cycles-frontend because it is the counter
             // that discriminates memory-bound stalls, the exact ambiguity
-            // ARC-27 flagged as unresolved for phase_label_train. Only the
-            // first kCoreEventCount are mandatory; the rest degrade to -1
-            // (unavailable) instead of aborting open().
+            // ARC-27 flagged as unresolved for phase_label_train; L2_LINES_IN_ALL
+            // (ARC-62) is the permanent, always-on version of the one-off
+            // bias cross-check from ARC-60. Only the first kCoreEventCount
+            // are mandatory; the rest degrade to -1 (unavailable) instead of
+            // aborting open().
             static constexpr size_t kInstructions = 0;
             static constexpr size_t kCycles = 1;
             static constexpr size_t kCacheReferences = 2;
             static constexpr size_t kCacheMisses = 3;
             static constexpr size_t kStalledCyclesBackend = 4;
+            static constexpr size_t kL2LinesInAll = 5;
             static constexpr size_t kCoreEventCount = 4;
-            static constexpr size_t kEventCount = 5;
+            static constexpr size_t kEventCount = 6;
 
             pid_t pid_;
             int   cpu_;

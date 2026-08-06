@@ -1,0 +1,103 @@
+# Campaña multi-frecuencia real contra paccaA100 -- PREPARADA POR ADELANTADO
+# (2026-08-06), NO CORRIDA TODAVÍA: sigue bloqueada por el mismo permiso
+# de siempre (escritura de scaling_min_freq/scaling_max_freq, ver
+# docs/retoma/pacca/Solicitud_Permisos_Pacca_Unicartagena.md, sección P1).
+# environment.detect_environment() reportará frequency_write_capable=False
+# hasta que ese permiso llegue -- si se intenta correr esto antes, el nivel
+# REF sigue funcionando pero los niveles F0-F4 fallarán en RUN-08 (nunca
+# se aplica frecuencia sin frequency_write_capable=True). El objetivo de
+# tener esto listo de antemano es no perder tiempo armando el manifiesto
+# el día que el permiso llegue.
+#
+# Niveles F0-F4 tal como los define Guia_Maestra_Fase1_DVFS.md sección 8.1
+# (F0=f_max, F1=75%, F2=50%, F3=25%, F4=f_min del rango [scaling_min_freq,
+# scaling_max_freq] detectado en tiempo real por freqctl.py -- fraction se
+# resuelve contra el rango real del nodo, nunca contra un valor de kHz
+# hardcodeado aquí). Rango medido en pacca el 2026-08-06:
+#   cpuinfo_min_freq = 800000 kHz (0.8 GHz)
+#   cpuinfo_max_freq = 3600000 kHz (3.6 GHz, incluye turbo -- base_frequency
+#     real sin turbo es 3200000 kHz)
+#   num_pstates = 29 -> pasos de exactamente 100 MHz en todo el rango, así
+#   que F0-F4 caen todos en un p-state válido sin necesidad de redondeo:
+#     F0 = 3600 MHz, F1 = 2900 MHz, F2 = 2200 MHz, F3 = 1500 MHz, F4 = 800 MHz
+#
+# intel_pstate usa la estrategia bounded_range (freqctl.py ya la tiene
+# implementada): fija scaling_min_freq=scaling_max_freq=objetivo, no existe
+# governor userspace en este driver (confirmado en la auditoría).
+#
+# repetitions_per_combination=3 (el mínimo, MAN-02) para una primera
+# corrida real multi-frecuencia -- la Guía Maestra sugiere 10 repeticiones
+# para el dataset final (sección 8.2), pero eso es una decisión para
+# después de confirmar que el pipeline completo funciona igual de bien
+# bajo control de frecuencia real que bajo REF. 7 kernels x 6 niveles x 3
+# repeticiones = 126 combinaciones de telemetría (+ baselines de los
+# niveles fixed, RUN-0x) -- bastante más largo que la campaña REF (21
+# corridas), calcular tiempo de cola/ejecución antes de lanzar.
+#
+# Resto de la configuración (cores, RAPL, catálogo, smt_policy,
+# hardware_datasheet) idéntica a campaign_pacca_ref.yaml, que ya está
+# validada en hardware real -- ver ese archivo para el historial completo
+# de cada decisión.
+
+campaign_id: pacca_dvfs_full_PENDIENTE_FECHA
+environment_tier: hpc_sc3
+seed: 20260806
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_dvfs_full_PENDIENTE_FECHA
+overwrite: true
+
+catalog_path: kernels/catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: npb_bt
+  - kernel_ref: npb_mg
+  - kernel_ref: npb_cg
+  - kernel_ref: npb_sp
+  - kernel_ref: npb_ft
+  - kernel_ref: npb_lu
+  - kernel_ref: dgemm_n2048
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F0, mode: fixed, fraction: 1.0}
+  - {id: F1, mode: fixed, fraction: 0.75}
+  - {id: F2, mode: fixed, fraction: 0.5}
+  - {id: F3, mode: fixed, fraction: 0.25}
+  - {id: F4, mode: fixed, fraction: 0.0}
+
+repetitions_per_combination: 3
+target_windows_per_repetition: 50
+interval_ns: 1000000  # 1 ms
+
+running_ratio_min: 0.90
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+rapl:
+  enabled: true
+
+gpu:
+  enabled: false
+
+timeouts_seconds:
+  ready: 15
+  run: 180
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 58353900000
+  p_pico_flops_per_s: 72004000000

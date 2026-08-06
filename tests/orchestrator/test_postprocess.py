@@ -14,20 +14,21 @@ from orchestrator import postprocess
 SAMPLES_HEADER = [
     "run_id", "repetition", "kernel", "label", "timestamp_ns", "tag",
     "instructions", "cycles", "cache_references", "cache_misses",
-    "stalled_cycles_backend", "time_enabled_ns", "time_running_ns",
+    "stalled_cycles_backend", "l2_lines_in_all", "time_enabled_ns", "time_running_ns",
     "pkg_uj", "dram_uj", "pkg_delta_uj", "dram_delta_uj", "energy_delta_valid",
     "gpu_power_mw", "gpu_util_pct",
 ]
 
 
 def _cpu_row(*, repetition, ts, instructions, cycles, cache_references, cache_misses,
-             time_enabled, time_running, stalled_cycles_backend=0):
+             time_enabled, time_running, stalled_cycles_backend=0, l2_lines_in_all=0):
     return {
         "run_id": "r", "repetition": repetition, "kernel": "k", "label": "k",
         "timestamp_ns": ts, "tag": "CPU",
         "instructions": instructions, "cycles": cycles,
         "cache_references": cache_references, "cache_misses": cache_misses,
         "stalled_cycles_backend": stalled_cycles_backend,
+        "l2_lines_in_all": l2_lines_in_all,
         "time_enabled_ns": time_enabled, "time_running_ns": time_running,
     }
 
@@ -157,6 +158,54 @@ def test_stalled_cycles_backend_delta_y_ratio_se_calculan(tmp_path):
     assert window["delta_stalled_cycles_backend"] == 400_000
     assert window["stall_backend_ratio"] == pytest.approx(0.4)
     assert window["quality_status"] == "ok"
+
+
+def test_l2_lines_in_all_delta_y_bytes_moved_l2_proxy_se_calculan(tmp_path):
+    # ARC-62: mismo patron que stalled_cycles_backend -- delta crudo y una
+    # columna comparable a bytes_moved_window (mismo multiplicador de
+    # tamano de linea), pensada como cruce independiente del sesgo de
+    # bytes_moved_window (F3.4/ARC-33, cuantificado por kernel en ARC-60).
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0,
+                 l2_lines_in_all=0),
+        _cpu_row(repetition=1, ts=1_001_000_000, instructions=2_000_000, cycles=1_000_000,
+                 cache_references=100_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000,
+                 l2_lines_in_all=2_000),
+    ])
+    windows = postprocess.build_windows(samples, _context(run_flops_total=1_000_000.0, llc_line_size_bytes=64))
+
+    window = windows[1]
+    assert window["delta_l2_lines_in_all"] == 2_000
+    assert window["bytes_moved_l2_proxy"] == 2_000 * 64
+    assert window["quality_status"] == "ok"
+
+
+def test_l2_lines_in_all_no_soportado_no_afecta_bytes_moved_window(tmp_path):
+    # Ausente en el CSV (nodo que no lo abre, ARC-62): debe comportarse como
+    # "no medido aqui" -- ni pmu_degraded ni contamina bytes_moved_window,
+    # que sigue calculandose exclusivamente con cache_misses.
+    samples = tmp_path / "samples.csv"
+    old_header = [c for c in SAMPLES_HEADER if c != "l2_lines_in_all"]
+    with samples.open("w", newline="", encoding="utf-8") as samples_file:
+        writer = csv.DictWriter(samples_file, fieldnames=old_header, restval="")
+        writer.writeheader()
+        for row in [
+            _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                     cache_references=0, cache_misses=0, time_enabled=0, time_running=0),
+            _cpu_row(repetition=1, ts=1_001_000_000, instructions=2_000_000, cycles=1_000_000,
+                     cache_references=100_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000),
+        ]:
+            row.pop("l2_lines_in_all", None)
+            writer.writerow(row)
+    windows = postprocess.build_windows(samples, _context(run_flops_total=1_000_000.0))
+
+    window = windows[1]
+    assert window["delta_l2_lines_in_all"] is None
+    assert window["bytes_moved_l2_proxy"] is None
+    assert window["quality_status"] == "ok"
+    assert window["bytes_moved_window"] == 1_000 * 64  # sigue basado en cache_misses, sin cambios
 
 
 def test_stalled_cycles_backend_no_soportado_en_el_nodo_no_marca_pmu_degraded(tmp_path):
