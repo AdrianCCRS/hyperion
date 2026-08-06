@@ -81,7 +81,7 @@ namespace {
         // false for the baseline child (no collector) and for external-mode
         // runs where collection failed to start.
         bool stalled_cycles_backend_available = false;
-        bool l2_lines_in_all_available = false; // ARC-62, same semantics as above
+        bool l2_lines_in_all_available = false; // ARC-63, same semantics as above
     };
 
     /** @brief Sample plus repetition id, used to avoid cross-run deltas. */
@@ -517,7 +517,7 @@ namespace {
         // perf reader, after which has_stalled_cycles_backend() always
         // reports false regardless of what actually happened during the run.
         bool stalled_cycles_backend_available = false;
-        bool l2_lines_in_all_available = false; // ARC-62, same must-read-before-stop() constraint
+        bool l2_lines_in_all_available = false; // ARC-63, same must-read-before-stop() constraint
 
         try {
             // The child is still stopped here: cgroup placement and perf
@@ -716,7 +716,7 @@ namespace {
                 } else {
                     empty_field();
                 }
-                // ARC-62: same empty-not-zero rule as stalled_cycles_backend.
+                // ARC-63: same empty-not-zero rule as stalled_cycles_backend.
                 if(l2_lines_in_all_available) {
                     value_field(sample.cpu.l2_lines_in_all);
                 } else {
@@ -934,7 +934,7 @@ int main(int argc, char** argv) {
         // repetition of the same run on the same machine/kernel -- OR'd
         // across repetitions defensively rather than assumed from the first.
         bool stalled_cycles_backend_available = false;
-        bool l2_lines_in_all_available = false; // ARC-62, same semantics as above
+        bool l2_lines_in_all_available = false; // ARC-63, same semantics as above
 
         telemetry_elapsed_ns.reserve(static_cast<size_t>(opt.repetitions));
         push_retries_by_repetition.reserve(static_cast<size_t>(opt.repetitions));

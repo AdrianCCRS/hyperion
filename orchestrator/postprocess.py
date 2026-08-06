@@ -201,7 +201,7 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
     stall_backend_supported = any(
         r.get("stalled_cycles_backend") not in (None, "") for r in cpu_rows
     )
-    # ARC-62: same per-node-capability rule as stalled_cycles_backend above --
+    # ARC-63: same per-node-capability rule as stalled_cycles_backend above --
     # L2_LINES_IN_ALL is a raw event only opened on Ice Lake-SP, empty (not
     # "0") for every row when unsupported.
     l2_lines_in_all_supported = any(
@@ -369,7 +369,7 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
         row["flops_window_estimate"] = flops_window_estimate
         row["bytes_moved_window"] = bytes_moved_window
 
-        # ARC-62: independent cross-check for bytes_moved_window's bias
+        # ARC-63: independent cross-check for bytes_moved_window's bias
         # (F3.4/ARC-33, ARC-60) -- same line-size multiplier convention, so
         # it is directly comparable to bytes_moved_window per window. Still
         # a core-level (L2) proxy, not real DRAM bytes (uncore stays

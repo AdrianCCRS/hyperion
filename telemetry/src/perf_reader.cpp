@@ -90,7 +90,7 @@ namespace telemetry {
         constexpr uint64_t kIceLakeStallsTotalRawConfig =
             0xA3u | (0x04u << 8) | (0x04ull << 24);
 
-        // ARC-62: L2_LINES_IN_ALL (event=0xF1, umask=0x1F -- no CMask needed,
+        // ARC-63: L2_LINES_IN_ALL (event=0xF1, umask=0x1F -- no CMask needed,
         // unlike the stalls event above) has no PERF_TYPE_HARDWARE generic
         // mapping at all, so it is always opened as PERF_TYPE_RAW directly,
         // never attempted as a generic event first. Encoding cross-checked
@@ -175,7 +175,7 @@ namespace telemetry {
         for(size_t i = 0; i < kEventCount; ++i) {
             int fd = -1;
             if(i == kL2LinesInAll) {
-                // ARC-62: no generic PERF_TYPE_HARDWARE mapping exists for
+                // ARC-63: no generic PERF_TYPE_HARDWARE mapping exists for
                 // this event at all, so skip straight to the model-gated
                 // raw encoding instead of trying (and always failing) a
                 // generic attempt first.
