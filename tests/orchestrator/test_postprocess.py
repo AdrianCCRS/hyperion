@@ -14,19 +14,20 @@ from orchestrator import postprocess
 SAMPLES_HEADER = [
     "run_id", "repetition", "kernel", "label", "timestamp_ns", "tag",
     "instructions", "cycles", "cache_references", "cache_misses",
-    "time_enabled_ns", "time_running_ns",
+    "stalled_cycles_backend", "time_enabled_ns", "time_running_ns",
     "pkg_uj", "dram_uj", "pkg_delta_uj", "dram_delta_uj", "energy_delta_valid",
     "gpu_power_mw", "gpu_util_pct",
 ]
 
 
 def _cpu_row(*, repetition, ts, instructions, cycles, cache_references, cache_misses,
-             time_enabled, time_running):
+             time_enabled, time_running, stalled_cycles_backend=0):
     return {
         "run_id": "r", "repetition": repetition, "kernel": "k", "label": "k",
         "timestamp_ns": ts, "tag": "CPU",
         "instructions": instructions, "cycles": cycles,
         "cache_references": cache_references, "cache_misses": cache_misses,
+        "stalled_cycles_backend": stalled_cycles_backend,
         "time_enabled_ns": time_enabled, "time_running_ns": time_running,
     }
 
@@ -138,6 +139,56 @@ def test_post02_delta_negativo_marca_pmu_degraded_y_conserva_la_fila(tmp_path):
     assert window["quality_status"] == "pmu_degraded"
     assert window["delta_instructions"] == -500_000  # se conserva el valor crudo, no se oculta
     assert window["ipc"] is None  # no se deriva una tasa de un contador invalido
+
+
+def test_stalled_cycles_backend_delta_y_ratio_se_calculan(tmp_path):
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0,
+                 stalled_cycles_backend=0),
+        _cpu_row(repetition=1, ts=1_001_000_000, instructions=2_000_000, cycles=1_000_000,
+                 cache_references=100_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000,
+                 stalled_cycles_backend=400_000),
+    ])
+    windows = postprocess.build_windows(samples, _context(run_flops_total=1_000_000.0))
+
+    window = windows[1]
+    assert window["delta_stalled_cycles_backend"] == 400_000
+    assert window["stall_backend_ratio"] == pytest.approx(0.4)
+    assert window["quality_status"] == "ok"
+
+
+def test_stalled_cycles_backend_no_soportado_en_el_nodo_no_marca_pmu_degraded(tmp_path):
+    # ARC-50: algunos nodos (confirmado empiricamente en paccaA100, Ice Lake
+    # con kernel RHEL8) no pueden abrir PERF_COUNT_HW_STALLED_CYCLES_BACKEND
+    # en absoluto (ENOENT del kernel, no un problema de permisos). El
+    # launcher escribe la columna vacia en TODAS las filas de la corrida
+    # cuando eso pasa (nunca "0", que se leeria como una medicion real) --
+    # incluye tambien samples.csv de antes de este cambio, sin la columna.
+    # Ambos casos son "no medido en este nodo", no una anomalia de PMU: no
+    # deben marcar pmu_degraded ni impedir que el resto de metricas core
+    # (ipc/ips/mpki) se calculen normalmente.
+    samples = tmp_path / "samples.csv"
+    old_header = [c for c in SAMPLES_HEADER if c != "stalled_cycles_backend"]
+    with samples.open("w", newline="", encoding="utf-8") as samples_file:
+        writer = csv.DictWriter(samples_file, fieldnames=old_header, restval="")
+        writer.writeheader()
+        for row in [
+            _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                     cache_references=0, cache_misses=0, time_enabled=0, time_running=0),
+            _cpu_row(repetition=1, ts=1_001_000_000, instructions=2_000_000, cycles=1_000_000,
+                     cache_references=100_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000),
+        ]:
+            row.pop("stalled_cycles_backend", None)
+            writer.writerow(row)
+    windows = postprocess.build_windows(samples, _context(run_flops_total=1_000_000.0))
+
+    window = windows[1]
+    assert window["delta_stalled_cycles_backend"] is None
+    assert window["stall_backend_ratio"] is None
+    assert window["quality_status"] == "ok"
+    assert window["ipc"] is not None  # el resto de metricas core no se contamina
 
 
 def test_post03_running_ratio_bajo_marca_pmu_degraded(tmp_path):

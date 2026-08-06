@@ -102,6 +102,18 @@ namespace telemetry {
             bool running() const noexcept {return running_.load();}
 
             /**
+             * @brief Whether this run's node could open stalled-cycles-backend.
+             *
+             * ARC-50: a per-node capability fact, not a per-sample one -- some
+             * kernel/PMU combinations (paccaA100) never map this event.
+             * Valid only after start(); false before start() or when
+             * enable_perf is false.
+             */
+            bool has_stalled_cycles_backend() const noexcept {
+                return perf_reader_.has_stalled_cycles_backend();
+            }
+
+            /**
              * @brief Number of failed try_push attempts.
              *
              * A nonzero value indicates that the ring was full at least once.

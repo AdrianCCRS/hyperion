@@ -33,6 +33,7 @@ namespace telemetry {
         uint64_t cycles;            /**< PERF_COUNT_HW_CPU_CYCLES. */
         uint64_t cache_references;  /**< PERF_COUNT_HW_CACHE_REFERENCES. */
         uint64_t cache_misses;      /**< PERF_COUNT_HW_CACHE_MISSES. */
+        uint64_t stalled_cycles_backend; /**< PERF_COUNT_HW_STALLED_CYCLES_BACKEND. */
         uint64_t time_enabled_ns;   /**< Perf enabled time for multiplexing diagnostics. */
         uint64_t time_running_ns;   /**< Perf running time for multiplexing diagnostics. */
     };

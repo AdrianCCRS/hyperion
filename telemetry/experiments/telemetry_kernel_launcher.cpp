@@ -77,6 +77,10 @@ namespace {
         int exit_code = -1;
         std::string output;
         pid_t pid = -1;
+        // ARC-50: per-node capability, only meaningful when collect=true.
+        // false for the baseline child (no collector) and for external-mode
+        // runs where collection failed to start.
+        bool stalled_cycles_backend_available = false;
     };
 
     /** @brief Sample plus repetition id, used to avoid cross-run deltas. */
@@ -508,6 +512,10 @@ namespace {
         // happens after this point, mirroring the synthetic path.
         uint64_t wall_start_ns = 0;
         uint64_t wall_end_ns = 0;
+        // ARC-50: must be read before collector.stop() -- stop() closes the
+        // perf reader, after which has_stalled_cycles_backend() always
+        // reports false regardless of what actually happened during the run.
+        bool stalled_cycles_backend_available = false;
 
         try {
             // The child is still stopped here: cgroup placement and perf
@@ -528,6 +536,7 @@ namespace {
                 // releasing the measured workload.
                 wall_start_ns = telemetry::experiment::now_ns();
                 collector.start();
+                stalled_cycles_backend_available = collector.has_stalled_cycles_backend();
             }
 
             // Release the child unconditionally: it stopped itself right
@@ -589,6 +598,7 @@ namespace {
         result.output = output;
         result.exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
         result.pid = pid;
+        result.stalled_cycles_backend_available = stalled_cycles_backend_available;
         if(use_ready_go) {
             if(result.exit_code == 0) result.elapsed_ns = parse_elapsed_ns(output);
         } else if(collect && result.exit_code == 0) {
@@ -657,7 +667,8 @@ namespace {
 
     void write_samples_csv(const fs::path& path,
                            const Options& opt,
-                           const std::vector<RecordedSample>& samples) {
+                           const std::vector<RecordedSample>& samples,
+                           bool stalled_cycles_backend_available) {
         const telemetry::experiment::RaplExportConfig rapl_config = read_rapl_export_config(opt);
         telemetry::experiment::RaplDeltaState rapl_state{};
 
@@ -665,7 +676,7 @@ namespace {
         // unused fields remain empty. This makes downstream ML ingestion simple.
         std::ofstream out(path);
         out << "run_id,repetition,kernel,label,timestamp_ns,tag,instructions,cycles,"
-               "cache_references,cache_misses,time_enabled_ns,time_running_ns,"
+               "cache_references,cache_misses,stalled_cycles_backend,time_enabled_ns,time_running_ns,"
                "pkg_uj,dram_uj,pkg_delta_uj,dram_delta_uj,energy_delta_valid,"
                "gpu_power_mw,gpu_util_pct\n";
         const std::string label = dataset_label(opt.kernel);
@@ -691,6 +702,15 @@ namespace {
                 value_field(sample.cpu.cycles);
                 value_field(sample.cpu.cache_references);
                 value_field(sample.cpu.cache_misses);
+                // ARC-50: empty (not "0"), a real 0 stalls reading is
+                // indistinguishable from "not measured" otherwise --
+                // postprocess.py relies on this to tell node-level
+                // unavailability apart from a genuine zero delta.
+                if(stalled_cycles_backend_available) {
+                    value_field(sample.cpu.stalled_cycles_backend);
+                } else {
+                    empty_field();
+                }
                 value_field(sample.cpu.time_enabled_ns);
                 value_field(sample.cpu.time_running_ns);
                 empty_field();
@@ -718,6 +738,7 @@ namespace {
                 empty_field();
                 empty_field();
                 empty_field();
+                empty_field();
                 value_field(sample.energy.pkg_uj);
                 value_field(sample.energy.dram_uj);
                 value_field(delta.pkg_delta_uj);
@@ -728,6 +749,7 @@ namespace {
                 out << '\n';
             } else {
                 write_prefix(record, sample.gpu.timestamp_ns, tag_name(sample.tag));
+                empty_field();
                 empty_field();
                 empty_field();
                 empty_field();
@@ -895,6 +917,10 @@ int main(int argc, char** argv) {
         std::vector<RecordedSample> samples;
         std::vector<pid_t> measured_pids;
         const bool external_mode = !opt.exec_path.empty();
+        // ARC-50: a per-node capability fact, expected identical across every
+        // repetition of the same run on the same machine/kernel -- OR'd
+        // across repetitions defensively rather than assumed from the first.
+        bool stalled_cycles_backend_available = false;
 
         telemetry_elapsed_ns.reserve(static_cast<size_t>(opt.repetitions));
         push_retries_by_repetition.reserve(static_cast<size_t>(opt.repetitions));
@@ -937,6 +963,8 @@ int main(int argc, char** argv) {
                 telemetry_elapsed_ns.push_back(telemetry.elapsed_ns);
                 push_retries_by_repetition.push_back(push_retries);
                 measured_pids.push_back(telemetry.pid);
+                stalled_cycles_backend_available =
+                    stalled_cycles_backend_available || telemetry.stalled_cycles_backend_available;
                 continue;
             }
 
@@ -991,11 +1019,13 @@ int main(int argc, char** argv) {
             ));
             push_retries_by_repetition.push_back(push_retries);
             measured_pids.push_back(telemetry.pid);
+            stalled_cycles_backend_available =
+                stalled_cycles_backend_available || telemetry.stalled_cycles_backend_available;
         }
 
         const fs::path run_dir = opt.output_dir / opt.run_id;
         fs::create_directories(run_dir);
-        write_samples_csv(run_dir / "samples.csv", opt, samples);
+        write_samples_csv(run_dir / "samples.csv", opt, samples, stalled_cycles_backend_available);
         write_metadata_json(run_dir / "metadata.json",
                             opt,
                             baseline_elapsed_ns,
