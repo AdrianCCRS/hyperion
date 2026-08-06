@@ -301,7 +301,7 @@ def run_campaign(
                     )
                     progress.overhead_pct_values.append(overhead_pct)
 
-                verdict = validation_module.validate_run(result, entry, run_id_seen=seen_run_ids)
+                verdict = validation_module.validate_run(result, entry, run_id_seen=seen_run_ids, node_id=node_id)
                 validation_module.write_verdict(verdict, result.run_dir)
                 seen_run_ids.add(run_id)
 

@@ -1,0 +1,98 @@
+# Primera campaña real contra paccaA100 (Unicartagena), solo nivel REF
+# (frequency_write_capable=False mientras la solicitud de permisos sigue
+# sin respuesta -- ver docs/retoma/pacca/Solicitud_Permisos_Pacca_Unicartagena.md).
+#
+# repetitions_per_combination=3: el minimo permitido por el manifiesto
+# (MAN-02 lo bloquea si es menor), asi que no hay opcion de piloto con
+# menos repeticiones -- esta es directamente la primera corrida real de
+# punta a punta en este nodo, a la misma escala que la campaña real de
+# felix (7 kernels x REF x 3 repeticiones = 21 corridas).
+#
+# rapl.enabled=true a diferencia de felix: paccaA100 SI tiene RAPL legible
+# sin permisos especiales (confirmado en la auditoría), primera vez que el
+# proyecto puede capturar energía real en una campaña.
+#
+# reference_kernel_ref (pasado por CLI, no en este manifest) = npb_mg,
+# nunca npb_ep (ARC-46: npb_ep genera muy pocos cache-misses, cv_pct
+# inestable en calibration_references por ruido de piso de contador).
+#
+# cores: delegated_cpus=0-5, collector_cpu=6, consumer_cpu=7 -- dentro de
+# los hilos primarios del socket 0 (0-7), sin tocar sus siblings SMT
+# (16-23), ver Auditoria_PaccaA100_Unicartagena.md sección 3.
+#
+# hardware_datasheet: D03 (calibration.py) exige un valor declarado contra
+# el cual comparar la calibración real. HALLAZGO IMPORTANTE (2026-08-06):
+# runner.py NUNCA fija OMP_NUM_THREADS ni afinidad de CPU sobre el proceso
+# medido -- cores.delegated_cpus solo llega al launcher como --perf-cpus/
+# --collector-cpu/--consumer-cpu (telemetria), nunca como pin real del
+# workload. Confirmado: con OMP_NUM_THREADS sin fijar, ert_probe reporta
+# "OPENMP_THREADS 32" (todo el nodo, no los 6 cores delegados) y sus
+# GFLOPs/sec coinciden con lo que la propia campaña midio en su
+# calibracion real (188.4 vs 188.3 observado). Un primer intento de
+# referencia con OMP_NUM_THREADS=6 (y otro con taskset -c 0-5) quedo muy
+# por debajo de lo que la campaña realmente mide, porque la campaña no
+# esta restringida a 6 cores en la practica -- esto probablemente aplica
+# tambien a felix y a cualquier corrida previa del proyecto, pendiente de
+# investigar a fondo por separado (no bloqueante para esta campaña).
+# Valores usados aqui: medicion empirica SIN restringir hilos/afinidad,
+# igualando las condiciones reales bajo las que corre la calibracion:
+#   stream_c (default threads): Triad = 143455.7 MB/s -> 143455700000 B/s
+#   ert_probe (OPENMP_THREADS=32): GFLOPs/sec = 188.418 -> 188418000000 FLOP/s
+
+campaign_id: pacca_ref_full_20260806
+environment_tier: hpc_sc3
+seed: 20260806
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_ref_full_20260806
+overwrite: true
+
+catalog_path: kernels/catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: npb_ep
+  - kernel_ref: npb_mg
+  - kernel_ref: npb_cg
+  - kernel_ref: npb_is
+  - kernel_ref: npb_ft
+  - kernel_ref: npb_lu
+  - kernel_ref: dgemm_n2048
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+
+repetitions_per_combination: 3
+target_windows_per_repetition: 50
+interval_ns: 1000000  # 1 ms
+
+running_ratio_min: 0.90
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+rapl:
+  enabled: true
+
+gpu:
+  enabled: false
+
+timeouts_seconds:
+  ready: 15
+  run: 180
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 143455700000
+  p_pico_flops_per_s: 188418000000

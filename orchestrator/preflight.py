@@ -276,10 +276,10 @@ def check_binary_exists(entry: Any) -> CheckResult:
     return _result("C01", "Binario ejecutable", passed, True, {"exec_path": str(path)}, "El binario no existe o no es ejecutable")
 
 
-def check_binary_checksum(entry: Any) -> CheckResult:
+def check_binary_checksum(entry: Any, node_id: str | None = None) -> CheckResult:
     # C02 delega el hash real al catálogo; preflight solo lo presenta como CheckResult.
-    passed = verify_binary(entry)
-    return _result("C02", "Checksum del binario", passed, True, {"expected": entry.binary_checksum}, "El checksum del binario no coincide")
+    passed = verify_binary(entry, node_id)
+    return _result("C02", "Checksum del binario", passed, True, {"expected": entry.binary_checksum, "node_id": node_id}, "El checksum del binario no coincide")
 
 
 def check_success_check(entry: Any) -> CheckResult:
@@ -393,6 +393,7 @@ def run_campaign_preflight(
     """Ejecuta todos los checks de campaña que disponen de datos antes de la matriz."""
     cores = _cores(manifest)
     sysfs = sysfs or load_config().sysfs
+    node_id = _value(node_profile, "node_id", None)
     rapl = _value(manifest, "rapl", {})
     gpu = _value(manifest, "gpu", {})
     results = [
@@ -422,14 +423,14 @@ def run_campaign_preflight(
     refs = tuple(_value(manifest, "calibration", ())) + tuple(_value(manifest, "kernels", ()))
     for reference in refs:
         entry = catalog[reference]
-        results.extend([check_binary_exists(entry), check_binary_checksum(entry), check_success_check(entry), check_memory_size(entry)])
+        results.extend([check_binary_exists(entry), check_binary_checksum(entry, node_id), check_success_check(entry), check_memory_size(entry)])
     results.append(check_toolchain(bool(_value(manifest, "rebuild", False))))
     results.append(check_perf_counter_capacity(_value(manifest, "perf_events", ()), _value(node_profile, "pmc_count", _value(env, "pmc_count"))))
     results.append(check_core_hour_budget(_value(manifest, "remaining_core_hours"), _value(manifest, "projected_core_hours")))
     return results
 
 
-def run_reduced_preflight(manifest: Any, env: Any, entry: Any, run_id: str, *, expected_governor: str = "userspace", load_threshold: float = 1.0, turbo_snapshot: Mapping[str, Any] | None = None, cpu_root: str | Path | None = None, load_reader: Callable[[], tuple[float, float, float]] = os.getloadavg) -> list[CheckResult]:
+def run_reduced_preflight(manifest: Any, env: Any, entry: Any, run_id: str, *, expected_governor: str = "userspace", load_threshold: float = 1.0, turbo_snapshot: Mapping[str, Any] | None = None, cpu_root: str | Path | None = None, load_reader: Callable[[], tuple[float, float, float]] = os.getloadavg, node_id: str | None = None) -> list[CheckResult]:
     """Ejecuta checks por corrida, incluidos C01/C02 para detectar binarios cambiados."""
     results = [
         check_temperature(_value(manifest, "package_temperature_c"), _value(manifest, "temperature_min_c", 0.0), _value(manifest, "temperature_max_c", 90.0)),
@@ -437,7 +438,7 @@ def run_reduced_preflight(manifest: Any, env: Any, entry: Any, run_id: str, *, e
         check_external_load(load_threshold, load_reader, max(len(_cores(manifest)), 1)),
         check_run_id_unique(_value(manifest, "output_dir"), run_id, bool(_value(manifest, "overwrite", False))),
         check_binary_exists(entry),
-        check_binary_checksum(entry),
+        check_binary_checksum(entry, node_id),
         check_success_check(entry),
     ]
     if _requires_frequency_control(manifest):

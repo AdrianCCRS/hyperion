@@ -52,7 +52,9 @@ kernels:
     bandwidth_stdout_pattern: "Triad:\\s+([0-9.]+)" # MB/s; confirmado contra stdout real en felix
     bandwidth_stdout_unit_multiplier: 1000000 # MB/s -> B/s (ARC-42)
     success_check: {type: stdout_regex, pattern: "Solution Validates"}
-    binary_checksum: "sha256:357ef034acf95ede768bf8788a7cdabf92f9afeadbaf79321730659b3cd9199c"
+    binary_checksum:
+      felix-sc3: "sha256:357ef034acf95ede768bf8788a7cdabf92f9afeadbaf79321730659b3cd9199c"
+      pacca-a100: "sha256:2d473205b0d3f1cc0ac562c2bd486f7f634741b39f81eb621e18631a05636723"
     # 3 arreglos x 8 bytes x STREAM_ARRAY_SIZE (64_000_000) = 1_536_000_000 B;
     # 1.5 GiB con margen para el allocator. F4.2, C05 no distingue role, asi
     # que las entradas de calibracion tambien necesitan este campo.
@@ -68,7 +70,9 @@ kernels:
     success_check: {type: exit_code}
     # Buffer maximo del barrido (4 MiB/hilo) x hasta 8 hilos, x2 de margen.
     estimated_memory_bytes: 67108864
-    binary_checksum: "sha256:aafd773346eb05a51a77720e08f45e7bd4cfc5aae31bc25d9f1273c49ed0e0d9"
+    binary_checksum:
+      felix-sc3: "sha256:aafd773346eb05a51a77720e08f45e7bd4cfc5aae31bc25d9f1273c49ed0e0d9"
+      pacca-a100: "sha256:c3480c9221f8da217254308ef6fa6c85ddcd04176f3c91ba9a0adec59e14f9b1"
 
   - id: npb_ep
     suite: NPB-OMP
@@ -80,7 +84,9 @@ kernels:
     warmup_seconds: 0.5
     estimated_memory_bytes: 268435456
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
-    binary_checksum: "sha256:b34d5d9c69280716276bb472e7165df4276312259a9c81aefe6b67303d327502"
+    binary_checksum:
+      felix-sc3: "sha256:b34d5d9c69280716276bb472e7165df4276312259a9c81aefe6b67303d327502"
+      pacca-a100: "sha256:ea5617f7cedaca400aa312af4175d4ebc4de5255e5cd97b363589992411bc2df"
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
 
@@ -94,7 +100,9 @@ kernels:
     warmup_seconds: 0.3
     estimated_memory_bytes: 536870912
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
-    binary_checksum: "sha256:6eba21f92fc8bb65824d5f6a7a0f34c038eb65e5d5b7643ddc69520721f84d10"
+    binary_checksum:
+      felix-sc3: "sha256:6eba21f92fc8bb65824d5f6a7a0f34c038eb65e5d5b7643ddc69520721f84d10"
+      pacca-a100: "sha256:5e439f4c4f9c64621c2fb9fff8d46687e18f53fddc6741716a71a79f64a0b612"
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
 
@@ -108,7 +116,9 @@ kernels:
     warmup_seconds: 1.0
     estimated_memory_bytes: 268435456
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
-    binary_checksum: "sha256:c9cdc9cb1a21551064f1eef75c5f1a81681a5c7d16f33d77205c19b2050f4fd5"
+    binary_checksum:
+      felix-sc3: "sha256:c9cdc9cb1a21551064f1eef75c5f1a81681a5c7d16f33d77205c19b2050f4fd5"
+      pacca-a100: "sha256:eacec7175972822f89c4a89eec5c883eace863e6c676051ee7381d0bfc915e4a"
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
 
@@ -122,7 +132,9 @@ kernels:
     warmup_seconds: 0.1
     estimated_memory_bytes: 268435456
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
-    binary_checksum: "sha256:25fd6c1a43ee6a0b7256fdb73e19ea7baabd22349f481c00aedca11af8156eac"
+    binary_checksum:
+      felix-sc3: "sha256:25fd6c1a43ee6a0b7256fdb73e19ea7baabd22349f481c00aedca11af8156eac"
+      pacca-a100: "sha256:25f4ca2b4b086469a26517002aa8a8de84c03e2a8837b6ed184fc13af33a4a87"
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
 
@@ -136,7 +148,9 @@ kernels:
     warmup_seconds: 0.5
     estimated_memory_bytes: 536870912
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
-    binary_checksum: "sha256:aa7d6a201e8ac1c2a39d8ab1f6b08b1cbb399f4b692fa750093e029070afee72"
+    binary_checksum:
+      felix-sc3: "sha256:aa7d6a201e8ac1c2a39d8ab1f6b08b1cbb399f4b692fa750093e029070afee72"
+      pacca-a100: "sha256:63600e568ee4180f40bbbd1ceb79974d578eeb28b8d2b3b3588fa1d1ae2d4dee"
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
 
@@ -150,7 +164,9 @@ kernels:
     warmup_seconds: 1.0
     estimated_memory_bytes: 268435456
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
-    binary_checksum: "sha256:22499545e3bf2546320ca9826de930b6a772ce74bb8b8a30f1a44d10d9c3eaf5"
+    binary_checksum:
+      felix-sc3: "sha256:22499545e3bf2546320ca9826de930b6a772ce74bb8b8a30f1a44d10d9c3eaf5"
+      pacca-a100: "sha256:2b74745a3644a62b0d4d6caff5738ae22b0782dcb9ff1bac6e8ae979843ebb06"
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
 
@@ -165,6 +181,8 @@ kernels:
     warmup_seconds: 0.5
     estimated_memory_bytes: 134217728 # 3 arreglos x 2048^2 x 8 B ~= 96 MB, con margen
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
-    binary_checksum: "sha256:289e373178e6f4d0c949fa324c39b3caee6a19b42653a941157298a87b5176ad"
+    binary_checksum:
+      felix-sc3: "sha256:289e373178e6f4d0c949fa324c39b3caee6a19b42653a941157298a87b5176ad"
+      pacca-a100: "sha256:a7f6919efa28ebf5a9341c9bfbb5463b139209ea4928712e3872cc1da311d06b"
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
