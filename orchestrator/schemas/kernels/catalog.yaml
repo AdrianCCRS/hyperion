@@ -74,19 +74,25 @@ kernels:
       felix-sc3: "sha256:aafd773346eb05a51a77720e08f45e7bd4cfc5aae31bc25d9f1273c49ed0e0d9"
       pacca-a100: "sha256:c3480c9221f8da217254308ef6fa6c85ddcd04176f3c91ba9a0adec59e14f9b1"
 
-  - id: npb_ep
+  # npb_ep se quitó del catálogo (2026-08-06): su "Mop/s total" reporta
+  # "Operation type = Random numbers generated" en su propio stdout, no
+  # punto flotante -- usarlo como FLOPs/s en operational_intensity es un
+  # error de unidades. Además, EP casi no toca memoria (delta_cache_misses
+  # con mediana 0), así que >87% de sus ventanas ya salían
+  # intensity_undefined de por sí. Reemplazado por npb_bt (confirmado
+  # "Operation type = floating point" en pacca).
+  - id: npb_bt
     suite: NPB-OMP
     role: dataset
-    exec_path: bin/ep.B.x
-    phase_label_hint: compute_bound
+    exec_path: bin/bt.B.x
+    phase_label_hint: intermedio # sin confirmar en literatura para este hardware -- que lo diga la medición real, no un supuesto
     size_variant: B
-    expected_runtime_seconds: 8 # medido en felix (8 cores, nomultithread): 5.9 s
+    expected_runtime_seconds: 30 # medido en pacca (6 hilos, pinned): 24.55 s
     warmup_seconds: 0.5
-    estimated_memory_bytes: 268435456
+    estimated_memory_bytes: 536870912 # medido en pacca: 181576 KB de pico, con margen
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
-      felix-sc3: "sha256:b34d5d9c69280716276bb472e7165df4276312259a9c81aefe6b67303d327502"
-      pacca-a100: "sha256:ea5617f7cedaca400aa312af4175d4ebc4de5255e5cd97b363589992411bc2df"
+      pacca-a100: "sha256:9d07435d10dab4eec6c494df502c074dd9261088cc9c96f32ad1c17e86b6590c"
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
 
@@ -122,19 +128,27 @@ kernels:
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
 
-  - id: npb_is
+  # npb_is se quitó del catálogo (2026-08-06): su "Mop/s total" reporta
+  # "Operation type = keys ranked" (sort entero, no punto flotante) --
+  # mismo error de unidades que npb_ep. A diferencia de EP, en IS sí
+  # importaba: su relación operaciones/bytes cae cerca del ridge point, así
+  # que la unidad incorrecta volteaba la clasificación de forma inestable
+  # (61-78% según la corrida, nunca consistente). También se probó npb_ua
+  # (Unstructured Adaptive) como candidato -- descartado por la misma razón
+  # ("Operation type = coll. point advanced", tampoco es FLOPs). Reemplazado
+  # por npb_sp (confirmado "Operation type = floating point" en pacca).
+  - id: npb_sp
     suite: NPB-OMP
     role: dataset
-    exec_path: bin/is.B.x
-    phase_label_hint: memory_bound
+    exec_path: bin/sp.B.x
+    phase_label_hint: intermedio # sin confirmar en literatura para este hardware -- que lo diga la medición real, no un supuesto
     size_variant: B
-    expected_runtime_seconds: 3 # medido en felix: 0.8-1.6 s (el más corto de los seis)
-    warmup_seconds: 0.1
-    estimated_memory_bytes: 268435456
+    expected_runtime_seconds: 20 # medido en pacca (6 hilos, pinned): 16.87 s
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 536870912 # medido en pacca: 189612 KB de pico, con margen
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
-      felix-sc3: "sha256:25fd6c1a43ee6a0b7256fdb73e19ea7baabd22349f481c00aedca11af8156eac"
-      pacca-a100: "sha256:25f4ca2b4b086469a26517002aa8a8de84c03e2a8837b6ed184fc13af33a4a87"
+      pacca-a100: "sha256:453037bec2db3748bf2572dee0c5c6480b9ba2a1e9ce2a9332fb348720752fe1"
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
 
