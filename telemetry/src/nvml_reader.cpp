@@ -62,7 +62,13 @@ namespace telemetry {
         if(nvmlDeviceGetPowerUsage(device_, &power_mw) != NVML_SUCCESS) return false;
         sample.power_mw = power_mw;
 
-        nvmlUtilizationRates_t util{};
+        // ARC-69: the real NVML type is nvmlUtilization_t, not
+        // nvmlUtilizationRates_t -- confirmed against the real header on
+        // paccaA100 (CUDA 12.0). The wrong name compiled locally against a
+        // hand-written stub that happened to reuse the same (wrong) name,
+        // so this was never caught until building with WITH_GPU=ON against
+        // a real nvml.h for the first time.
+        nvmlUtilization_t util{};
         if(nvmlDeviceGetUtilizationRates(device_, &util) != NVML_SUCCESS) return false;
         sample.util_pct = util.gpu;
         out = sample;
