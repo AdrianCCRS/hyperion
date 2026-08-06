@@ -1,0 +1,135 @@
+# Catálogo de solo-prueba (2026-08-06): NPB clase C, usado exclusivamente
+# para estresar el pipeline con corridas más largas/pesadas que la clase B
+# de producción (catalog.yaml) -- NO es el catálogo del dataset final, no
+# reemplaza catalog.yaml. Mismos 6 kernels floating-point confirmados
+# (npb_bt/npb_sp reemplazaron a npb_ep/npb_is, ARC-57) más npb_mg/npb_cg/
+# npb_ft/npb_lu, compilados clase C en pacca (2026-08-06) y medidos con 6
+# hilos pinneados a cores 0-5 (mismo esquema que la campaña real):
+#   mg.C: 7.52s, 3494152 KB pico
+#   cg.C: 23.61s, 914200 KB pico
+#   sp.C: 70.40s, 743372 KB pico
+#   ft.C: 17.98s, 5270064 KB pico
+#   lu.C: 68.55s, 576368 KB pico
+#   bt.C: 101.85s, 711680 KB pico
+# expected_runtime_seconds declara el tiempo medido real (runner.py aplica
+# su propio SAFETY_MARGIN=3.0x automáticamente, no hay que pre-multiplicar).
+# estimated_memory_bytes con margen generoso sobre el pico medido.
+
+kernels:
+  - id: npb_mg_c
+    suite: NPB-OMP
+    role: dataset
+    exec_path: bin/mg.C.x
+    phase_label_hint: memory_bound
+    size_variant: C
+    expected_runtime_seconds: 8
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 4294967296
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:e5cd4e5fbdd4ce4a43a42995b9394fc47a6cb699f8483574f3c58e448a0df03e"
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+
+  - id: npb_cg_c
+    suite: NPB-OMP
+    role: dataset
+    exec_path: bin/cg.C.x
+    phase_label_hint: memory_bound
+    size_variant: C
+    expected_runtime_seconds: 25
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 1073741824
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:fab8297c326e28dcc77baf4dbad0d192953b829797cebcf9df1032f52ba9ef58"
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+
+  - id: npb_sp_c
+    suite: NPB-OMP
+    role: dataset
+    exec_path: bin/sp.C.x
+    phase_label_hint: intermedio
+    size_variant: C
+    expected_runtime_seconds: 75
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 1073741824
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:c5ed2db7b33eb2c8d9c81b074a232871104fefc1a58de2f550b7730bdb31b6ff"
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+
+  - id: npb_ft_c
+    suite: NPB-OMP
+    role: dataset
+    exec_path: bin/ft.C.x
+    phase_label_hint: intermedio
+    size_variant: C
+    expected_runtime_seconds: 20
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 6442450944
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:0c06d1e7a039ca11829fdb790ae6c091fe38fbacd294399230241ac769a87b46"
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+
+  - id: npb_lu_c
+    suite: NPB-OMP
+    role: dataset
+    exec_path: bin/lu.C.x
+    phase_label_hint: intermedio
+    size_variant: C
+    expected_runtime_seconds: 72
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 1073741824
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:3d284de6fadb91ad1ec3f63b39deed4cce1ba2e5f79ac2a888c8ff125a4c7d89"
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+
+  - id: npb_bt_c
+    suite: NPB-OMP
+    role: dataset
+    exec_path: bin/bt.C.x
+    phase_label_hint: intermedio
+    size_variant: C
+    expected_runtime_seconds: 105
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 1073741824
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:1ce634c48cfce848d12877dc23d66229c20d29ebdfe93e8b7dddc587181e4aad"
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+
+  # Calibración: reusa los mismos binarios de siempre (stream_c/ert_probe
+  # no dependen de la clase NPB) -- se copian aquí porque calibration_path
+  # apunta a este catálogo separado, que necesita sus propias entradas de
+  # calibración para que calibration.py las resuelva.
+  - id: stream_official
+    suite: STREAM
+    role: calibration
+    exec_path: bin/stream_c
+    reports_bandwidth_stdout: true
+    bandwidth_stdout_pattern: "Triad:\\s+([0-9.]+)"
+    bandwidth_stdout_unit_multiplier: 1000000
+    success_check: {type: stdout_regex, pattern: "Solution Validates"}
+    binary_checksum:
+      pacca-a100: "sha256:2d473205b0d3f1cc0ac562c2bd486f7f634741b39f81eb621e18631a05636723"
+    estimated_memory_bytes: 1536000000
+
+  - id: ert_probe
+    suite: ERT
+    role: calibration
+    exec_path: bin/ert_probe
+    reports_flops_stdout: true
+    flops_stdout_pattern: "GFLOPs/sec:\\s+([0-9.]+)"
+    flops_stdout_unit_multiplier: 1000000000
+    success_check: {type: exit_code}
+    estimated_memory_bytes: 67108864
+    binary_checksum:
+      pacca-a100: "sha256:c3480c9221f8da217254308ef6fa6c85ddcd04176f3c91ba9a0adec59e14f9b1"
