@@ -90,7 +90,7 @@ namespace telemetry {
         /**
          * @brief Whether the optional L2_LINES_IN_ALL counter is live.
          *
-         * ARC-62: raw event (event=0xF1, umask=0x1F), no generic
+         * ARC-63: raw event (event=0xF1, umask=0x1F), no generic
          * PERF_TYPE_HARDWARE mapping exists for it at all, so it is only
          * ever attempted on the Ice Lake-SP family/model this encoding was
          * validated on (same gate as has_stalled_cycles_backend's fallback).
@@ -112,7 +112,7 @@ namespace telemetry {
             // chosen over stalled-cycles-frontend because it is the counter
             // that discriminates memory-bound stalls, the exact ambiguity
             // ARC-27 flagged as unresolved for phase_label_train; L2_LINES_IN_ALL
-            // (ARC-62) is the permanent, always-on version of the one-off
+            // (ARC-63) is the permanent, always-on version of the one-off
             // bias cross-check from ARC-60. Only the first kCoreEventCount
             // are mandatory; the rest degrade to -1 (unavailable) instead of
             // aborting open().

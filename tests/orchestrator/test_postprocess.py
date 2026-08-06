@@ -161,7 +161,7 @@ def test_stalled_cycles_backend_delta_y_ratio_se_calculan(tmp_path):
 
 
 def test_l2_lines_in_all_delta_y_bytes_moved_l2_proxy_se_calculan(tmp_path):
-    # ARC-62: mismo patron que stalled_cycles_backend -- delta crudo y una
+    # ARC-63: mismo patron que stalled_cycles_backend -- delta crudo y una
     # columna comparable a bytes_moved_window (mismo multiplicador de
     # tamano de linea), pensada como cruce independiente del sesgo de
     # bytes_moved_window (F3.4/ARC-33, cuantificado por kernel en ARC-60).
@@ -183,7 +183,7 @@ def test_l2_lines_in_all_delta_y_bytes_moved_l2_proxy_se_calculan(tmp_path):
 
 
 def test_l2_lines_in_all_no_soportado_no_afecta_bytes_moved_window(tmp_path):
-    # Ausente en el CSV (nodo que no lo abre, ARC-62): debe comportarse como
+    # Ausente en el CSV (nodo que no lo abre, ARC-63): debe comportarse como
     # "no medido aqui" -- ni pmu_degraded ni contamina bytes_moved_window,
     # que sigue calculandose exclusivamente con cache_misses.
     samples = tmp_path / "samples.csv"
