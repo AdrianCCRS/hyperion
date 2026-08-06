@@ -73,14 +73,37 @@ namespace telemetry {
         /** @return true while the reader has open perf file descriptors. */
         bool is_open() const noexcept { return !fds_.empty(); }
 
+        /**
+         * @brief Whether the optional stalled-cycles-backend counter is live.
+         *
+         * ARC-50: confirmed empirically on paccaA100 (Ice Lake, RHEL8 kernel
+         * 4.18.0-553.109.1) that PERF_COUNT_HW_STALLED_CYCLES_BACKEND is not
+         * mapped at all (perf_event_open fails with ENOENT), while the other
+         * 4 generic events open fine -- a kernel/PMU-table gap, not a
+         * permission problem. Unlike the 4 core events, this one must never
+         * abort the whole reader if it is unavailable.
+         */
+        bool has_stalled_cycles_backend() const noexcept {
+            return is_open() && fds_[kStalledCyclesBackend] >= 0;
+        }
+
         private:
             // Fixed open order, also the read/index order: instructions, cycles,
-            // cache references, cache misses.
+            // cache references, cache misses, stalled cycles (backend). D05/
+            // ARC-37 measured 5 simultaneous generic PERF_TYPE_HARDWARE events
+            // as the multiplexing-free budget on felix -- this is the 5th slot,
+            // chosen over stalled-cycles-frontend because it is the counter
+            // that discriminates memory-bound stalls, the exact ambiguity
+            // ARC-27 flagged as unresolved for phase_label_train. Only the
+            // first kCoreEventCount are mandatory; the rest degrade to -1
+            // (unavailable) instead of aborting open().
             static constexpr size_t kInstructions = 0;
             static constexpr size_t kCycles = 1;
             static constexpr size_t kCacheReferences = 2;
             static constexpr size_t kCacheMisses = 3;
-            static constexpr size_t kEventCount = 4;
+            static constexpr size_t kStalledCyclesBackend = 4;
+            static constexpr size_t kCoreEventCount = 4;
+            static constexpr size_t kEventCount = 5;
 
             pid_t pid_;
             int   cpu_;

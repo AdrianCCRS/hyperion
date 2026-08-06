@@ -21,6 +21,7 @@ REQUIRED_OUTPUT_COLUMNS: tuple[str, ...] = (
     "freq_level_id", "freq_khz_requested", "freq_khz_applied", "freq_khz_observed",
     "window_index", "t_start_ns", "t_end_ns", "delta_t_ns",
     "delta_instructions", "delta_cycles", "delta_cache_references", "delta_cache_misses",
+    "delta_stalled_cycles_backend", "stall_backend_ratio",
     "ipc", "llc_miss_rate", "mpki", "ips",
     "ipc_relative", "mpki_relative", "miss_rate_relative",
     "delta_running_ns", "delta_enabled_ns", "running_ratio",
@@ -167,6 +168,18 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
     if not cpu_rows:
         return []
 
+    # ARC-50: stalled_cycles_backend is a per-NODE capability, not a
+    # per-window one -- some kernel/PMU combinations (paccaA100, confirmed
+    # empirically) never map this event, and the launcher writes it as an
+    # empty column for every row of the run when that happens (never "0",
+    # which would look like a real reading). Treat that uniform absence as
+    # "not measured here", never as pmu_degraded; a genuinely missing value
+    # on a node that DOES support the counter elsewhere in the same run is
+    # still a real anomaly and keeps triggering pmu_degraded below.
+    stall_backend_supported = any(
+        r.get("stalled_cycles_backend") not in (None, "") for r in cpu_rows
+    )
+
     run_total_instructions = _to_int(cpu_rows[-1].get("instructions"))
     run_start_ns = int(cpu_rows[0]["timestamp_ns"])
     warmup_end_ns = run_start_ns + int(context.warmup_seconds * 1_000_000_000)
@@ -199,6 +212,10 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
         delta_cycles = _delta(_to_int(cur.get("cycles")), _to_int(prev.get("cycles")))
         delta_cache_references = _delta(_to_int(cur.get("cache_references")), _to_int(prev.get("cache_references")))
         delta_cache_misses = _delta(_to_int(cur.get("cache_misses")), _to_int(prev.get("cache_misses")))
+        delta_stalled_cycles_backend = (
+            _delta(_to_int(cur.get("stalled_cycles_backend")), _to_int(prev.get("stalled_cycles_backend")))
+            if stall_backend_supported else None
+        )
         delta_running_ns = _delta(_to_int(cur.get("time_running_ns")), _to_int(prev.get("time_running_ns")))
         delta_enabled_ns = _delta(_to_int(cur.get("time_enabled_ns")), _to_int(prev.get("time_enabled_ns")))
 
@@ -206,8 +223,15 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
         # mid-window (no wrap-correction is attempted for perf counters,
         # unlike RAPL which the launcher already corrects). A missing field
         # is treated the same way: the window is kept but flagged
-        # pmu_degraded, never silently fixed up or imputed.
-        core_deltas = (delta_instructions, delta_cycles, delta_cache_references, delta_cache_misses)
+        # pmu_degraded, never silently fixed up or imputed. stalled_cycles_backend
+        # only participates in this gate on nodes that support it (ARC-50) --
+        # otherwise every window on an unsupported node would be flagged
+        # degraded for a counter that was never going to exist.
+        core_deltas = (
+            (delta_instructions, delta_cycles, delta_cache_references, delta_cache_misses, delta_stalled_cycles_backend)
+            if stall_backend_supported
+            else (delta_instructions, delta_cycles, delta_cache_references, delta_cache_misses)
+        )
         counters_negative = any(value is not None and value < 0 for value in core_deltas)
         counters_missing = any(value is None for value in core_deltas)
 
@@ -222,6 +246,7 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
         row["delta_cycles"] = delta_cycles
         row["delta_cache_references"] = delta_cache_references
         row["delta_cache_misses"] = delta_cache_misses
+        row["delta_stalled_cycles_backend"] = delta_stalled_cycles_backend
         row["delta_running_ns"] = delta_running_ns
         row["delta_enabled_ns"] = delta_enabled_ns
         row["running_ratio"] = running_ratio
@@ -236,8 +261,18 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
             row["llc_miss_rate"] = (
                 delta_cache_misses / delta_cache_references if delta_cache_references else None
             )
+            # Fracción de ciclos parados en el backend (recursos de ejecución
+            # ocupados, típicamente espera de memoria) -- la señal directa que
+            # ARC-27 identificó como la que phase_label_train necesitaba y
+            # que hasta ahora se rodeaba indirectamente via cache_misses.
+            row["stall_backend_ratio"] = (
+                delta_stalled_cycles_backend / delta_cycles
+                if delta_cycles and delta_stalled_cycles_backend is not None
+                else None
+            )
         else:
             row["ips"] = row["ipc"] = row["mpki"] = row["llc_miss_rate"] = None
+            row["stall_backend_ratio"] = None
 
         if context.calibration_references is not None:
             row["ipc_relative"] = _relative(row["ipc"], context.calibration_references.ipc_p95)
@@ -337,6 +372,8 @@ def _base_row(context: WindowContext, *, window_index: int) -> dict[str, Any]:
         "delta_cycles": None,
         "delta_cache_references": None,
         "delta_cache_misses": None,
+        "delta_stalled_cycles_backend": None,
+        "stall_backend_ratio": None,
         "ipc": None,
         "llc_miss_rate": None,
         "mpki": None,
