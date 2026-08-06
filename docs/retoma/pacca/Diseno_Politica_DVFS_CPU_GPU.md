@@ -182,6 +182,30 @@ sobre su propio actuador.
 mínimo **sin siquiera consultar a `modelo_cpu`** en esa ventana. El loop GPU
 nunca necesita saber nada del loop CPU. El porqué de esta regla, en detalle:
 
+### 4.0 Aclaración importante (2026-08-06, ARC-66): este diagrama es el daemon de Fase 3, no el colector de Fase 1
+
+El diagrama de arriba describe el **daemon** (Python, todavía sin construir,
+Fase 3) — ahí "dos loops independientes" es literal: cada uno solo consume
+telemetría ya recolectada y decide sobre su propio actuador, así que sí
+pueden ser dos hilos (o incluso dos procesos) genuinamente separados.
+
+**Eso no aplica al colector C++ que ya existe hoy** (`telemetry/src/collector.cpp`,
+usado en Fase 1 para recolectar el dataset de entrenamiento). Ahí hay una
+restricción de hardware/diseño que no se puede rodear: el `SPSCRing` que
+conecta el hilo productor con el consumidor es **estrictamente de un solo
+productor** (`spsc_ring.hpp`, verificado antes de intentar nada). No se puede
+agregar un segundo hilo productor de GPU sin romper esa garantía lock-free.
+
+**Por eso, a nivel del colector, CPU/RAPL/GPU comparten el mismo hilo
+productor** — lo único que se logró (ARC-66) fue que NVML ya no se consulta
+en cada tick de 1 ms junto con Perf/RAPL, sino que ese mismo hilo tiene una
+compuerta de tiempo (`CollectorConfig::gpu_interval_ns`, 100 ms por defecto):
+solo llama a NVML cuando ya pasó ese tiempo desde la última lectura. Es una
+cadencia distinta dentro de un solo hilo, no un segundo loop físico. La
+"arquitectura de dos loops" solo se vuelve literalmente cierta un nivel más
+arriba, en el daemon de Fase 3, que consume filas ya escritas por este único
+colector.
+
 ### 4.1 El caso spin-wait, resuelto con precisión
 
 Cuando el CPU espera a que la GPU termine (`cudaDeviceSynchronize()` o
