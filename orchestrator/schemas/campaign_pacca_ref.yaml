@@ -21,23 +21,16 @@
 # (16-23), ver Auditoria_PaccaA100_Unicartagena.md sección 3.
 #
 # hardware_datasheet: D03 (calibration.py) exige un valor declarado contra
-# el cual comparar la calibración real. HALLAZGO IMPORTANTE (2026-08-06):
-# runner.py NUNCA fija OMP_NUM_THREADS ni afinidad de CPU sobre el proceso
-# medido -- cores.delegated_cpus solo llega al launcher como --perf-cpus/
-# --collector-cpu/--consumer-cpu (telemetria), nunca como pin real del
-# workload. Confirmado: con OMP_NUM_THREADS sin fijar, ert_probe reporta
-# "OPENMP_THREADS 32" (todo el nodo, no los 6 cores delegados) y sus
-# GFLOPs/sec coinciden con lo que la propia campaña midio en su
-# calibracion real (188.4 vs 188.3 observado). Un primer intento de
-# referencia con OMP_NUM_THREADS=6 (y otro con taskset -c 0-5) quedo muy
-# por debajo de lo que la campaña realmente mide, porque la campaña no
-# esta restringida a 6 cores en la practica -- esto probablemente aplica
-# tambien a felix y a cualquier corrida previa del proyecto, pendiente de
-# investigar a fondo por separado (no bloqueante para esta campaña).
-# Valores usados aqui: medicion empirica SIN restringir hilos/afinidad,
-# igualando las condiciones reales bajo las que corre la calibracion:
-#   stream_c (default threads): Triad = 143455.7 MB/s -> 143455700000 B/s
-#   ert_probe (OPENMP_THREADS=32): GFLOPs/sec = 188.418 -> 188418000000 FLOP/s
+# el cual comparar la calibración real. HISTORIAL (2026-08-06): se encontró
+# que runner.py nunca restringía el proceso medido a cores.delegated_cpus
+# (ARC-55) -- la calibración corría con 32 hilos (todo el nodo) en vez de
+# los 6 delegados, y estos valores se habían ajustado para coincidir con
+# ESE comportamiento sin corregir. Con ARC-55 corregido (--pin-workload-cpus
+# + OMP_NUM_THREADS reales), se vuelve a la medición acotada a 6 cores
+# (taskset -c 0-5, OMP_NUM_THREADS=6), que ahora sí representa lo que la
+# campaña realmente mide:
+#   stream_c (6 hilos, pinned 0-5): Triad = 58353.9 MB/s -> 58353900000 B/s
+#   ert_probe (6 hilos, pinned 0-5): GFLOPs/sec = 72.004 -> 72004000000 FLOP/s
 
 campaign_id: pacca_ref_full_20260806
 environment_tier: hpc_sc3
@@ -94,5 +87,5 @@ timeouts_seconds:
   shutdown: 15
 
 hardware_datasheet:
-  bw_pico_bytes_per_s: 143455700000
-  p_pico_flops_per_s: 188418000000
+  bw_pico_bytes_per_s: 58353900000
+  p_pico_flops_per_s: 72004000000
