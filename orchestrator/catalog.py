@@ -59,8 +59,16 @@ class KernelEntry:
     flops_rate_stdout_pattern: str | None = None
     runtime_seconds_stdout_pattern: str | None = None
     exec_args: str = ""
+    # ARC-70: "cpu" (default) o "gpu". Un kernel gpu necesita --enable-gpu en
+    # el launcher (telemetria NVML) y el shim LD_PRELOAD que fuerza
+    # cudaDeviceScheduleBlockingSync (ver runner.py/gpu_shim.py) -- ningún
+    # otro campo del catálogo cambia de significado por esto, es puramente
+    # una bandera de qué wiring adicional aplica en runner.py.
+    device: str = "cpu"
 
     def __post_init__(self):
+        if self.device not in ("cpu", "gpu"):
+            raise ValueError(f"CAT-09: device de {self.id!r} debe ser 'cpu' o 'gpu', no {self.device!r}")
         self.validate_role_requirements()
         # CAT-03 / C03: validate the check type and compile regexes before runs.
         if not isinstance(self.success_check, dict):
@@ -178,6 +186,7 @@ def load_catalog(catalog_path: str) -> dict[str, KernelEntry]:
             flops_rate_stdout_pattern=kernel.get("flops_rate_stdout_pattern"),
             runtime_seconds_stdout_pattern=kernel.get("runtime_seconds_stdout_pattern"),
             exec_args=kernel.get("exec_args", ""),
+            device=kernel.get("device", "cpu"),
         )
         if not isinstance(entry.exec_args, str):
             raise ValueError(f"CAT-06: exec_args de {entry.id!r} debe ser un string")

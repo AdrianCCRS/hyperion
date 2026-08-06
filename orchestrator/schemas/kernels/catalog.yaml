@@ -184,6 +184,103 @@ kernels:
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
 
+  # ARC-70: primeros kernels GPU del catalogo (Fase 1 de
+  # docs/general/plan_trabajo_grado.md -- caracterizacion, sin modelo ni
+  # control de reloj todavia, ver Diseno_Politica_DVFS_CPU_GPU.md). Solo
+  # pacca-a100 en binary_checksum -- felix no tiene GPU. device: gpu activa
+  # --enable-gpu + el shim LD_PRELOAD de blocking-sync en runner.py.
+
+  - id: gpu_stream_bw
+    suite: BabelStream
+    role: calibration
+    device: gpu
+    exec_path: bin/babelstream_cuda
+    exec_args: "--arraysize 100000000"
+    reports_bandwidth_stdout: true
+    bandwidth_stdout_pattern: "Triad\\s+([0-9.]+)" # MB/s; confirmado contra stdout real en paccaA100 (ARC-70)
+    bandwidth_stdout_unit_multiplier: 1000000 # MB/s -> B/s, mismo criterio que stream_official
+    success_check: {type: exit_code}
+    estimated_memory_bytes: 2952790016 # 3 arreglos x 100_000_000 x 8 B = 2.4 GB, con margen
+    binary_checksum:
+      pacca-a100: "sha256:a7f2f4aee20c8d3fc3bb0e56faa0f49237f99634661f7032cd7d35a4789bd881"
+
+  - id: gpu_dgemm_calibration
+    suite: cuBLAS-DGEMM
+    role: calibration
+    device: gpu
+    exec_path: bin/cublas_dgemm_bench
+    exec_args: "--size 4096 --iterations 10"
+    reports_flops_stdout: true
+    flops_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)" # confirmado contra stdout real en paccaA100 (ARC-70)
+    flops_stdout_unit_multiplier: 1000000 # Mop/s -> op/s
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    estimated_memory_bytes: 536870912 # 3 matrices 4096^2 x 8 B ~= 384 MB, con margen
+    binary_checksum:
+      pacca-a100: "sha256:cbed7c396cd70b4db81046d5a875847ed821e7f53029a88cbbd24b95f81b36e7"
+
+  # Mismo binario que gpu_dgemm_calibration, id distinto porque aqui juega
+  # el rol de dataset (compute_bound), no de calibracion -- exactamente el
+  # mismo patron que dgemm_n2048 en CPU. Empiricamente confirmado con ncu
+  # (ARC-70): 68.0 FLOP/byte, muy por encima de i_ridge_gpu (~7.4 FLOP/byte
+  # medido con esta misma pareja de calibracion) -- compute_bound real, no
+  # solo asumido porque "DGEMM siempre es compute-bound".
+  - id: gpu_dgemm_n4096
+    suite: cuBLAS-DGEMM
+    role: dataset
+    device: gpu
+    exec_path: bin/cublas_dgemm_bench
+    exec_args: "--size 4096 --iterations 10"
+    phase_label_hint: compute_bound
+    size_variant: N4096
+    expected_runtime_seconds: 5 # medido en paccaA100: 0.13 s (10 iter)
+    warmup_seconds: 1.0 # contexto CUDA/cuBLAS tiene costo de inicializacion propio
+    estimated_memory_bytes: 536870912
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:cbed7c396cd70b4db81046d5a875847ed821e7f53029a88cbbd24b95f81b36e7"
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+
+  # Rodinia (terceros, sin modificar -- mismo principio que NPB en CPU).
+  # phase_label_hint=intermedio a propósito: la literatura de Rodinia lo
+  # cita como compute-intensive, pero la medición real con ncu (ARC-70) dio
+  # 5.03 FLOP/byte, por DEBAJO de i_ridge_gpu (~7.4) -- memory_bound
+  # empíricamente, no lo que asumía la literatura. Mismo criterio que
+  # npb_bt/npb_sp (ARC-57): que lo diga la medición, no el hint.
+  - id: rodinia_hotspot
+    suite: Rodinia
+    role: dataset
+    device: gpu
+    exec_path: bin/rodinia_hotspot
+    exec_args: "2048 2 1000 data/hotspot/temp_2048 data/hotspot/power_2048 data/hotspot/output.out"
+    phase_label_hint: intermedio
+    size_variant: "2048x2048_sim1000"
+    expected_runtime_seconds: 10 # medido en paccaA100: 2.6 s
+    warmup_seconds: 1.0
+    estimated_memory_bytes: 134217728 # 3 arreglos 2048^2 x 4 B ~= 50 MB, con margen
+    success_check: {type: exit_code}
+    binary_checksum:
+      pacca-a100: "sha256:4573ce8b697170befd1b4570e7af29483069352cb4fa3885bcea3f7bd43cdec4"
+
+  # Rodinia (terceros). phase_label_hint=memory_bound: literatura Y medición
+  # real coinciden (ncu, ARC-70: 0.087 FLOP/byte, muy por debajo de
+  # i_ridge_gpu) -- acceso irregular a memoria (backpropagation), casi sin
+  # reuso aritmético por byte movido.
+  - id: rodinia_backprop
+    suite: Rodinia
+    role: dataset
+    device: gpu
+    exec_path: bin/rodinia_backprop
+    exec_args: "524288"
+    phase_label_hint: memory_bound
+    size_variant: "524288"
+    expected_runtime_seconds: 5 # medido en paccaA100: 0.5 s
+    warmup_seconds: 1.0
+    estimated_memory_bytes: 268435456 # con margen sobre ~187 MB de trafico DRAM medido con ncu
+    success_check: {type: exit_code}
+    binary_checksum:
+      pacca-a100: "sha256:5c7c2644ec621001225e90b35e1b069e6e740166a10aaed2d3cb9c6cc52bc05c"
+
   - id: dgemm_n2048
     suite: DGEMM-OpenBLAS
     role: dataset

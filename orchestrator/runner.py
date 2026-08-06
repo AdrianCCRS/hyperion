@@ -14,6 +14,7 @@ from typing import Any, Callable, Iterable, Mapping
 
 from .catalog import KernelEntry, resolve_exec_command, verify_binary
 from .config import HarnessConfig, load_config
+from .gpu_shim import compiled_blocking_sync_shim, cuda_lib_dir
 from .metadata_schema import merge_metadata
 
 logger = logging.getLogger(__name__)
@@ -120,6 +121,16 @@ def build_command(
             dram_path = domain_paths.get(f"dram-package-{numa_node}")
             if dram_path:
                 command += ["--rapl-dram", dram_path]
+    # ARC-70: kernels GPU (Rodinia u otros del catálogo con device="gpu")
+    # necesitan que el Collector muestree NVML -- el launcher ya soporta
+    # --enable-gpu/--gpu-interval-ns (ARC-68), solo faltaba conectarlo desde
+    # el catálogo. gpu_interval_ns es opcional en el manifiesto; si no se
+    # declara, se omite el flag y el launcher usa su propio default (100ms).
+    if getattr(entry, "device", "cpu") == "gpu":
+        command.append("--enable-gpu")
+        gpu_interval_ns = getattr(manifest, "gpu_interval_ns", None)
+        if gpu_interval_ns is not None:
+            command += ["--gpu-interval-ns", str(gpu_interval_ns)]
     return command
 
 
@@ -282,6 +293,27 @@ def run_single(
     # justifica; ninguno de los dos por separado alcanza.
     run_env = dict(os.environ)
     run_env["OMP_NUM_THREADS"] = str(len(manifest.cores.delegated_cpus))
+    # ARC-70: cudaDeviceSynchronize() hace spin por defecto -- un CPU
+    # esperando a la GPU se ve compute_bound (IPC alto, casi cero
+    # cache-misses) para el clasificador, un error real, no solo ruido (ver
+    # Diseno_Politica_DVFS_CPU_GPU.md sección 3.5.a/4.1). El shim LD_PRELOAD
+    # fuerza cudaDeviceScheduleBlockingSync sin tocar el binario de terceros
+    # (Rodinia). Si no se puede compilar en este nodo (sin nvcc/CUDA), la
+    # corrida sigue -- degradación conocida, no un fallo duro, igual que
+    # stalled_cycles_backend/l2_lines_in_all cuando el nodo no los soporta.
+    if getattr(entry, "device", "cpu") == "gpu":
+        shim_path = compiled_blocking_sync_shim()
+        if shim_path is not None:
+            run_env["LD_PRELOAD"] = f"{shim_path}:{run_env.get('LD_PRELOAD', '')}".rstrip(":")
+        else:
+            logger.warning(
+                "ARC-70: no se pudo compilar el shim de blocking sync para %s -- "
+                "cudaDeviceSynchronize() hará spin (comportamiento por defecto de CUDA)",
+                kernel_ref,
+            )
+        lib_dir = cuda_lib_dir()
+        if lib_dir is not None:
+            run_env["LD_LIBRARY_PATH"] = f"{lib_dir}:{run_env.get('LD_LIBRARY_PATH', '')}".rstrip(":")
     # start_new_session=True makes the child its own process group leader, so
     # os.killpg(child.pid, ...) also reaches everything it forks (RUN-03/04).
     with open(stdout_path, "wb") as stdout_file, open(stderr_path, "wb") as stderr_file:

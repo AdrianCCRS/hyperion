@@ -15,7 +15,7 @@ from orchestrator.config import HarnessConfig
 FAKE_LAUNCHER = Path(__file__).resolve().parent / "fixtures" / "fake_launcher.py"
 
 
-def _make_entry(tmp_path: Path, *, success_check: dict | None = None) -> KernelEntry:
+def _make_entry(tmp_path: Path, *, success_check: dict | None = None, device: str = "cpu") -> KernelEntry:
     binary = tmp_path / "npb_ep.x"
     binary.write_bytes(b"#!/bin/sh\necho fake npb binary\n")
     binary.chmod(0o755)
@@ -32,6 +32,7 @@ def _make_entry(tmp_path: Path, *, success_check: dict | None = None) -> KernelE
         warmup_seconds=0.0,
         success_check=success_check or {"type": "stdout_regex", "pattern": "VERIFICATION SUCCESSFUL"},
         estimated_memory_bytes=1024,
+        device=device,
     )
 
 
@@ -79,6 +80,66 @@ def test_run01_sin_cgroup_path_no_agrega_la_bandera(tmp_path):
 def test_run02_run_id_determinista():
     run_id = runner.build_run_id("camp01", "npb_ep", "REF", 3)
     assert run_id == "camp01__npb_ep__REF__rep03"
+
+
+def test_arc70_build_command_agrega_enable_gpu_si_device_gpu(tmp_path):
+    entry = _make_entry(tmp_path, device="gpu")
+    manifest = _make_manifest(tmp_path)
+    command = runner.build_command(entry, manifest, "run_x", _harness())
+    assert "--enable-gpu" in command
+
+
+def test_arc70_build_command_sin_enable_gpu_si_device_cpu(tmp_path):
+    entry = _make_entry(tmp_path, device="cpu")
+    manifest = _make_manifest(tmp_path)
+    command = runner.build_command(entry, manifest, "run_x", _harness())
+    assert "--enable-gpu" not in command
+
+
+def test_arc70_build_command_agrega_gpu_interval_ns_si_esta_en_el_manifiesto(tmp_path):
+    entry = _make_entry(tmp_path, device="gpu")
+    manifest = _make_manifest(tmp_path)
+    manifest.gpu_interval_ns = 50_000_000
+    command = runner.build_command(entry, manifest, "run_x", _harness())
+    assert command[command.index("--gpu-interval-ns") + 1] == "50000000"
+
+
+def test_arc70_run_single_setea_ld_preload_y_library_path_para_gpu(tmp_path, monkeypatch):
+    monkeypatch.delenv("FAKE_LAUNCHER_BEHAVIOR", raising=False)
+    fake_shim = tmp_path / "fake_shim.so"
+    fake_shim.write_bytes(b"")
+    fake_cuda_lib = tmp_path / "cuda_lib"
+    fake_cuda_lib.mkdir()
+    monkeypatch.setattr(runner, "compiled_blocking_sync_shim", lambda: fake_shim)
+    monkeypatch.setattr(runner, "cuda_lib_dir", lambda: fake_cuda_lib)
+
+    entry = _make_entry(tmp_path, device="gpu")
+    manifest = _make_manifest(tmp_path)
+
+    result = runner.run_single(entry, manifest, "npb_ep", "REF", 1, harness=_harness())
+
+    assert result.success is True
+    assert result.metadata["observed_enable_gpu"] is True
+    assert result.metadata["observed_ld_preload"].startswith(str(fake_shim))
+    assert result.metadata["observed_ld_library_path"].startswith(str(fake_cuda_lib))
+
+
+def test_arc70_run_single_gpu_sin_shim_disponible_no_falla(tmp_path, monkeypatch, caplog):
+    monkeypatch.delenv("FAKE_LAUNCHER_BEHAVIOR", raising=False)
+    monkeypatch.setattr(runner, "compiled_blocking_sync_shim", lambda: None)
+    monkeypatch.setattr(runner, "cuda_lib_dir", lambda: None)
+
+    entry = _make_entry(tmp_path, device="gpu")
+    manifest = _make_manifest(tmp_path)
+
+    with caplog.at_level("WARNING"):
+        result = runner.run_single(entry, manifest, "npb_ep", "REF", 1, harness=_harness())
+
+    # ARC-70: sin CUDA en este nodo, la corrida sigue -- degradación conocida
+    # (spin en vez de bloqueo real), nunca un fallo duro.
+    assert result.success is True
+    assert result.metadata["observed_ld_preload"] == ""
+    assert "ARC-70" in caplog.text
 
 
 def test_run05_run06_run07_corrida_exitosa(tmp_path, monkeypatch):

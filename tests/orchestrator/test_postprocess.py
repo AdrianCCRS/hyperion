@@ -42,6 +42,14 @@ def _energy_row(*, repetition, ts, pkg_delta_uj, dram_delta_uj=0, valid=True):
     }
 
 
+def _gpu_row(*, repetition, ts, gpu_power_mw, gpu_util_pct):
+    return {
+        "run_id": "r", "repetition": repetition, "kernel": "k", "label": "k",
+        "timestamp_ns": ts, "tag": "GPU",
+        "gpu_power_mw": gpu_power_mw, "gpu_util_pct": gpu_util_pct,
+    }
+
+
 def _write_samples(path: Path, rows: list[dict]) -> None:
     with path.open("w", newline="", encoding="utf-8") as samples_file:
         writer = csv.DictWriter(samples_file, fieldnames=SAMPLES_HEADER, restval="")
@@ -425,6 +433,35 @@ def test_post14_trazabilidad_en_cada_fila(tmp_path):
         assert window["node_profile_ref"] == "cal/node_profile.json"
         assert window["calibration_ref"] == "cal/calibration_references.json"
         assert window["binary_checksum"] == "sha256:x"
+
+
+def test_arc70_filas_gpu_se_incluyen_como_passthrough_no_ventaneado(tmp_path):
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0),
+        _cpu_row(repetition=1, ts=1_001_000_000, instructions=2_000_000, cycles=1_000_000,
+                 cache_references=100_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000),
+        _gpu_row(repetition=1, ts=1_000_500_000, gpu_power_mw=36324, gpu_util_pct=0),
+        _gpu_row(repetition=1, ts=1_000_600_000, gpu_power_mw=36486, gpu_util_pct=15),
+    ])
+    windows = postprocess.build_windows(samples, _context())
+
+    gpu_rows = [w for w in windows if w["quality_status"] == "gpu_telemetry"]
+    assert len(gpu_rows) == 2
+    # ARC-70: passthrough puro -- ninguno de los campos de ventana de CPU
+    # (Roofline, PMU, energía) se calcula ni se infiere para estas filas.
+    assert gpu_rows[0]["gpu_power_mw"] == 36324
+    assert gpu_rows[0]["gpu_util_pct"] == 0
+    assert gpu_rows[0]["t_start_ns"] is None
+    assert gpu_rows[0]["delta_t_ns"] is None
+    assert gpu_rows[0]["operational_intensity"] is None
+    assert gpu_rows[0]["phase_label_train"] is None
+    assert gpu_rows[1]["gpu_power_mw"] == 36486
+    assert gpu_rows[1]["gpu_util_pct"] == 15
+    # Las ventanas de CPU no se contaminan con las columnas de GPU.
+    cpu_rows = [w for w in windows if w["quality_status"] != "gpu_telemetry"]
+    assert all(w["gpu_power_mw"] is None for w in cpu_rows)
 
 
 def test_post16_write_windows_csv_escribe_columnas_absolutas_y_relativas(tmp_path):
