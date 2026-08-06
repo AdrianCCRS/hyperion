@@ -144,6 +144,52 @@ dispositivos uncore de `paccaA100` obtenido el 2026-08-05.
 
 ---
 
+## P4. Control de frecuencia de GPU (`nvidia-smi -lgc` / NVML locked clocks)
+
+**Qué se pide:** capacidad de fijar el reloj de SM de la GPU A100 desde
+nuestros jobs, ya sea otorgando el privilegio al usuario para
+`nvidia-smi --lock-gpu-clocks` / `nvmlDeviceSetGpuLockedClocks`, o
+habilitando algún mecanismo equivalente que la administración prefiera (por
+ejemplo un wrapper con setuid restringido a valores de reloj válidos, o
+fijar el reloj a un valor solicitado al momento de asignar la reserva).
+
+**Confirmado por prueba directa (2026-08-06):** en el driver instalado
+(595.45.04, CUDA 13.2) la vía clásica de *application clocks* —que
+históricamente podía habilitarse para usuarios sin privilegios mediante
+`nvidia-smi --applications-clocks-permission=UNRESTRICTED`— **ya no existe**:
+`nvidia-smi -q -d CLOCK` responde `Applications Clocks: Requested
+functionality has been deprecated`. La única vía de control que queda en
+este driver es el bloqueo de reloj (`-lgc` / `nvmlDeviceSetGpuLockedClocks`),
+que exige privilegios de administrador. No hay ruta sin intervención de su
+lado.
+
+**Por qué se necesita:** el objetivo central del proyecto es medir el
+efecto del escalado de frecuencia sobre energía y rendimiento. Sin capacidad
+de fijar el reloj sólo podemos observar el comportamiento del *governor* por
+defecto, no comparar estados de frecuencia controlados — que es
+precisamente la variable independiente del experimento. Es el mismo pedido
+que P1 pero para el otro dispositivo del nodo.
+
+**Datos del nodo relevantes para dimensionar el pedido (ya verificados por
+nosotros, de solo lectura):** el A100 expone **81 valores de reloj de SM**
+soportados (765–1410 MHz) y **un único valor de reloj de memoria** (1215
+MHz, no ajustable) — es decir, el pedido se reduce a un solo eje de control,
+el reloj de SM. El límite de potencia del dispositivo es 250 W y **no
+pedimos modificarlo**. Nuestro uso sería dentro de jobs con el nodo en
+reserva exclusiva (`--exclusive`), y el estado se restauraría al terminar
+cada corrida (el pipeline ya implementa ese patrón de snapshot/restore para
+el lado CPU, con restauración garantizada incluso ante caída o
+interrupción del proceso).
+
+**Nota sobre `persistence mode`:** hoy está deshabilitado en el nodo. Si a
+la administración le resulta sencillo habilitarlo (`nvidia-smi -pm 1`), nos
+ayudaría a la reproducibilidad de las mediciones (evita que el driver se
+descargue entre corridas y que el reloj caiga a reposo de forma
+inconsistente), pero **no es un bloqueador** y lo mencionamos sólo como
+mejora opcional.
+
+---
+
 ## Resueltos, no requieren solicitud
 
 Para que quede claro en el correo qué **no** hace falta pedir:
@@ -153,9 +199,21 @@ Para que quede claro en el correo qué **no** hace falta pedir:
   como usuario normal, sin ningún permiso adicional**. A diferencia de
   otros nodos con los que hemos trabajado, aquí la medición de energía real
   ya funciona hoy.
-- **GPU (A100):** confirmado accesible con `srun --gres=gpu:1` +
-  `nvidia-smi` (A100-PCIe-40GB, driver 595.45.04, CUDA 13.2). No requiere
-  ningún permiso adicional.
+- **GPU (A100), acceso y ejecución:** confirmado accesible con `srun
+  --gres=gpu:1` + `nvidia-smi` (A100-PCIe-40GB, driver 595.45.04, CUDA
+  13.2). No requiere ningún permiso adicional. (El *control de frecuencia*
+  de esa GPU sí lo requiere — ver P4; lo que no hace falta pedir es el
+  acceso al dispositivo en sí.)
+- **Profiling de GPU con Nsight Compute (`ncu`):** confirmado empíricamente
+  el 2026-08-06 que **funciona para nuestro usuario sin privilegios** — se
+  compiló y perfiló un kernel CUDA propio mínimo obteniendo métricas reales
+  de tráfico de memoria (`dram__bytes.sum`, valor coherente con el cálculo
+  analítico del kernel). Esto es importante porque en muchas instalaciones
+  el profiling de GPU está restringido a administradores
+  (`NVreg_RestrictProfilingToAdminUsers`); **aquí no lo está y no pedimos
+  que cambie nada al respecto**. Es la vía por la que pensamos caracterizar
+  los kernels de GPU, sin costo para el clúster fuera del tiempo de cómputo
+  normal de nuestros jobs.
 - **Contadores por-PID (el mecanismo central de medición del proyecto):**
   confirmamos empíricamente, compilando y ejecutando un programa C mínimo
   que abre `perf_event_open` sobre un proceso hijo con `inherit=1` (el
@@ -178,9 +236,10 @@ Para que quede claro en el correo qué **no** hace falta pedir:
 >
 > Estamos desarrollando un proyecto de investigación que mide el
 > comportamiento de energía y rendimiento de cargas de cómputo en función
-> de la frecuencia de CPU (DVFS) sobre el nodo `paccaA100`. Ya hicimos un
-> diagnóstico completo de solo lectura del nodo (sin modificar nada
-> persistente) y necesitamos tres permisos puntuales para poder avanzar:
+> de la frecuencia de CPU y de GPU (DVFS) sobre el nodo `paccaA100`. Ya
+> hicimos un diagnóstico completo de solo lectura del nodo (sin modificar
+> nada persistente) y necesitamos cuatro permisos puntuales para poder
+> avanzar:
 >
 > **1. Escritura sobre control de frecuencia (cpufreq) en los cores que
 > Slurm nos asigne en `paccaA100`.** El nodo usa el driver `intel_pstate`,
@@ -218,10 +277,30 @@ Para que quede claro en el correo qué **no** hace falta pedir:
 > (`linux-tools`) — hoy no está en el nodo, lo cual no nos bloquea pero sí
 > dificulta cualquier diagnóstico rápido.
 >
+> **4. Control de frecuencia de la GPU A100** del nodo. Verificamos que en
+> el driver instalado (595.45.04) la vía tradicional de *application
+> clocks* está deprecada (`nvidia-smi` responde "Requested functionality
+> has been deprecated"), así que la única forma de fijar el reloj es
+> `nvidia-smi --lock-gpu-clocks`, que requiere privilegios de
+> administrador. ¿Podrían habilitarnos esa capacidad para nuestros jobs, o
+> proponernos el mecanismo que prefieran (por ejemplo un wrapper
+> restringido, o fijar el reloj al asignar la reserva)? Es el mismo pedido
+> que el punto 1 pero para la GPU: sin poder fijar el reloj sólo podemos
+> observar el comportamiento por defecto, no comparar estados de frecuencia
+> controlados, que es la variable central del estudio. Para dimensionarlo:
+> el pedido afecta un solo eje (el reloj de SM; el de memoria en este
+> modelo no es ajustable), **no** pedimos modificar el límite de potencia,
+> usaríamos el nodo en reserva exclusiva, y nuestro software restaura el
+> estado original al terminar cada corrida. Si además les resulta sencillo
+> habilitar `persistence mode` (`nvidia-smi -pm 1`) nos ayudaría a la
+> reproducibilidad, pero eso es opcional, no un bloqueador.
+>
 > Para que quede claro qué NO estamos pidiendo: ya confirmamos que la
 > medición de energía (RAPL) funciona sin ningún permiso adicional, así
-> como el mecanismo central de medición de rendimiento por proceso — ambos
-> ya operativos hoy en `paccaA100`.
+> como el mecanismo central de medición de rendimiento por proceso, el
+> acceso a la GPU en sí, y el profiling de GPU con Nsight Compute (`ncu`),
+> que en muchas instalaciones está restringido a administradores y aquí no
+> lo está — todos ya operativos hoy en `paccaA100` sin cambios de su lado.
 >
 > Quedamos atentos y con gusto compartimos el diagnóstico técnico completo
 > si es útil para evaluar la solicitud.
