@@ -35,6 +35,8 @@ def main() -> int:
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--cgroup-path")
     parser.add_argument("--no-perf", action="store_true")
+    parser.add_argument("--enable-gpu", action="store_true")
+    parser.add_argument("--gpu-interval-ns")
     args = parser.parse_args()
 
     run_dir = os.path.join(args.output_dir, args.run_id)
@@ -63,6 +65,11 @@ def main() -> int:
         "measured_pids": [os.getpid()],
         "samples_collected": 0,
         "push_retries": 0,
+        # ARC-70: exposed so tests can assert on what runner.py actually put
+        # in this process's environment, without mocking subprocess.Popen.
+        "observed_enable_gpu": args.enable_gpu,
+        "observed_ld_preload": os.environ.get("LD_PRELOAD", ""),
+        "observed_ld_library_path": os.environ.get("LD_LIBRARY_PATH", ""),
     }
     with open(os.path.join(run_dir, "metadata.json"), "w", encoding="utf-8") as metadata_file:
         json.dump(metadata, metadata_file)

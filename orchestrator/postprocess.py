@@ -30,11 +30,22 @@ REQUIRED_OUTPUT_COLUMNS: tuple[str, ...] = (
     "flops_window_estimate", "bytes_moved_window", "operational_intensity",
     "i_ridge_used", "roofline_calibration_ref", "node_profile_ref", "calibration_ref",
     "binary_checksum", "quality_status",
+    # ARC-70: filas GPU (tag=GPU en samples.csv) -- ver build_windows() y el
+    # comentario de quality_status="gpu_telemetry" abajo. Vacías en toda fila
+    # derivada de CPU/ENERGY.
+    "gpu_power_mw", "gpu_util_pct",
 )
 
 VALID_QUALITY_STATUSES = frozenset({
     "ok", "first_sample_no_delta", "warmup_excluded", "pmu_degraded",
     "energy_invalid", "no_freq_reading", "intensity_undefined",
+    # ARC-70: una muestra NVML cruda (potencia/utilización), no una ventana
+    # de CPU -- ninguno de los campos de Roofline/PMU de CPU aplica. Ver
+    # docs/retoma/pacca/Diseno_Politica_DVFS_CPU_GPU.md sección 3/4: estas
+    # filas son las *features* de entrenamiento del futuro clasificador de
+    # GPU (Fase 2), no se clasifican en compute/memory-bound aquí -- eso
+    # requiere el modelo, todavía sin entrenar.
+    "gpu_telemetry",
 })
 
 # Priority order used when more than one condition applies to the same
@@ -407,6 +418,29 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
         })
         windows.append(row)
 
+    # ARC-70: filas GPU (tag=GPU, muestras NVML crudas) -- deliberadamente
+    # NO se ventanean contra los límites de las ventanas de CPU de arriba.
+    # A diferencia de CPU, no hay una intensidad operacional que calcular
+    # aquí en vivo (ver Diseno_Politica_DVFS_CPU_GPU.md sección 3): NVML
+    # solo expone potencia/utilización, nunca FLOPs ni bytes. Cada muestra
+    # es un passthrough con el contexto de la corrida ya adjunto -- son las
+    # *features* de entrenamiento del futuro clasificador de GPU (Fase 2),
+    # no windows.csv "de GPU" en el mismo sentido que las de CPU.
+    gpu_rows = [
+        r for r in rows
+        if r.get("tag") == "GPU" and _to_int(r.get("repetition")) == _LAUNCHER_INTERNAL_REPETITION
+    ]
+    gpu_rows.sort(key=lambda r: int(r["timestamp_ns"]))
+    for gpu_index, gpu_row in enumerate(gpu_rows):
+        row = _base_row(context, window_index=gpu_index)
+        row["t_start_ns"] = None
+        row["t_end_ns"] = int(gpu_row["timestamp_ns"])
+        row["delta_t_ns"] = None
+        row["gpu_power_mw"] = _to_int(gpu_row.get("gpu_power_mw"))
+        row["gpu_util_pct"] = _to_int(gpu_row.get("gpu_util_pct"))
+        row["quality_status"] = "gpu_telemetry"
+        windows.append(row)
+
     return windows
 
 
@@ -455,6 +489,8 @@ def _base_row(context: WindowContext, *, window_index: int) -> dict[str, Any]:
         "calibration_ref": context.calibration_ref,
         "binary_checksum": context.binary_checksum,
         "quality_status": "ok",
+        "gpu_power_mw": None,
+        "gpu_util_pct": None,
     }
 
 
