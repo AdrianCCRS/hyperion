@@ -309,30 +309,57 @@ para ejecutarse. El manifiesto puede prepararse hoy (mismo patrón que
 
 ## 8. Estado de implementación
 
-**Hecho:** `telemetry/include/telemetry/gpu_clock_controller.hpp` +
-`telemetry/tests/test_gpu_clock_controller.cpp` (11/11 tests C++ en verde). Es
-el motor de histéresis + tiempo mínimo de permanencia, independiente de
-NVML/CUDA (el cambio de reloj real se inyecta como función, igual que
-`campaign.py` inyecta `apply_frequency()`).
+**Hecho y verificado (2026-08-06, ARC-66):**
 
-**Pendiente de refactor (importante, no hacer sin avisar):** la versión
-actual de `GpuClockController::on_phase_begin()` **clasifica internamente**
-comparando una intensidad contra `i_ridge` — eso asumía el diseño descartado
-de la sección 2 de la v1 (intensidad estática por fase). Con el rediseño de
-este documento, la clasificación ya no ocurre dentro de esta clase: viene de
-afuera, ya decidida, sea por `ncu` (en la campaña de caracterización, sección
-7) o por `modelo_gpu.predict()` (en el daemon de Fase 3). La firma correcta
-es `on_phase_begin(GpuPhaseLabel etiqueta_ya_decidida, ns_t now_ns)`, sin el
-parámetro de intensidad ni el paso `classify()` interno. La lógica de
-histéresis/dwell en sí sigue siendo válida tal cual — solo cambia qué recibe
-como entrada.
+- `telemetry/include/telemetry/gpu_clock_controller.hpp` **ya refactorizado**:
+  `on_phase_begin()` recibe `GpuPhaseLabel` (la etiqueta ya decidida por
+  `ncu` en Fase 1 o por `modelo_gpu.predict()` en el daemon), no una
+  intensidad — no clasifica nada internamente, solo posee la lógica de
+  histéresis por tiempo mínimo de permanencia (`min_dwell_ns`) y aplica el
+  cambio de reloj a través de un `ClockSetter` inyectado.
+  `telemetry/tests/test_gpu_clock_controller.cpp` actualizado a la nueva
+  firma (primera aplicación incondicional, misma etiqueta no cambia nada,
+  supresión por dwell insuficiente, aplicación al superar el dwell, setter
+  que falla no corrompe el estado).
+- **Muestreo de NVML sacado del tick de 1 ms** en `collector.cpp`/`.hpp`:
+  nuevo campo `CollectorConfig::gpu_interval_ns` (100 ms por defecto). El
+  productor sigue siendo un único hilo (el ring `SPSCRing` es estrictamente
+  de un solo productor, así que no se puede meter un segundo hilo/ring sin
+  romper esa garantía) — la solución es una compuerta de tiempo dentro del
+  mismo hilo: solo se llama a NVML cuando ya pasó `gpu_interval_ns` desde la
+  última lectura, en vez de en cada tick de 1 ms.
+- **Test nuevo `test_collector_gpu_cadence.cpp`** que instancia un
+  `Collector` real con GPU habilitada y confirma empíricamente (no solo por
+  inspección de código) que en una corrida de 300 ms con
+  `gpu_interval_ns=50ms` se reciben ~6 muestras de GPU, no ~300 — se
+  saltea (exit 77) en builds sin `TELEMETRY_WITH_GPU`, mismo patrón que
+  `perf_reader_pid_live_test`.
+- **Verificado en dos configuraciones locales:** build normal (sin GPU, 12
+  tests, el nuevo se saltea correctamente) y build con `WITH_GPU=ON` contra
+  un stub local de `nvml.h`/`libnvidia-ml.so` (símbolos mínimos, sin
+  hardware real) para confirmar que la rama `#ifdef TELEMETRY_WITH_GPU`
+  compila y corre — 11/11 en verde en esa configuración, incluida la prueba
+  de cadencia real. El stub se usó solo para compilar/probar localmente y
+  se descartó, no se comprometió al repo.
 
-**No implementado, y ya no hace falta implementarlo** (descartado en este
-rediseño): inyección CUPTI, detección de límites de kernel, tabla estática
-de intensidad por kernel como mecanismo de producción.
+**No implementado, y ya no hace falta implementarlo** (descartado en el
+rediseño de la sección 0-4): inyección CUPTI, detección de límites de
+kernel, tabla estática de intensidad por kernel como mecanismo de
+producción.
 
-**No implementado, pendiente de permiso P4:** el wrapper real a
-`nvmlDeviceSetGpuLockedClocks`/`nvidia-smi -lgc`.
+**No implementado, pendiente de permiso P4 (bloqueado, no es cuestión de
+tiempo):** el wrapper real a `nvmlDeviceSetGpuLockedClocks`/`nvidia-smi
+-lgc` — no se puede probar contra hardware real sin el permiso.
+
+**No implementado, pendiente de que se elijan los kernels Rodinia
+concretos:** el manifiesto de la campaña de caracterización GPU (sección
+7) y el mecanismo de `cudaDeviceScheduleBlockingSync` (sección 4.1) — este
+último en particular necesita decidirse cómo se aplica a binarios de
+terceros sin tocar su fuente (candidato: un shim vía `LD_PRELOAD` que
+intercepte la primera llamada de contexto CUDA e inserte
+`cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync)` antes — no
+implementado ni probado todavía, es una hipótesis de mecanismo, no una
+decisión cerrada).
 
 ---
 
@@ -340,15 +367,15 @@ de intensidad por kernel como mecanismo de producción.
 
 1. **Enviar el correo de permisos** (P1-P4 ya redactados en
    `Solicitud_Permisos_Pacca_Unicartagena.md`) — bloquea DVFS de CPU y de GPU.
-2. Refactorizar `GpuClockController` para recibir la etiqueta ya decidida
-   (sección 8), no calcularla internamente.
+2. ~~Refactorizar `GpuClockController`~~ — **hecho (ARC-66)**.
 3. Preparar el manifiesto de la campaña de caracterización GPU (sección 7) —
-   no necesita el permiso para escribirse, solo para correrse.
-4. Corregir `cudaDeviceScheduleBlockingSync` en los benchmarks GPU antes de
-   cualquier corrida heterogénea real (sección 4.1).
-5. Sacar el muestreo NVML del loop de 1 ms de `collector.cpp` a su propia
-   cadencia — necesario para que las *features* de GPU en el dataset de
-   entrenamiento no sean 1000 copias del mismo valor rancio.
+   no necesita el permiso para escribirse, solo para correrse. Pendiente de
+   que se elijan los kernels Rodinia concretos.
+4. Resolver `cudaDeviceScheduleBlockingSync` en binarios de terceros
+   (sección 4.1, hipótesis: shim `LD_PRELOAD`) antes de cualquier corrida
+   heterogénea real.
+5. ~~Sacar el muestreo NVML del loop de 1 ms de `collector.cpp`~~ — **hecho
+   (ARC-66)**.
 6. Caracterizar con `ncu` los kernels Rodinia elegidos, una vez que estén
    seleccionados (sección 3).
 7. Correr la campaña de caracterización (sección 7) en cuanto llegue P4.
