@@ -101,15 +101,22 @@ medición no depende del CLI, solo del syscall `perf_event_open` que sí
 funciona hoy) pero sí complica cualquier diagnóstico manual rápido de
 nuestro lado o del suyo.
 
-**Confirmado por auditoría (2026-08-05):** `paccaA100` expone una topología
-de uncore completa y moderna en `/sys/bus/event_source/devices/`
-(`uncore_cha`, `uncore_iio`, `uncore_imc` ×12 — los canales de memoria,
-`uncore_irp`, `uncore_m2m`, `uncore_m2pcie`, `uncore_m3upi`, `uncore_pcu`,
-`uncore_ubox`, `uncore_upi`), pero no confirmamos todavía si el usuario
-puede abrirlos bajo el `perf_event_paranoid=2` actual (no se pudo probar
-directamente por la ausencia del CLI `perf`, y estos eventos de uncore son
-de alcance socket/sistema completo, la categoría que ese nivel de
-`perf_event_paranoid` típicamente restringe).
+**Confirmado bloqueado por prueba directa (2026-08-06, no solo por
+auditoría):** `paccaA100` expone una topología de uncore completa y moderna
+en `/sys/bus/event_source/devices/` (`uncore_cha`, `uncore_iio`,
+`uncore_imc` ×12 — los canales de memoria, `uncore_irp`, `uncore_m2m`,
+`uncore_m2pcie`, `uncore_m3upi`, `uncore_pcu`, `uncore_ubox`, `uncore_upi`),
+pero **abrir esos PMU con `perf_event_open` (sin depender del CLI `perf`,
+ausente en el nodo) da `EACCES` (errno 13)** — probado sobre
+`uncore_imc_0` (`cas_count_read`/`cas_count_write`) y su variante
+free-running equivalente. Segunda vía independiente, LIKWID (`likwid-perfctr
+-g MEM`, con su propio daemon `likwid-accessD`): el daemon no está
+desplegado con setuid/root en este cluster, falla al leer los registros MSR
+de las cajas de memoria (`failed to read/write register`), y la tabla de
+métricas agregada confirma `Memory data volume [GBytes]=0` — sin
+ambigüedad. Confirma que estos eventos de alcance socket/sistema completo
+están bloqueados bajo el `perf_event_paranoid=2` actual, exactamente como
+se anticipaba.
 
 **Por qué se necesita:** en una validación anterior de nuestro pipeline (en
 otro nodo, hardware distinto) encontramos que el contador per-core genérico
@@ -196,17 +203,20 @@ Para que quede claro en el correo qué **no** hace falta pedir:
 >
 > **3. Lectura de contadores de uncore** (memory controller, expuestos en
 > `paccaA100` como `uncore_imc_0` a `uncore_imc_11` en
-> `/sys/bus/event_source/devices/`). Hoy `perf_event_paranoid` está en `2`
-> en el nodo; ¿podrían bajarlo a `0` (o `-1`), u otorgar `CAP_PERFMON` a
-> nuestro usuario? En una validación anterior de nuestro pipeline
-> detectamos que nuestro método actual de medir bytes movidos (contadores
-> per-core de "cache miss") puede subestimar el tráfico real de memoria en
-> cargas con acceso muy secuencial — los contadores de uncore nos
-> permitirían confirmarlo y corregirlo en este hardware específico. Es un
-> uso puntual de validación, no medición continua durante campañas. Si es
-> sencillo de su lado, también agradeceríamos que instalaran el paquete
-> `perf` (`linux-tools`) — hoy no está en el nodo, lo cual no nos bloquea
-> pero sí dificulta cualquier diagnóstico rápido.
+> `/sys/bus/event_source/devices/`). Confirmamos con una prueba directa que
+> hoy están bloqueados para nuestro usuario (`EACCES` al abrirlos vía
+> `perf_event_open`, y el propio daemon de LIKWID falla al leer los
+> registros correspondientes) por el `perf_event_paranoid=2` actual del
+> nodo; ¿podrían bajarlo a `0` (o `-1`), u otorgar `CAP_PERFMON` a nuestro
+> usuario? En una validación anterior de nuestro pipeline detectamos que
+> nuestro método actual de medir bytes movidos (contadores per-core de
+> "cache miss") puede subestimar el tráfico real de memoria en cargas con
+> acceso muy secuencial — los contadores de uncore nos permitirían
+> confirmarlo y corregirlo en este hardware específico. Es un uso puntual
+> de validación, no medición continua durante campañas. Si es sencillo de
+> su lado, también agradeceríamos que instalaran el paquete `perf`
+> (`linux-tools`) — hoy no está en el nodo, lo cual no nos bloquea pero sí
+> dificulta cualquier diagnóstico rápido.
 >
 > Para que quede claro qué NO estamos pidiendo: ya confirmamos que la
 > medición de energía (RAPL) funciona sin ningún permiso adicional, así
