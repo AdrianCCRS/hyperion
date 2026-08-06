@@ -100,7 +100,7 @@ El bloqueador principal no es de arquitectura sino administrativo: **no hay ning
 - `gcc`/`gfortran` 12.4.0 (sistema, sin necesidad de módulo — funcionalmente equivalente a felix aunque de versión distinta).
 - `cmake` 3.24.2.
 - Módulos relevantes disponibles: `openmpi4`, `mvapich2`, `mpich`, `openblas/0.3.21`, `likwid/5.2.2`, `cuda` (no confirmado el número de versión exacto en la lista filtrada).
-- No se confirmó si `openblas/0.3.21` incluye headers de desarrollo (`-devel`) necesarios para compilar el kernel DGEMM del catálogo — a probar en el primer intento de compilación real.
+- **(2026-08-06, ARC-61) Confirmado: `openblas/0.3.21` sí incluye headers de desarrollo completos.** No es un paquete `-devel` del sistema (`rpm -qf` confirma que `cblas.h` "no está poseído por ningún paquete" — es un módulo OpenHPC autocontenido en `/opt/ohpc/pub/libs/gnu12/openblas/0.3.21/`, no viene de los repositorios RPM de Rocky Linux). `include/` tiene el set completo esperado: `cblas.h`, `f77blas.h`, `lapack.h`, `lapacke.h`, `lapacke_config.h`, `lapacke_mangling.h`, `lapacke_utils.h`, `openblas_config.h` (BLAS y LAPACK C, no solo Fortran). `lib/` tiene los symlinks de desarrollo estándar (`libopenblas.so` → `libopenblasp-r0.3.21.so`) y, contra lo que decía la auditoría original, **sí existe un `openblas.pc` de pkg-config válido** en `lib/pkgconfig/` (`Cflags: -I${includedir}`, `Libs: -L${libdir} -lopenblas`) — simplemente el módulo no agrega ese directorio a `PKG_CONFIG_PATH`, por eso `pkg-config` no lo encontraba antes; `$OPENBLAS_INC`/`$OPENBLAS_LIB` (las variables que sí usa `dgemm_bench` hoy) apuntan exactamente a los mismos directorios.
 
 ---
 
@@ -112,7 +112,7 @@ No hay bloqueadores de arquitectura. Los bloqueadores son puramente de permisos/
 2. **Repo del proyecto aún no clonado en este clúster** — todo lo probado fue con scripts sueltos, no con el checkout real. Siguiente paso mecánico: `git clone` de `hyperion` en `$HOME`, replicar la convención de `hyperion-kernels/`/`hyperion-results/` usada en felix, compilar kernels NPB/DGEMM, y correr `preflight.py` real (no solo la auditoría manual) para que los checks E01-E10 confirmen formalmente lo que esta auditoría ya adelantó a mano.
 3. ~~**Validación de uncore no probada**~~ — **resuelto como bloqueado (ARC-59, 2026-08-06, ver sección 6):** confirmado con prueba directa que uncore no es accesible sin privilegios en este nodo, igual que en felix. No crítico para arrancar (el pipeline no depende de uncore para funcionar), pero cierra la puerta a validar `bytes_moved_window` contra un ground truth de bytes reales sin pedir permisos adicionales al administrador.
 4. **Cuota real de `$HOME` no confirmada** individualmente (solo se vio el estado global del filesystem).
-5. **`openblas-devel` (headers)** no confirmado — verificar en la primera compilación de DGEMM.
+5. ~~**`openblas-devel` (headers)** no confirmado~~ — **resuelto (ARC-61, 2026-08-06, ver sección 10):** confirmado que el módulo trae el set completo de headers BLAS+LAPACK C, no es un paquete `-devel` del sistema sino un módulo OpenHPC autocontenido.
 
 Ninguno de estos requiere cambios de diseño en el orquestador: el código ya es agnóstico de nodo (`environment.py` detecta `scaling_driver` y elige la estrategia de `freqctl.py` correspondiente; el harness C++ no cambia). Es trabajo operativo (pedir permisos, clonar, compilar, correr preflight), no de ingeniería.
 
