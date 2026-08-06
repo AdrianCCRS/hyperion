@@ -14,6 +14,7 @@ from . import environment as environment_module
 from . import manifest as manifest_module
 from . import node_profile as node_profile_module
 from . import postprocess as postprocess_module
+from . import preflight as preflight_module
 from . import report as report_module
 from . import validation as validation_module
 from .config import load_config
@@ -85,6 +86,24 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
 def cmd_run_campaign(args: argparse.Namespace) -> int:
     manifest, catalog = _load_manifest_and_catalog(args.manifest)
     env = _detect_environment(manifest, args.config)
+
+    # ARC-45: run_campaign_preflight() ya no se corre solo a mano por fuera del
+    # CLI -- una falla bloqueante aquí detiene la campaña antes de calibrar o
+    # tocar sysfs/perf, en vez de descubrirse a mitad de una corrida real.
+    profile = node_profile_module.build_node_profile(
+        env, manifest.cores.delegated_cpus, node_id=args.node_id, hostname=args.hostname or "",
+    )
+    preflight_results = preflight_module.run_campaign_preflight(manifest, env, catalog, node_profile=profile)
+    blocking_failures = [result for result in preflight_results if not result.passed and result.blocking]
+    if blocking_failures:
+        print(json.dumps({
+            "preflight_passed": False,
+            "blocking_failures": [
+                {"factor_id": result.factor_id, "name": result.name, "message": result.message}
+                for result in blocking_failures
+            ],
+        }, indent=2))
+        return 1
 
     result = campaign_module.run_campaign(
         manifest, catalog, env, node_id=args.node_id, reference_kernel_ref=args.reference_kernel_ref,
