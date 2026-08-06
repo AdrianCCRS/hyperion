@@ -1,0 +1,75 @@
+# Campaña de PRUEBA DE ROBUSTEZ (2026-08-06): mismo pipeline real que
+# campaign_pacca_ref.yaml, pero con NPB clase C (bin/*.C.x, ~4-15x más
+# trabajo que clase B) en vez de clase B -- el objetivo es estresar el
+# pipeline con corridas más largas/pesadas, no producir dataset. Usa
+# catalog_class_c.yaml (separado del catálogo de producción, catalog.yaml).
+#
+# Tiempos reales medidos en pacca (6 hilos, pinned 0-5), ver
+# catalog_class_c.yaml para el detalle completo por kernel: entre 7.5s
+# (mg) y 101.9s (bt), total ~290s por repetición de los 6 kernels ->
+# ~870s (~14.5 min) para 3 repeticiones, cómodo dentro del límite de
+# tiempo del job.
+#
+# reference_kernel_ref (pasado por CLI) = npb_mg_c, mismo criterio que la
+# campaña de producción (ARC-46): evitar un kernel con pocos cache-misses.
+#
+# Resto de la configuración (cores, RAPL, smt_policy, hardware_datasheet)
+# idéntica a campaign_pacca_ref.yaml -- la calibración usa los mismos
+# binarios stream_c/ert_probe, que no dependen de la clase NPB.
+
+campaign_id: pacca_class_c_stress_20260806
+environment_tier: hpc_sc3
+seed: 20260806
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_class_c_stress_20260806
+overwrite: true
+
+catalog_path: catalog_class_c.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: npb_bt_c
+  - kernel_ref: npb_mg_c
+  - kernel_ref: npb_cg_c
+  - kernel_ref: npb_sp_c
+  - kernel_ref: npb_ft_c
+  - kernel_ref: npb_lu_c
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+
+repetitions_per_combination: 3
+target_windows_per_repetition: 50
+interval_ns: 1000000  # 1 ms
+
+running_ratio_min: 0.90
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+rapl:
+  enabled: true
+
+gpu:
+  enabled: false
+
+timeouts_seconds:
+  ready: 15
+  run: 400
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 58353900000
+  p_pico_flops_per_s: 72004000000
