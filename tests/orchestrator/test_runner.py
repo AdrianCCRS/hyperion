@@ -111,7 +111,7 @@ def test_arc70_run_single_setea_ld_preload_y_library_path_para_gpu(tmp_path, mon
     fake_cuda_lib = tmp_path / "cuda_lib"
     fake_cuda_lib.mkdir()
     monkeypatch.setattr(runner, "compiled_blocking_sync_shim", lambda: fake_shim)
-    monkeypatch.setattr(runner, "cuda_lib_dir", lambda: fake_cuda_lib)
+    monkeypatch.setattr(runner, "cuda_lib_dirs", lambda: [fake_cuda_lib])
 
     entry = _make_entry(tmp_path, device="gpu")
     manifest = _make_manifest(tmp_path)
@@ -127,7 +127,7 @@ def test_arc70_run_single_setea_ld_preload_y_library_path_para_gpu(tmp_path, mon
 def test_arc70_run_single_gpu_sin_shim_disponible_no_falla(tmp_path, monkeypatch, caplog):
     monkeypatch.delenv("FAKE_LAUNCHER_BEHAVIOR", raising=False)
     monkeypatch.setattr(runner, "compiled_blocking_sync_shim", lambda: None)
-    monkeypatch.setattr(runner, "cuda_lib_dir", lambda: None)
+    monkeypatch.setattr(runner, "cuda_lib_dirs", lambda: [])
 
     entry = _make_entry(tmp_path, device="gpu")
     manifest = _make_manifest(tmp_path)

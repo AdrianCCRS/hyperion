@@ -76,6 +76,15 @@ class Manifest:
     # plausibilidad de la calibración Roofline (±40%). Ausente = el chequeo
     # D03 no puede aprobarse (ver calibration.py); nunca se infiere.
     hardware_datasheet: Mapping[str, float] | None = None
+    # ARC-73: I09/OPS-01 (preflight.py) exigen estos tres campos -- ausentes
+    # aquí desde siempre, así que ningún manifiesto podía pasar
+    # run_campaign_preflight() automático (ARC-58) hasta esta corrección.
+    # Opcionales a nivel de schema a propósito (None es un valor de manifest
+    # válido) -- preflight.py, no manifest.py, decide que "no declarado"
+    # bloquea (I09/OPS-01 fallan cerrado, nunca aprueban por omisión).
+    projected_campaign_bytes: int | None = None
+    remaining_core_hours: float | None = None
+    projected_core_hours: float | None = None
 
 
 def _error(rule_id: str, field: str, message: str) -> None:
@@ -161,6 +170,17 @@ def _parse_hardware_datasheet(value: Any) -> Mapping[str, float] | None:
             _error("MAN-00", f"hardware_datasheet.{key}", "debe ser numérico y positivo")
         parsed[key] = float(raw)
     return parsed or None
+
+
+def _parse_optional_non_negative_number(document: Mapping[str, Any], field: str) -> float | None:
+    # ARC-73: ausente es válido (preflight.py decide si eso bloquea, nunca
+    # manifest.py) -- solo se valida el tipo/rango cuando SÍ está declarado.
+    value = document.get(field)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+        _error("MAN-00", field, "debe ser numérico y no negativo, o estar ausente")
+    return float(value)
 
 
 def compute_matrix_size(manifest: Manifest) -> int:
@@ -290,12 +310,18 @@ def load(path: str | Path) -> Manifest:
         _error("MAN-00", "timeouts_seconds", "todos los valores deben ser enteros positivos")
 
     hardware_datasheet = _parse_hardware_datasheet(document.get("hardware_datasheet"))
+    projected_campaign_bytes_raw = _parse_optional_non_negative_number(document, "projected_campaign_bytes")
+    projected_campaign_bytes = (
+        int(projected_campaign_bytes_raw) if projected_campaign_bytes_raw is not None else None
+    )
+    remaining_core_hours = _parse_optional_non_negative_number(document, "remaining_core_hours")
+    projected_core_hours = _parse_optional_non_negative_number(document, "projected_core_hours")
 
     manifest = Manifest(
         campaign_id, tier, seed, output_dir, overwrite, catalog_path, calibration, kernels,
         frequency_levels, repetitions, target_windows, interval_ns, float(running_ratio),
         cores, smt_policy, cgroup_path, perf_enabled, dict(rapl), dict(gpu), timeouts,
-        hardware_datasheet,
+        hardware_datasheet, projected_campaign_bytes, remaining_core_hours, projected_core_hours,
     )
     matrix_size = compute_matrix_size(manifest)
     # MAN-03: cada combinación tiene baseline y telemetry, por eso se duplica.

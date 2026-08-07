@@ -12,6 +12,60 @@ _SHIM_SOURCE = Path(__file__).resolve().parent / "native" / "blocking_sync_shim.
 _shim_binary_cache: Path | None = None
 
 
+def _find_cuda_root() -> Path | None:
+    """Localiza el árbol del CUDA toolkit real (el que trae cuda_runtime.h
+    y libcudart), no necesariamente donde apunta `which nvcc`.
+
+    ARC-74: en paccaA100, `nvcc` en PATH resuelve al binario empaquetado
+    dentro del NVIDIA HPC SDK bajo `compilers/bin/` -- el entorno
+    "AdaptiveCpp" que carga el nodo lo expone primero (mismo problema que
+    ARC-53 ya encontró para el compilador C++ de CMake). Ese nvcc en
+    particular NO trae `include/cuda_runtime.h` ni `lib64/libcudart` --
+    el CUDA toolkit real vive en un directorio HERMANO dentro del mismo
+    HPC SDK: `<raíz_hpc_sdk>/cuda/<versión>/`. Se prueba primero la ruta
+    obvia (junto al nvcc encontrado) y, si falta cuda_runtime.h, se busca
+    ese hermano antes de rendirse -- nunca se asume una ruta fija ni una
+    versión concreta.
+    """
+    nvcc = shutil.which("nvcc")
+    if nvcc is None:
+        return None
+    nvcc_dir = Path(nvcc).resolve().parent.parent  # <algo>/bin/nvcc -> <algo>
+    if (nvcc_dir / "include" / "cuda_runtime.h").exists():
+        return nvcc_dir
+
+    # Patrón NVIDIA HPC SDK: .../Linux_x86_64/<ver>/compilers/bin/nvcc ->
+    # el toolkit real vive en .../Linux_x86_64/<ver>/cuda/<cuda_ver>/.
+    hpc_sdk_root = nvcc_dir.parent
+    cuda_siblings_dir = hpc_sdk_root / "cuda"
+    if not cuda_siblings_dir.is_dir():
+        return None
+    for candidate in sorted(cuda_siblings_dir.glob("*"), reverse=True):  # versión más reciente primero
+        if (candidate / "include" / "cuda_runtime.h").exists():
+            return candidate
+    return None
+
+
+def _find_cublas_lib_dir(cuda_root: Path) -> Path | None:
+    """libcublas vive en `math_libs/`, un árbol hermano de `cuda/<ver>/` en
+    el mismo HPC SDK -- no en `cuda/<ver>/lib64` (confirmado empíricamente
+    en paccaA100: `cublas_dgemm_bench` fallaba con
+    `libcublas.so.12: cannot open shared object file` usando solo
+    `cuda_lib_dir()`). Mismo patrón de búsqueda que `_find_cuda_root()`,
+    nunca una ruta fija."""
+    lib64 = cuda_root / "lib64"
+    if any(lib64.glob("libcublas.so*")):
+        return lib64
+    hpc_sdk_root = cuda_root.parent.parent  # cuda/<ver> -> cuda -> raíz
+    math_libs_root = hpc_sdk_root / "math_libs"
+    if not math_libs_root.is_dir():
+        return None
+    for candidate in sorted(math_libs_root.glob("*/targets/*/lib"), reverse=True):
+        if any(candidate.glob("libcublas.so*")):
+            return candidate
+    return None
+
+
 def compiled_blocking_sync_shim() -> Path | None:
     """ARC-70: compila (una sola vez, cacheado en disco) el shim LD_PRELOAD
     que fuerza cudaDeviceScheduleBlockingSync en un binario CUDA de terceros
@@ -25,8 +79,7 @@ def compiled_blocking_sync_shim() -> Path | None:
 
     Solo necesita g++ (el shim es host-only, sin código de dispositivo,
     confirmado en paccaA100 -- ver docs/retoma/pacca/Diseno_Politica_DVFS_CPU_GPU.md
-    sección 8), la ruta de CUDA se infiere de dónde está `nvcc` en PATH, no
-    de una variable de entorno adivinada.
+    sección 8), la ruta de CUDA se infiere con `_find_cuda_root()`.
     """
     global _shim_binary_cache
     if _shim_binary_cache is not None and _shim_binary_cache.exists():
@@ -34,16 +87,12 @@ def compiled_blocking_sync_shim() -> Path | None:
     if not _SHIM_SOURCE.exists():
         return None
 
-    nvcc = shutil.which("nvcc")
-    if nvcc is None:
-        logger.warning("ARC-70: nvcc no está en PATH, no se puede localizar CUDA para el shim de blocking sync")
+    cuda_root = _find_cuda_root()
+    if cuda_root is None:
+        logger.warning("ARC-70/74: no se encontró un CUDA toolkit real (con cuda_runtime.h) en este nodo")
         return None
-    cuda_root = Path(nvcc).resolve().parent.parent
     include_dir = cuda_root / "include"
     lib_dir = cuda_root / "lib64"
-    if not (include_dir / "cuda_runtime.h").exists():
-        logger.warning("ARC-70: cuda_runtime.h no encontrado en %s", include_dir)
-        return None
 
     binary_path = Path(tempfile.gettempdir()) / "hyperion_blocking_sync_shim.so"
     if not binary_path.exists():
@@ -65,12 +114,20 @@ def compiled_blocking_sync_shim() -> Path | None:
     return binary_path
 
 
-def cuda_lib_dir() -> Path | None:
-    """Directorio de libcudart.so real, para agregar a LD_LIBRARY_PATH del
-    proceso medido -- necesario porque ni el binario GPU ni el shim
-    necesariamente lo traen resuelto vía rpath (confirmado empíricamente en
-    paccaA100 con binarios compilados con nvcc por defecto)."""
-    nvcc = shutil.which("nvcc")
-    if nvcc is None:
-        return None
-    return Path(nvcc).resolve().parent.parent / "lib64"
+def cuda_lib_dirs() -> list[Path]:
+    """Directorios reales de libcudart/libcublas, para agregar a
+    LD_LIBRARY_PATH del proceso medido -- necesario porque ni el binario GPU
+    ni el shim necesariamente los traen resueltos vía rpath (confirmado
+    empíricamente en paccaA100 con binarios compilados con nvcc por
+    defecto). ARC-74: son dos árboles distintos del mismo HPC SDK
+    (cuda/<ver>/lib64 para cudart, math_libs/<ver>/.../lib para cublas), no
+    uno solo -- se devuelven ambos cuando existen, nunca se asume que un
+    kernel GPU necesita solo uno de los dos."""
+    cuda_root = _find_cuda_root()
+    if cuda_root is None:
+        return []
+    dirs = [cuda_root / "lib64"]
+    cublas_dir = _find_cublas_lib_dir(cuda_root)
+    if cublas_dir is not None and cublas_dir not in dirs:
+        dirs.append(cublas_dir)
+    return dirs

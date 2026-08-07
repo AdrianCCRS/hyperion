@@ -76,3 +76,11 @@ timeouts_seconds:
 hardware_datasheet:
   bw_pico_bytes_per_s: 58353900000
   p_pico_flops_per_s: 72004000000
+
+# ARC-73: I09/OPS-01 (preflight.py) los exigen explícitamente, sin ellos
+# run_campaign_preflight() bloquea con "debe declararse" -- mismos valores
+# placeholder que ya se usaron en scripts/pacca/run_preflight_check.py para
+# este mismo nodo, no inventados para esta campaña específica.
+projected_campaign_bytes: 200000000
+remaining_core_hours: 1000.0
+projected_core_hours: 10.0
