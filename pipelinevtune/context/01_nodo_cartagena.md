@@ -65,14 +65,26 @@ hilos cruzando los dos sockets (16 = los 16 físicos de ambos sockets combinados
 16 lógicos dentro de un solo socket usando SMT — son escenarios muy distintos y el
 comando no distingue entre ellos sin `OMP_PLACES`).
 
-**Decisión recomendada (default de este proyecto, coherente con el trabajo previo en
-Westmere):** un socket, 8 cores físicos, sin SMT.
+**Decisión recomendada (default de este proyecto) — ACTUALIZADA 2026-08-07:**
+6 cores físicos (0-5), sin SMT, fijados con `taskset -c 0-5` además de las
+variables OMP. Se abandona el default anterior (8 cores, todo el socket 0) al
+descubrir que el orquestador principal de Hyperion ya corre campañas reales en
+este mismo nodo con `delegated_cpus=0-5` + `collector_cpu=6` + `consumer_cpu=7`
+(`orchestrator/schemas/campaign_pacca_ref.yaml`) — usar 8 cores mediría un
+dominio distinto y volvería las clasificaciones de VTune no comparables
+kernel-por-kernel contra las del orquestador. Ver `context/02_decisiones.md`
+D6 (actualizada) para el detalle de la decisión.
 
 ```
-export OMP_NUM_THREADS=8
+taskset -c 0-5 <comando>   # o vía run_vtune_pipeline.py --core-range 0-5 (default)
+export OMP_NUM_THREADS=6
 export OMP_PLACES=cores
 export OMP_PROC_BIND=close
 ```
+
+`OMP_PLACES=cores` solo no garantiza cuáles 6 cores se usan — de ahí el
+`taskset` explícito, mismo patrón que usa el orquestador
+(`campaign_pacca_ref.yaml`, comentario de la sección `cores`).
 
 Si en algún momento se decide medir con los dos sockets o con SMT activo, debe ser
 una decisión explícita y documentada como una caracterización distinta — no algo que

@@ -19,7 +19,10 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-D6_OMP_NUM_THREADS = "8"
+# 2026-08-07: alineado con el dominio del orquestador principal en este
+# mismo nodo (campaign_pacca_ref.yaml: delegated_cpus=0-5), no con "todo el
+# socket" -- ver context/02_decisiones.md D6 (actualizada).
+D6_OMP_NUM_THREADS = "6"
 D6_OMP_PLACES = "cores"
 D6_OMP_PROC_BIND = "close"
 
@@ -305,7 +308,7 @@ def check_omp_domain(result: PreflightResult) -> None:
         result.warn(
             f"El dominio OMP activo (OMP_NUM_THREADS={threads} "
             f"OMP_PLACES={places} OMP_PROC_BIND={bind}) difiere del default "
-            f"D6 (8/cores/close, un socket sin SMT). Si es intencional, "
+            f"D6 (6/cores/close, cores 0-5, alineado con el orquestador). Si es intencional, "
             "documentalo explicitamente en los metadatos de la campaña -- "
             "no debe mezclarse silenciosamente con corridas de dominio "
             "estandar."
