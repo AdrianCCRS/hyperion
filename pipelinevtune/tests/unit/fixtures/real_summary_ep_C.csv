@@ -1,0 +1,41 @@
+Hierarchy Level	Metric Name	Metric Value
+0	Elapsed Time	13.634272
+1	SP GFLOPS	0.0
+1	DP GFLOPS	9.841148
+1	x87 GFLOPS	0.0
+1	CPI Rate	0.641370
+1	Average CPU Frequency	3492021000.304823
+1	Total Thread Count	8
+0	Effective Physical Core Utilization	48.7% (7.794 out of 16)
+1	Effective Logical Core Utilization	24.4% (7.803 out of 32)
+0	Memory Bound	6.1
+1	Cache Bound	11.5
+1	DRAM Bound	0.0
+1	NUMA: % of Remote Accesses	0.0
+0	Vectorization	10.7
+1	Instruction Mix
+2	SP FLOPs	0.0
+3	Packed	0.0
+4	128-bit	0.0
+4	256-bit	0.0
+4	512-bit	0.0
+3	Scalar	0.0
+2	DP FLOPs	26.7
+3	Packed	10.7
+4	128-bit	10.7
+4	256-bit	0.0
+4	512-bit	0.0
+3	Scalar	89.3
+2	x87 FLOPs	0.0
+2	Non-FP	73.3
+1	FP Arith/Mem Rd Instr. Ratio	1.279878
+1	FP Arith/Mem Wr Instr. Ratio	4.900331
+0	Collection and Platform Info
+1	Application Command Line	./bin/ep.C.x
+1	Computer Name	paccaA100.unicartagena.edu.co
+1	Collector Type	Driverless Perf per-process sampling
+1	CPU
+2	Name	Intel(R) Xeon(R) Processor code named Icelake
+2	Frequency	3192498703
+2	Logical CPU Count	32
+2	LLC size	12582912

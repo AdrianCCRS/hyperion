@@ -1,0 +1,22 @@
+# CAPTURA REAL (recorte) — vtune -report hotspots -r fase0_smoke/hotspots
+# Nodo: paccaA100.unicartagena.edu.co, VTune 2023.0.0, kernel NPB EP clase C.
+# Capturado: Fase 0, 2026-08-07 UTC.
+
+Elapsed Time: 13.470s
+    CPU Time: 106.174s
+        Effective Time: 106.144s
+    Instructions Retired: 579,328,000,000
+    Microarchitecture Usage: 43.5% of Pipeline Slots
+        CPI Rate: 0.640
+    Total Thread Count: 8
+
+Top Hotspots
+Function          Module        CPU Time  % of CPU Time(%)
+----------------  ------------  --------  ----------------
+MAIN__._omp_fn.1  ep.C.x         55.505s             52.3%
+func@0x777b0      libm-2.28.so   36.110s             34.0%
+vranlc_           ep.C.x         10.239s              9.6%
+logf32x           libm-2.28.so    2.125s              2.0%
+func@0xc424       libm-2.28.so    1.078s              1.0%
+[Others]          N/A             1.118s              1.1%
+Effective Physical Core Utilization: 65.6% (10.500 out of 16)
