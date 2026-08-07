@@ -66,6 +66,30 @@ def test_man_t01_manifest_valido(tmp_path, monkeypatch, catalogo, campaign):
     assert resultado.timeouts_seconds.run == 300
 
 
+def test_arc73_projected_bytes_y_core_hours_ausentes_por_defecto(tmp_path, monkeypatch, catalogo, campaign):
+    resultado = cargar(tmp_path, monkeypatch, catalogo, campaign)
+    assert resultado.projected_campaign_bytes is None
+    assert resultado.remaining_core_hours is None
+    assert resultado.projected_core_hours is None
+
+
+def test_arc73_projected_bytes_y_core_hours_se_leen_del_manifiesto(tmp_path, monkeypatch, catalogo, campaign):
+    campaign["projected_campaign_bytes"] = 200_000_000
+    campaign["remaining_core_hours"] = 1000.0
+    campaign["projected_core_hours"] = 10.0
+    resultado = cargar(tmp_path, monkeypatch, catalogo, campaign)
+    assert resultado.projected_campaign_bytes == 200_000_000
+    assert resultado.remaining_core_hours == 1000.0
+    assert resultado.projected_core_hours == 10.0
+
+
+@pytest.mark.parametrize("field", ["projected_campaign_bytes", "remaining_core_hours", "projected_core_hours"])
+def test_arc73_projected_bytes_y_core_hours_negativos_fallan(tmp_path, monkeypatch, catalogo, campaign, field):
+    campaign[field] = -1
+    with pytest.raises(manifest.ManifestValidationError, match="MAN-00"):
+        cargar(tmp_path, monkeypatch, catalogo, campaign)
+
+
 def test_man_t02_hpc_sc3_no_requiere_cgroup(tmp_path, monkeypatch, catalogo, campaign):
     # MAN-01/ARC-41: cgroup_path es opcional en TODOS los tiers, incluido
     # hpc_sc3 -- E06 (Cpus_allowed real) ya no depende de cgroups, y en

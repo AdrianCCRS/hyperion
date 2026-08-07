@@ -366,6 +366,46 @@ para ejecutarse. El manifiesto puede prepararse hoy (mismo patrón que
   de cadencia real. El stub se usó solo para compilar/probar localmente y
   se descartó, no se comprometió al repo.
 
+**Hecho y verificado en hardware real (2026-08-06, ARC-72/73/74) — Fase 1 de
+GPU completa de punta a punta:**
+
+- **Kernels Rodinia reales**: `hotspot` y `backprop` (floats confirmados;
+  `pathfinder`, candidato inicial, se descartó por ser enteros puros —
+  mismo error que `npb_is`/`npb_ep`, ARC-57). Compilados y corridos en
+  `paccaA100`.
+- **Shim de blocking-sync implementado y verificado**:
+  `orchestrator/native/blocking_sync_shim.cpp` + `orchestrator/gpu_shim.py`
+  (compilación on-demand, mismo patrón que `pmc_multiplex_probe.c`).
+  Confirmado con un probe dedicado: 99.8% CPU (spin) sin el shim, 0.0%
+  (bloqueo real) con él, sin alterar la salida de los kernels.
+- **Calibración Roofline de GPU real**: BabelStream (Triad ≈1.399 TB/s) +
+  `cublas_dgemm_bench.cu` nuevo (≈10.4 TFLOP/s FP64, cuBLAS eligió un kernel
+  *tensorop*, no FP64 vanilla). `i_ridge_gpu` medido ≈7.4 FLOP/byte.
+- **Caracterización `ncu` real** (no asumida de literatura): `hotspot` 5.03
+  FLOP/byte (memory_bound empíricamente, contradice el hint de la
+  literatura — catalogado `intermedio`); `backprop` 0.087 FLOP/byte
+  (memory_bound, margen amplio); `cublas_dgemm_bench` 68.0 FLOP/byte
+  (compute_bound).
+- **Integración completa al orquestador**: `KernelEntry.device`
+  (catalog.py), `--enable-gpu`/shim/`LD_LIBRARY_PATH` wireados en
+  `runner.py`, `postprocess.py` ya no descarta las filas GPU
+  (`quality_status=gpu_telemetry`, passthrough puro). 5 kernels GPU en
+  `catalog.yaml` con checksums reales de `pacca-a100`.
+- **Campaña real completa corrida en `paccaA100`** (`campaign_pacca_gpu_ref.yaml`,
+  REF, 5 kernels × 3 repeticiones): **6/6 aceptadas, 0 rechazadas**
+  (encontrado y corregido en el camino un bug real de rutas CUDA en
+  `gpu_shim.py` — `nvcc` en PATH resolvía al del NVIDIA HPC SDK, sin
+  `cuda_runtime.h`/`libcublas`, ver ARC-74). `windows.csv` verificado con
+  filas `gpu_telemetry` reales (`gpu_power_mw` 36-39 W, `gpu_util_pct` no
+  nulo), sin contaminar las ventanas de CPU del mismo run.
+- **Gap real de ARC-58 encontrado y corregido en el camino (ARC-73)**:
+  `manifest.py` nunca definía `projected_campaign_bytes`/
+  `remaining_core_hours`/`projected_core_hours` como campos parseables,
+  aunque `preflight.py` los exige desde siempre — **ningún manifiesto
+  podía pasar el preflight automático de ARC-58**, ni siquiera los ya
+  validados de CPU. Corregido con los tres campos opcionales en `Manifest`
+  + `_parse_optional_non_negative_number()`.
+
 **No implementado, y ya no hace falta implementarlo** (descartado en el
 rediseño de la sección 0-4): inyección CUPTI, detección de límites de
 kernel, tabla estática de intensidad por kernel como mecanismo de
@@ -373,17 +413,8 @@ producción.
 
 **No implementado, pendiente de permiso P4 (bloqueado, no es cuestión de
 tiempo):** el wrapper real a `nvmlDeviceSetGpuLockedClocks`/`nvidia-smi
--lgc` — no se puede probar contra hardware real sin el permiso.
-
-**No implementado, pendiente de que se elijan los kernels Rodinia
-concretos:** el manifiesto de la campaña de caracterización GPU (sección
-7) y el mecanismo de `cudaDeviceScheduleBlockingSync` (sección 4.1) — este
-último en particular necesita decidirse cómo se aplica a binarios de
-terceros sin tocar su fuente (candidato: un shim vía `LD_PRELOAD` que
-intercepte la primera llamada de contexto CUDA e inserte
-`cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync)` antes — no
-implementado ni probado todavía, es una hipótesis de mecanismo, no una
-decisión cerrada).
+-lgc` — no se puede probar contra hardware real sin el permiso. Todo lo
+demás de Fase 1 ya no depende de este permiso.
 
 ---
 
@@ -391,29 +422,37 @@ decisión cerrada).
 
 1. **Enviar el correo de permisos** (P1-P4 ya redactados en
    `Solicitud_Permisos_Pacca_Unicartagena.md`) — bloquea DVFS de CPU y de GPU.
+   Único punto de esta lista que sigue sin resolverse.
 2. ~~Refactorizar `GpuClockController`~~ — **hecho (ARC-66)**.
-3. Preparar el manifiesto de la campaña de caracterización GPU (sección 7) —
-   no necesita el permiso para escribirse, solo para correrse. Pendiente de
-   que se elijan los kernels Rodinia concretos.
-4. Resolver `cudaDeviceScheduleBlockingSync` en binarios de terceros
-   (sección 4.1, hipótesis: shim `LD_PRELOAD`) antes de cualquier corrida
-   heterogénea real.
+3. ~~Preparar el manifiesto de la campaña de caracterización GPU~~ — **hecho
+   (ARC-72/73)**: `campaign_pacca_gpu_ref.yaml`, corrido en hardware real.
+4. ~~Resolver `cudaDeviceScheduleBlockingSync` en binarios de terceros~~ —
+   **hecho (ARC-72)**: shim `LD_PRELOAD`, verificado (99.8%→0.0% CPU).
 5. ~~Sacar el muestreo NVML del loop de 1 ms de `collector.cpp`~~ — **hecho
    (ARC-66)**.
-6. Caracterizar con `ncu` los kernels Rodinia elegidos, una vez que estén
-   seleccionados (sección 3).
-7. Correr la campaña de caracterización (sección 7) en cuanto llegue P4.
+6. ~~Caracterizar con `ncu` los kernels Rodinia elegidos~~ — **hecho
+   (ARC-72)**: `hotspot`/`backprop`/`cublas_dgemm_bench`, valores reales en
+   sección 8.
+7. ~~Correr la campaña de caracterización~~ — **hecho (ARC-72/73/74)**: 6/6
+   aceptadas en `paccaA100`, `windows.csv` con datos NVML reales. No hizo
+   falta esperar P4 — corrió íntegramente a frecuencia REF.
 8. Medir `T_transición` real de GPU el día que llegue el permiso, para fijar
    el tiempo mínimo de permanencia con datos reales, no con el valor de
-   literatura citado en el plan (~10 ms).
+   literatura citado en el plan (~10 ms). **Único paso que sigue bloqueado
+   por P4** — todo lo demás de Fase 1 está listo.
 
 ---
 
 ## 10. Qué queda explícitamente sin resolver
 
-- `T_transición` real del cambio de reloj de GPU — no medible sin el permiso.
-- Qué techo FP64 (vanilla vs Tensor Core) corresponde a los kernels Rodinia
-  que finalmente se elijan — depende de qué kernels queden seleccionados.
+- `T_transición` real del cambio de reloj de GPU — no medible sin el permiso
+  (único punto de Fase 1 realmente bloqueado por P4).
+- Qué techo FP64 (vanilla vs Tensor Core) corresponde a reportar como
+  `P_pico` — la calibración real (ARC-72) mostró que cuBLAS elige un kernel
+  *tensorop* por defecto a N=4096, dando ≈10.4 TFLOP/s; falta decidir si
+  ese es el número a declarar en el escrito o si conviene forzar FP64
+  vanilla explícitamente para tener una cifra más comparable con la
+  literatura.
 - Si el modelo de GPU debe ser exactamente la misma familia de algoritmo que
   el de CPU (Random Forest, dice la Fase 2 como ejemplo) o si conviene
   comparar candidatos distintos por dispositivo — la Fase 2 del plan ya prevé
@@ -421,3 +460,7 @@ decisión cerrada).
   no una decisión nueva.
 - El presupuesto térmico/de potencia compartido a nivel de nodo,
   deliberadamente no modelado (fuera del alcance del plan, sección 6.2).
+- El checkout usado para verificar en hardware real fue uno aislado
+  (`~/hyperion-gpu-fase1` en pacca), no el `~/hyperion` real del nodo — la
+  próxima sesión que retome esto en pacca debe sincronizar el código real
+  antes de seguir, no asumir que `~/hyperion` ya tiene estos cambios.

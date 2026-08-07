@@ -14,7 +14,7 @@ from typing import Any, Callable, Iterable, Mapping
 
 from .catalog import KernelEntry, resolve_exec_command, verify_binary
 from .config import HarnessConfig, load_config
-from .gpu_shim import compiled_blocking_sync_shim, cuda_lib_dir
+from .gpu_shim import compiled_blocking_sync_shim, cuda_lib_dirs
 from .metadata_schema import merge_metadata
 
 logger = logging.getLogger(__name__)
@@ -311,9 +311,16 @@ def run_single(
                 "cudaDeviceSynchronize() hará spin (comportamiento por defecto de CUDA)",
                 kernel_ref,
             )
-        lib_dir = cuda_lib_dir()
-        if lib_dir is not None:
-            run_env["LD_LIBRARY_PATH"] = f"{lib_dir}:{run_env.get('LD_LIBRARY_PATH', '')}".rstrip(":")
+        # ARC-74: cudart y cublas viven en árboles distintos del mismo HPC
+        # SDK en paccaA100 (cuda/<ver>/lib64 vs math_libs/.../lib) -- ambos
+        # se agregan cuando existen, nunca se asume que un kernel GPU solo
+        # necesita uno de los dos (cublas_dgemm_bench falló en la primera
+        # corrida real con "libcublas.so.12: cannot open shared object
+        # file" usando solo el primero).
+        lib_dirs = cuda_lib_dirs()
+        if lib_dirs:
+            prefix = ":".join(str(d) for d in lib_dirs)
+            run_env["LD_LIBRARY_PATH"] = f"{prefix}:{run_env.get('LD_LIBRARY_PATH', '')}".rstrip(":")
     # start_new_session=True makes the child its own process group leader, so
     # os.killpg(child.pid, ...) also reaches everything it forks (RUN-03/04).
     with open(stdout_path, "wb") as stdout_file, open(stderr_path, "wb") as stderr_file:
