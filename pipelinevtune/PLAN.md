@@ -104,8 +104,10 @@ Mantener las verificaciones ya especificadas por el usuario, sin recortar ningun
 8. Que los binarios tengan permiso de ejecución
 9. Que el nombre de archivo permita extraer `kernel` y `clase`
 10. Que `OMP_NUM_THREADS`, `OMP_PLACES`, `OMP_PROC_BIND` estén configurados o se
-    puedan configurar — **y que además coincidan con la decisión D6** (un socket,
-    8 físicos, sin SMT) o que la desviación esté documentada explícitamente
+    puedan configurar — **y que además coincidan con la decisión D6** (6 cores
+    físicos, `0-5`, sin SMT, `taskset -c 0-5` — alineado con `delegated_cpus`
+    del orquestador en `campaign_pacca_ref.yaml`) o que la desviación esté
+    documentada explícitamente
 11. Contexto Slurm: `SLURM_JOB_ID`, nodo, CPUs asignadas, tareas, CPUs/tarea
 12. Espacio en disco suficiente
 
@@ -454,10 +456,13 @@ la sesión de Claude Code (decisión D7).
 #SBATCH -w paccaA100
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=32      # exclusivo: se pide el nodo completo, el dominio real (8/socket, sin SMT) lo fija OMP_* abajo -- ver D6
+#SBATCH --cpus-per-task=32      # exclusivo: se pide el nodo completo; el dominio real (6 cores, 0-5, sin SMT) lo fija taskset+OMP_* abajo -- ver D6
 #SBATCH --gres=gpu:1            # obligatorio en la particion GPU de este cluster, no se usa la GPU
 #SBATCH --exclusive
-#SBATCH --hint=nomultithread    # mismo criterio de evitar SMT que usa el resto del proyecto Hyperion (ver AGENTS.md, scripts/felix/)
+# NO --hint=nomultithread: probado contra este cluster real y devuelve
+# "Unable to allocate resources" (no soportado en esta particion/config de
+# Slurm, a diferencia de felix/SC3). El SMT se evita a nivel de aplicacion
+# con taskset -c 0-5 + OMP_PLACES=cores (ver mas abajo), no a nivel de Slurm.
 #SBATCH --time=02:00:00
 #SBATCH --output=slurm-%j.out
 
@@ -465,15 +470,16 @@ module purge
 module load devtools/intel/oneapi/2023   # vtune es un modulo jerarquico, no aparece sin este padre (ver Fase 0)
 module load vtune/2023.0.0
 
-export OMP_NUM_THREADS=8
-export OMP_PLACES=cores
-export OMP_PROC_BIND=close
+# run_vtune_pipeline.py ya fija OMP_NUM_THREADS/OMP_PLACES/OMP_PROC_BIND y el
+# taskset -c 0-5 internamente (--threads/--core-range, default D6) -- no hace
+# falta exportarlas aca, se dejan solo si se quiere anular el default.
 
 python3 run_vtune_pipeline.py \
     --bin-dir NPB3.4-OMP/bin \
     --anchor-dir NPB3.4-OMP/bin \
     --output-dir ./vtune_results \
-    --threads 8 \
+    --threads 6 \
+    --core-range 0-5 \
     --repetitions 3
 ```
 

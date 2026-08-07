@@ -43,7 +43,13 @@ VERIFICATION_RE = re.compile(r"verification.*successful", re.IGNORECASE)
 
 D6_OMP_PLACES = "cores"
 D6_OMP_PROC_BIND = "close"
-D6_DEFAULT_THREADS = 8
+# 2026-08-07: alineado con el dominio real que usa el orquestador principal
+# de Hyperion en este mismo nodo (campaign_pacca_ref.yaml: delegated_cpus=
+# 0-5, collector_cpu=6, consumer_cpu=7) para que las corridas de VTune sean
+# comparables kernel-por-kernel con las corridas del orquestador -- antes
+# era 8 (todo el socket 0), ver context/02_decisiones.md D6 (actualizada).
+D6_DEFAULT_THREADS = 6
+D6_CORE_RANGE = "0-5"
 
 ANCHOR_NAME_HINTS = {
     "stream": ("stream_omp", "stream_c", "stream"),
@@ -178,8 +184,9 @@ def _run(cmd: list[str], cwd: Path | None, env: dict, timeout: int) -> RunOutcom
 
 
 def run_baseline(binary: Path, extra_args: list[str], env: dict, timeout: int,
-                  is_npb_kernel: bool) -> RunOutcome:
-    outcome = _run([str(binary), *extra_args], binary.parent, env, timeout)
+                  is_npb_kernel: bool, pin_prefix: list[str] | None = None) -> RunOutcome:
+    cmd = [*(pin_prefix or []), str(binary), *extra_args]
+    outcome = _run(cmd, binary.parent, env, timeout)
     if not outcome.ok:
         return outcome
     if is_npb_kernel and not VERIFICATION_RE.search(outcome.stdout):
@@ -189,9 +196,11 @@ def run_baseline(binary: Path, extra_args: list[str], env: dict, timeout: int,
 
 
 def vtune_collect(vtune: str, analysis: str, knobs: list[str], result_dir: Path,
-                   binary: Path, extra_args: list[str], env: dict, timeout: int) -> RunOutcome:
+                   binary: Path, extra_args: list[str], env: dict, timeout: int,
+                   pin_prefix: list[str] | None = None) -> RunOutcome:
     shutil.rmtree(result_dir, ignore_errors=True)
-    cmd = [vtune, "-collect", analysis, *knobs, "-r", str(result_dir), "--", str(binary), *extra_args]
+    cmd = [vtune, "-collect", analysis, *knobs, "-r", str(result_dir), "--",
+           *(pin_prefix or []), str(binary), *extra_args]
     outcome = _run(cmd, binary.parent, env, timeout)
     if outcome.ok and re.search(r"^\s*vtune:\s*Error", outcome.stdout + outcome.stderr, re.MULTILINE):
         outcome.ok = False
@@ -213,13 +222,14 @@ def vtune_report(vtune: str, report_name: str, result_dir: Path, env: dict,
 
 def process_repetition(kernel: str, klass: str, binary: Path, rep: int, out_dir: Path,
                         vtune: str, env: dict, timeout: int,
-                        skip_hotspots: bool, skip_hpc: bool) -> dict:
+                        skip_hotspots: bool, skip_hpc: bool,
+                        pin_prefix: list[str] | None = None) -> dict:
     rep_dir = out_dir / kernel.upper() / f"class_{klass}" / f"rep_{rep:02d}"
     rep_dir.mkdir(parents=True, exist_ok=True)
     row = {"kernel": kernel, "class": klass, "repetition": rep, "binary_path": str(binary)}
 
     log.info("[%s.%s rep %02d] baseline", kernel, klass, rep)
-    baseline = run_baseline(binary, [], env, timeout, is_npb_kernel=True)
+    baseline = run_baseline(binary, [], env, timeout, is_npb_kernel=True, pin_prefix=pin_prefix)
     (rep_dir / "baseline_stdout.txt").write_text(baseline.stdout)
     (rep_dir / "baseline_stderr.txt").write_text(baseline.stderr)
     (rep_dir / "baseline_meta.json").write_text(json.dumps({
@@ -245,7 +255,7 @@ def process_repetition(kernel: str, klass: str, binary: Path, rep: int, out_dir:
         log.info("[%s.%s rep %02d] vtune hotspots (HW EBS)", kernel, klass, rep)
         hs_dir = rep_dir / "hotspots"
         hs = vtune_collect(vtune, "hotspots", ["-knob", "sampling-mode=hw"], hs_dir,
-                            binary, [], env, timeout)
+                            binary, [], env, timeout, pin_prefix=pin_prefix)
         row["hotspots_valid"] = hs.ok
         if hs.ok:
             _, txt = vtune_report(vtune, "hotspots", hs_dir, env, timeout)
@@ -260,7 +270,8 @@ def process_repetition(kernel: str, klass: str, binary: Path, rep: int, out_dir:
     if not skip_hpc:
         log.info("[%s.%s rep %02d] vtune hpc-performance", kernel, klass, rep)
         hpc_dir = rep_dir / "hpc"
-        hpc = vtune_collect(vtune, "hpc-performance", [], hpc_dir, binary, [], env, timeout)
+        hpc = vtune_collect(vtune, "hpc-performance", [], hpc_dir, binary, [], env, timeout,
+                            pin_prefix=pin_prefix)
         row["hpc_valid"] = hpc.ok
         if hpc.ok:
             _, txt = vtune_report(vtune, "summary", hpc_dir, env, timeout)
@@ -290,7 +301,8 @@ def process_repetition(kernel: str, klass: str, binary: Path, rep: int, out_dir:
 
 
 def run_calibration(anchor_dir: Path, out_dir: Path, vtune: str, env: dict,
-                     timeout: int, node: str, domain_config: str) -> dict:
+                     timeout: int, node: str, domain_config: str,
+                     pin_prefix: list[str] | None = None) -> dict:
     cal_dir = out_dir / "calibration"
     cal_dir.mkdir(parents=True, exist_ok=True)
     summary = {
@@ -311,7 +323,7 @@ def run_calibration(anchor_dir: Path, out_dir: Path, vtune: str, env: dict,
         summary["notes"].append(f"STREAM no encontrado en {anchor_dir}")
     else:
         log.info("Calibracion: STREAM baseline (%s)", stream_bin)
-        base = run_baseline(stream_bin, [], env, timeout, is_npb_kernel=False)
+        base = run_baseline(stream_bin, [], env, timeout, is_npb_kernel=False, pin_prefix=pin_prefix)
         if base.ok:
             m = STREAM_TRIAD_RE.search(base.stdout)
             if m:
@@ -319,7 +331,8 @@ def run_calibration(anchor_dir: Path, out_dir: Path, vtune: str, env: dict,
             else:
                 summary["notes"].append("STREAM corrio OK pero no se pudo extraer 'Triad:' de su stdout")
             hpc_dir = cal_dir / "stream_hpc"
-            hpc = vtune_collect(vtune, "hpc-performance", [], hpc_dir, stream_bin, [], env, timeout)
+            hpc = vtune_collect(vtune, "hpc-performance", [], hpc_dir, stream_bin, [], env, timeout,
+                                 pin_prefix=pin_prefix)
             if hpc.ok:
                 _, txt = vtune_report(vtune, "summary", hpc_dir, env, timeout)
                 (cal_dir / "stream_hpc_summary.txt").write_text(txt)
@@ -337,7 +350,8 @@ def run_calibration(anchor_dir: Path, out_dir: Path, vtune: str, env: dict,
         if lib_dir.is_dir():
             dgemm_env["LD_LIBRARY_PATH"] = f"{lib_dir}:{dgemm_env.get('LD_LIBRARY_PATH', '')}"
         dgemm_env.setdefault("OPENBLAS_NUM_THREADS", env.get("OMP_NUM_THREADS", str(D6_DEFAULT_THREADS)))
-        base = run_baseline(dgemm_bin, ["4096", "5"], dgemm_env, timeout, is_npb_kernel=False)
+        base = run_baseline(dgemm_bin, ["4096", "5"], dgemm_env, timeout, is_npb_kernel=False,
+                             pin_prefix=pin_prefix)
         if base.ok:
             m = DGEMM_GFLOPS_RE.search(base.stdout)
             if m:
@@ -346,7 +360,7 @@ def run_calibration(anchor_dir: Path, out_dir: Path, vtune: str, env: dict,
                 summary["notes"].append("DGEMM corrio OK pero no se pudo extraer 'GFLOP/s=' de su stdout")
             hpc_dir = cal_dir / "dgemm_hpc"
             hpc = vtune_collect(vtune, "hpc-performance", [], hpc_dir, dgemm_bin, ["4096", "5"],
-                                 dgemm_env, timeout)
+                                 dgemm_env, timeout, pin_prefix=pin_prefix)
             if hpc.ok:
                 _, txt = vtune_report(vtune, "summary", hpc_dir, env, timeout)
                 (cal_dir / "dgemm_hpc_summary.txt").write_text(txt)
@@ -667,6 +681,9 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument("--kernels", type=str, default=None,
                    help="Filtro coma-separado: 'ep,cg' (todas las clases) o 'ep.C' (una clase).")
     p.add_argument("--threads", type=int, default=D6_DEFAULT_THREADS)
+    p.add_argument("--core-range", type=str, default=D6_CORE_RANGE,
+                   help="Rango para 'taskset -c', mismo dominio que delegated_cpus del "
+                        "orquestador (campaign_pacca_ref.yaml) para comparabilidad.")
     p.add_argument("--repetitions", type=int, default=3)
     p.add_argument("--overwrite", action="store_true")
     p.add_argument("--timeout", type=int, default=1800, help="Segundos por corrida individual.")
@@ -722,13 +739,25 @@ def main(argv: list[str] | None = None) -> int:
     anchor_dir = args.anchor_dir or args.bin_dir
     kernel_filter = [t.strip() for t in args.kernels.split(",")] if args.kernels else None
 
-    if args.threads == D6_DEFAULT_THREADS:
-        domain_config = "single_socket_8cores_noSMT"
+    if args.threads == D6_DEFAULT_THREADS and args.core_range == D6_CORE_RANGE:
+        domain_config = f"{D6_DEFAULT_THREADS}cores_{D6_CORE_RANGE}_noSMT_aligned_orchestrator"
     else:
-        domain_config = f"custom_{args.threads}threads_places={D6_OMP_PLACES}_bind={D6_OMP_PROC_BIND}"
-        log.warning("Threads=%d difiere del default D6 (8) -- dominio marcado como '%s' en los "
+        domain_config = (f"custom_{args.threads}threads_cores={args.core_range}_"
+                          f"places={D6_OMP_PLACES}_bind={D6_OMP_PROC_BIND}")
+        log.warning("Threads/core-range difieren del default D6 (%d hilos, cores %s, alineado con "
+                    "campaign_pacca_ref.yaml del orquestador) -- dominio marcado como '%s' en los "
                     "metadatos, no se mezcla silenciosamente con corridas estandar.",
-                    args.threads, domain_config)
+                    D6_DEFAULT_THREADS, D6_CORE_RANGE, domain_config)
+
+    taskset_path = shutil.which("taskset")
+    if taskset_path is None:
+        log.warning("'taskset' no esta en PATH -- no se puede fijar el dominio de cores a %s. "
+                    "OMP_PLACES=cores igual restringe threads a cores fisicos, pero SIN taskset "
+                    "el SO puede elegir cualquier subconjunto, no necesariamente %s (rompe la "
+                    "comparabilidad con el orquestador).", args.core_range, args.core_range)
+        pin_prefix: list[str] = []
+    else:
+        pin_prefix = [taskset_path, "-c", args.core_range]
 
     env = os.environ.copy()
     env["OMP_NUM_THREADS"] = str(args.threads)
@@ -751,7 +780,7 @@ def main(argv: list[str] | None = None) -> int:
         for rep in range(1, args.repetitions + 1):
             row = process_repetition(kernel, klass, binary, rep, args.output_dir,
                                        vtune, env, args.timeout,
-                                       args.skip_hotspots, args.skip_hpc)
+                                       args.skip_hotspots, args.skip_hpc, pin_prefix=pin_prefix)
             rows.append(row)
 
     if args.skip_calibration:
@@ -762,7 +791,7 @@ def main(argv: list[str] | None = None) -> int:
         (cal_dir / "calibration_summary.json").write_text(json.dumps(cal_summary, indent=2))
     else:
         cal_summary = run_calibration(anchor_dir, args.output_dir, vtune, env, args.timeout,
-                                       node, domain_config)
+                                       node, domain_config, pin_prefix=pin_prefix)
 
     version_proc = subprocess.run([vtune, "--version"], capture_output=True, text=True, timeout=30)
     campaign_metadata = {

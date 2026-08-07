@@ -40,8 +40,13 @@ clasifica cada kernel como `compute_bound`, `memory_bound` o `ambiguous` usando
 - **No pidas ni asumas privilegios de administrador.** Nada de `sudo`, nada de tocar
   `perf_event_paranoid`, nada de instalar drivers.
 
-- **Fija el dominio de cores explícitamente** (`OMP_PLACES=cores`, sin SMT, un socket
-  salvo decisión contraria documentada). Ver `context/01_nodo_cartagena.md`.
+- **Fija el dominio de cores explícitamente: 6 cores físicos, `0-5`, sin SMT**
+  (`taskset -c 0-5` + `OMP_PLACES=cores`), salvo decisión contraria documentada.
+  Alineado a propósito con `delegated_cpus` del orquestador principal en este
+  nodo (`orchestrator/schemas/campaign_pacca_ref.yaml`) para que las
+  clasificaciones de VTune sean comparables kernel-por-kernel contra las
+  suyas — no eran 8 cores/todo el socket como se documentó originalmente. Ver
+  `context/01_nodo_cartagena.md` y `context/02_decisiones.md` D6.
 - **ACTUALIZADO 2026-08-07 (D3-v3, reabre D3-native):** `classification_vtune_native`
   **sí depende de STREAM/DGEMM** — se calibra la posición del kernel entre ambas
   anclas usando Memory Bound + Cache Bound + DRAM Bound del mismo reporte de

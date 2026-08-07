@@ -172,12 +172,26 @@ Se decidió no eliminar EP ni IS del proyecto por el problema de conteo de FLOPs
   basado en FLOPs, con una nota explícita en vez de forzarlo a una clase.
 
 
-## D6 — Dominio de ejecución: un socket, 8 cores físicos, sin SMT (default)
+## D6 — Dominio de ejecución: 6 cores físicos (0-5), sin SMT (default, ACTUALIZADA 2026-08-07)
 
 Ver justificación completa en `01_nodo_cartagena.md`. Cualquier corrida con otro
-dominio (dos sockets, SMT activo) debe declararse explícitamente como tal en los
-metadatos de la campaña, no mezclarse silenciosamente con las corridas de dominio
-estándar.
+dominio (dos sockets, SMT activo, otro rango de cores) debe declararse
+explícitamente como tal en los metadatos de la campaña, no mezclarse
+silenciosamente con las corridas de dominio estándar.
+
+**Cambio respecto al default original (8 cores, todo el socket 0):** al
+integrar `pipelinevtune/` al repo principal de Hyperion se encontró que el
+orquestador (la pieza que este pipeline valida de forma independiente, ver
+`context/00`) ya corre campañas reales contra este mismo nodo con
+`delegated_cpus=0-5` + `collector_cpu=6` + `consumer_cpu=7`
+(`orchestrator/schemas/campaign_pacca_ref.yaml`, ver también
+`docs/retoma/pacca/Auditoria_PaccaA100_Unicartagena.md` en la raíz del repo).
+Se decidió con el usuario alinear el dominio de VTune a exactamente los mismos
+6 cores (0-5) que usa el orquestador para el kernel — no los 8 originales —
+para que ambos midan el mismo kernel bajo las mismas condiciones y sus
+veredictos sean comparables kernel-por-kernel. `run_vtune_pipeline.py` fija
+esto con `taskset -c 0-5` (no solo `OMP_PLACES=cores`, que por sí solo no
+garantiza cuáles cores específicos se usan) — ver `--core-range` en su CLI.
 
 ## D8 — Doble salida de clasificación, nunca fusionadas en una sola columna
 
