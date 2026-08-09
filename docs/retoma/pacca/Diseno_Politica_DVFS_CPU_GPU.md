@@ -67,11 +67,18 @@ son hechos del hardware, no decisiones de arquitectura. Verificados en
 | **`ncu` funciona sin root** | Kernel CUDA propio trivial perfilado con `ncu --metrics dram__bytes.sum`: 388.80 MB medidos vs ≈402 MB analíticos | `ncu` es viable como herramienta de **etiquetado offline** (ver sección 2) — no está bloqueado por permisos. |
 | **DCGM no instalado** | `which dcgmi nv-hostengine` → ausentes | No diseñar asumiendo métricas de profiling continuas de DCGM. |
 | **Persistence mode deshabilitado**, reposo a 765 MHz, límite de potencia 250 W | `nvidia-smi --query-gpu=...` | Afecta reproducibilidad de mediciones de energía/latencia; considerar pedir `-pm 1` como mejora opcional (ya incluido en la solicitud de permisos, P4). |
+| **765 MHz no es solo el reloj de reposo -- persiste bajo carga real** (ARC-77) | `nvidia-smi --query-gpu=clocks.sm` muestreado *mientras* `ert_probe_gpu` corría (no en reposo): 765 MHz de 1410 MHz máximos (54.3%), con solo 62 W de 250 W usados y 26°C -- sin límite térmico ni de potencia que lo justifique | La GPU no hace *boost* aunque haya trabajo de sobra para justificarlo y margen térmico/energético amplio. Sin `P4` no hay manera de pedirle que suba. Explica por qué toda calibración de cómputo medida hoy (`gpu_ert_probe_fp32/fp64`, `gpu_dgemm_calibration`) ronda 48-54% de los picos teóricos de NVIDIA -- no es un límite del código de calibración, es el reloj real bajo el que corre *todo* en este nodo hoy. |
 
 **Consecuencia estratégica:** el control de reloj de GPU está bloqueado por
 permisos igual que el de CPU — la GPU no es un plan B si el permiso de CPU
 tarda, cae en el mismo bloqueador. Ver `Solicitud_Permisos_Pacca_Unicartagena.md`
-P4 (ya redactado).
+P4 (ya redactado). **Consecuencia metodológica (ARC-77):** como ningún
+kernel del catálogo tiene tampoco el permiso para forzar el reloj máximo,
+el `i_ridge` de GPU debe derivarse de picos *medidos bajo esta misma
+limitación* (`gpu_ert_probe_fp32/fp64`), no de picos teóricos ni de
+literatura con reloj desbloqueado -- de lo contrario se compararía a los
+kernels reales contra una velocidad que ninguno puede alcanzar hoy, el
+mismo tipo de error ya corregido para Tensor Cores.
 
 ---
 
@@ -123,28 +130,80 @@ papel de `ncu` es exactamente el mismo que ya cumplen `bytes_moved_window` y
 (ground truth) que se usa para *entrenar* el clasificador, nunca para
 alimentarlo en producción.
 
+**Corrección de diseño (ARC-79):** la versión anterior de esta sección decía
+"se etiqueta una sola vez y esa etiqueta se reusa en todos los niveles
+`FG_n`" -- **eso es falso en general**, mismo error que ARC-78 encontró y
+corrigió del lado CPU. `i_ridge = P_pico/BW_pico` depende del reloj:
+`P_pico` escala con la frecuencia de SM, `BW_pico` casi no (el reloj de
+memoria es un dominio aparte que este proyecto no toca -- sección 1). Un
+kernel con intensidad operacional fija (`rodinia_lud`, ARC-76/77: 7.6-7.8
+FLOP/byte, a menos de 7% del ridge medido a la frecuencia de reposo) puede
+cruzar la frontera compute/memory-bound solo por un cambio de reloj de GPU,
+sin que el kernel mismo cambie en nada. La corrección separa lo que SÍ es
+invariante de frecuencia (la intensidad operacional, `FLOPs/byte`, que
+depende del algoritmo y el tamaño de datos, no del reloj) de lo que NO lo es
+(el ridge point contra el cual se compara esa intensidad):
+
 Concretamente, en Fase 1:
 
 1. Por cada kernel candidato (de Rodinia u otra fuente), se corre `ncu` **una
-   sola vez** (la intensidad operacional de un kernel no cambia con la
-   frecuencia — depende del algoritmo y el tamaño de datos, no del reloj) y
-   se obtiene `FLOPs/byte` real, medido con contadores de hardware, no
-   estimado.
-2. Esa intensidad se compara contra `i_ridge_gpu` (de la calibración Roofline
-   de GPU, sección 5) para producir una etiqueta `compute_bound`/`memory_bound`
-   — el análogo de `phase_label_hint`/`phase_label_train`, pero con `ncu`
-   jugando un papel más fuerte (medición real, no hint de literatura).
-3. **Esa etiqueta se le asigna a todas las muestras NVML** recolectadas
-   mientras ese kernel corre, en **todos los niveles de frecuencia FG_n**
-   (sección 6) — porque la etiqueta física del kernel no depende del reloj al
-   que se lo mida.
-4. El modelo de GPU (Fase 2) se entrena sobre esas muestras NVML con esa
+   sola vez** y se obtiene `FLOPs/byte` real, medido con contadores de
+   hardware, no estimado. Esto sigue siendo cierto sin cambios: la
+   intensidad operacional de un kernel no depende del reloj al que corra.
+2. **`P_pico_gpu` se calibra UNA VEZ POR CADA nivel `FG_n`** (sección 6),
+   fijando el reloj de SM a ese nivel y corriendo
+   `gpu_ert_probe_fp32`/`gpu_ert_probe_fp64` (sección 5) ahí -- no una sola
+   vez para toda la campaña. `BW_pico_gpu` sí se mide una sola vez
+   (`gpu_stream_bw`): el reloj de memoria no es parte del espacio DVFS de
+   este proyecto (sección 1), así que no hay ninguna razón física para que
+   cambie entre niveles.
+3. Se calcula `i_ridge_gpu(FG_n) = P_pico_gpu(FG_n) / BW_pico_gpu` -- un
+   ridge point **por nivel**, mismo principio que `calibration.py` ya
+   implementa del lado CPU (ARC-78).
+4. La etiqueta de cada kernel se recalcula **por combinación (kernel, FG_n)**:
+   `compute_bound` si `FLOPs/byte > i_ridge_gpu(FG_n)`, `memory_bound` en
+   caso contrario. Un kernel borderline como `rodinia_lud` puede terminar
+   con etiquetas distintas en `FG0` (reloj alto) que en `FG4` (reloj bajo)
+   -- es lo físicamente correcto, no un error de medición.
+5. Cada etiqueta (kernel, FG_n) se le asigna a las muestras NVML recolectadas
+   mientras ese kernel corre **a ese FG_n específico**, nunca a las de otro
+   nivel.
+6. El modelo de GPU (Fase 2) se entrena sobre esas muestras NVML con esa
    etiqueta como target — **`ncu` nunca vuelve a ejecutarse después de Fase
-   1**, ni en el daemon, ni en ninguna corrida de validación.
+   1**, ni en el daemon, ni en ninguna corrida de validación. Lo que sí se
+   repite por nivel es la calibración de `P_pico_gpu` (paso 2), no `ncu`.
 
 Esto resuelve limpio la restricción del plan (NVML es la única entrada de
 producción) sin perder rigor en el etiquetado (no se etiqueta a ojo ni con un
-hint de literatura, se mide).
+hint de literatura, se mide) -- y ahora sin el gap metodológico de asumir un
+ridge point constante entre niveles de frecuencia.
+
+**Estado de esta corrección (ARC-80): implementada en código, no solo en
+diseño.** La corrección de ARC-79 (arriba) se escribió primero como un
+cambio de diseño puro, con el razonamiento de que "esto es Fase 2, sin
+construir todavía" -- **ese razonamiento estaba mal**: los pasos 1-4 de
+esta misma sección están explícitamente bajo "Fase 1" (es la etiqueta de
+verdad para *entrenar* el futuro modelo, no el modelo en sí), así que
+dejarlos sin código era un hueco real de Fase 1, no algo que pudiera
+esperar. Implementado: `KernelEntry` gana `operational_intensity_flops_per_byte`
+(el `FLOPs/byte` medido con `ncu`, ver catálogo) y `gpu_precision`
+("fp32"/"fp64", determina cuál de los dos ridge points aplica);
+`calibration.run_gpu_calibration()` calibra `P_pico_gpu` fp32 y fp64 por
+separado, una vez por cada nivel de `manifest.frequency_levels` (fuentes
+declaradas explícitamente en `manifest.gpu["calibration"]`, nunca
+inferidas del catálogo, para no confundir `gpu_dgemm_calibration` --
+referencia informativa de cuBLAS, ARC-76 -- con la fuente real del ridge);
+`postprocess.py` calcula `phase_label_train`/`operational_intensity` para
+las filas `gpu_telemetry` cuando esa calibración está disponible. **Sin
+esto, el dataset de GPU que se viene recolectando desde ARC-72 tenía
+*features* (potencia/utilización) pero ningún target con el cual entrenar
+-- ya corregido y verificado con una campaña real en `paccaA100`**
+(`gpu_ert_probe_fp32`/`fp64` calibrados a REF, `rodinia_lavamd` etiquetado
+`compute_bound`, `rodinia_backprop`/`rodinia_lud` etiquetados
+`memory_bound`, cada uno contra el ridge de su propia precisión). Lo que
+sigue bloqueado por `P4` es únicamente *recalibrar* por más de un nivel de
+frecuencia real (hoy solo existe el nivel `REF`) -- el mecanismo en sí ya
+está listo para eso, no falta código, falta el permiso.
 
 ---
 
@@ -260,13 +319,22 @@ compute/memory-bound" en la sección 3. Estructura recomendada, preservando la
 simetría metodológica con CPU:
 
 - **Ancho de banda:** BabelStream (equivalente aceptado de STREAM en GPU).
-- **Pico de FLOPs:** cuBLAS DGEMM (análogo de `dgemm_n2048`).
+- **Pico de FLOPs:** microbenchmark propio (`ert_probe_gpu.cu`, ARC-76),
+  análogo directo de `ert_probe.c` en CPU -- un bucle multiplicar-sumar que
+  cada hilo corre enteramente en un registro, en aritmética CUDA corriente
+  (sin ninguna librería de terceros).
 
-Dos riesgos a anticipar:
+**Corrección de diseño (ARC-76)**: la primera versión de esta calibración
+usaba `cuBLAS DGEMM` como fuente de `P_pico` -- se descartó porque `cuBLAS`
+puede elegir, sin que se le pida, una ruta de hardware acelerada que los
+demás kernels del catálogo no usan, dando un `P_pico` que no representa lo
+que esos kernels pueden alcanzar. El microbenchmark propio evita ese riesgo
+por construcción (mismo principio que ya rige `ert_probe` en CPU: nunca
+depender de una librería optimizada de terceros para medir un techo que
+se va a usar como vara de comparación).
 
-- **La elección del techo FP64 cambia `i_ridge` por 2×.** El A100 tiene FP64
-  vanilla (~9.7 TFLOP/s) y FP64 Tensor Core (~19.5 TFLOP/s). Debe declararse
-  cuál se usa y verificar que coincide con lo que los kernels reales ejercitan.
+Un riesgo sigue vigente:
+
 - **Sin permiso de reloj, `P_pico` sale al boost que la GPU elija en el
   momento de calibrar** — no reproducible, análogo al problema turbo/HWP que
   CPU ya controla (check D01). Mitigación mínima: registrar `clocks.current.sm`
@@ -310,6 +378,18 @@ para GPU. **No necesita nada de lo que se descartó** (CUPTI, límites de
 kernel en vivo) — el reloj se fija para toda la corrida del binario, igual
 que CPU fija frecuencia para toda una corrida de NPB:
 
+**Por cada FG_n, antes de correr ningún kernel Rodinia (ARC-79, corrige el
+gap de la sección 3):**
+0. Fijar el reloj de SM a FG_n y calibrar `P_pico_gpu(FG_n)` corriendo
+   `gpu_ert_probe_fp32`/`gpu_ert_probe_fp64` a ese reloj -- análogo exacto
+   de lo que `calibration.py` ya hace por nivel del lado CPU (ARC-78).
+   `BW_pico_gpu` (`gpu_stream_bw`) se mide una sola vez para toda la
+   campaña, no por nivel (sección 3, paso 2). Calcular
+   `i_ridge_gpu(FG_n) = P_pico_gpu(FG_n) / BW_pico_gpu` y, con la intensidad
+   `FLOPs/byte` de cada kernel (medida una sola vez con `ncu`, fuera de este
+   loop), derivar la etiqueta `compute_bound`/`memory_bound` que le
+   corresponde a CADA kernel **en este `FG_n` específico**.
+
 Por cada kernel Rodinia × cada FG_n × repeticiones:
 1. Fijar el reloj de SM a FG_n (`nvidia-smi -lgc <mhz>,<mhz>`).
 2. Correr el kernel, muestreando NVML en vivo durante toda la corrida
@@ -321,9 +401,15 @@ Por cada kernel Rodinia × cada FG_n × repeticiones:
    para acumular energía a través de fronteras de fase).
 4. Restaurar el reloj original al terminar (mismo patrón de snapshot/restore
    que ya existe para CPU).
+5. Etiquetar las muestras NVML de esta combinación (kernel, FG_n) con la
+   etiqueta calculada en el paso 0 **para este mismo FG_n** -- nunca con la
+   etiqueta de otro nivel, y nunca asumiendo que es la misma en todos los
+   niveles.
 
-La etiqueta de cada fila (sección 3) sale de `ncu`, corrido una sola vez por
-kernel, no por combinación FG_n/repetición.
+La intensidad `FLOPs/byte` de cada fila sale de `ncu`, corrido una sola vez
+por kernel (invariante de frecuencia, sección 3 paso 1) -- lo que SÍ se
+recalcula por `FG_n` es el ridge contra el cual se compara esa intensidad
+(paso 0 de arriba), y por lo tanto la etiqueta final.
 
 **Esto no necesita el permiso P4 para diseñarse ni para escribirse** — solo
 para ejecutarse. El manifiesto puede prepararse hoy (mismo patrón que
@@ -378,14 +464,25 @@ GPU completa de punta a punta:**
   (compilación on-demand, mismo patrón que `pmc_multiplex_probe.c`).
   Confirmado con un probe dedicado: 99.8% CPU (spin) sin el shim, 0.0%
   (bloqueo real) con él, sin alterar la salida de los kernels.
-- **Calibración Roofline de GPU real**: BabelStream (Triad ≈1.399 TB/s) +
-  `cublas_dgemm_bench.cu` nuevo (≈10.4 TFLOP/s FP64, cuBLAS eligió un kernel
-  *tensorop*, no FP64 vanilla). `i_ridge_gpu` medido ≈7.4 FLOP/byte.
-- **Caracterización `ncu` real** (no asumida de literatura): `hotspot` 5.03
-  FLOP/byte (memory_bound empíricamente, contradice el hint de la
-  literatura — catalogado `intermedio`); `backprop` 0.087 FLOP/byte
-  (memory_bound, margen amplio); `cublas_dgemm_bench` 68.0 FLOP/byte
-  (compute_bound).
+- **Calibración Roofline de GPU real**: BabelStream (Triad ≈1.399 TB/s,
+  89.9% del pico teórico de una A100-PCIe-40GB confirmada por SKU) +
+  `ert_probe_gpu.cu` (ARC-76, microbenchmark propio en aritmética CUDA
+  corriente, sin `cuBLAS`) dando FP64=4698.6 GFLOP/s, FP32=10178.2 GFLOP/s.
+  **Corrección respecto al primer intento (ver
+  `Consolidacion_Kernels_Dataset_Fase1.md` sección 0)**: se probó primero
+  con `cublas_dgemm_bench` (≈10.4 TFLOP/s), pero `cuBLAS` eligió por su
+  cuenta un kernel Tensor Core, dando un techo que los kernels Rodinia
+  (sin Tensor Cores) no pueden alcanzar -- se reemplazó por el probe
+  propio. Ridge resultante: **≈3.36 FLOP/byte para FP64 vainilla, ≈7.28
+  FLOP/byte para FP32 vainilla** (con BW=1.399 TB/s).
+- **Caracterización `ncu` real** (no asumida de literatura): `hotspot`
+  (FP32) 5.03 FLOP/byte -- memory_bound contra el ridge FP32 (7.28),
+  contradice nuestro hint de catálogo, no una clasificación oficial de
+  Rodinia (que solo describe el dominio de la aplicación, no asigna
+  compute/memory-bound); `backprop` (FP32) 0.087 FLOP/byte (memory_bound,
+  margen amplio); `cublas_dgemm_bench` 68.0 FLOP/byte (compute_bound, muy
+  por encima del ridge -- sigue en el catálogo como dataset, ya no como
+  fuente de calibración del ridge).
 - **Integración completa al orquestador**: `KernelEntry.device`
   (catalog.py), `--enable-gpu`/shim/`LD_LIBRARY_PATH` wireados en
   `runner.py`, `postprocess.py` ya no descarta las filas GPU
@@ -447,12 +544,22 @@ demás de Fase 1 ya no depende de este permiso.
 
 - `T_transición` real del cambio de reloj de GPU — no medible sin el permiso
   (único punto de Fase 1 realmente bloqueado por P4).
-- Qué techo FP64 (vanilla vs Tensor Core) corresponde a reportar como
-  `P_pico` — la calibración real (ARC-72) mostró que cuBLAS elige un kernel
-  *tensorop* por defecto a N=4096, dando ≈10.4 TFLOP/s; falta decidir si
-  ese es el número a declarar en el escrito o si conviene forzar FP64
-  vanilla explícitamente para tener una cifra más comparable con la
-  literatura.
+- ~~El etiquetado `ncu` de GPU (sección 3) no recalcula la etiqueta por
+  nivel de frecuencia~~ — **corregido en diseño (ARC-79) y en código
+  (ARC-80)**: `calibration.run_gpu_calibration()` calibra `P_pico_gpu`
+  (fp32 y fp64 por separado, ARC-76) por cada nivel de
+  `manifest.frequency_levels`, y `postprocess.py` deriva `phase_label_train`
+  por combinación (kernel, freq_level_id, precisión) -- mismo principio que
+  `calibration.py` ya implementa del lado CPU (ARC-78), verificado con una
+  campaña real en `paccaA100`. **Sigue sin poder *recalibrar por más de un
+  nivel real* hasta que llegue `P4`** (no hay manera de fijar el reloj de
+  SM a distintos niveles hoy, así que solo existe el nivel `REF`) — pero
+  el código ya soporta más niveles sin cambios, solo falta el permiso para
+  que `manifest.frequency_levels` declare más de uno de verdad.
+- ~~Qué techo FP64 corresponde a reportar como `P_pico`~~ — **resuelto
+  (ARC-76)**: se dejó de usar `cuBLAS` (elige Tensor Cores por su cuenta)
+  y se mide con un microbenchmark propio en aritmética CUDA corriente
+  (`ert_probe_gpu.cu`), mismo criterio que `ert_probe` en CPU.
 - Si el modelo de GPU debe ser exactamente la misma familia de algoritmo que
   el de CPU (Random Forest, dice la Fase 2 como ejemplo) o si conviene
   comparar candidatos distintos por dispositivo — la Fase 2 del plan ya prevé
