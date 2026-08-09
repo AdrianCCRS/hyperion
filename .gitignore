@@ -43,3 +43,17 @@ Thumbs.db
 *.log
 *.json
 !hardware/schema.json
+
+# LaTeX build artifacts (keep .tex/.bib sources and final .pdf only)
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+*.toc
+*.lof
+*.lot
+*.out
+*.run.xml
+*.bcf
