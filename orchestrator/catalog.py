@@ -65,6 +65,21 @@ class KernelEntry:
     # otro campo del catálogo cambia de significado por esto, es puramente
     # una bandera de qué wiring adicional aplica en runner.py.
     device: str = "cpu"
+    # ARC-80: intensidad operacional (FLOPs/byte) medida offline con `ncu`,
+    # una sola vez por kernel (Fase 1 -- ver Diseno_Politica_DVFS_CPU_GPU.md
+    # sección 3) -- nunca calculada en vivo desde NVML, que no expone FLOPs
+    # ni bytes. Solo aplica a kernels dataset con device="gpu"; postprocess.py
+    # la compara contra el i_ridge_gpu calibrado (calibration.run_gpu_calibration,
+    # por nivel de frecuencia y precisión) para derivar phase_label_train.
+    operational_intensity_flops_per_byte: float | None = None
+    # ARC-80: "fp32"/"fp64" -- confirmado leyendo el .cu de cada kernel, no
+    # asumido (ARC-76: la mayoría de Rodinia es FP32, lavaMD es FP64). Para
+    # un kernel dataset determina contra cuál de los dos ridge points de GPU
+    # se compara operational_intensity_flops_per_byte; para un kernel de
+    # calibración con reports_flops_stdout=True identifica cuál de los dos
+    # calibradores (gpu_ert_probe_fp32/fp64) es -- ninguno de los dos se
+    # puede inferir del resto del catálogo, así que se declara explícito.
+    gpu_precision: str | None = None
 
     def __post_init__(self):
         if self.device not in ("cpu", "gpu"):
@@ -113,6 +128,21 @@ class KernelEntry:
                 raise ValueError(
                     f"CAT-04: kernel dataset {self.id!r} requiere {', '.join(missing)}"
                 )
+            # ARC-80: un kernel dataset de GPU sin esto no puede recibir
+            # phase_label_train -- fallar cerrado en vez de dejarlo pasar
+            # como "queda en None" (ARC-20: nunca aprobar por falta de datos).
+            if self.device == "gpu":
+                if self.operational_intensity_flops_per_byte is None or not self.gpu_precision:
+                    raise ValueError(
+                        f"CAT-10: kernel dataset GPU {self.id!r} requiere "
+                        "operational_intensity_flops_per_byte y gpu_precision "
+                        "(medidos con ncu, ARC-80) para poder derivar phase_label_train"
+                    )
+                if self.gpu_precision not in ("fp32", "fp64"):
+                    raise ValueError(
+                        f"CAT-10: gpu_precision de {self.id!r} debe ser 'fp32' o 'fp64', "
+                        f"no {self.gpu_precision!r}"
+                    )
 
         # CAT-05: a calibration entry reports exactly one calibration metric.
         if self.role == "calibration" and (
@@ -187,6 +217,8 @@ def load_catalog(catalog_path: str) -> dict[str, KernelEntry]:
             runtime_seconds_stdout_pattern=kernel.get("runtime_seconds_stdout_pattern"),
             exec_args=kernel.get("exec_args", ""),
             device=kernel.get("device", "cpu"),
+            operational_intensity_flops_per_byte=kernel.get("operational_intensity_flops_per_byte"),
+            gpu_precision=kernel.get("gpu_precision"),
         )
         if not isinstance(entry.exec_args, str):
             raise ValueError(f"CAT-06: exec_args de {entry.id!r} debe ser un string")

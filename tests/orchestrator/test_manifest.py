@@ -66,6 +66,30 @@ def test_man_t01_manifest_valido(tmp_path, monkeypatch, catalogo, campaign):
     assert resultado.timeouts_seconds.run == 300
 
 
+def test_man12_kernel_calibration_en_kernels_falla(tmp_path, monkeypatch, catalogo, campaign):
+    """ARC-94: campaign_pacca_gpu_ref.yaml mezclaba 4 kernels role=="calibration"
+    directamente en `kernels:` -- MAN-12 lo bloquea ahora."""
+    catalogo["npb_a"] = SimpleNamespace(reports_bandwidth_stdout=False, reports_flops_stdout=False, role="calibration")
+    with pytest.raises(manifest.ManifestValidationError, match="MAN-12"):
+        cargar(tmp_path, monkeypatch, catalogo, campaign)
+
+
+def test_man12_kernel_dataset_en_calibration_falla(tmp_path, monkeypatch, catalogo, campaign):
+    catalogo["stream"].role = "dataset"
+    with pytest.raises(manifest.ManifestValidationError, match="MAN-12"):
+        cargar(tmp_path, monkeypatch, catalogo, campaign)
+
+
+def test_man12_roles_correctos_no_falla(tmp_path, monkeypatch, catalogo, campaign):
+    catalogo["stream"].role = "calibration"
+    catalogo["ert"].role = "calibration"
+    catalogo["npb_a"].role = "dataset"
+    catalogo["npb_b"].role = "dataset"
+    catalogo["npb_c"].role = "dataset"
+    resultado = cargar(tmp_path, monkeypatch, catalogo, campaign)
+    assert resultado.campaign_id == "prueba"
+
+
 def test_arc73_projected_bytes_y_core_hours_ausentes_por_defecto(tmp_path, monkeypatch, catalogo, campaign):
     resultado = cargar(tmp_path, monkeypatch, catalogo, campaign)
     assert resultado.projected_campaign_bytes is None
@@ -219,3 +243,21 @@ def test_man_t11_tamano_de_matriz_y_log_baseline(tmp_path, monkeypatch, catalogo
     assert manifest.compute_matrix_size(resultado) == 60
     assert "×2 por baseline" in caplog.text
     assert "120 corridas" in caplog.text
+
+
+def test_arc88_gpu_interval_ns_ausente_por_defecto(tmp_path, monkeypatch, catalogo, campaign):
+    resultado = cargar(tmp_path, monkeypatch, catalogo, campaign)
+    assert resultado.gpu_interval_ns is None
+
+
+def test_arc88_gpu_interval_ns_se_lee_del_manifiesto(tmp_path, monkeypatch, catalogo, campaign):
+    campaign["gpu_interval_ns"] = 5_000_000
+    resultado = cargar(tmp_path, monkeypatch, catalogo, campaign)
+    assert resultado.gpu_interval_ns == 5_000_000
+
+
+@pytest.mark.parametrize("value", [0, -1, 1.5, True])
+def test_arc88_gpu_interval_ns_invalido_falla(tmp_path, monkeypatch, catalogo, campaign, value):
+    campaign["gpu_interval_ns"] = value
+    with pytest.raises(manifest.ManifestValidationError, match="gpu_interval_ns"):
+        cargar(tmp_path, monkeypatch, catalogo, campaign)

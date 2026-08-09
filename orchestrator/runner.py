@@ -56,11 +56,32 @@ class RunResult:
     # False). Exposed directly so callers (campaign.py) don't have to dig it
     # back out of `metadata`.
     applied_frequency: Any = None
+    # ARC-87: mirrors applied_frequency for the GPU clock axis -- None for
+    # CPU-device kernels (never attempted) and for GPU-device kernels when
+    # gpu_frequency_write_capable is False (RUN-08's GPU equivalent).
+    applied_gpu_frequency: Any = None
 
 
 def build_run_id(campaign_id: str, kernel_ref: str, freq_level_id: str, repetition_index: int) -> str:
     """RUN-02: deterministic run_id, reproducible from the manifest alone."""
     return f"{campaign_id}__{kernel_ref}__{freq_level_id}__rep{repetition_index:02d}"
+
+
+def _resolve_frequency_level(manifest: Any, freq_level_id: str) -> Any:
+    """ARC-78: freqctl.apply_frequency() needs the full FrequencyLevel object
+    (reads .mode/.fraction), not just its .id -- passing the bare string
+    (the bug this fixes) makes every non-native_governor level silently take
+    the wrong code path in freqctl (getattr(level, "mode", None) is None for
+    a str), and would raise AttributeError for native_governor/fixed alike
+    the first time frequency_write_capable is ever True."""
+    for level in manifest.frequency_levels:
+        if level.id == freq_level_id:
+            return level
+    raise ValueError(
+        f"RUN-08: freq_level_id={freq_level_id!r} no coincide con ningún "
+        "manifest.frequency_levels[*].id -- apply_frequency no puede resolver "
+        "el nivel completo"
+    )
 
 
 def _format_cpu_list(cpus: Iterable[int]) -> str:
@@ -203,6 +224,7 @@ def _merge_metadata(
     node_id: str | None,
     calibration_refs: Mapping[str, Any] | None,
     applied_frequency: Any = None,
+    applied_gpu_frequency: Any = None,
 ) -> dict[str, Any]:
     """RUN-06: merge launcher metadata (samples_collected, push_retries,
     perf_attach_mode, measured_pids, ...) with orchestrator-level metadata,
@@ -225,6 +247,15 @@ def _merge_metadata(
         orchestrator_fields["freq_khz_applied"] = getattr(applied_frequency, "applied_khz", None)
         orchestrator_fields["freq_governor_applied"] = getattr(applied_frequency, "governor_applied", None)
         orchestrator_fields["freq_write_skipped_reason"] = getattr(applied_frequency, "write_skipped_reason", None)
+    if applied_gpu_frequency is not None:
+        # ARC-87: espejo de FRQ-03 para el eje de GPU -- requested/applied en
+        # MHz (no kHz, unidad nativa de nvidia-smi/NVML) nunca se calculan y
+        # luego se descartan silenciosamente antes de llegar a metadata.json.
+        orchestrator_fields["gpu_freq_mhz_requested"] = getattr(applied_gpu_frequency, "requested_mhz", None)
+        orchestrator_fields["gpu_freq_mhz_applied"] = getattr(applied_gpu_frequency, "applied_mhz", None)
+        orchestrator_fields["gpu_freq_write_skipped_reason"] = getattr(
+            applied_gpu_frequency, "write_skipped_reason", None
+        )
     if calibration_refs:
         orchestrator_fields = merge_metadata(orchestrator_fields, calibration_refs, context="RUN-06")
 
@@ -243,8 +274,22 @@ def run_single(
     node_id: str | None = None,
     calibration_refs: Mapping[str, Any] | None = None,
     apply_frequency: Callable[[Any, Any, Any], Any] | None = None,
+    apply_gpu_frequency: Callable[[Any, Any], Any] | None = None,
+    run_id: str | None = None,
 ) -> RunResult:
     """Run one telemetry_kernel_launcher invocation and collect its result.
+
+    ARC-94: `run_id`, if given, overrides the one this function would
+    otherwise derive from `build_run_id(campaign_id, kernel_ref,
+    freq_level_id, repetition_index)`. Before this parameter existed,
+    campaign.py computed a mode-suffixed id for the baseline/telemetry pair
+    (CAM-04, e.g. `..._rep01__baseline` vs. `..._rep01`) but had no way to
+    pass it in -- `run_single()` always rebuilt the plain telemetry id
+    internally, so the baseline half of the pair silently wrote into the
+    SAME run_dir as its telemetry sibling (whichever ran second overwrote
+    the other's artifacts). The same gap meant retrying a rejected run
+    overwrote the rejected run's own evidence instead of landing in the
+    directory the caller intended.
 
     `apply_frequency`, if given, is only ever called when
     environment_profile.frequency_write_capable is True (RUN-08); freqctl.py
@@ -253,6 +298,13 @@ def run_single(
     returns) is kept on RunResult.applied_frequency and folded into this
     run's metadata.json (FRQ-03): the requested/applied frequency must never
     be computed and then silently dropped before it reaches persisted data.
+
+    `apply_gpu_frequency`, if given, mirrors `apply_frequency` for the GPU
+    clock axis (ARC-87): only called when `entry.device == "gpu"` AND
+    `environment_profile.gpu_frequency_write_capable` is true. A CPU-device
+    kernel never touches the GPU clock, regardless of write capability --
+    the two axes are gated independently, exactly like the two independent
+    control domains (CPU/GPU) described in the DVFS policy design.
     """
     harness = harness or load_config().harness
 
@@ -264,7 +316,8 @@ def run_single(
     applied_frequency = None
     if apply_frequency is not None:
         if environment_profile is not None and getattr(environment_profile, "frequency_write_capable", False):
-            applied_frequency = apply_frequency(manifest.cores.delegated_cpus, freq_level_id, environment_profile)
+            frequency_level = _resolve_frequency_level(manifest, freq_level_id)
+            applied_frequency = apply_frequency(manifest.cores.delegated_cpus, frequency_level, environment_profile)
         else:
             logger.debug(
                 "RUN-08: frequency_write_capable=False, omitiendo apply_frequency para %s/%s",
@@ -272,7 +325,21 @@ def run_single(
                 freq_level_id,
             )
 
-    run_id = build_run_id(manifest.campaign_id, kernel_ref, freq_level_id, repetition_index)
+    applied_gpu_frequency = None
+    if apply_gpu_frequency is not None and getattr(entry, "device", "cpu") == "gpu":
+        if environment_profile is not None and getattr(environment_profile, "gpu_frequency_write_capable", False):
+            frequency_level = _resolve_frequency_level(manifest, freq_level_id)
+            applied_gpu_frequency = apply_gpu_frequency(frequency_level, environment_profile)
+        else:
+            logger.debug(
+                "ARC-87: gpu_frequency_write_capable=False, omitiendo apply_gpu_frequency para %s/%s",
+                kernel_ref,
+                freq_level_id,
+            )
+
+    run_id = run_id if run_id is not None else build_run_id(
+        manifest.campaign_id, kernel_ref, freq_level_id, repetition_index
+    )
     run_dir = Path(manifest.output_dir) / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -359,7 +426,20 @@ def run_single(
         node_id,
         calibration_refs,
         applied_frequency,
+        applied_gpu_frequency,
     )
+    # ARC-94 (segunda ronda): el diccionario fusionado (RUN-06) solo vivía
+    # en memoria, en RunResult.metadata -- metadata.json en disco se
+    # quedaba con lo que el launcher escribió (samples_collected,
+    # push_retries, perf_attach_mode) y nunca con campaign_id/kernel_ref/
+    # checksum/frecuencias que el orquestador agrega después. Confirmado en
+    # producción: 100% de los metadata.json aceptados en paccaA100 carecían
+    # de esos campos. El comando ejecutado (`command`) tampoco se
+    # persistía en ningún lado -- se agrega aquí, no solo en RunResult.
+    metadata_path = run_dir / "metadata.json"
+    with metadata_path.open("w", encoding="utf-8") as metadata_file:
+        json.dump({**metadata, "command": list(command)}, metadata_file, indent=2, sort_keys=True, default=str)
+        metadata_file.write("\n")
 
     return RunResult(
         run_id=run_id,
@@ -376,4 +456,5 @@ def run_single(
         stderr_path=stderr_path,
         metadata=metadata,
         applied_frequency=applied_frequency,
+        applied_gpu_frequency=applied_gpu_frequency,
     )

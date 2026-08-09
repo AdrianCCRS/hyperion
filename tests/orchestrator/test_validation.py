@@ -148,3 +148,65 @@ def test_val06_write_verdict_nunca_borra_conserva_rechazo(tmp_path):
 
     loaded = validation.load_verdict(run_dir)
     assert loaded == verdict
+
+
+def _write_windows_csv(path: Path, rows: list[dict]) -> Path:
+    import csv
+    fieldnames = sorted({key for row in rows for key in row} | {"quality_status", "phase_label_train"})
+    with open(path, "w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    return path
+
+
+def test_val09_windows_por_debajo_del_objetivo_rechaza(tmp_path):
+    """ARC-94: antes de este cambio, target_windows_per_repetition se
+    declaraba en el manifiesto pero ninguna decision de aceptacion lo
+    consultaba de verdad."""
+    windows_path = _write_windows_csv(tmp_path / "windows.csv", [
+        {"quality_status": "ok", "phase_label_train": "compute_bound"} for _ in range(3)
+    ])
+    verdict = validation.validate_windows(windows_path, target_windows_per_repetition=10, device="cpu")
+    assert verdict.accepted is False
+    assert verdict.factor_id == "I10"
+
+
+def test_val09_windows_cero_ok_rechaza_aunque_haya_filas(tmp_path):
+    windows_path = _write_windows_csv(tmp_path / "windows.csv", [
+        {"quality_status": "no_freq_reading", "phase_label_train": None} for _ in range(50)
+    ])
+    verdict = validation.validate_windows(windows_path, target_windows_per_repetition=10, device="cpu")
+    assert verdict.accepted is False
+    assert verdict.factor_id == "I10"
+
+
+def test_val09_windows_suficientes_pero_sin_etiqueta_rechaza(tmp_path):
+    windows_path = _write_windows_csv(tmp_path / "windows.csv", [
+        {"quality_status": "ok", "phase_label_train": ""} for _ in range(10)
+    ])
+    verdict = validation.validate_windows(windows_path, target_windows_per_repetition=10, device="cpu")
+    assert verdict.accepted is False
+    assert verdict.factor_id == "I11"
+
+
+def test_val09_windows_suficientes_y_etiquetadas_acepta(tmp_path):
+    windows_path = _write_windows_csv(tmp_path / "windows.csv", [
+        {"quality_status": "ok", "phase_label_train": "memory_bound"} for _ in range(10)
+    ])
+    verdict = validation.validate_windows(windows_path, target_windows_per_repetition=10, device="cpu")
+    assert verdict.accepted is True
+
+
+def test_val09_windows_gpu_usa_gpu_telemetry_como_estado_usable(tmp_path):
+    windows_path = _write_windows_csv(tmp_path / "windows.csv", [
+        {"quality_status": "gpu_telemetry", "phase_label_train": "compute_bound"} for _ in range(5)
+    ])
+    verdict = validation.validate_windows(windows_path, target_windows_per_repetition=5, device="gpu")
+    assert verdict.accepted is True
+    # Filas 'ok' de CPU no cuentan como validas para un kernel GPU.
+    windows_path_mixed = _write_windows_csv(tmp_path / "windows2.csv", [
+        {"quality_status": "ok", "phase_label_train": "compute_bound"} for _ in range(5)
+    ])
+    rechazo = validation.validate_windows(windows_path_mixed, target_windows_per_repetition=5, device="gpu")
+    assert rechazo.accepted is False

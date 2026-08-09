@@ -165,16 +165,46 @@ def _apply_unavailable(level_id: str) -> AppliedFrequency:
 
 
 def _apply_native_governor(cpus: tuple[int, ...], env: Any, level: Any, original: OriginalState) -> AppliedFrequency:
+    """ARC-94: además de restaurar el string del governor, restaura
+    scaling_min_freq/scaling_max_freq a su rango original -- si un nivel
+    fixed (bounded_range) se aplicó antes que REF en la misma corrida (una
+    matriz de campaña real intercala niveles), el rango se queda pinneado
+    en ese nivel para siempre si solo se restaura el governor: REF dejaría
+    de ser "frecuencia nativa/libre" y en realidad seguiría fijo al último
+    nivel medido. Esto también contamina calibration_references() si esas
+    corridas de referencia se miden después de un nivel fixed sin volver a
+    aplicar REF explícitamente (ver calibration.run_calibration_references).
+
+    Segunda corrección, misma sesión: el string del governor solo se
+    reescribe para la estrategia ``discrete_bounds`` (acpi-cpufreq), la
+    única que alguna vez lo cambia (_apply_discrete lo fija a
+    ``userspace``). ``bounded_range`` (intel_pstate/amd-pstate) nunca toca
+    ``scaling_governor`` -- pinea min=max=target bajo el governor que ya
+    esté activo -- así que exigir permiso de escritura sobre ese archivo
+    para restaurar REF era innecesario y, peor, hacía que
+    ``frequency_write_capable`` dependiera de un permiso (escritura de
+    governor) que el permiso P1 solicitado (solo scaling_min_freq/max_freq)
+    nunca iba a conceder.
+    """
+    strategy = getattr(env, "frequency_control_strategy", STRATEGY_UNAVAILABLE)
     per_cpu_applied: dict[int, int | None] = {}
     governor_ok = True
     for cpu in cpus:
         state = original.per_cpu.get(cpu)
         governor_path = _attr_path(env, cpu, _GOVERNOR_ATTR)
-        if state is None or state.governor is None or governor_path is None:
+        if state is None or state.governor is None:
             per_cpu_applied[cpu] = None
             continue
-        ok = _write_and_verify(governor_path, state.governor, attr=_GOVERNOR_ATTR, cpu=cpu)
-        governor_ok = governor_ok and ok
+        if state.min_freq_khz is not None and state.max_freq_khz is not None:
+            min_path = _attr_path(env, cpu, _MIN_ATTR)
+            max_path = _attr_path(env, cpu, _MAX_ATTR)
+            if min_path is not None and max_path is not None:
+                governor_ok = _write_range_safe(
+                    min_path, max_path, state.min_freq_khz, state.max_freq_khz, cpu=cpu,
+                ) and governor_ok
+        if strategy == STRATEGY_DISCRETE and governor_path is not None:
+            ok = _write_and_verify(governor_path, state.governor, attr=_GOVERNOR_ATTR, cpu=cpu)
+            governor_ok = governor_ok and ok
         per_cpu_applied[cpu] = _read_int(_cur_freq_path(env, cpu))
     if not governor_ok:
         raise FrequencyControlError(f"freqctl: no se pudo restaurar el governor nativo para el nivel {level.id!r}")
@@ -217,6 +247,27 @@ def _apply_discrete(cpus: tuple[int, ...], level: Any, env: Any) -> AppliedFrequ
     )
 
 
+def _write_range_safe(min_path: Path, max_path: Path, target_min: int, target_max: int, *, cpu: int) -> bool:
+    """Escribe scaling_min_freq/scaling_max_freq en el orden que nunca
+    viola min<=max en NINGÚN paso intermedio -- el kernel lo exige en cada
+    escritura individual, no solo al final de la secuencia (ARC-94).
+    Sirve tanto para pinear a un punto (target_min==target_max, ver
+    _apply_bounded) como para restaurar un rango original arbitrario (ver
+    _apply_native_governor): si el nuevo techo quedaría por debajo del
+    piso vigente, el piso se escribe primero; en cualquier otro caso,
+    escribir el techo primero sigue siendo seguro porque el piso vigente
+    ya es <= target_max.
+    """
+    current_min = _read_int(min_path)
+    if current_min is not None and target_max < current_min:
+        ok = _write_and_verify(min_path, str(target_min), attr=_MIN_ATTR, cpu=cpu)
+        ok = _write_and_verify(max_path, str(target_max), attr=_MAX_ATTR, cpu=cpu) and ok
+    else:
+        ok = _write_and_verify(max_path, str(target_max), attr=_MAX_ATTR, cpu=cpu)
+        ok = _write_and_verify(min_path, str(target_min), attr=_MIN_ATTR, cpu=cpu) and ok
+    return ok
+
+
 def _apply_bounded(cpus: tuple[int, ...], level: Any, env: Any) -> AppliedFrequency:
     target = _target_khz(level, env.available_frequencies_khz)
     per_cpu_applied: dict[int, int | None] = {}
@@ -226,12 +277,8 @@ def _apply_bounded(cpus: tuple[int, ...], level: Any, env: Any) -> AppliedFreque
         max_path = _attr_path(env, cpu, _MAX_ATTR)
         if min_path is None or max_path is None:
             raise FrequencyControlError(f"freqctl: cpu{cpu} no tiene scaling_min_freq/scaling_max_freq")
-        # Pin the range to a single point: min == max == target. Order matters
-        # only when the kernel enforces min <= cur <= max on each write; widen
-        # first via max, then narrow both to the target to stay valid either way.
-        ok = _write_and_verify(max_path, str(target), attr=_MAX_ATTR, cpu=cpu)
-        ok = _write_and_verify(min_path, str(target), attr=_MIN_ATTR, cpu=cpu) and ok
-        ok = _write_and_verify(max_path, str(target), attr=_MAX_ATTR, cpu=cpu) and ok
+        # Pin the range to a single point: min == max == target.
+        ok = _write_range_safe(min_path, max_path, target, target, cpu=cpu)
         all_ok = all_ok and ok
         per_cpu_applied[cpu] = _read_int(min_path)
     if not all_ok:
@@ -284,6 +331,19 @@ def restore_original_state(original: OriginalState, env: Any) -> bool:
     Returns True only if every attribute that was snapshotted now reads back
     as its original value. Always attempts every CPU, even if an earlier one
     failed, because this can run from a signal handler with no second chance.
+
+    ARC-94 (segunda ronda): dos correcciones de robustez.
+    (a) min/max se escriben con ``_write_range_safe`` (el mismo orden
+    protegido que ``_apply_bounded``/``_apply_native_governor`` ya usan)
+    en vez de min-luego-max sin condición -- defensivo ante cualquier
+    estado intermedio que no sea un único punto pinneado.
+    (b) cada CPU queda envuelto en su propio try/except: antes, una
+    excepción (p.ej. ``PermissionError`` si el permiso real no cubre un
+    atributo que se creía escribible) en el CPU N interrumpía el bucle
+    ANTES de intentar restaurar N+1 en adelante, contradiciendo la promesa
+    del propio docstring ("always attempts every CPU") -- crítico porque
+    esta función puede ejecutarse desde un manejador de SIGINT/SIGTERM sin
+    segunda oportunidad.
     """
     if original.strategy == STRATEGY_UNAVAILABLE or not original.per_cpu:
         return True
@@ -294,25 +354,28 @@ def restore_original_state(original: OriginalState, env: Any) -> bool:
 
     all_ok = True
     for cpu, state in original.per_cpu.items():
-        if state.min_freq_khz is not None:
-            min_path = _attr_path(env, cpu, _MIN_ATTR)
-            if min_path is not None:
-                all_ok = _write_and_verify(min_path, str(state.min_freq_khz), attr=_MIN_ATTR, cpu=cpu) and all_ok
-        if state.max_freq_khz is not None:
-            max_path = _attr_path(env, cpu, _MAX_ATTR)
-            if max_path is not None:
-                all_ok = _write_and_verify(max_path, str(state.max_freq_khz), attr=_MAX_ATTR, cpu=cpu) and all_ok
-        if state.setspeed_khz is not None:
-            setspeed_path = _setspeed_path(env, cpu)
-            if setspeed_path is not None and setspeed_path.exists():
-                all_ok = (
-                    _write_and_verify(setspeed_path, str(state.setspeed_khz), attr=_SETSPEED_ATTR, cpu=cpu)
-                    and all_ok
-                )
-        if state.governor is not None:
-            governor_path = _attr_path(env, cpu, _GOVERNOR_ATTR)
-            if governor_path is not None:
-                all_ok = _write_and_verify(governor_path, state.governor, attr=_GOVERNOR_ATTR, cpu=cpu) and all_ok
+        try:
+            if state.min_freq_khz is not None and state.max_freq_khz is not None:
+                min_path = _attr_path(env, cpu, _MIN_ATTR)
+                max_path = _attr_path(env, cpu, _MAX_ATTR)
+                if min_path is not None and max_path is not None:
+                    all_ok = _write_range_safe(
+                        min_path, max_path, state.min_freq_khz, state.max_freq_khz, cpu=cpu,
+                    ) and all_ok
+            if state.setspeed_khz is not None:
+                setspeed_path = _setspeed_path(env, cpu)
+                if setspeed_path is not None and setspeed_path.exists():
+                    all_ok = (
+                        _write_and_verify(setspeed_path, str(state.setspeed_khz), attr=_SETSPEED_ATTR, cpu=cpu)
+                        and all_ok
+                    )
+            if state.governor is not None:
+                governor_path = _attr_path(env, cpu, _GOVERNOR_ATTR)
+                if governor_path is not None:
+                    all_ok = _write_and_verify(governor_path, state.governor, attr=_GOVERNOR_ATTR, cpu=cpu) and all_ok
+        except OSError:
+            logger.exception("freqctl: restore_original_state falló en cpu%d, continuando con el resto", cpu)
+            all_ok = False
     if not all_ok:
         logger.error("freqctl: restore_original_state no verificó todos los atributos por lectura")
     return all_ok

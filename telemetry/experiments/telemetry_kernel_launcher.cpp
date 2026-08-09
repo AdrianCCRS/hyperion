@@ -699,7 +699,7 @@ namespace {
         out << "run_id,repetition,kernel,label,timestamp_ns,tag,instructions,cycles,"
                "cache_references,cache_misses,stalled_cycles_backend,l2_lines_in_all,time_enabled_ns,time_running_ns,"
                "pkg_uj,dram_uj,pkg_delta_uj,dram_delta_uj,energy_delta_valid,"
-               "gpu_power_mw,gpu_util_pct\n";
+               "gpu_power_mw,gpu_util_pct,gpu_mem_util_pct,gpu_sm_clock_mhz,gpu_energy_mj,gpu_temperature_c\n";
         const std::string label = dataset_label(opt.kernel);
 
         auto write_prefix = [&](const RecordedSample& record,
@@ -747,6 +747,10 @@ namespace {
                 empty_field();
                 empty_field();
                 empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
                 out << '\n';
             } else if(sample.tag == telemetry::SampleTag::ENERGY) {
                 const telemetry::experiment::RaplDelta delta =
@@ -774,6 +778,10 @@ namespace {
                 value_field(delta.valid ? 1 : 0);
                 empty_field();
                 empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
                 out << '\n';
             } else {
                 write_prefix(record, sample.gpu.timestamp_ns, tag_name(sample.tag));
@@ -792,6 +800,10 @@ namespace {
                 empty_field();
                 value_field(sample.gpu.power_mw);
                 value_field(sample.gpu.util_pct);
+                value_field(sample.gpu.mem_util_pct);
+                value_field(sample.gpu.sm_clock_mhz);
+                value_field(sample.gpu.energy_mj);
+                value_field(sample.gpu.temperature_c);
                 out << '\n';
             }
         }

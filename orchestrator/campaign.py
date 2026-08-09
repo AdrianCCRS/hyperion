@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+import functools
+import hashlib
 import json
 import logging
 import os
@@ -11,6 +13,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 from . import calibration as calibration_module
 from . import freqctl as freqctl_module
+from . import gpu_freqctl as gpu_freqctl_module
 from . import node_profile as node_profile_module
 from . import postprocess as postprocess_module
 from . import preflight as preflight_module
@@ -25,6 +28,140 @@ logger = logging.getLogger(__name__)
 
 class CampaignTimeoutError(RuntimeError):
     """CAM-06: the campaign exceeded its overall wall-clock budget."""
+
+
+class CampaignProtocolMismatchError(RuntimeError):
+    """CAM-09 (ARC-94): the manifest/catalog protocol for this output_dir
+    changed since a previous run left accepted verdicts here. Resuming
+    under a mismatched protocol must fail closed, never mix runs silently
+    -- confirmed to have already happened for real: pacca_gpu_ref_20260807
+    contains both gpu_interval_ns=100ms and 5ms runs because nothing ever
+    compared the manifest across a resume, and old verdicts stayed
+    "accepted" after the manifest moved on to a different cadence."""
+
+
+def compute_protocol_fingerprint(manifest: Any, catalog: Mapping[str, Any]) -> str:
+    """CAM-09 (ARC-94): a hash of every manifest/catalog field that affects
+    what a run actually measures -- sampling cadence, frequency levels,
+    core pinning, SMT policy, and per-kernel exec args/checksum/warmup for
+    every kernel_ref this manifest references (calibration + kernels).
+    Two manifests that would produce different samples.csv/windows.csv for
+    the same run_id must never share this fingerprint.
+    """
+    gpu = getattr(manifest, "gpu", {}) or {}
+    rapl = getattr(manifest, "rapl", {}) or {}
+    # ARC-94 (segunda ronda): confirmado que el fingerprint original no
+    # cambiaba si se editaba gpu.enabled, gpu.calibration, rapl.enabled,
+    # perf_enabled, o la intensidad operacional/precisión de un kernel GPU
+    # -- los cinco afectan directamente qué mide una corrida o cómo se
+    # etiqueta (phase_label_train), así que dos manifiestos que difieran
+    # solo en uno de ellos NO deben compartir fingerprint.
+    references = tuple(sorted(
+        set(manifest.calibration) | set(manifest.kernels) | set(gpu.get("calibration", ()) or ())
+    ))
+    kernel_fingerprint = [
+        {
+            "kernel_ref": ref,
+            "exec_path": str(getattr(catalog[ref], "exec_path", "")),
+            "exec_args": getattr(catalog[ref], "exec_args", None),
+            "binary_checksum": getattr(catalog[ref], "binary_checksum", None),
+            "warmup_seconds": getattr(catalog[ref], "warmup_seconds", None),
+            "success_check": getattr(catalog[ref], "success_check", None),
+            "operational_intensity_flops_per_byte": getattr(catalog[ref], "operational_intensity_flops_per_byte", None),
+            "gpu_precision": getattr(catalog[ref], "gpu_precision", None),
+        }
+        for ref in references
+        if ref in catalog
+    ]
+    cores = manifest.cores
+    payload = {
+        "interval_ns": manifest.interval_ns,
+        "gpu_interval_ns": getattr(manifest, "gpu_interval_ns", None),
+        "running_ratio_min": manifest.running_ratio_min,
+        "target_windows_per_repetition": manifest.target_windows_per_repetition,
+        "repetitions_per_combination": manifest.repetitions_per_combination,
+        "smt_policy": manifest.smt_policy,
+        "perf_enabled": manifest.perf_enabled,
+        "rapl": {"enabled": rapl.get("enabled"), "domains": sorted(rapl.get("domains", ()) or ())},
+        "gpu": {
+            "enabled": gpu.get("enabled"),
+            "calibration": sorted(gpu.get("calibration", ()) or ()),
+        },
+        "cores": {
+            "delegated_cpus": list(cores.delegated_cpus),
+            "collector_cpu": cores.collector_cpu,
+            "consumer_cpu": cores.consumer_cpu,
+            "numa_node_pin": cores.numa_node_pin,
+        },
+        "frequency_levels": [
+            {"id": level.id, "mode": level.mode, "fraction": getattr(level, "fraction", None)}
+            for level in manifest.frequency_levels
+        ],
+        "kernels": kernel_fingerprint,
+    }
+    canonical = json.dumps(payload, sort_keys=True, default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _has_existing_runs(output_dir: Path) -> bool:
+    """CAM-09: true if `output_dir` already contains at least one run
+    subdirectory with a verdict.json -- i.e., this directory has measured
+    something before, regardless of whether protocol_fingerprint.json
+    exists. Used to tell "genuinely fresh output_dir" apart from "a legacy
+    directory that predates this fingerprinting mechanism," which must
+    never be silently adopted under whatever protocol happens to run next.
+    """
+    if not output_dir.is_dir():
+        return False
+    return any((entry / "verdict.json").exists() for entry in output_dir.iterdir() if entry.is_dir())
+
+
+def _check_protocol_fingerprint(manifest: Any, catalog: Mapping[str, Any]) -> None:
+    """CAM-09: writes protocol_fingerprint.json on the first run in a fresh
+    output_dir; on any later invocation (a resume, by definition, since
+    accepted verdicts can only exist after a first successful pass),
+    raises CampaignProtocolMismatchError instead of silently proceeding if
+    the manifest/catalog protocol no longer matches what produced the
+    verdicts already on disk.
+
+    ARC-94 (segunda ronda): un output_dir que YA tiene corridas (verdict.json
+    en al menos un run_dir) pero NUNCA tuvo protocol_fingerprint.json --
+    es decir, una carpeta de campaña real anterior a este mecanismo, como
+    las dos que existen hoy en paccaA100 -- ya no se "adopta" en silencio
+    escribiendo el fingerprint actual como si fuera la primera corrida.
+    Eso habría dejado exactamente el escenario que este chequeo existe para
+    prevenir: corridas viejas de un protocolo desconocido conviviendo con
+    corridas nuevas bajo un fingerprint que nunca las describió. Una
+    carpeta así debe resolverse a mano (confirmar el protocolo real de las
+    corridas existentes y escribir el fingerprint explícitamente, o mudarse
+    a un output_dir nuevo).
+    """
+    output_dir = Path(manifest.output_dir)
+    fingerprint_path = output_dir / "protocol_fingerprint.json"
+    current = compute_protocol_fingerprint(manifest, catalog)
+    if fingerprint_path.exists():
+        previous = json.loads(fingerprint_path.read_text()).get("sha256")
+        if previous != current:
+            raise CampaignProtocolMismatchError(
+                f"CAM-09: el protocolo de medición de {output_dir} cambió desde la última "
+                f"corrida (fingerprint anterior={previous!r}, actual={current!r}). Reanudar "
+                "aquí mezclaría corridas de dos protocolos distintos bajo el mismo "
+                "campaign_id/output_dir. Usa un output_dir/campaign_id nuevo para el "
+                "protocolo nuevo, o revierte el cambio de manifiesto/catálogo."
+            )
+        return
+    if _has_existing_runs(output_dir):
+        raise CampaignProtocolMismatchError(
+            f"CAM-09: {output_dir} ya contiene corridas (verdict.json) pero nunca tuvo "
+            "protocol_fingerprint.json -- es una carpeta de campaña anterior a este "
+            "mecanismo (o de un origen no controlado). No se adopta en silencio: "
+            "confirma a mano el protocolo real de las corridas existentes y escribe "
+            "protocol_fingerprint.json explícitamente, o usa un output_dir nuevo."
+        )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    with fingerprint_path.open("w", encoding="utf-8") as fingerprint_file:
+        json.dump({"sha256": current}, fingerprint_file, indent=2, sort_keys=True)
+        fingerprint_file.write("\n")
 
 
 @dataclass(frozen=True)
@@ -62,6 +199,10 @@ class CampaignResult:
     roofline_calibration: Any
     node_profile: Any
     calibration_references: Any
+    # ARC-80: {"fp32": RooflineCalibration, "fp64": RooflineCalibration} para
+    # el nivel de referencia, o {} si manifest.gpu no declara "calibration"
+    # (campañas sin kernels de GPU). Ver calibration.run_gpu_calibration.
+    gpu_roofline_calibration: Any = None
 
 
 def build_matrix(manifest: Any, *, seed: int | None = None) -> list[Combination]:
@@ -101,6 +242,27 @@ def _run_id_for(manifest: Any, scheduled: ScheduledRun) -> str:
         scheduled.combination.repetition_index,
     )
     return f"{base}__baseline" if scheduled.mode == "baseline" else base
+
+
+def _archive_rejected_run(output_dir: Path, run_id: str) -> None:
+    """CAM-10 (ARC-94): retrying a rejected combination reuses the same
+    deterministic run_id (CAM-03: "rejected or never run -> (re)try both").
+    Without this, the retry's samples.csv/stdout.txt/metadata.json/
+    verdict.json overwrite the rejected run's own directory in place --
+    contradicting VAL-06's explicit promise ("rejected runs are NEVER
+    deleted... this only ever adds a verdict.json"). Moves the existing
+    directory aside (suffixed with the next free ``__rejectedN``) so the
+    retry always starts in a clean, previously-unused directory.
+    """
+    run_dir = output_dir / run_id
+    if not run_dir.exists():
+        return
+    index = 1
+    while (output_dir / f"{run_id}__rejected{index}").exists():
+        index += 1
+    archived = output_dir / f"{run_id}__rejected{index}"
+    run_dir.rename(archived)
+    logger.info("CAM-10: corrida rechazada archivada antes de reintentar: %s -> %s", run_dir, archived)
 
 
 def _previous_verdict(output_dir: str | Path, run_id: str) -> validation_module.Verdict | None:
@@ -149,7 +311,16 @@ def run_campaign(
     snapshot_original_state: Callable[..., Any] = freqctl_module.snapshot_original_state,
     restore_original_state: Callable[..., Any] = freqctl_module.restore_original_state,
     install_emergency_handlers: Callable[..., Any] = freqctl_module.install_emergency_handlers,
+    # ARC-87: eje de GPU, paralelo al de CPU justo arriba. apply_gpu_frequency
+    # y restore_gpu_state ya son no-ops seguros (gpu_freqctl.STRATEGY_
+    # UNAVAILABLE / restore_gpu_state devuelve True sin tocar nada) cuando
+    # environment_profile.gpu_frequency_write_capable es falso -- una
+    # campaña sin GPU, o corriendo antes de que llegue el permiso P4, no
+    # cambia de comportamiento por tener este wiring presente.
+    apply_gpu_frequency: Callable[..., Any] = gpu_freqctl_module.apply_gpu_frequency,
+    restore_gpu_state: Callable[..., Any] = gpu_freqctl_module.restore_gpu_state,
     run_calibration: Callable[..., Any] = calibration_module.run_calibration,
+    run_gpu_calibration: Callable[..., Any] = calibration_module.run_gpu_calibration,
     build_node_profile: Callable[..., Any] = node_profile_module.build_node_profile,
     write_node_profile: Callable[..., Any] = node_profile_module.write_node_profile,
     run_calibration_references: Callable[..., Any] = calibration_module.run_calibration_references,
@@ -167,11 +338,38 @@ def run_campaign(
     """
     delegated_cpus = manifest.cores.delegated_cpus
 
+    # CAM-09 (ARC-94): fail closed, before touching any hardware state, if
+    # this output_dir already has accepted verdicts from a different
+    # measurement protocol (see CampaignProtocolMismatchError).
+    _check_protocol_fingerprint(manifest, catalog)
+
     # FRQ-01/CAM-07: exactly one snapshot for the whole campaign, and both
     # the emergency handlers (crash/SIGINT/SIGTERM) and the normal-exit path
     # below restore from this same snapshot.
     original_state = snapshot_original_state(delegated_cpus, environment_profile)
-    install_emergency_handlers(lambda: restore_original_state(original_state, environment_profile))
+
+    # ARC-87: install_emergency_handlers() replaces the SIGINT/SIGTERM
+    # handler outright (signal.signal), so calling it a second time for GPU
+    # would silently drop the CPU restore from the signal path (atexit would
+    # still run both, but a Ctrl-C wouldn't). Both restores are combined into
+    # one closure and registered once instead. restore_gpu_state() is a
+    # verified no-op when gpu_frequency_write_capable is False, so this is
+    # safe to call unconditionally, exactly like restore_original_state()
+    # already is for the "unavailable" CPU strategy.
+    def _restore_all() -> bool:
+        cpu_ok = restore_original_state(original_state, environment_profile)
+        gpu_ok = restore_gpu_state(environment_profile)
+        return bool(cpu_ok) and bool(gpu_ok)
+
+    install_emergency_handlers(_restore_all)
+
+    # ARC-78: freqctl.apply_frequency(cpus, level, env, *, original=...)
+    # necesita el snapshot original para el modo native_governor (restaurar
+    # el governor que tenía el CPU antes de la campaña) -- se liga aquí, una
+    # sola vez, para que run_single/run_calibration sigan invocando
+    # apply_frequency con el mismo contrato de 3 argumentos que ya usan
+    # (cpus, level, env), sin tener que conocer original_state.
+    bound_apply_frequency = functools.partial(apply_frequency, original=original_state)
 
     start_time = time.monotonic()
     progress = CampaignProgress()
@@ -179,6 +377,7 @@ def run_campaign(
     try:
         roofline = run_calibration(
             manifest, catalog, environment_profile=environment_profile, node_id=node_id, run_single=run_single,
+            apply_frequency=bound_apply_frequency,
         )
         # VAL-05: in practice run_calibration() above already raised
         # CalibrationError before returning anything when D03 failed
@@ -187,6 +386,15 @@ def run_campaign(
         calibration_verdict = validation_module.validate_campaign_calibration(roofline)
         assert calibration_verdict.accepted, "unreachable: run_calibration() must have raised on D03 failure"
 
+        # ARC-80: infraestructura separada de la de CPU -- devuelve {} sin
+        # tocar nada cuando manifest.gpu no declara "calibration" (campañas
+        # sin kernels de GPU), así que no hace falta gatear esta llamada por
+        # si el manifiesto tiene GPU o no.
+        gpu_roofline = run_gpu_calibration(
+            manifest, catalog, environment_profile=environment_profile, node_id=node_id, run_single=run_single,
+            apply_frequency=bound_apply_frequency, apply_gpu_frequency=apply_gpu_frequency,
+        )
+
         profile = build_node_profile(environment_profile, delegated_cpus, node_id=node_id, hostname=hostname)
         write_node_profile(profile, manifest.output_dir)
 
@@ -194,12 +402,19 @@ def run_campaign(
         references = run_calibration_references(
             reference_entry, manifest, reference_kernel_ref, node_id=node_id,
             environment_profile=environment_profile, run_single=run_single,
+            # ARC-94: sin esto, las referencias se medían bajo el último
+            # nivel fixed que run_calibration()/run_gpu_calibration() dejó
+            # aplicado (típicamente F4), no a frecuencia nativa.
+            apply_frequency=bound_apply_frequency,
         )
 
         # MET-07: every run's own metadata.json carries the same calibration
         # references windows.csv rows do, not just the windows themselves.
-        calibration_refs = {
-            "roofline_calibration_ref": str(Path(manifest.output_dir) / "roofline_calibration.json"),
+        # ARC-78: roofline_calibration_ref se arma por combinación, no una
+        # sola vez aquí -- cada nivel de frecuencia tiene su propio archivo
+        # (calibration_module.calibration_filename), y una corrida a REF
+        # nunca debe apuntar al i_ridge calibrado a otro nivel.
+        shared_calibration_refs = {
             "node_profile_ref": str(Path(manifest.output_dir) / "node_profile.json"),
             "calibration_ref": str(Path(manifest.output_dir) / "calibration_references.json"),
         }
@@ -239,6 +454,12 @@ def run_campaign(
                 if telemetry_run_id not in progress.skipped_run_ids:
                     progress.skipped_run_ids.append(telemetry_run_id)  # MET-06
                 continue
+            if previous is not None and not previous.accepted:
+                # CAM-10: a genuine retry, not a fresh first attempt --
+                # archive the rejected run's evidence (and its baseline
+                # sibling, if any) before writing into the same run_id again.
+                _archive_rejected_run(Path(manifest.output_dir), telemetry_run_id)
+                _archive_rejected_run(Path(manifest.output_dir), f"{telemetry_run_id}__baseline")
 
             # PRE-E06: verificar CADA VEZ, justo antes de medir, que no haya
             # procesos ajenos CORRIENDO AHORA MISMO en delegated_cpus -- por
@@ -275,6 +496,14 @@ def run_campaign(
                 write_campaign_metadata(progress, manifest, manifest.output_dir)  # CAM-02
                 continue
 
+            combination_calibration_refs = {
+                **shared_calibration_refs,
+                "roofline_calibration_ref": str(
+                    Path(manifest.output_dir)
+                    / calibration_module.calibration_filename(combination.frequency_level.id)
+                ),
+            }
+
             baseline_elapsed_seconds: float | None = None
             for item in schedule_runs([combination]):  # CAM-04: atomic baseline+telemetry pair
                 run_id = _run_id_for(manifest, item)
@@ -282,8 +511,23 @@ def run_campaign(
                 result = run_single(
                     entry, active_manifest, item.combination.kernel_ref,
                     item.combination.frequency_level.id, item.combination.repetition_index,
-                    environment_profile=environment_profile, node_id=node_id, apply_frequency=apply_frequency,
-                    calibration_refs=calibration_refs,
+                    environment_profile=environment_profile, node_id=node_id,
+                    apply_frequency=bound_apply_frequency,
+                    # ARC-87: sin functools.partial -- a diferencia de
+                    # freqctl.apply_frequency, apply_gpu_frequency(level, env)
+                    # no necesita un snapshot "original" (no hay estado de GPU
+                    # que preservar más allá de "sin reloj fijado", ver
+                    # gpu_freqctl.py); run_single ya gatea la llamada por
+                    # entry.device=="gpu" internamente, así que las corridas
+                    # de kernels CPU nunca la invocan.
+                    apply_gpu_frequency=apply_gpu_frequency,
+                    calibration_refs=combination_calibration_refs,
+                    # ARC-94: sin esto, run_single() reconstruía su propio
+                    # run_id "plano" (sin el sufijo __baseline que
+                    # _run_id_for ya calculó arriba) -- baseline y telemetry
+                    # del mismo combo escribían en el MISMO run_dir, y el
+                    # segundo pisaba los artefactos del primero.
+                    run_id=run_id,
                 )
                 progress.total_core_hours += result.elapsed_seconds * len(delegated_cpus) / 3600.0  # CAM-05/OPS-01
 
@@ -301,12 +545,23 @@ def run_campaign(
                     )
                     progress.overhead_pct_values.append(overhead_pct)
 
-                verdict = validation_module.validate_run(result, entry, run_id_seen=seen_run_ids, node_id=node_id)
-                validation_module.write_verdict(verdict, result.run_dir)
+                # ARC-94: validate_run() es solo la PRIMERA etapa -- solo
+                # puede rechazar por metadata que existe antes de
+                # windows.csv (I04/C02/C03/E06-E08/I07). Un veredicto
+                # aceptado aquí es provisional: la aceptación final
+                # depende de cuántas ventanas usables y qué etiqueta
+                # produjo postprocess.py, no solo de que el binario
+                # terminara bien -- antes de este cambio, una corrida
+                # podía quedar accepted=true con cero ventanas 'ok'/
+                # 'gpu_telemetry' o ninguna etiqueta, porque
+                # target_windows_per_repetition se declaraba en el
+                # manifiesto pero nunca se usaba para decidir nada.
+                provisional_verdict = validation_module.validate_run(
+                    result, entry, run_id_seen=seen_run_ids, node_id=node_id
+                )
                 seen_run_ids.add(run_id)
 
-                if verdict.accepted:
-                    progress.accepted_run_ids.append(run_id)
+                if provisional_verdict.accepted:
                     # FRQ-03/FRQ-10: whatever this run actually requested/
                     # applied (None when apply_frequency was never invoked,
                     # e.g. frequency_write_capable=False) plus the observed
@@ -314,7 +569,7 @@ def run_campaign(
                     # between freqctl and windows.csv.
                     applied = result.applied_frequency
                     freq_khz_observed = read_observed_frequency_khz(environment_profile, delegated_cpus[0])
-                    run_postprocess(
+                    windows_path = run_postprocess(
                         result.run_dir, run_id=run_id, repetition=item.combination.repetition_index,
                         kernel_ref=item.combination.kernel_ref, kernel_entry=entry, node_id=node_id,
                         freq_level_id=item.combination.frequency_level.id, calibration_dir=manifest.output_dir,
@@ -324,6 +579,18 @@ def run_campaign(
                         warmup_seconds=entry.warmup_seconds or 0.0, running_ratio_min=manifest.running_ratio_min,
                         rapl_enabled=bool(manifest.rapl.get("enabled", False)), calibration_references=references,
                     )
+                    verdict = validation_module.validate_windows(
+                        windows_path,
+                        target_windows_per_repetition=manifest.target_windows_per_repetition,
+                        device=entry.device,
+                    )
+                else:
+                    verdict = provisional_verdict
+
+                validation_module.write_verdict(verdict, result.run_dir)
+
+                if verdict.accepted:
+                    progress.accepted_run_ids.append(run_id)
                 else:
                     progress.rejected_run_ids.append(run_id)
 
@@ -331,7 +598,7 @@ def run_campaign(
 
         return CampaignResult(
             progress=progress, roofline_calibration=roofline, node_profile=profile,
-            calibration_references=references,
+            calibration_references=references, gpu_roofline_calibration=gpu_roofline,
         )
     finally:
         # CAM-07/MET-02: always restore, normal close or interruption, and
@@ -339,6 +606,10 @@ def run_campaign(
         # post-restore sysfs re-read, never "the write command didn't
         # error"). In "unavailable" strategy this verifies there was
         # nothing to restore (freqctl.restore_original_state handles that
-        # branch itself).
-        progress.frequency_restored_verified = bool(restore_original_state(original_state, environment_profile))
+        # branch itself). ARC-87: GPU restore folded into the same verified
+        # flag -- a campaign is not "cleanly restored" if the CPU frequency
+        # came back but the GPU clock stayed locked, or vice versa.
+        cpu_restored = bool(restore_original_state(original_state, environment_profile))
+        gpu_restored = bool(restore_gpu_state(environment_profile))
+        progress.frequency_restored_verified = cpu_restored and gpu_restored
         write_campaign_metadata(progress, manifest, manifest.output_dir)

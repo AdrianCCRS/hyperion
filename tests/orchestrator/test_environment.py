@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 import sys
 import json
 
@@ -60,6 +61,36 @@ def test_env_t03_driver_desconocido_no_es_controlable(tmp_path):
     perfil = environment.detect_environment("2-5", str(raiz))
     assert perfil.freq_control_capable is False
     assert perfil.frequency_control_strategy == "unavailable"  # ENV-10
+
+
+def test_env_t01b_intel_pstate_sin_scaling_available_frequencies(tmp_path):
+    """ARC-94: intel_pstate en modo activo (confirmado en vivo en
+    paccaA100) nunca expone scaling_available_frequencies -- antes de este
+    fallback, freq_capable quedaba en False para siempre en ese driver,
+    sin importar si scaling_min_freq/scaling_max_freq eran escribibles."""
+    raiz = tmp_path / "sys"
+    for cpu in range(8):
+        cpufreq = raiz / f"devices/system/cpu/cpu{cpu}/cpufreq"
+        topologia = raiz / f"devices/system/cpu/cpu{cpu}/topology"
+        cpufreq.mkdir(parents=True)
+        topologia.mkdir(parents=True)
+        (cpufreq / "scaling_driver").write_text("intel_pstate")
+        (cpufreq / "cpuinfo_min_freq").write_text("800000")
+        (cpufreq / "cpuinfo_max_freq").write_text("3600000")
+        hermano = cpu + 1 if cpu % 2 == 0 else cpu - 1
+        (topologia / "thread_siblings_list").write_text(f"{min(cpu, hermano)}-{max(cpu, hermano)}")
+    for nodo, cpus in ((0, "0-3"), (1, "4-7")):
+        ruta = raiz / f"devices/system/node/node{nodo}"
+        ruta.mkdir(parents=True)
+        (ruta / "cpulist").write_text(cpus)
+    eventos = raiz / "bus/event_source/devices/cpu/events"
+    eventos.mkdir(parents=True)
+    (eventos / "cycles").write_text("event=0x3c")
+
+    perfil = environment.detect_environment("2-5", str(raiz))
+    assert perfil.freq_control_capable is True
+    assert perfil.frequency_control_strategy == "bounded_range"
+    assert perfil.available_frequencies_khz == [800000, 3600000]
 
 
 def test_env_t02_amd_pstate_es_controlable(tmp_path):
@@ -155,6 +186,36 @@ def test_entorno_separa_niveles_y_permiso_de_escritura(tmp_path):
     assert perfil.frequency_levels_supported is True
     assert perfil.frequency_control_strategy == "discrete_bounds"
     assert perfil.frequency_write_capable is True
+
+
+def test_arc94_bounded_range_no_exige_governor_escribible(tmp_path):
+    """ARC-94: P1 solicita escritura solo sobre scaling_min_freq/max_freq
+    -- bounded_range (intel_pstate) nunca escribe scaling_governor
+    (freqctl._apply_bounded pinea min=max=target bajo el governor que ya
+    esté activo), así que exigirlo escribible bloqueaba
+    frequency_write_capable incluso con el permiso correcto ya concedido."""
+    raiz = crear_sysfs(tmp_path, rapl=10)  # driver=intel_pstate por defecto
+    for cpu in range(2, 6):
+        cpufreq = raiz / f"devices/system/cpu/cpu{cpu}/cpufreq"
+        (cpufreq / "scaling_min_freq").write_text("1200000")
+        (cpufreq / "scaling_max_freq").write_text("3600000")
+        (cpufreq / "scaling_governor").write_text("powersave")
+        os.chmod(cpufreq / "scaling_governor", 0o444)  # sin permiso de escritura, como P1 real
+    perfil = environment.detect_environment("2-5", str(raiz))
+    assert perfil.frequency_control_strategy == "bounded_range"
+    assert perfil.frequency_write_capable is True
+
+
+def test_arc94_discrete_bounds_si_exige_governor_escribible(tmp_path):
+    raiz = crear_sysfs(tmp_path, driver="acpi-cpufreq")
+    for cpu in range(2, 6):
+        cpufreq = raiz / f"devices/system/cpu/cpu{cpu}/cpufreq"
+        for name in ("scaling_governor", "scaling_min_freq", "scaling_max_freq"):
+            (cpufreq / name).write_text("valor")
+        os.chmod(cpufreq / "scaling_governor", 0o444)
+    perfil = environment.detect_environment("2-5", str(raiz))
+    assert perfil.frequency_control_strategy == "discrete_bounds"
+    assert perfil.frequency_write_capable is False
 
 
 def test_env_t09_deteccion_no_escribe_archivos(tmp_path, monkeypatch):
@@ -300,3 +361,103 @@ def test_d05_probe_pmc_count_detecta_porcentaje_sin_not_counted():
             return ""
         return "  1,234  cycles                                            (61.38%)\n"
     assert environment.probe_pmc_count(run_perf_stat=run_perf_stat) == 2
+
+
+# ARC-87: deteccion de capacidades de frecuencia de GPU (probe_gpu_clocks,
+# _gpu_frequency_write_capable) y su wiring en detect_environment().
+
+_SUPPORTED_CLOCKS_STDOUT = """GPU 00000000:41:00.0
+    Supported Clocks
+        Memory                            : 1215 MHz
+            Graphics                      : 1410 MHz
+            Graphics                      : 1395 MHz
+            Graphics                      : 765 MHz
+"""
+
+
+class _FakeCompletedProcess:
+    def __init__(self, returncode=0, stdout=""):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = ""
+
+
+def test_arc87_probe_gpu_clocks_parsea_relojes_soportados():
+    clocks, strategy = environment.probe_gpu_clocks(
+        run_nvidia_smi=lambda gpu_index: _FakeCompletedProcess(stdout=_SUPPORTED_CLOCKS_STDOUT)
+    )
+    assert clocks == [765, 1395, 1410]
+    assert strategy == "locked_clocks"
+
+
+def test_arc87_probe_gpu_clocks_sin_nvidia_smi_es_unavailable():
+    def run_nvidia_smi(gpu_index):
+        raise FileNotFoundError("nvidia-smi: command not found")
+    assert environment.probe_gpu_clocks(run_nvidia_smi=run_nvidia_smi) == ([], "unavailable")
+
+
+def test_arc87_probe_gpu_clocks_returncode_no_cero_es_unavailable():
+    clocks, strategy = environment.probe_gpu_clocks(
+        run_nvidia_smi=lambda gpu_index: _FakeCompletedProcess(returncode=1)
+    )
+    assert clocks == []
+    assert strategy == "unavailable"
+
+
+def test_arc87_probe_gpu_clocks_salida_vacia_es_unavailable():
+    clocks, strategy = environment.probe_gpu_clocks(
+        run_nvidia_smi=lambda gpu_index: _FakeCompletedProcess(stdout="no supported clocks here")
+    )
+    assert clocks == []
+    assert strategy == "unavailable"
+
+
+def test_arc87_write_capable_falso_si_strategy_unavailable(monkeypatch):
+    monkeypatch.setattr(environment.os, "geteuid", lambda: 0)
+    assert environment._gpu_frequency_write_capable("unavailable") is False
+
+
+def test_arc87_write_capable_usa_euid_por_defecto(monkeypatch):
+    monkeypatch.delenv("HYPERION_GPU_FREQ_WRITE_CAPABLE", raising=False)
+    monkeypatch.setattr(environment.os, "geteuid", lambda: 0)
+    assert environment._gpu_frequency_write_capable("locked_clocks") is True
+    monkeypatch.setattr(environment.os, "geteuid", lambda: 1000)
+    assert environment._gpu_frequency_write_capable("locked_clocks") is False
+
+
+def test_arc87_write_capable_override_por_variable_de_entorno(monkeypatch):
+    monkeypatch.setattr(environment.os, "geteuid", lambda: 1000)
+    monkeypatch.setenv("HYPERION_GPU_FREQ_WRITE_CAPABLE", "1")
+    assert environment._gpu_frequency_write_capable("locked_clocks") is True
+    monkeypatch.setenv("HYPERION_GPU_FREQ_WRITE_CAPABLE", "0")
+    assert environment._gpu_frequency_write_capable("locked_clocks") is False
+
+
+def test_arc87_detect_environment_sin_gpu_no_llama_nvidia_smi(tmp_path, monkeypatch):
+    raiz = crear_sysfs(tmp_path, rapl=10)
+    llamado = []
+    monkeypatch.setattr(environment, "probe_gpu_clocks", lambda: llamado.append(1) or ([], "unavailable"))
+
+    perfil = environment.detect_environment("2-5", str(raiz))
+
+    assert llamado == []  # gpu_present=False (sin class/drm/card*) -> nunca se gasta el subprocess
+    assert perfil.gpu_available_clocks_mhz == []
+    assert perfil.gpu_frequency_control_strategy == "unavailable"
+    assert perfil.gpu_frequency_write_capable is False
+
+
+def test_arc87_detect_environment_con_gpu_presente_consulta_relojes(tmp_path, monkeypatch):
+    raiz = crear_sysfs(tmp_path, rapl=10)
+    tarjeta = raiz / "class/drm/card0/device"
+    tarjeta.mkdir(parents=True)
+    monkeypatch.setattr(
+        environment, "probe_gpu_clocks", lambda: ([765, 1410], "locked_clocks")
+    )
+    monkeypatch.setattr(environment.os, "geteuid", lambda: 0)
+
+    perfil = environment.detect_environment("2-5", str(raiz))
+
+    assert perfil.gpu_present is True
+    assert perfil.gpu_available_clocks_mhz == [765, 1410]
+    assert perfil.gpu_frequency_control_strategy == "locked_clocks"
+    assert perfil.gpu_frequency_write_capable is True
