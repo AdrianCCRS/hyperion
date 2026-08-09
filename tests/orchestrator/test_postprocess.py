@@ -16,7 +16,7 @@ SAMPLES_HEADER = [
     "instructions", "cycles", "cache_references", "cache_misses",
     "stalled_cycles_backend", "l2_lines_in_all", "time_enabled_ns", "time_running_ns",
     "pkg_uj", "dram_uj", "pkg_delta_uj", "dram_delta_uj", "energy_delta_valid",
-    "gpu_power_mw", "gpu_util_pct",
+    "gpu_power_mw", "gpu_util_pct", "gpu_mem_util_pct", "gpu_sm_clock_mhz", "gpu_energy_mj", "gpu_temperature_c",
 ]
 
 
@@ -42,11 +42,15 @@ def _energy_row(*, repetition, ts, pkg_delta_uj, dram_delta_uj=0, valid=True):
     }
 
 
-def _gpu_row(*, repetition, ts, gpu_power_mw, gpu_util_pct):
+def _gpu_row(*, repetition, ts, gpu_power_mw, gpu_util_pct, gpu_mem_util_pct="",
+             gpu_sm_clock_mhz="", gpu_energy_mj="", gpu_temperature_c=""):
     return {
         "run_id": "r", "repetition": repetition, "kernel": "k", "label": "k",
         "timestamp_ns": ts, "tag": "GPU",
         "gpu_power_mw": gpu_power_mw, "gpu_util_pct": gpu_util_pct,
+        "gpu_mem_util_pct": gpu_mem_util_pct,
+        "gpu_sm_clock_mhz": gpu_sm_clock_mhz, "gpu_energy_mj": gpu_energy_mj,
+        "gpu_temperature_c": gpu_temperature_c,
     }
 
 
@@ -464,6 +468,156 @@ def test_arc70_filas_gpu_se_incluyen_como_passthrough_no_ventaneado(tmp_path):
     assert all(w["gpu_power_mw"] is None for w in cpu_rows)
 
 
+def test_arc94_filas_gpu_excluyen_calentamiento(tmp_path):
+    """ARC-94: antes de este cambio, warmup_seconds del catalogo nunca se
+    comparaba contra el timestamp de la muestra GPU -- todas las filas
+    quedaban 'gpu_telemetry' sin importar si caian antes del calentamiento
+    declarado."""
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0),
+        # warmup_seconds=0.2 -> warmup_end_ns = 1_000_000_000 + 200_000_000 = 1_200_000_000
+        _gpu_row(repetition=1, ts=1_050_000_000, gpu_power_mw=36324, gpu_util_pct=0),   # dentro del warmup
+        _gpu_row(repetition=1, ts=1_199_999_999, gpu_power_mw=36400, gpu_util_pct=1),   # justo dentro
+        _gpu_row(repetition=1, ts=1_200_000_000, gpu_power_mw=45000, gpu_util_pct=80),  # justo fuera
+        _gpu_row(repetition=1, ts=1_500_000_000, gpu_power_mw=46000, gpu_util_pct=90),  # bien fuera
+    ])
+    windows = postprocess.build_windows(samples, _context(warmup_seconds=0.2))
+
+    gpu_windows = [w for w in windows if w.get("gpu_power_mw") is not None]
+    gpu_windows.sort(key=lambda w: w["t_end_ns"])
+    assert [w["quality_status"] for w in gpu_windows] == [
+        "warmup_excluded", "warmup_excluded", "gpu_telemetry", "gpu_telemetry",
+    ]
+    usable = [w for w in gpu_windows if w["quality_status"] == "gpu_telemetry"]
+    assert len(usable) == 2
+    assert usable[0]["gpu_power_mw"] == 45000
+
+
+def test_arc94_filas_gpu_propagan_reloj_sm_energia_y_temperatura(tmp_path):
+    """ARC-94: GpuSample ganó sm_clock_mhz/energy_mj/temperature_c -- sin
+    reloj SM observado no se puede confirmar que un nivel DVFS de GPU se
+    mantuvo durante la corrida, sin energía acumulada no hay insumo para
+    EDP de GPU, y sin temperatura no se puede detectar contaminación
+    térmica."""
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0),
+        _gpu_row(repetition=1, ts=1_000_500_000, gpu_power_mw=45000, gpu_util_pct=80,
+                  gpu_sm_clock_mhz=1350, gpu_energy_mj=123456789, gpu_temperature_c=62),
+    ])
+    windows = postprocess.build_windows(samples, _context())
+
+    gpu_rows = [w for w in windows if w["quality_status"] == "gpu_telemetry"]
+    assert len(gpu_rows) == 1
+    assert gpu_rows[0]["gpu_sm_clock_mhz"] == 1350
+    assert gpu_rows[0]["gpu_energy_mj"] == 123456789
+    assert gpu_rows[0]["gpu_temperature_c"] == 62
+
+
+def test_arc94_filas_gpu_sin_metricas_nuevas_quedan_none(tmp_path):
+    """Corridas del launcher previas a este cambio (o driver sin soporte)
+    no deben romper el postprocesamiento -- las 3 columnas nuevas quedan
+    None, no un error."""
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0),
+        _gpu_row(repetition=1, ts=1_000_500_000, gpu_power_mw=45000, gpu_util_pct=80),
+    ])
+    windows = postprocess.build_windows(samples, _context())
+
+    gpu_rows = [w for w in windows if w["quality_status"] == "gpu_telemetry"]
+    assert gpu_rows[0]["gpu_sm_clock_mhz"] is None
+    assert gpu_rows[0]["gpu_energy_mj"] is None
+    assert gpu_rows[0]["gpu_temperature_c"] is None
+
+
+def test_arc94_filas_gpu_propagan_utilizacion_de_memoria(tmp_path):
+    """ARC-94 (segunda ronda): nvmlUtilization_t trae .gpu Y .memory --
+    solo se conservaba .gpu. Un kernel con trafico de memoria alto pero
+    bajo uso de SM podia parecer 'ocioso' mirando solo gpu_util_pct."""
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0),
+        _gpu_row(repetition=1, ts=1_000_500_000, gpu_power_mw=45000, gpu_util_pct=15,
+                  gpu_mem_util_pct=78),
+    ])
+    windows = postprocess.build_windows(samples, _context())
+    gpu_rows = [w for w in windows if w["quality_status"] == "gpu_telemetry"]
+    assert gpu_rows[0]["gpu_util_pct"] == 15
+    assert gpu_rows[0]["gpu_mem_util_pct"] == 78
+
+
+def test_arc94_filas_gpu_usan_su_propio_archivo_de_calibracion(tmp_path):
+    """ARC-94 (segunda ronda): antes de este cambio, roofline_calibration_ref
+    de una fila GPU apuntaba al archivo de calibración de CPU (heredado de
+    _base_row()) aunque phase_label_train se calculó con
+    gpu_i_ridge_flops_per_byte -- la columna de trazabilidad mentía sobre
+    qué archivo produjo la etiqueta."""
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0),
+        _gpu_row(repetition=1, ts=1_000_500_000, gpu_power_mw=45000, gpu_util_pct=80),
+    ])
+    windows = postprocess.build_windows(
+        samples,
+        _context(
+            roofline_calibration_ref="cal/roofline_calibration_REF.json",
+            gpu_roofline_calibration_ref="cal/roofline_calibration_REF_fp32.json",
+            gpu_operational_intensity=1233.0, gpu_i_ridge_flops_per_byte=3.36,
+        ),
+    )
+    gpu_rows = [w for w in windows if w["quality_status"] == "gpu_telemetry"]
+    cpu_rows = [w for w in windows if w["quality_status"] != "gpu_telemetry"]
+    assert gpu_rows[0]["roofline_calibration_ref"] == "cal/roofline_calibration_REF_fp32.json"
+    assert all(w["roofline_calibration_ref"] == "cal/roofline_calibration_REF.json" for w in cpu_rows)
+
+
+def test_arc80_filas_gpu_calculan_phase_label_train_con_ridge_de_gpu(tmp_path):
+    # ARC-80: cuando el contexto trae la intensidad operacional (medida
+    # offline con ncu) y el ridge de GPU calibrado, las filas GPU SI deben
+    # traer una etiqueta -- corrige el error de diseño de ARC-72 (dejarlas
+    # sin etiquetar "porque eso es Fase 2", cuando en realidad es Fase 1).
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0),
+        _gpu_row(repetition=1, ts=1_000_500_000, gpu_power_mw=36324, gpu_util_pct=0),
+    ])
+    # rodinia_backprop: 0.087 FLOP/byte, muy por debajo de cualquier ridge
+    # FP32 realista -- memory_bound sin ambiguedad.
+    windows = postprocess.build_windows(
+        samples,
+        _context(gpu_operational_intensity=0.087, gpu_i_ridge_flops_per_byte=7.28),
+    )
+    gpu_rows = [w for w in windows if w["quality_status"] == "gpu_telemetry"]
+    assert len(gpu_rows) == 1
+    assert gpu_rows[0]["operational_intensity"] == pytest.approx(0.087)
+    assert gpu_rows[0]["i_ridge_used"] == pytest.approx(7.28)
+    assert gpu_rows[0]["phase_label_train"] == "memory_bound"
+
+
+def test_arc80_filas_gpu_compute_bound_con_ridge_de_gpu(tmp_path):
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0),
+        _gpu_row(repetition=1, ts=1_000_500_000, gpu_power_mw=36324, gpu_util_pct=0),
+    ])
+    # rodinia_lavamd: 1233 FLOP/byte -- compute_bound sin ambiguedad.
+    windows = postprocess.build_windows(
+        samples,
+        _context(gpu_operational_intensity=1233.0, gpu_i_ridge_flops_per_byte=3.36),
+    )
+    gpu_rows = [w for w in windows if w["quality_status"] == "gpu_telemetry"]
+    assert gpu_rows[0]["phase_label_train"] == "compute_bound"
+
+
 def test_post16_write_windows_csv_escribe_columnas_absolutas_y_relativas(tmp_path):
     samples = tmp_path / "samples.csv"
     _write_samples(samples, [
@@ -508,6 +662,7 @@ def test_post15_run_postprocess_rechaza_calibracion_no_plausible(tmp_path):
             campaign_id="c", timestamp="t", delegated_cpus="0-3", bw_pico_bytes_per_s=1.0,
             p_pico_flops_per_s=1.0, i_ridge_flops_per_byte=1.0, stream_raw_output="", ert_raw_output="",
             plausibility_check_passed=False, plausibility_message="D03: fuera de rango",
+            freq_level_id="REF",
         ),
         cal_dir,
     )
@@ -520,6 +675,43 @@ def test_post15_run_postprocess_rechaza_calibracion_no_plausible(tmp_path):
             run_dir, run_id="r", repetition=1, kernel_ref="npb_ep", kernel_entry=kernel_entry,
             node_id="felix-sc3", freq_level_id="REF", calibration_dir=cal_dir,
         )
+
+
+def test_arc78_run_postprocess_pide_el_ridge_del_propio_freq_level_id(tmp_path, monkeypatch):
+    # P_pico escala con el reloj, BW_pico no (ARC-78) -- una ventana medida
+    # a un nivel de frecuencia FG_1 nunca debe clasificarse contra el ridge
+    # calibrado a REF. run_postprocess() debe pedirle a load_calibration()
+    # el archivo del propio freq_level_id de la corrida, no uno fijo.
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    _write_samples(run_dir / "samples.csv", [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0),
+    ])
+    cal_dir = tmp_path / "cal"
+    cal_dir.mkdir()
+
+    requested_freq_level_ids = []
+
+    def fake_load_calibration(calibration_dir, freq_level_id=""):
+        requested_freq_level_ids.append(freq_level_id)
+        return SimpleNamespace(i_ridge_flops_per_byte=1.0 if freq_level_id == "REF" else 0.5)
+
+    def fake_load_node_profile(calibration_dir):
+        return SimpleNamespace(cache_line_size_bytes=64)
+
+    monkeypatch.setattr(postprocess.calibration_module, "load_calibration", fake_load_calibration)
+    monkeypatch.setattr(postprocess.node_profile_module, "load_node_profile", fake_load_node_profile)
+
+    kernel_entry = SimpleNamespace(phase_label_hint="compute_bound", binary_checksum="sha256:x",
+                                    flops_total_stdout_pattern=None)
+
+    postprocess.run_postprocess(
+        run_dir, run_id="r", repetition=1, kernel_ref="npb_ep", kernel_entry=kernel_entry,
+        node_id="felix-sc3", freq_level_id="FG_1", calibration_dir=cal_dir,
+    )
+
+    assert requested_freq_level_ids == ["FG_1"]
 
 
 def test_post09_flops_total_directo_tiene_prioridad_sobre_tasa():

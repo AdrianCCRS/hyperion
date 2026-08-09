@@ -71,6 +71,28 @@ namespace telemetry {
         nvmlUtilization_t util{};
         if(nvmlDeviceGetUtilizationRates(device_, &util) != NVML_SUCCESS) return false;
         sample.util_pct = util.gpu;
+        sample.mem_util_pct = util.memory;
+
+        // ARC-94: SM clock, accumulated energy, and temperature are
+        // best-effort, unlike power/util above -- some driver/GPU
+        // combinations don't support one of these (e.g.
+        // nvmlDeviceGetTotalEnergyConsumption needs a fairly recent
+        // driver), and a missing optional metric should never invalidate
+        // an otherwise-valid power/util reading. Left at 0 (never a
+        // sentinel that looks like a real reading was attempted and
+        // failed silently) when NVML can't provide it.
+        unsigned int sm_clock_mhz = 0;
+        nvmlDeviceGetClockInfo(device_, NVML_CLOCK_SM, &sm_clock_mhz);
+        sample.sm_clock_mhz = sm_clock_mhz;
+
+        unsigned long long energy_mj = 0;
+        nvmlDeviceGetTotalEnergyConsumption(device_, &energy_mj);
+        sample.energy_mj = energy_mj;
+
+        unsigned int temperature_c = 0;
+        nvmlDeviceGetTemperature(device_, NVML_TEMPERATURE_GPU, &temperature_c);
+        sample.temperature_c = temperature_c;
+
         out = sample;
         return true;
     }

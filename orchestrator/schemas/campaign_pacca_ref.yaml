@@ -62,8 +62,22 @@ kernels:
   - kernel_ref: npb_lu
   - kernel_ref: dgemm_n2048
 
+# ARC-87: F0-F4 agregados junto con el wiring real de aplicacion de
+# frecuencia (freqctl.py) -- listos para correr en cuanto llegue el
+# permiso P1 (escritura de scaling_min_freq/scaling_max_freq en pacca).
+# Fracciones segun la Tabla de estados de frecuencia del documento de
+# metodologia (docs/libro/main.tex): F0=extremo superior, F1=75%,
+# F2=50% (centro), F3=25%, F4=extremo inferior del rango real detectado
+# en environment.available_frequencies_khz -- nunca valores absolutos,
+# para que el mismo manifiesto sirva en cualquier nodo con el mismo
+# esquema (ver freqctl._target_khz).
 frequency_levels:
   - {id: REF, mode: native_governor}
+  - {id: F0, mode: fixed, fraction: 1.0}
+  - {id: F1, mode: fixed, fraction: 0.75}
+  - {id: F2, mode: fixed, fraction: 0.5}
+  - {id: F3, mode: fixed, fraction: 0.25}
+  - {id: F4, mode: fixed, fraction: 0.0}
 
 repetitions_per_combination: 3
 target_windows_per_repetition: 50

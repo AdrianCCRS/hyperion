@@ -47,13 +47,34 @@ def test_arc70_device_default_es_cpu():
 
 
 def test_arc70_device_gpu_valido():
-    entry = catalog.KernelEntry(**_dataset_kwargs(device="gpu"))
+    entry = catalog.KernelEntry(
+        **_dataset_kwargs(device="gpu", operational_intensity_flops_per_byte=5.0, gpu_precision="fp32")
+    )
     assert entry.device == "gpu"
 
 
 def test_arc70_device_invalido_falla():
     with pytest.raises(ValueError, match="CAT-09"):
         catalog.KernelEntry(**_dataset_kwargs(device="tpu"))
+
+
+def test_arc80_dataset_gpu_sin_intensidad_operacional_falla():
+    with pytest.raises(ValueError, match="CAT-10"):
+        catalog.KernelEntry(**_dataset_kwargs(device="gpu", gpu_precision="fp32"))
+
+
+def test_arc80_dataset_gpu_sin_precision_falla():
+    with pytest.raises(ValueError, match="CAT-10"):
+        catalog.KernelEntry(**_dataset_kwargs(device="gpu", operational_intensity_flops_per_byte=5.0))
+
+
+def test_arc80_dataset_gpu_precision_invalida_falla():
+    with pytest.raises(ValueError, match="CAT-10"):
+        catalog.KernelEntry(**_dataset_kwargs(
+            device="gpu", operational_intensity_flops_per_byte=5.0, gpu_precision="fp16",
+        ))
+
+
 
 
 def test_load_catalog_lee_flops_rate_y_runtime_seconds(tmp_path):
@@ -80,7 +101,12 @@ def test_load_catalog_lee_flops_rate_y_runtime_seconds(tmp_path):
 def test_arc70_load_catalog_lee_device_gpu(tmp_path):
     catalog_path = tmp_path / "catalog.yaml"
     catalog_path.write_text(
-        yaml.safe_dump({"kernels": [{**_dataset_kwargs(), "device": "gpu"}]}),
+        yaml.safe_dump({
+            "kernels": [{
+                **_dataset_kwargs(), "device": "gpu",
+                "operational_intensity_flops_per_byte": 5.0, "gpu_precision": "fp32",
+            }]
+        }),
         encoding="utf-8",
     )
     entries = catalog.load_catalog(str(catalog_path))

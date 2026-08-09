@@ -33,18 +33,25 @@ REQUIRED_OUTPUT_COLUMNS: tuple[str, ...] = (
     # ARC-70: filas GPU (tag=GPU en samples.csv) -- ver build_windows() y el
     # comentario de quality_status="gpu_telemetry" abajo. Vacías en toda fila
     # derivada de CPU/ENERGY.
-    "gpu_power_mw", "gpu_util_pct",
+    "gpu_power_mw", "gpu_util_pct", "gpu_mem_util_pct",
+    # ARC-94: reloj SM observado (confirma que un nivel DVFS de GPU se
+    # mantuvo durante la corrida), energía acumulada (insumo real para EDP
+    # de GPU, antes inexistente) y temperatura (detecta contaminación
+    # térmica) -- las tres opcionales, None si el launcher no las reportó
+    # (driver/GPU sin soporte, o corrida generada antes de este cambio).
+    "gpu_sm_clock_mhz", "gpu_energy_mj", "gpu_temperature_c",
 )
 
 VALID_QUALITY_STATUSES = frozenset({
     "ok", "first_sample_no_delta", "warmup_excluded", "pmu_degraded",
     "energy_invalid", "no_freq_reading", "intensity_undefined",
     # ARC-70: una muestra NVML cruda (potencia/utilización), no una ventana
-    # de CPU -- ninguno de los campos de Roofline/PMU de CPU aplica. Ver
-    # docs/retoma/pacca/Diseno_Politica_DVFS_CPU_GPU.md sección 3/4: estas
-    # filas son las *features* de entrenamiento del futuro clasificador de
-    # GPU (Fase 2), no se clasifican en compute/memory-bound aquí -- eso
-    # requiere el modelo, todavía sin entrenar.
+    # de CPU -- ninguno de los campos de Roofline/PMU de CPU aplica (nunca
+    # tiene delta_t_ns/ipc/etc, ver build_windows()). Sí tiene su propio
+    # phase_label_train (ARC-80, calculado con la intensidad medida offline
+    # con ncu y el ridge de GPU calibrado por precisión/nivel de frecuencia)
+    # cuando esa calibración está disponible -- "gpu_telemetry" describe que
+    # la fila es un passthrough NVML, no que carezca de etiqueta.
     "gpu_telemetry",
 })
 
@@ -86,6 +93,20 @@ class WindowContext:
     running_ratio_min: float
     rapl_enabled: bool
     calibration_references: Any = None  # calibration.CalibrationReferences | None
+    # ARC-80: intensidad operacional (constante, medida offline con `ncu`,
+    # ver KernelEntry.operational_intensity_flops_per_byte) y el i_ridge_gpu
+    # (calibrado por nivel de frecuencia y precisión, run_gpu_calibration)
+    # de ESTE kernel -- None cuando el kernel no es GPU, o cuando no hay
+    # calibración GPU disponible en este calibration_dir (campañas previas a
+    # ARC-80, o manifest.gpu sin "calibration" declarado). Nunca se reusa
+    # i_ridge_flops_per_byte (ese es el de CPU) para una fila de GPU.
+    gpu_operational_intensity: float | None = None
+    gpu_i_ridge_flops_per_byte: float | None = None
+    # ARC-94 (segunda ronda): antes de este campo, las filas GPU heredaban
+    # roofline_calibration_ref de _base_row() (el archivo de calibración de
+    # CPU) aunque su phase_label_train se calculó con gpu_i_ridge_flops_per_byte
+    # -- la columna de trazabilidad apuntaba al archivo equivocado.
+    gpu_roofline_calibration_ref: str | None = None
 
 
 def _read_rows(samples_csv_path: str | Path) -> list[dict[str, str]]:
@@ -421,11 +442,25 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
     # ARC-70: filas GPU (tag=GPU, muestras NVML crudas) -- deliberadamente
     # NO se ventanean contra los límites de las ventanas de CPU de arriba.
     # A diferencia de CPU, no hay una intensidad operacional que calcular
-    # aquí en vivo (ver Diseno_Politica_DVFS_CPU_GPU.md sección 3): NVML
-    # solo expone potencia/utilización, nunca FLOPs ni bytes. Cada muestra
-    # es un passthrough con el contexto de la corrida ya adjunto -- son las
-    # *features* de entrenamiento del futuro clasificador de GPU (Fase 2),
-    # no windows.csv "de GPU" en el mismo sentido que las de CPU.
+    # aquí EN VIVO (ver Diseno_Politica_DVFS_CPU_GPU.md sección 3): NVML
+    # solo expone potencia/utilización, nunca FLOPs ni bytes -- cada muestra
+    # es un passthrough con el contexto de la corrida ya adjunto. Son las
+    # *features* de entrenamiento del futuro modelo de GPU (Fase 2).
+    #
+    # ARC-80: la ETIQUETA (phase_label_train) sí se calcula aquí, en Fase 1
+    # -- es la corrección al error de diseño de ARC-72/ARC-79, que decía
+    # "esto espera al modelo de GPU" confundiendo la etiqueta de verdad
+    # (Fase 1, análoga a bytes_moved_window/flops_window_estimate de CPU)
+    # con el modelo que la va a consumir (Fase 2). La intensidad operacional
+    # de este kernel (context.gpu_operational_intensity, medida offline con
+    # `ncu` una sola vez, ARC-80) es constante en todas las filas de esta
+    # corrida; el ridge (context.gpu_i_ridge_flops_per_byte) es el calibrado
+    # para la precisión de este kernel Y el freq_level_id de esta corrida
+    # (run_gpu_calibration, ARC-80) -- nunca uno fijo para toda la campaña
+    # (mismo principio que ARC-78 ya aplica al ridge de CPU). Si cualquiera
+    # de los dos falta (kernel de calibración, o campaña sin
+    # manifest.gpu["calibration"] declarado), la fila queda sin etiqueta en
+    # vez de adivinar una.
     gpu_rows = [
         r for r in rows
         if r.get("tag") == "GPU" and _to_int(r.get("repetition")) == _LAUNCHER_INTERNAL_REPETITION
@@ -436,9 +471,37 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
         row["t_start_ns"] = None
         row["t_end_ns"] = int(gpu_row["timestamp_ns"])
         row["delta_t_ns"] = None
+        # ARC-94 (segunda ronda): _base_row() deja roofline_calibration_ref
+        # apuntando al archivo de calibración de CPU para TODA fila -- una
+        # fila GPU usa gpu_i_ridge_flops_per_byte (calibrado por separado,
+        # run_gpu_calibration) para su phase_label_train, así que la
+        # trazabilidad debe apuntar a ESE archivo, no al de CPU.
+        if context.gpu_roofline_calibration_ref is not None:
+            row["roofline_calibration_ref"] = context.gpu_roofline_calibration_ref
         row["gpu_power_mw"] = _to_int(gpu_row.get("gpu_power_mw"))
         row["gpu_util_pct"] = _to_int(gpu_row.get("gpu_util_pct"))
-        row["quality_status"] = "gpu_telemetry"
+        row["gpu_mem_util_pct"] = _to_int(gpu_row.get("gpu_mem_util_pct"))
+        row["gpu_sm_clock_mhz"] = _to_int(gpu_row.get("gpu_sm_clock_mhz"))
+        row["gpu_energy_mj"] = _to_int(gpu_row.get("gpu_energy_mj"))
+        row["gpu_temperature_c"] = _to_int(gpu_row.get("gpu_temperature_c"))
+        row["operational_intensity"] = context.gpu_operational_intensity
+        row["i_ridge_used"] = context.gpu_i_ridge_flops_per_byte
+        if context.gpu_operational_intensity is not None and context.gpu_i_ridge_flops_per_byte is not None:
+            row["phase_label_train"] = (
+                "memory_bound"
+                if context.gpu_operational_intensity < context.gpu_i_ridge_flops_per_byte
+                else "compute_bound"
+            )
+        # ARC-94: warmup_seconds declarado en el catálogo nunca se
+        # comparaba contra el timestamp de la muestra GPU -- cada fila
+        # quedaba "gpu_telemetry" sin importar si caía antes o después del
+        # calentamiento, a diferencia de las ventanas CPU (que sí excluyen
+        # warmup arriba, mismo run_start_ns/warmup_end_ns). Reusa la misma
+        # referencia temporal de origen del run (cpu_rows[0]) para que
+        # ambos ejes midan el calentamiento desde el mismo instante cero.
+        row["quality_status"] = (
+            "warmup_excluded" if int(gpu_row["timestamp_ns"]) < warmup_end_ns else "gpu_telemetry"
+        )
         windows.append(row)
 
     return windows
@@ -491,6 +554,10 @@ def _base_row(context: WindowContext, *, window_index: int) -> dict[str, Any]:
         "quality_status": "ok",
         "gpu_power_mw": None,
         "gpu_util_pct": None,
+        "gpu_mem_util_pct": None,
+        "gpu_sm_clock_mhz": None,
+        "gpu_energy_mj": None,
+        "gpu_temperature_c": None,
     }
 
 
@@ -579,9 +646,39 @@ def run_postprocess(
     whose D03 plausibility check failed, so an unverified I_ridge can never
     reach this far. POST-10: the LLC line size always comes from
     node_profile.json, never a hardcoded constant.
+
+    ARC-78: loads the i_ridge calibrated at THIS run's own freq_level_id,
+    never a single campaign-wide value -- P_pico scales with core clock but
+    BW_pico does not, so a window from a reduced-frequency level must never
+    be classified against the reference (native_governor) level's ridge.
+
+    ARC-80: for a GPU dataset kernel (device="gpu" with
+    gpu_precision/operational_intensity_flops_per_byte declared), also loads
+    the GPU ridge for this run's precision/freq_level_id and derives
+    phase_label_train for its passthrough rows -- never reuses the CPU
+    roofline loaded above for that. Missing GPU calibration for this
+    calibration_dir (pre-ARC-80 campaigns, or manifest.gpu without
+    "calibration" declared) degrades to gpu_i_ridge=None, never a hard
+    failure -- the CPU dataset's classification must not depend on whether
+    a GPU calibration happens to exist.
     """
-    roofline = calibration_module.load_calibration(calibration_dir)
+    roofline = calibration_module.load_calibration(calibration_dir, freq_level_id)
     profile = node_profile_module.load_node_profile(calibration_dir)
+
+    gpu_operational_intensity = getattr(kernel_entry, "operational_intensity_flops_per_byte", None)
+    gpu_precision = getattr(kernel_entry, "gpu_precision", None)
+    gpu_i_ridge = None
+    gpu_roofline_calibration_ref = None
+    if getattr(kernel_entry, "device", "cpu") == "gpu" and gpu_precision:
+        gpu_roofline_calibration_ref = str(
+            Path(calibration_dir) / calibration_module.calibration_filename(freq_level_id, gpu_precision=gpu_precision)
+        )
+        try:
+            gpu_i_ridge = calibration_module.load_calibration(
+                calibration_dir, freq_level_id, gpu_precision=gpu_precision
+            ).i_ridge_flops_per_byte
+        except (FileNotFoundError, calibration_module.CalibrationError):
+            gpu_i_ridge = None
 
     run_dir = Path(run_dir)
     stdout_text = (run_dir / "stdout.txt").read_text(errors="replace") if (run_dir / "stdout.txt").exists() else ""
@@ -598,7 +695,9 @@ def run_postprocess(
         freq_khz_applied=freq_khz_applied,
         freq_khz_observed=freq_khz_observed,
         binary_checksum=kernel_entry.binary_checksum,
-        roofline_calibration_ref=str(Path(calibration_dir) / "roofline_calibration.json"),
+        roofline_calibration_ref=str(
+            Path(calibration_dir) / calibration_module.calibration_filename(freq_level_id)
+        ),
         node_profile_ref=str(Path(calibration_dir) / "node_profile.json"),
         calibration_ref=str(Path(calibration_dir) / "calibration_references.json"),
         i_ridge_flops_per_byte=roofline.i_ridge_flops_per_byte,
@@ -608,6 +707,9 @@ def run_postprocess(
         running_ratio_min=running_ratio_min,
         rapl_enabled=rapl_enabled,
         calibration_references=calibration_references,
+        gpu_operational_intensity=gpu_operational_intensity,
+        gpu_i_ridge_flops_per_byte=gpu_i_ridge,
+        gpu_roofline_calibration_ref=gpu_roofline_calibration_ref,
     )
     windows = build_windows(run_dir / "samples.csv", context)
     return write_windows_csv(windows, run_dir / "windows.csv")

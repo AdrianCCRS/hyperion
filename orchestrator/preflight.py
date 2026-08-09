@@ -97,7 +97,20 @@ def check_cgroup_clean(cgroup_path: str | Path, *, factor_id: str = "E03") -> Ch
     return _result(factor_id, "cgroup sin procesos", not pids, True, {"pids": pids}, "El cgroup delegado debe estar vacío")
 
 
-def check_governor(delegated_cpus: Iterable[int], expected: str, cpu_root: str | Path | None = None, control_paths: Mapping[int, Mapping[str, str]] | None = None) -> CheckResult:
+def check_governor(delegated_cpus: Iterable[int], expected: str | None, cpu_root: str | Path | None = None, control_paths: Mapping[int, Mapping[str, str]] | None = None) -> CheckResult:
+    """E07: verifica el governor efectivo.
+
+    ARC-94: ``expected`` puede ser ``None`` para la estrategia
+    ``bounded_range`` (intel_pstate/amd-pstate) -- a diferencia de
+    ``discrete_bounds`` (acpi-cpufreq), donde ``scaling_setspeed`` solo
+    tiene efecto bajo el governor ``userspace`` (requisito real del
+    kernel), fijar el rango vía ``scaling_min_freq``/``scaling_max_freq``
+    no depende de ningún governor específico -- intel_pstate solo ofrece
+    ``performance``/``powersave`` (ninguno es ``userspace``, confirmado en
+    paccaA100) y ambos respetan el rango como límite. Exigir "userspace"
+    incondicionalmente bloqueaba el preflight en cualquier nodo con este
+    driver, sin importar qué permiso concediera el administrador.
+    """
     root = Path(cpu_root) if cpu_root is not None else load_config().sysfs.cpu_root
     observed = {
         cpu: _read(Path(control_paths[cpu]["scaling_governor"]))
@@ -105,6 +118,13 @@ def check_governor(delegated_cpus: Iterable[int], expected: str, cpu_root: str |
         else _read(root / f"cpu{cpu}" / "cpufreq/scaling_governor")
         for cpu in delegated_cpus
     }
+    if expected is None:
+        passed = bool(observed) and all(value is not None for value in observed.values())
+        return _result(
+            "E07", "Governor efectivo", passed, True,
+            {"governors": observed, "expected": "cualquiera (bounded_range: min/max aplica sin importar el governor)"},
+            "No se pudo leer el governor efectivo en ninguno de los cores delegados",
+        )
     passed = bool(observed) and all(value == expected for value in observed.values())
     return _result("E07", "Governor efectivo", passed, True, {"governors": observed, "expected": expected}, "El governor efectivo no coincide con el esperado")
 
@@ -408,7 +428,13 @@ def run_campaign_preflight(
     if _requires_frequency_control(manifest):
         control_paths = _value(env, "frequency_control_paths", None)
         results.append(check_frequency_write_permission(cores, sysfs.cpu_root, control_paths))
-        results.append(check_governor(cores, "userspace", sysfs.cpu_root, control_paths))
+        # ARC-94: "userspace" solo es requisito real del kernel para la
+        # estrategia discrete_bounds (scaling_setspeed, acpi-cpufreq); para
+        # bounded_range (intel_pstate/amd-pstate, fija min=max=target) no
+        # hay un governor obligatorio -- ver check_governor().
+        strategy = _value(env, "frequency_control_strategy", None)
+        expected_governor = "userspace" if strategy == "discrete_bounds" else None
+        results.append(check_governor(cores, expected_governor, sysfs.cpu_root, control_paths))
         results.append(check_frequency_domain(cores, _value(env, "frequency_domain_cpus", None)))
     results.append(check_rapl_domains(_value(rapl, "domains", []), _value(env, "rapl_domains_available", []), bool(_value(rapl, "enabled", False))))
     output_dir, overwrite = _value(manifest, "output_dir"), bool(_value(manifest, "overwrite", False))
@@ -430,8 +456,15 @@ def run_campaign_preflight(
     return results
 
 
-def run_reduced_preflight(manifest: Any, env: Any, entry: Any, run_id: str, *, expected_governor: str = "userspace", load_threshold: float = 1.0, turbo_snapshot: Mapping[str, Any] | None = None, cpu_root: str | Path | None = None, load_reader: Callable[[], tuple[float, float, float]] = os.getloadavg, node_id: str | None = None) -> list[CheckResult]:
-    """Ejecuta checks por corrida, incluidos C01/C02 para detectar binarios cambiados."""
+def run_reduced_preflight(manifest: Any, env: Any, entry: Any, run_id: str, *, expected_governor: str | None = None, load_threshold: float = 1.0, turbo_snapshot: Mapping[str, Any] | None = None, cpu_root: str | Path | None = None, load_reader: Callable[[], tuple[float, float, float]] = os.getloadavg, node_id: str | None = None) -> list[CheckResult]:
+    """Ejecuta checks por corrida, incluidos C01/C02 para detectar binarios cambiados.
+
+    ARC-94: ``expected_governor=None`` (el default) deriva el valor correcto
+    de ``env.frequency_control_strategy`` -- "userspace" solo para
+    discrete_bounds, ninguno para bounded_range (ver check_governor()). Un
+    valor explícito sigue anulando la derivación, para pruebas o casos
+    excepcionales.
+    """
     results = [
         check_temperature(_value(manifest, "package_temperature_c"), _value(manifest, "temperature_min_c", 0.0), _value(manifest, "temperature_max_c", 90.0)),
         check_foreign_processes(_value(manifest, "foreign_affinity_pids", ())),
@@ -442,7 +475,9 @@ def run_reduced_preflight(manifest: Any, env: Any, entry: Any, run_id: str, *, e
         check_success_check(entry),
     ]
     if _requires_frequency_control(manifest):
-        results.append(check_governor(_cores(manifest), expected_governor, cpu_root, _value(env, "frequency_control_paths", None)))
+        strategy = _value(env, "frequency_control_strategy", None)
+        governor = expected_governor if expected_governor is not None else ("userspace" if strategy == "discrete_bounds" else None)
+        results.append(check_governor(_cores(manifest), governor, cpu_root, _value(env, "frequency_control_paths", None)))
     if turbo_snapshot is not None:
         results.append(check_turbo_hwp_unchanged(turbo_snapshot, cpu_root))
     return results

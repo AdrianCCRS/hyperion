@@ -59,8 +59,23 @@ namespace telemetry {
      */
     struct GpuSample {
         ns_t     timestamp_ns;
-        uint32_t power_mw;  /**< nvmlDeviceGetPowerUsage(), milliwatts. */
-        uint32_t util_pct;  /**< nvmlDeviceGetUtilizationRates().gpu, percent. */
+        uint32_t power_mw;       /**< nvmlDeviceGetPowerUsage(), milliwatts. */
+        uint32_t util_pct;       /**< nvmlDeviceGetUtilizationRates().gpu, percent. */
+        // ARC-94 (segunda ronda): nvmlUtilization_t trae tanto .gpu como
+        // .memory -- solo se conservaba .gpu. Sin utilizacion de memoria,
+        // un kernel con actividad puramente de memoria (alto trafico,
+        // bajo uso de SM) podia parecer "ocioso" mirando solo util_pct.
+        uint32_t mem_util_pct;  /**< nvmlDeviceGetUtilizationRates().memory, percent. */
+        // ARC-94: sin estas tres, no era posible confirmar que un nivel
+        // DVFS de GPU realmente se mantuvo durante la corrida (sin reloj
+        // SM observado), ni calcular EDP de GPU (sin energia acumulada),
+        // ni detectar contaminacion termica (sin temperatura). Todas
+        // opcionales por diseno (0 si NVML no las reporta en este
+        // driver/GPU) -- nunca bloquean una lectura de power/util ya
+        // valida.
+        uint32_t sm_clock_mhz;   /**< nvmlDeviceGetClockInfo(NVML_CLOCK_SM), MHz. 0 si no disponible. */
+        uint64_t energy_mj;      /**< nvmlDeviceGetTotalEnergyConsumption(), mJ acumulados desde que cargo el driver (requiere delta downstream, igual que EnergySnapshot). 0 si no disponible. */
+        uint32_t temperature_c;  /**< nvmlDeviceGetTemperature(NVML_TEMPERATURE_GPU), grados Celsius. 0 si no disponible. */
     };
 
     /** @brief Type tag for the active member of Sample. */

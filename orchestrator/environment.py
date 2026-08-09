@@ -33,6 +33,14 @@ class EnvironmentProfile:
     frequency_control_strategy: str = "unavailable"
     frequency_control_paths: dict[int, dict[str, str]] = field(default_factory=dict)
     rapl_domain_paths: dict[str, str] = field(default_factory=dict)
+    # ARC-87: eje de frecuencia de GPU, análogo a available_frequencies_khz/
+    # frequency_control_strategy/frequency_write_capable de CPU pero para
+    # nvmlDeviceSetGpuLockedClocks (ver gpu_freqctl.py). gpu_available_clocks_mhz
+    # queda vacío y gpu_frequency_control_strategy="unavailable" en cualquier
+    # nodo sin GPU NVIDIA o sin `nvidia-smi` -- nunca se asume un rango.
+    gpu_available_clocks_mhz: list[int] = field(default_factory=list)
+    gpu_frequency_control_strategy: str = "unavailable"
+    gpu_frequency_write_capable: bool = False
 
 
 def _read_text(path: Path) -> str | None:
@@ -91,6 +99,25 @@ def _frequency_data(sysfs: SysfsPaths, cpus: list[int]) -> tuple[str, list[int],
                     frequencies.add(int(value))
                 except ValueError:
                     continue
+        else:
+            # ARC-94: intel_pstate en modo activo (confirmado en vivo en
+            # paccaA100) nunca expone scaling_available_frequencies --
+            # antes de este fallback, freq_capable quedaba en False para
+            # SIEMPRE en ese driver, sin importar si min/max eran
+            # escribibles. cpuinfo_min_freq/cpuinfo_max_freq son los
+            # límites físicos reales del CPU (no una lista inventada de
+            # pasos): alcanzan para que freq_capable detecte un rango
+            # válido, y freqctl._target_khz ya deriva fracciones continuas
+            # sobre min/max para la estrategia bounded_range, así que no
+            # hace falta ninguna lista de frecuencias intermedias.
+            cpu_min = _read_text(cpu_path / "cpuinfo_min_freq")
+            cpu_max = _read_text(cpu_path / "cpuinfo_max_freq")
+            if cpu_min and cpu_max:
+                try:
+                    frequencies.add(int(cpu_min))
+                    frequencies.add(int(cpu_max))
+                except ValueError:
+                    pass
     controls: dict[int, dict[str, str]] = {}
     for cpu in cpus:
         cpu_path = _cpufreq_directory(sysfs, cpu)
@@ -218,6 +245,64 @@ def probe_pmc_count(
     return best
 
 
+_GPU_SUPPORTED_CLOCK_MARKER = re.compile(r"Graphics\s*:\s*(\d+)\s*MHz")
+
+
+def _run_nvidia_smi_supported_clocks(gpu_index: int) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["nvidia-smi", "-i", str(gpu_index), "-q", "-d", "SUPPORTED_CLOCKS"],
+        capture_output=True, text=True, timeout=10, check=False,
+    )
+
+
+def probe_gpu_clocks(
+    gpu_index: int = 0,
+    *,
+    run_nvidia_smi: Callable[[int], subprocess.CompletedProcess] = _run_nvidia_smi_supported_clocks,
+) -> tuple[list[int], str]:
+    """ARC-87: relojes de SM soportados por la GPU, vía `nvidia-smi -q -d
+    SUPPORTED_CLOCKS` -- confirmado en ARC-62 que esta consulta funciona sin
+    privilegios especiales en paccaA100, a diferencia de fijar el reloj
+    (`-lgc`, ver gpu_freqctl.py), que sí los exige. Puramente de lectura
+    (ENV-01): nunca intenta fijar un reloj durante la detección, solo lista
+    los valores discretos que el driver anuncia como soportados.
+
+    Retorna ([], "unavailable") si `nvidia-smi` no existe, falla, o no
+    reporta ningún reloj -- nunca se asume un rango a partir del modelo de
+    GPU."""
+    try:
+        result = run_nvidia_smi(gpu_index)
+    except (OSError, subprocess.SubprocessError):
+        return [], "unavailable"
+    if result.returncode != 0:
+        return [], "unavailable"
+    clocks = sorted({int(value) for value in _GPU_SUPPORTED_CLOCK_MARKER.findall(result.stdout)})
+    if not clocks:
+        return [], "unavailable"
+    return clocks, "locked_clocks"
+
+
+def _gpu_frequency_write_capable(strategy: str) -> bool:
+    """ARC-87: heurística de solo lectura, no una verificación por
+    os.access() como E09 en CPU -- GPU no tiene una ruta de archivo sysfs
+    que fijar el reloj sea cuestión de permisos de archivo. ARC-62 confirmó
+    que `nvmlDeviceSetGpuLockedClocks` (`nvidia-smi -lgc`) exige privilegios
+    de root en este driver (Applications Clocks, la vía histórica sin
+    privilegios, está deprecada) -- el EUID efectivo es la señal de solo
+    lectura más cercana disponible hoy. Sobreescribible por variable de
+    entorno para cuando el permiso P4 real se conceda por un mecanismo
+    distinto de root literal (ej. un wrapper con sudo específico, o un
+    grupo del sistema que futuras versiones del driver puedan habilitar),
+    sin tener que volver a tocar este archivo cuando eso se confirme.
+    """
+    if strategy == "unavailable":
+        return False
+    override = os.environ.get("HYPERION_GPU_FREQ_WRITE_CAPABLE")
+    if override is not None:
+        return override.strip().lower() not in ("", "0", "false")
+    return os.geteuid() == 0
+
+
 def _frequency_domain_data(sysfs: SysfsPaths, cpus: list[int]) -> dict[int, list[int]]:
     """Lee la agrupación real de control de frecuencia por CPU (E10).
 
@@ -300,13 +385,26 @@ def detect_environment(
         and len(frequencies) > 1
     )
     rapl_domains, rapl_domain_paths, rapl_capable = _rapl_data(sysfs)
+    strategy = "discrete_bounds" if scaling_driver == "acpi-cpufreq" and freq_capable else (
+        "bounded_range" if freq_capable else "unavailable"
+    )
+    # ARC-94: bounded_range (intel_pstate/amd-pstate) nunca escribe
+    # scaling_governor -- pinea min=max=target bajo el governor que ya esté
+    # activo (freqctl._apply_bounded). Exigir ese archivo como escribible
+    # para esta estrategia hacía que frequency_write_capable dependiera de
+    # un permiso que P1 (solo scaling_min_freq/max_freq) nunca solicitó ni
+    # iba a conceder, bloqueando el nodo real (paccaA100) incluso con el
+    # permiso correcto ya otorgado. discrete_bounds sí necesita el governor
+    # escribible (scaling_setspeed solo tiene efecto bajo governor=userspace).
+    required_attrs = (
+        {"scaling_min_freq", "scaling_max_freq"} if strategy == "bounded_range"
+        else {"scaling_governor", "scaling_min_freq", "scaling_max_freq"}
+    )
     frequency_write_capable = bool(control_paths) and all(
         os.access(path, os.W_OK)
         for controls in control_paths.values()
-        for path in controls.values()
-    )
-    strategy = "discrete_bounds" if scaling_driver == "acpi-cpufreq" and freq_capable else (
-        "bounded_range" if freq_capable else "unavailable"
+        for name, path in controls.items()
+        if name in required_attrs
     )
 
     smt_siblings: dict[int, list[int]] = {}
@@ -327,6 +425,13 @@ def detect_environment(
         (card / "device").exists()
         for card in sysfs.drm_root.glob("card[0-9]*")
     )
+    # ARC-87: solo se consulta nvidia-smi si hay una GPU presente -- en un
+    # nodo sin GPU esta rama nunca dispara un subprocess innecesario, y
+    # probe_gpu_clocks() ya degrada solo a ([], "unavailable") si
+    # nvidia-smi no existe o falla, así que el resultado es el mismo de
+    # cualquier forma; la guarda es solo para no gastar el subprocess.
+    gpu_clocks_mhz, gpu_strategy = probe_gpu_clocks() if gpu_present else ([], "unavailable")
+    gpu_frequency_write_capable = _gpu_frequency_write_capable(gpu_strategy)
     detected_tiers = {
         platform.detection.tier_local,
         platform.detection.tier_cloud,
@@ -355,6 +460,9 @@ def detect_environment(
         frequency_control_strategy=strategy,
         frequency_control_paths=control_paths,
         rapl_domain_paths=rapl_domain_paths,
+        gpu_available_clocks_mhz=gpu_clocks_mhz,
+        gpu_frequency_control_strategy=gpu_strategy,
+        gpu_frequency_write_capable=gpu_frequency_write_capable,
     )
     # Datos complementarios requeridos por ENV-06 y ENV-08, conservando la API pública.
     profile.delegated_cpus = delegated

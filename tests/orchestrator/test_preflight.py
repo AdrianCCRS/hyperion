@@ -50,6 +50,21 @@ def test_pre_t04_governor_distinto(tmp_path):
     assert (result.passed, result.factor_id) == (False, "E07")
 
 
+def test_pre_t04b_governor_none_acepta_bounded_range(tmp_path):
+    """ARC-94: intel_pstate no ofrece 'userspace' -- bounded_range no debe
+    exigir un governor especifico, solo que sea legible."""
+    path = tmp_path / "cpu2/cpufreq"
+    path.mkdir(parents=True)
+    (path / "scaling_governor").write_text("powersave")
+    result = preflight.check_governor([2], None, tmp_path)
+    assert (result.passed, result.factor_id) == (True, "E07")
+
+
+def test_pre_t04c_governor_none_falla_si_no_se_puede_leer(tmp_path):
+    result = preflight.check_governor([2], None, tmp_path)
+    assert (result.passed, result.factor_id) == (False, "E07")
+
+
 def test_pre_t05_carga_externa_supera_umbral():
     result = preflight.check_external_load(0.8, lambda: (0.9, 0.1, 0.1))
     assert (result.passed, result.factor_id) == (False, "E08")
@@ -140,6 +155,42 @@ def test_preflight_no_corta_despues_de_la_primera_falla(tmp_path, env):
     )
     failed_ids = {result.factor_id for result in results if not result.passed}
     assert {"E04", "C01", "C02"}.issubset(failed_ids)
+
+
+def test_pre_bounded_range_no_exige_userspace(tmp_path, env):
+    """ARC-94: con frequency_levels fixed (requiere control de frecuencia)
+    y estrategia bounded_range (intel_pstate), E07 no debe exigir
+    'userspace' -- solo bloqueaba antes en cualquier nodo con este driver,
+    incluido paccaA100."""
+    cpu_path = tmp_path / "sys/cpu2/cpufreq"
+    cpu_path.mkdir(parents=True)
+    (cpu_path / "scaling_governor").write_text("powersave")
+    binary = tmp_path / "kernel"
+    binary.write_text("#!/bin/sh\nexit 0\n")
+    binary.chmod(0o755)
+    checksum = f"sha256:{hashlib.sha256(binary.read_bytes()).hexdigest()}"
+    entry = SimpleNamespace(exec_path=binary, binary_checksum=checksum, success_check={"type": "exit_code"}, estimated_memory_bytes=1)
+    env.frequency_control_strategy = "bounded_range"
+    env.frequency_control_paths = {2: {"scaling_governor": str(cpu_path / "scaling_governor")}}
+    manifest = {
+        "cores": {"delegated_cpus": [2]},
+        "smt_policy": "all_threads",
+        "rapl": {"enabled": False},
+        "gpu": {"enabled": False},
+        "output_dir": tmp_path / "salida",
+        "overwrite": False,
+        "calibration": [],
+        "kernels": ["dataset"],
+        "frequency_levels": [{"id": "F0", "mode": "fixed", "fraction": 1.0}],
+        "projected_campaign_bytes": 0,
+        "remaining_core_hours": 1.0,
+        "projected_core_hours": 0.5,
+    }
+    results = preflight.run_campaign_preflight(
+        manifest, env, {"dataset": entry}, sysfs=SysfsPaths.from_base(tmp_path / "sys"), node_profile=SimpleNamespace(pmc_count=0)
+    )
+    governor_result = next(r for r in results if r.factor_id == "E07")
+    assert governor_result.passed is True
 
 
 def test_e09_requiere_permisos_en_todos_los_cores(monkeypatch):

@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 import signal
 import sys
 from types import SimpleNamespace
@@ -107,6 +108,97 @@ def test_frq02_apply_bounded_range_fija_min_igual_a_max(tmp_path):
     assert (tmp_path / "cpu0/cpufreq/scaling_max_freq").read_text() == "2261000"
 
 
+def test_frq02_apply_bounded_range_transicion_descendente(tmp_path, monkeypatch):
+    """ARC-94: el kernel real exige min<=max en CADA escritura individual,
+    no solo al final. Partiendo de un nivel ya fijado arriba (min=max=F0),
+    bajar a un nivel menor con el orden viejo (max,min,max) intenta
+    max=target por debajo del min vigente -> EINVAL. Simula esa restricción
+    del kernel para confirmar que el nuevo orden (min primero cuando el
+    target queda debajo del min actual) nunca la viola."""
+    paths = {0: _write_cpu(tmp_path, 0, governor="powersave", min_khz=2261000, max_khz=2261000)}
+    env = _env(paths, write_capable=True, strategy="bounded_range")
+    # fraction=0.5 sobre AVAILABLE_KHZ -> target=1662500, por debajo del
+    # min vigente (2261000): la transicion descendente que rompia el orden viejo.
+    level = SimpleNamespace(id="F_MID", mode="fixed", fraction=0.5)
+
+    min_path = tmp_path / "cpu0/cpufreq/scaling_min_freq"
+    max_path = tmp_path / "cpu0/cpufreq/scaling_max_freq"
+    original_write_text = freqctl._write_text
+
+    def kernel_como_de_verdad(path: Path, value: str) -> None:
+        # Simula min<=max como invariante de kernel, verificado en cada
+        # escritura individual (no solo al final de la secuencia).
+        nuevo = int(value)
+        if path == max_path:
+            min_vigente = int(min_path.read_text())
+            if nuevo < min_vigente:
+                raise OSError(22, "Invalid argument")  # EINVAL real del kernel
+        elif path == min_path:
+            max_vigente = int(max_path.read_text())
+            if nuevo > max_vigente:
+                raise OSError(22, "Invalid argument")
+        original_write_text(path, value)
+
+    monkeypatch.setattr(freqctl, "_write_text", kernel_como_de_verdad)
+
+    result = freqctl.apply_frequency([0], level, env)
+
+    assert result.applied_khz == 1662500
+    assert min_path.read_text() == "1662500"
+    assert max_path.read_text() == "1662500"
+
+
+def test_frq_native_governor_restaura_min_max_no_solo_el_governor(tmp_path):
+    """ARC-94: si REF (native_governor) se aplica DESPUES de un nivel fixed
+    (bounded_range) en la misma corrida, restaurar solo el string del
+    governor deja min/max pinneados en el ultimo nivel medido -- REF ya no
+    seria "frecuencia nativa/libre" de verdad."""
+    paths = {0: _write_cpu(tmp_path, 0, governor="powersave", min_khz=1064000, max_khz=2261000)}
+    env = _env(paths, write_capable=True, strategy="bounded_range")
+
+    original = freqctl.snapshot_original_state([0], env)
+    assert original.per_cpu[0].min_freq_khz == 1064000
+    assert original.per_cpu[0].max_freq_khz == 2261000
+
+    # Simula un nivel fixed ya aplicado antes de REF (pinneado en el tope).
+    fixed_level = SimpleNamespace(id="F0", mode="fixed", fraction=1.0)
+    freqctl.apply_frequency([0], fixed_level, env, original=original)
+    assert (tmp_path / "cpu0/cpufreq/scaling_min_freq").read_text() == "2261000"
+    assert (tmp_path / "cpu0/cpufreq/scaling_max_freq").read_text() == "2261000"
+
+    ref_level = SimpleNamespace(id="REF", mode="native_governor")
+    freqctl.apply_frequency([0], ref_level, env, original=original)
+
+    assert (tmp_path / "cpu0/cpufreq/scaling_min_freq").read_text() == "1064000"
+    assert (tmp_path / "cpu0/cpufreq/scaling_max_freq").read_text() == "2261000"
+    assert (tmp_path / "cpu0/cpufreq/scaling_governor").read_text() == "powersave"
+
+
+def test_arc94_native_governor_bounded_range_no_escribe_governor(tmp_path):
+    """ARC-94 (segunda ronda): restaurar REF bajo bounded_range no debe
+    necesitar permiso de escritura sobre scaling_governor -- P1 (el
+    permiso real solicitado) solo cubre scaling_min_freq/max_freq.
+    Simulado con el archivo de governor de solo lectura: si el código
+    intentara escribirlo, esto lanzaría PermissionError."""
+    import os as os_module
+    paths = {0: _write_cpu(tmp_path, 0, governor="powersave", min_khz=1064000, max_khz=2261000)}
+    env = _env(paths, write_capable=True, strategy="bounded_range")
+    original = freqctl.snapshot_original_state([0], env)
+
+    governor_path = tmp_path / "cpu0/cpufreq/scaling_governor"
+    os_module.chmod(governor_path, 0o444)
+
+    fixed_level = SimpleNamespace(id="F0", mode="fixed", fraction=1.0)
+    freqctl.apply_frequency([0], fixed_level, env, original=original)
+
+    ref_level = SimpleNamespace(id="REF", mode="native_governor")
+    result = freqctl.apply_frequency([0], ref_level, env, original=original)  # no debe lanzar PermissionError
+
+    assert (tmp_path / "cpu0/cpufreq/scaling_min_freq").read_text() == "1064000"
+    assert (tmp_path / "cpu0/cpufreq/scaling_max_freq").read_text() == "2261000"
+    assert result.governor_applied == "powersave"
+
+
 def test_frq02_apply_falla_ruidosamente_si_la_relectura_no_coincide(tmp_path, monkeypatch):
     paths = {0: _write_cpu(tmp_path, 0, setspeed_khz=0)}
     env = _env(paths, write_capable=True, strategy="discrete_bounds")
@@ -160,6 +252,32 @@ def test_frq04_restore_es_idempotente_y_verificado(tmp_path):
     # Idempotent: calling it again with everything already restored is still
     # a verified success, not a no-op that skips verification.
     assert freqctl.restore_original_state(original, env) is True
+
+
+def test_arc94_restore_continua_con_los_demas_cpus_si_uno_falla(tmp_path):
+    """ARC-94 (segunda ronda): el propio docstring promete "always attempts
+    every CPU, even if an earlier one failed" -- antes de este cambio, una
+    excepción sin capturar (p.ej. PermissionError real) en un CPU
+    interrumpía el bucle antes de restaurar los siguientes. Critico porque
+    puede correr desde un manejador de SIGINT/SIGTERM sin segunda
+    oportunidad."""
+    paths = {
+        0: _write_cpu(tmp_path, 0, governor="performance", min_khz=1064000, max_khz=2261000),
+        1: _write_cpu(tmp_path, 1, governor="performance", min_khz=1064000, max_khz=2261000),
+    }
+    env = _env(paths, write_capable=True, strategy="bounded_range")
+    original = freqctl.snapshot_original_state([0, 1], env)
+
+    # cpu0 queda sin permiso de escritura sobre min_freq -- simula un
+    # permiso real mas estrecho de lo esperado en un solo core.
+    os.chmod(tmp_path / "cpu0/cpufreq/scaling_min_freq", 0o444)
+
+    result = freqctl.restore_original_state(original, env)
+
+    assert result is False  # cpu0 genuinamente fallo
+    # cpu1 SI se restauro pese al fallo de cpu0.
+    assert (tmp_path / "cpu1/cpufreq/scaling_min_freq").read_text() == "1064000"
+    assert (tmp_path / "cpu1/cpufreq/scaling_max_freq").read_text() == "2261000"
 
 
 def test_frq04_restore_no_escribe_si_write_capable_es_false(tmp_path):

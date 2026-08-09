@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass
 import json
 from pathlib import Path
@@ -47,10 +48,21 @@ def validate_run(
     verdicts in the required order. Any of the three may be omitted (None)
     when the caller did not re-check that condition for this run.
 
-    VAL-08: window-level rejects (I01 no_freq_reading, I02 low running_ratio,
-    I03 sampling jitter, warmup_excluded, intensity_undefined) are never
-    consulted here. They only ever affect a single row's quality_status in
-    windows.csv (postprocess.py); a bad window never flips this verdict.
+    VAL-08: per-window quality flags (I01 no_freq_reading, I02 low
+    running_ratio, I03 sampling jitter, warmup_excluded, intensity_undefined)
+    are never consulted here -- a single bad window never flips this
+    verdict, only its own quality_status in windows.csv (postprocess.py).
+
+    ARC-94: this is only the FIRST of two acceptance stages. This function
+    can only see run-level metadata that exists before windows.csv is
+    built, so it can reject a run that never produced any telemetry at all
+    (I04/C02/C03/E06-E08/I07) -- it CANNOT reject a run that ran fine but
+    produced too few usable windows or no label at all, because
+    windows.csv does not exist yet at this point. The caller (campaign.py)
+    must run postprocess.py after an accepted verdict from THIS function,
+    then call validate_windows() on the result for the final accept/reject
+    decision -- an accepted Verdict from validate_run() alone is
+    provisional, not final.
     """
     metadata = run_result.metadata
 
@@ -87,6 +99,40 @@ def validate_run(
     if run_result.run_id in set(run_id_seen):
         return Verdict(False, "I07", f"run_id duplicado: {run_result.run_id}")
 
+    return Verdict(True, None, "ok")
+
+
+def validate_windows(
+    windows_path: str | Path,
+    *,
+    target_windows_per_repetition: int,
+    device: str,
+) -> Verdict:
+    """VAL-09 (ARC-94): segunda etapa de aceptación, DESPUÉS de que
+    postprocess.py escribió windows.csv -- validate_run() por sí solo solo
+    conoce metadata a nivel de corrida (samples_collected, checksum,
+    success_check); nunca miraba si la corrida realmente produjo ventanas
+    útiles. Antes de este cambio, una corrida podía quedar accepted=true
+    con cero ventanas quality_status="ok" (CPU) o "gpu_telemetry" (GPU),
+    cero etiquetas, o menos muestras de las que
+    `target_windows_per_repetition` exige -- ese parámetro se validaba en
+    el manifiesto pero nunca se usaba para decidir nada después (hallazgo
+    de auditoría externa, ver docs/orchestator/agents/
+    Registro_Cambios_Fuera_Plan_Original.md ARC-94).
+    """
+    with open(windows_path, newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    usable_status = "gpu_telemetry" if device == "gpu" else "ok"
+    usable_rows = [row for row in rows if row.get("quality_status") == usable_status]
+    if len(usable_rows) < target_windows_per_repetition:
+        return Verdict(
+            False, "I10",
+            f"{len(usable_rows)} ventanas '{usable_status}' logradas, por debajo de "
+            f"target_windows_per_repetition={target_windows_per_repetition}",
+        )
+    has_label = any(row.get("phase_label_train") not in (None, "", "None") for row in usable_rows)
+    if not has_label:
+        return Verdict(False, "I11", "ninguna ventana usable tiene phase_label_train calculado")
     return Verdict(True, None, "ok")
 
 

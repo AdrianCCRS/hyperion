@@ -85,6 +85,14 @@ class Manifest:
     projected_campaign_bytes: int | None = None
     remaining_core_hours: float | None = None
     projected_core_hours: float | None = None
+    # ARC-88: runner.build_command() ya lee esto con getattr(manifest,
+    # "gpu_interval_ns", None), pero nunca estaba declarado como campo real
+    # del manifiesto -- ningún YAML podía fijarlo, así que toda campaña GPU
+    # de producción caía siempre en el default de 100ms del launcher
+    # (collector.hpp), el mismo valor que ARC-83/84/86 ya habían encontrado
+    # insuficiente para varios kernels GPU cortos. None = usar el default
+    # del launcher (nunca se infiere ni se fuerza un valor aquí).
+    gpu_interval_ns: int | None = None
 
 
 def _error(rule_id: str, field: str, message: str) -> None:
@@ -207,6 +215,27 @@ def _validate_catalog_references(
         entry.reports_flops_stdout for entry in calibration_entries
     ):
         _error("MAN-07", "calibration", "I_ridge no es calculable: faltan referencias de ancho de banda o FLOP/s")
+    # MAN-12 (ARC-94): nada validaba que `kernels:` solo tuviera entradas
+    # role=="dataset" -- un manifiesto real (campaign_pacca_gpu_ref.yaml)
+    # metía 4 kernels role=="calibration" directamente en `kernels:`,
+    # generando filas de windows.csv sin phase_label_hint/etiqueta posible
+    # y multiplicando la matriz de combinaciones sin necesidad. Simétrico
+    # para `calibration:`, que tampoco debería aceptar un kernel de
+    # dataset.
+    wrong_role_kernels = sorted(ref for ref in kernels if getattr(catalog[ref], "role", "dataset") != "dataset")
+    if wrong_role_kernels:
+        _error(
+            "MAN-12", "kernels",
+            f"kernel_ref con role != 'dataset' no puede declararse en kernels: {', '.join(wrong_role_kernels)}",
+        )
+    wrong_role_calibration = sorted(
+        ref for ref in calibration if getattr(catalog[ref], "role", "calibration") != "calibration"
+    )
+    if wrong_role_calibration:
+        _error(
+            "MAN-12", "calibration",
+            f"kernel_ref con role != 'calibration' no puede declararse en calibration: {', '.join(wrong_role_calibration)}",
+        )
 
 
 def load(path: str | Path) -> Manifest:
@@ -317,11 +346,21 @@ def load(path: str | Path) -> Manifest:
     remaining_core_hours = _parse_optional_non_negative_number(document, "remaining_core_hours")
     projected_core_hours = _parse_optional_non_negative_number(document, "projected_core_hours")
 
+    # ARC-88: mismo criterio de validación que interval_ns (entero positivo),
+    # pero opcional -- ausente significa "usar el default del launcher"
+    # (collector.hpp, 100ms), nunca se infiere ni se fuerza aquí.
+    gpu_interval_ns_raw = document.get("gpu_interval_ns")
+    if gpu_interval_ns_raw is not None and (
+        isinstance(gpu_interval_ns_raw, bool) or not isinstance(gpu_interval_ns_raw, int) or gpu_interval_ns_raw <= 0
+    ):
+        _error("MAN-11", "gpu_interval_ns", "debe ser un entero mayor que cero, o estar ausente")
+
     manifest = Manifest(
         campaign_id, tier, seed, output_dir, overwrite, catalog_path, calibration, kernels,
         frequency_levels, repetitions, target_windows, interval_ns, float(running_ratio),
         cores, smt_policy, cgroup_path, perf_enabled, dict(rapl), dict(gpu), timeouts,
         hardware_datasheet, projected_campaign_bytes, remaining_core_hours, projected_core_hours,
+        gpu_interval_ns_raw,
     )
     matrix_size = compute_matrix_size(manifest)
     # MAN-03: cada combinación tiene baseline y telemetry, por eso se duplica.

@@ -1,5 +1,6 @@
 from pathlib import Path
 import hashlib
+import json
 import sys
 from types import SimpleNamespace
 
@@ -33,6 +34,8 @@ def _make_entry(tmp_path: Path, *, success_check: dict | None = None, device: st
         success_check=success_check or {"type": "stdout_regex", "pattern": "VERIFICATION SUCCESSFUL"},
         estimated_memory_bytes=1024,
         device=device,
+        operational_intensity_flops_per_byte=5.0 if device == "gpu" else None,
+        gpu_precision="fp32" if device == "gpu" else None,
     )
 
 
@@ -47,6 +50,13 @@ def _make_manifest(tmp_path: Path, *, cgroup_path: str | None = None, perf_enabl
         perf_enabled=perf_enabled,
         cores=SimpleNamespace(delegated_cpus=(2, 3, 4, 5), collector_cpu=0, consumer_cpu=1),
         timeouts_seconds=SimpleNamespace(ready=5, run=5, shutdown=5),
+        # ARC-78: apply_frequency necesita resolver el objeto completo a
+        # partir de freq_level_id -- ambos ids que usan los tests de este
+        # archivo ("REF"/"F0") deben existir aquí.
+        frequency_levels=(
+            SimpleNamespace(id="REF", mode="native_governor", fraction=None),
+            SimpleNamespace(id="F0", mode="fixed", fraction=0.5),
+        ),
     )
 
 
@@ -166,6 +176,60 @@ def test_run05_run06_run07_corrida_exitosa(tmp_path, monkeypatch):
     assert result.metadata["binary_checksum"] == entry.binary_checksum
 
 
+def test_arc94_metadata_fusionada_se_persiste_en_disco(tmp_path, monkeypatch):
+    """ARC-94 (segunda ronda): RunResult.metadata (RUN-06) solo vivia en
+    memoria -- metadata.json en disco se quedaba con lo que el launcher
+    escribio (samples_collected, push_retries), nunca con campaign_id/
+    kernel_ref/checksum que el orquestador agrega despues. Confirmado que
+    el 100% de los metadata.json aceptados en produccion carecian de esos
+    campos."""
+    monkeypatch.delenv("FAKE_LAUNCHER_BEHAVIOR", raising=False)
+    entry = _make_entry(tmp_path)
+    manifest = _make_manifest(tmp_path)
+
+    result = runner.run_single(
+        entry, manifest, "npb_ep", "REF", 1, harness=_harness(), node_id="felix-sc3"
+    )
+
+    on_disk = json.loads((result.run_dir / "metadata.json").read_text())
+    assert on_disk["campaign_id"] == "camp01"
+    assert on_disk["kernel_ref"] == "npb_ep"
+    assert on_disk["node_id"] == "felix-sc3"
+    assert on_disk["binary_checksum"] == entry.binary_checksum
+    assert on_disk["samples_collected"] == 0  # del launcher, se conserva
+    assert on_disk["command"] == list(result.command)
+
+
+def test_arc94_run_id_explicito_anula_el_derivado(tmp_path, monkeypatch):
+    """ARC-94: campaign.py necesita poder pasar el run_id con sufijo
+    __baseline del par baseline/telemetry -- antes, run_single() siempre
+    reconstruía el id 'plano' internamente vía build_run_id(), sin importar
+    qué id el llamador tuviera en mente, y el par colisionaba en el mismo
+    directorio."""
+    monkeypatch.delenv("FAKE_LAUNCHER_BEHAVIOR", raising=False)
+    entry = _make_entry(tmp_path)
+    manifest = _make_manifest(tmp_path)
+
+    explicit_run_id = "camp01__npb_ep__REF__rep01__baseline"
+    result = runner.run_single(
+        entry, manifest, "npb_ep", "REF", 1, harness=_harness(), run_id=explicit_run_id,
+    )
+
+    assert result.run_id == explicit_run_id
+    assert result.run_dir == manifest.output_dir / explicit_run_id
+    assert result.run_dir.exists()
+
+
+def test_arc94_run_id_por_defecto_sigue_siendo_build_run_id(tmp_path, monkeypatch):
+    monkeypatch.delenv("FAKE_LAUNCHER_BEHAVIOR", raising=False)
+    entry = _make_entry(tmp_path)
+    manifest = _make_manifest(tmp_path)
+
+    result = runner.run_single(entry, manifest, "npb_ep", "REF", 1, harness=_harness())
+
+    assert result.run_id == runner.build_run_id("camp01", "npb_ep", "REF", 1)
+
+
 def test_run05_success_check_falla_si_falta_el_patron(tmp_path, monkeypatch):
     monkeypatch.setenv("FAKE_LAUNCHER_BEHAVIOR", "fail")
     entry = _make_entry(tmp_path)
@@ -236,7 +300,15 @@ def test_run08_invoca_apply_frequency_si_hay_permiso(tmp_path, monkeypatch):
         apply_frequency=lambda cpus, level, env: calls.append((cpus, level, env)),
     )
 
-    assert calls == [((2, 3, 4, 5), "F0", env_profile)]
+    # ARC-78: debe recibir el objeto FrequencyLevel completo (con .mode/
+    # .fraction), no solo el string "F0" -- freqctl.apply_frequency() los
+    # necesita para decidir la estrategia correcta.
+    assert len(calls) == 1
+    cpus, level, env = calls[0]
+    assert cpus == (2, 3, 4, 5)
+    assert level.id == "F0"
+    assert level.mode == "fixed"
+    assert env is env_profile
 
 
 def test_frq03_frecuencia_solicitada_y_aplicada_llegan_a_la_metadata_de_la_corrida(tmp_path, monkeypatch):
@@ -301,3 +373,93 @@ def test_run03_run04_timeout_mata_grupo_completo_sin_dejar_procesos(tmp_path, mo
     # RUN-04: ni el fake launcher ni el "sleep 300" que lanzó (grandchild,
     # cubierto por el process group) deben seguir vivos.
     assert _leftover_hang_sleep_pids() == []
+
+
+def test_arc87_no_invoca_apply_gpu_frequency_para_kernel_cpu(tmp_path, monkeypatch):
+    monkeypatch.delenv("FAKE_LAUNCHER_BEHAVIOR", raising=False)
+    entry = _make_entry(tmp_path, device="cpu")
+    manifest = _make_manifest(tmp_path)
+    env_profile = SimpleNamespace(frequency_write_capable=False, gpu_frequency_write_capable=True)
+    calls = []
+
+    result = runner.run_single(
+        entry, manifest, "npb_ep", "F0", 1,
+        harness=_harness(), environment_profile=env_profile,
+        apply_gpu_frequency=lambda level, env: calls.append((level, env)),
+    )
+
+    # ARC-87: un kernel de CPU nunca toca el reloj de GPU, sin importar si
+    # el permiso está disponible -- los dos ejes se gatean por
+    # entry.device, no solo por la capacidad de escritura.
+    assert calls == []
+    assert result.applied_gpu_frequency is None
+
+
+def test_arc87_no_invoca_apply_gpu_frequency_si_no_hay_permiso(tmp_path, monkeypatch):
+    monkeypatch.delenv("FAKE_LAUNCHER_BEHAVIOR", raising=False)
+    entry = _make_entry(tmp_path, device="gpu")
+    manifest = _make_manifest(tmp_path)
+    env_profile = SimpleNamespace(frequency_write_capable=False, gpu_frequency_write_capable=False)
+    calls = []
+
+    runner.run_single(
+        entry, manifest, "npb_ep", "F0", 1,
+        harness=_harness(), environment_profile=env_profile,
+        apply_gpu_frequency=lambda level, env: calls.append((level, env)),
+    )
+
+    assert calls == []
+
+
+def test_arc87_invoca_apply_gpu_frequency_para_kernel_gpu_con_permiso(tmp_path, monkeypatch):
+    monkeypatch.delenv("FAKE_LAUNCHER_BEHAVIOR", raising=False)
+    entry = _make_entry(tmp_path, device="gpu")
+    manifest = _make_manifest(tmp_path)
+    env_profile = SimpleNamespace(frequency_write_capable=False, gpu_frequency_write_capable=True)
+    calls = []
+
+    runner.run_single(
+        entry, manifest, "npb_ep", "F0", 1,
+        harness=_harness(), environment_profile=env_profile,
+        apply_gpu_frequency=lambda level, env: calls.append((level, env)),
+    )
+
+    # ARC-87: recibe el objeto FrequencyLevel completo (mismo criterio que
+    # FRQ-03/ARC-78 para CPU), no solo el string "F0".
+    assert len(calls) == 1
+    level, env = calls[0]
+    assert level.id == "F0"
+    assert level.mode == "fixed"
+    assert env is env_profile
+
+
+def test_arc87_frecuencia_de_gpu_llega_a_la_metadata_de_la_corrida(tmp_path, monkeypatch):
+    monkeypatch.delenv("FAKE_LAUNCHER_BEHAVIOR", raising=False)
+    entry = _make_entry(tmp_path, device="gpu")
+    manifest = _make_manifest(tmp_path)
+    env_profile = SimpleNamespace(frequency_write_capable=False, gpu_frequency_write_capable=True)
+    applied = SimpleNamespace(
+        level_id="F0", strategy="locked_clocks", requested_mhz=1050, applied_mhz=1050,
+        write_skipped_reason=None,
+    )
+
+    result = runner.run_single(
+        entry, manifest, "npb_ep", "F0", 1,
+        harness=_harness(), environment_profile=env_profile,
+        apply_gpu_frequency=lambda level, env: applied,
+    )
+
+    assert result.applied_gpu_frequency is applied
+    assert result.metadata["gpu_freq_mhz_requested"] == 1050
+    assert result.metadata["gpu_freq_mhz_applied"] == 1050
+
+
+def test_arc87_sin_apply_gpu_frequency_no_agrega_campos_de_gpu(tmp_path, monkeypatch):
+    monkeypatch.delenv("FAKE_LAUNCHER_BEHAVIOR", raising=False)
+    entry = _make_entry(tmp_path, device="gpu")
+    manifest = _make_manifest(tmp_path)
+
+    result = runner.run_single(entry, manifest, "npb_ep", "REF", 1, harness=_harness())
+
+    assert result.applied_gpu_frequency is None
+    assert "gpu_freq_mhz_requested" not in result.metadata

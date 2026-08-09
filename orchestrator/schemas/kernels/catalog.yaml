@@ -88,7 +88,10 @@ kernels:
     phase_label_hint: intermedio # sin confirmar en literatura para este hardware -- que lo diga la medición real, no un supuesto
     size_variant: B
     expected_runtime_seconds: 30 # medido en pacca (6 hilos, pinned): 24.55 s
-    warmup_seconds: 0.5
+    # ARC-81: medido, no puesto a ojo -- CV% de IPC estable (<5%, dos
+    # ventanas de 15 muestras consecutivas) a partir de ~0.060s, consistente
+    # en 3 repeticiones (0.0601/0.0611/0.0601 s). warmup = raw*1.2.
+    warmup_seconds: 0.08
     estimated_memory_bytes: 536870912 # medido en pacca: 181576 KB de pico, con margen
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -119,7 +122,9 @@ kernels:
     phase_label_hint: memory_bound
     size_variant: B
     expected_runtime_seconds: 26 # medido en felix: 21.7-22.8 s
-    warmup_seconds: 1.0
+    # ARC-81: medido -- CV% de IPC estable a partir de ~0.050s exacto en las
+    # 3 repeticiones (pacca). warmup = raw*1.2.
+    warmup_seconds: 0.07
     estimated_memory_bytes: 268435456
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -175,6 +180,14 @@ kernels:
     phase_label_hint: intermedio
     size_variant: B
     expected_runtime_seconds: 40 # medido en felix: 35.5-35.9 s (el más largo de los seis)
+    # ARC-82: revertido a 1.0 -- ARC-81 lo había cambiado a 0.8s usando un
+    # umbral de CV%<5%, pero ese umbral resultó ser más laxo que el estándar
+    # de la literatura (Georges et al. 2007, ~1-2%). Con el umbral correcto
+    # (2%) no se detecta ningún punto de estabilización en NINGUNA de las 3
+    # repeticiones -- la detección a 5% no era robusta (y las 3 repeticiones
+    # ya daban valores muy distintos entre sí: 0.25/0.66/0.59s, otra señal
+    # de que no era una medición sólida). Se deja el valor conservador
+    # anterior hasta tener una medición que sobreviva el umbral correcto.
     warmup_seconds: 1.0
     estimated_memory_bytes: 268435456
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
@@ -204,6 +217,16 @@ kernels:
     binary_checksum:
       pacca-a100: "sha256:a7f2f4aee20c8d3fc3bb0e56faa0f49237f99634661f7032cd7d35a4789bd881"
 
+  # ARC-76: `gpu_dgemm_calibration` (cuBLAS) YA NO se usa para derivar el
+  # ridge point de GPU. `ncu` confirmo que cuBLAS elige aqui, sin que se le
+  # pida, una ruta acelerada por Tensor Cores (`cutlass_80_tensorop_d884gemm`)
+  # -- comparar los demas kernels (CUDA escrito a mano, sin Tensor Cores)
+  # contra ese techo era una comparacion invalida (mismo error de unidades
+  # incompatibles que ARC-57 corrigio para npb_ep/npb_is, aplicado aqui al
+  # eje de computo). Se mantiene en el catalogo como referencia informativa
+  # de "que tan rapido va cuBLAS en este nodo", no como fuente del ridge --
+  # ver gpu_ert_probe_fp32/gpu_ert_probe_fp64 mas abajo, que sí se usan para
+  # eso.
   - id: gpu_dgemm_calibration
     suite: cuBLAS-DGEMM
     role: calibration
@@ -218,22 +241,77 @@ kernels:
     binary_checksum:
       pacca-a100: "sha256:cbed7c396cd70b4db81046d5a875847ed821e7f53029a88cbbd24b95f81b36e7"
 
+  # ARC-76: microbenchmark propio de FLOPs pico de GPU (kernels/gpu/ert_probe_gpu.cu),
+  # equivalente CUDA de ert_probe.c -- un bucle FMA que cada hilo corre
+  # enteramente en un registro, sin cuBLAS ni ninguna libreria de NVIDIA que
+  # pueda elegir Tensor Cores por su cuenta. Dos entradas (FP32/FP64) porque
+  # el ridge point correcto depende de la precision del kernel que se va a
+  # clasificar (la mayoria de Rodinia es FP32; lavaMD es FP64). Medido en
+  # paccaA100: FP64=4698.6 GFLOP/s (~48% del pico teorico NVIDIA de 9.7
+  # TFLOP/s), FP32=10178.2 GFLOP/s (~52% del pico teorico de 19.5 TFLOP/s) --
+  # ambos plausibles para un probe simple sin tuning agresivo. Con
+  # BW_pico=1.399 TB/s (gpu_stream_bw): i_ridge_fp64_vainilla ≈ 3.36
+  # FLOP/byte, i_ridge_fp32_vainilla ≈ 7.28 FLOP/byte -- estos son los ridge
+  # que se usan para clasificar los kernels Rodinia (ver comentarios en cada
+  # uno), no el ~7.4 derivado de cuBLAS de ARC-70/72 (descartado, ver arriba).
+  - id: gpu_ert_probe_fp32
+    suite: ERT-GPU
+    role: calibration
+    device: gpu
+    gpu_precision: fp32
+    exec_path: bin/ert_probe_gpu
+    exec_args: "fp32"
+    reports_flops_stdout: true
+    flops_stdout_pattern: "GFLOPs/sec:\\s+([0-9.]+)"
+    flops_stdout_unit_multiplier: 1000000000 # GFLOP/s -> FLOP/s
+    success_check: {type: exit_code}
+    estimated_memory_bytes: 134217728 # 32M floats ~= 128 MB
+    binary_checksum:
+      pacca-a100: "sha256:5d0203721c91739281fdcff7378188eb383fc8a02a77fad3d1e94926d83505d1"
+
+  - id: gpu_ert_probe_fp64
+    suite: ERT-GPU
+    role: calibration
+    device: gpu
+    gpu_precision: fp64
+    exec_path: bin/ert_probe_gpu
+    exec_args: "fp64"
+    reports_flops_stdout: true
+    flops_stdout_pattern: "GFLOPs/sec:\\s+([0-9.]+)"
+    flops_stdout_unit_multiplier: 1000000000 # GFLOP/s -> FLOP/s
+    success_check: {type: exit_code}
+    estimated_memory_bytes: 268435456 # 32M doubles ~= 256 MB
+    binary_checksum:
+      pacca-a100: "sha256:5d0203721c91739281fdcff7378188eb383fc8a02a77fad3d1e94926d83505d1"
+
   # Mismo binario que gpu_dgemm_calibration, id distinto porque aqui juega
   # el rol de dataset (compute_bound), no de calibracion -- exactamente el
   # mismo patron que dgemm_n2048 en CPU. Empiricamente confirmado con ncu
-  # (ARC-70): 68.0 FLOP/byte, muy por encima de i_ridge_gpu (~7.4 FLOP/byte
-  # medido con esta misma pareja de calibracion) -- compute_bound real, no
-  # solo asumido porque "DGEMM siempre es compute-bound".
+  # (ARC-70): 68.0 FLOP/byte -- muy por encima de cualquier ridge posible en
+  # este nodo (3.36-7.28 FLOP/byte, ARC-76), asi que compute_bound se
+  # mantiene sin ambiguedad pase lo que pase con la ruta de ejecucion
+  # (Tensor Core o no).
   - id: gpu_dgemm_n4096
     suite: cuBLAS-DGEMM
     role: dataset
     device: gpu
     exec_path: bin/cublas_dgemm_bench
-    exec_args: "--size 4096 --iterations 10"
+    # ARC-83: --iterations 10->300, mismo motivo que dgemm_n2048 (CPU): la
+    # corrida original (~0.13s) era mucho mas corta que el warmup declarado
+    # (1.0s) -- 0 ventanas gpu_telemetry utilizables mas alla del warmup.
+    # Mas iteraciones no cambia la intensidad operacional (misma
+    # multiplicacion repetida), no invalida la medicion de ncu (68.0
+    # FLOP/byte).
+    exec_args: "--size 4096 --iterations 300"
     phase_label_hint: compute_bound
+    operational_intensity_flops_per_byte: 68.0
+    gpu_precision: fp64
     size_variant: N4096
-    expected_runtime_seconds: 5 # medido en paccaA100: 0.13 s (10 iter)
-    warmup_seconds: 1.0 # contexto CUDA/cuBLAS tiene costo de inicializacion propio
+    expected_runtime_seconds: 10 # medido en paccaA100 con 300 iter: 4.94 s, verificado con corrida instrumentada real (ARC-83) -- compute_bound confirmado (68.0 vs ridge 3.68)
+    # ARC-83: 1.0s ya era razonable -- verificado con la corrida larga real:
+    # el detector de warmup encuentra ~0.80s (propuesto ~0.96s), casi
+    # idéntico al valor ya declarado. Sin cambio.
+    warmup_seconds: 1.0
     estimated_memory_bytes: 536870912
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -242,53 +320,314 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
 
   # Rodinia (terceros, sin modificar -- mismo principio que NPB en CPU).
-  # phase_label_hint=intermedio a propósito: la literatura de Rodinia lo
-  # cita como compute-intensive, pero la medición real con ncu (ARC-70) dio
-  # 5.03 FLOP/byte, por DEBAJO de i_ridge_gpu (~7.4) -- memory_bound
-  # empíricamente, no lo que asumía la literatura. Mismo criterio que
-  # npb_bt/npb_sp (ARC-57): que lo diga la medición, no el hint.
+  # phase_label_hint=intermedio a propósito: Rodinia no clasifica sus
+  # benchmarks por bound Roofline (solo por dominio de aplicacion), asi que
+  # no hay "literatura" que contradecir aqui -- la medición real con ncu
+  # (ARC-70) dio 5.03 FLOP/byte, por debajo del ridge FP32 vainilla medido
+  # con nuestro propio probe (~7.28 FLOP/byte, ARC-76) -- memory_bound
+  # empíricamente. Mismo criterio que npb_bt/npb_sp (ARC-57): que lo diga la
+  # medición, no un hint previo.
   - id: rodinia_hotspot
     suite: Rodinia
     role: dataset
     device: gpu
     exec_path: bin/rodinia_hotspot
-    exec_args: "2048 2 1000 data/hotspot/temp_2048 data/hotspot/power_2048 data/hotspot/output.out"
+    # ARC-85: iteraciones de simulacion 1000->50000 para poder medir
+    # warmup con datos reales (ARC-84 encontro que la corrida corta no
+    # generaba suficiente senal NVML). Igual que dgemm_n2048/gpu_dgemm_n4096
+    # (ARC-83), mas iteraciones del mismo stencil no cambia la intensidad
+    # operacional -- remedido con ncu: 5.02 FLOP/byte (antes 5.03), sin
+    # cambio de clasificacion.
+    exec_args: "2048 2 50000 data/hotspot/temp_2048 data/hotspot/power_2048 data/hotspot/output.out"
     phase_label_hint: intermedio
-    size_variant: "2048x2048_sim1000"
-    expected_runtime_seconds: 10 # medido en paccaA100: 2.6 s
-    warmup_seconds: 1.0
+    operational_intensity_flops_per_byte: 5.02
+    gpu_precision: fp32
+    size_variant: "2048x2048_sim50000"
+    expected_runtime_seconds: 15 # medido en paccaA100: 6.8 s
+    # ARC-86: warmup medido con datos reales (measure_warmup.py, 1232
+    # muestras NVML a 5ms) -- gpu_util_pct se queda en ~0-4% hasta t=1.85s
+    # (H2D de temp_2048/power_2048 + primeras iteraciones) y luego se
+    # sostiene en 100% hasta el cierre; ambos metodos (CV% con piso de
+    # ruido y changepoint por meseta) coinciden en esa ventana. Reemplaza
+    # el 1.0s heredado, que no tenia respaldo de medicion para este kernel.
+    warmup_seconds: 2.2189
     estimated_memory_bytes: 134217728 # 3 arreglos 2048^2 x 4 B ~= 50 MB, con margen
     success_check: {type: exit_code}
     binary_checksum:
       pacca-a100: "sha256:4573ce8b697170befd1b4570e7af29483069352cb4fa3885bcea3f7bd43cdec4"
 
-  # Rodinia (terceros). phase_label_hint=memory_bound: literatura Y medición
-  # real coinciden (ncu, ARC-70: 0.087 FLOP/byte, muy por debajo de
-  # i_ridge_gpu) -- acceso irregular a memoria (backpropagation), casi sin
-  # reuso aritmético por byte movido.
+  # Rodinia (terceros). phase_label_hint=memory_bound: medición real (ncu,
+  # ARC-70: 0.087 FLOP/byte) muy por debajo de cualquier ridge posible en
+  # este nodo (3.36-7.28 FLOP/byte, ARC-76) -- acceso irregular a memoria
+  # (backpropagation), casi sin reuso aritmético por byte movido.
   - id: rodinia_backprop
     suite: Rodinia
     role: dataset
     device: gpu
     exec_path: bin/rodinia_backprop
-    exec_args: "524288"
+    # ARC-86 (diagnostico): 524288->1048560, el maximo seguro antes del
+    # limite de gridDim.y=65535 ya documentado en ARC-72 (num_blocks=in/16).
+    # Sin embargo backprop solo lanza 2 kernels en total (forward + ajuste
+    # de pesos, sin bucle de epocas en el codigo CUDA) -- incluso al tamano
+    # maximo el binario puro solo tarda 0.68s, por lo que puede que no haya
+    # suficiente duracion para una medicion de warmup robusta sin importar
+    # el tamano (a diferencia de hotspot/myocyte/heartwall/lavamd, aqui no
+    # hay margen de tamano que crecer mas alla del limite de CUDA). Remedido
+    # con ncu: 0.0799 FLOP/byte (antes 0.087 a in=524288), sin cambio de
+    # clasificacion (memory_bound con margen de dos ordenes de magnitud
+    # frente a cualquier ridge posible).
+    exec_args: "1048560"
     phase_label_hint: memory_bound
-    size_variant: "524288"
-    expected_runtime_seconds: 5 # medido en paccaA100: 0.5 s
+    operational_intensity_flops_per_byte: 0.0799
+    gpu_precision: fp32
+    size_variant: "1048560"
+    expected_runtime_seconds: 5 # medido en paccaA100 (con harness): 1.28 s
+    # ARC-86: incluso al tamano maximo seguro, gpu_power_mw se queda plano
+    # en el piso de idle (36.5-40W) durante toda la corrida -- los blips de
+    # gpu_util_pct (0->3->4%) no se corresponden con ningun aumento real de
+    # potencia, a diferencia de lavamd/heartwall donde el salto de potencia
+    # confirma la transicion. Mismo tipo de senal degenerada que
+    # rodinia_myocyte (ARC-86) y los kernels de ARC-84: no se puede medir
+    # warmup real aqui, sin importar el tamano (backprop solo lanza 2
+    # kernels en total). Se mantiene el valor heredado (1.0s) en vez de
+    # confiar en el 0.635s que devuelve measure_warmup.py (changepoint)
+    # sobre ruido de bajo nivel.
     warmup_seconds: 1.0
-    estimated_memory_bytes: 268435456 # con margen sobre ~187 MB de trafico DRAM medido con ncu
+    estimated_memory_bytes: 671088640 # con margen sobre ~407 MB de trafico DRAM medido con ncu (antes 187 MB a in=524288)
     success_check: {type: exit_code}
     binary_checksum:
       pacca-a100: "sha256:5c7c2644ec621001225e90b35e1b069e6e740166a10aaed2d3cb9c6cc52bc05c"
+
+  # Rodinia (terceros). ARC-75/76: 5 kernels nuevos, medidos con ncu en
+  # paccaA100 y verificados contra el ridge correcto por precision (ver
+  # docs/retoma/pacca/Consolidacion_Kernels_Dataset_Fase1.md seccion 0 -- el
+  # i_ridge_gpu=7.4 usado en ARC-70/72 salia de cuBLAS, que eligio sin que
+  # se le pidiera una ruta Tensor Core; los demas kernels no usan Tensor
+  # Cores, comparacion invalida). Ridge correcto, medido con un probe propio
+  # sin cuBLAS (ARC-76, kernels/gpu/ert_probe_gpu.cu, ver gpu_ert_probe_fp32/
+  # fp64 mas arriba): ~3.36 FLOP/byte para FP64 vainilla, ~7.28 FLOP/byte
+  # para FP32 vainilla. lud/myocyte/dwt2d envueltos en un script wrapper
+  # (no se modifica el binario de Rodinia): ambos tienen una ruta de
+  # entrada hardcodeada ("../../data/<kernel>/...") relativa al cwd del
+  # proceso, incompatible con la convencion del proyecto (cwd fijo en
+  # ~/hyperion-kernels para todos los kernels); el wrapper solo hace `cd`
+  # a un subdirectorio de profundidad 2 antes de invocar el binario real,
+  # para que esa ruta relativa resuelva a hyperion-kernels/data/<kernel>/.
+  - id: rodinia_lavamd
+    suite: Rodinia
+    role: dataset
+    device: gpu
+    exec_path: bin/rodinia_lavamd
+    # ARC-86: boxes1d 10->70 para poder medir warmup con datos reales. A
+    # diferencia de xmax/iteraciones en otros kernels, boxes1d SI cambia el
+    # tamano del problema (N-Body real, no repeticion de trabajo identico)
+    # -- el propio comentario original de ARC-75 ya advertia que este valor
+    # es sensible al tamano y exige re-medicion. Remedido con ncu: 708.14
+    # FLOP/byte (antes 1233 a boxes1d=10) -- el working set ya no cabe tan
+    # bien en L2 a este tamano, mas trafico DRAM sostenido, pero sigue muy
+    # por encima de cualquier ridge posible (3.36-7.28, ARC-76): la
+    # clasificacion compute_bound no cambia con este margen.
+    exec_args: "-boxes1d 70"
+    phase_label_hint: compute_bound
+    operational_intensity_flops_per_byte: 708.14
+    gpu_precision: fp64
+    size_variant: "boxes1d70"
+    expected_runtime_seconds: 15 # medido en paccaA100 (con harness): 5.99 s
+    # ARC-86: warmup medido con datos reales (measure_warmup.py, 993
+    # muestras NVML a 5ms) -- fraccion grande (66%) pero real: la traza
+    # muestra gpu_power_mw plano en ~37W (idle) desde t=0 hasta t=3.68s,
+    # con salto limpio a ~93W (carga real, util 100%) justo en la ventana
+    # detectada -- dominado por la inicializacion de contexto CUDA + copia
+    # H2D del dataset N-Body de ~3 GB (mucho mayor que a boxes1d=10), no un
+    # artefacto del detector. Reemplaza el 1.0s heredado sin respaldo.
+    warmup_seconds: 4.3753
+    # ARC-86: memoria real medida con nvidia-smi durante la corrida
+    # (boxes1d=70): ~2990 MiB -- el N-Body escala ~boxes1d^3, asi que subir
+    # de 10 a 70 crece el uso muchisimo mas que el 2x que sugeriria el valor
+    # anterior (67108864, calibrado para boxes1d=10). Con margen ~40%.
+    estimated_memory_bytes: 4294967296
+    success_check: {type: exit_code}
+    binary_checksum:
+      pacca-a100: "sha256:7ce75ae90aef3fc1e878218d7e487ea2836e4dc272a95f135720da2a721b7832"
+    # ncu (ARC-75): 1233 FLOP/byte (dram__bytes.sum), muy por encima de
+    # cualquier ridge posible (3.36-7.28, ARC-76) -- compute_bound
+    # confirmado con margen enorme. Precision real: FP64 (#define fp double),
+    # sin uso de Tensor Cores. Valor sensible al tamano de boxes1d (dataset
+    # pequeno, working set mayormente en L2/registros, poco trafico DRAM
+    # sostenido) -- si boxes1d cambia, re-medir con ncu antes de reusar
+    # este numero.
+
+  - id: rodinia_heartwall
+    suite: Rodinia
+    role: dataset
+    device: gpu
+    exec_path: bin/rodinia_heartwall
+    # ARC-86: video sintetico regenerado con 20000 cuadros en el archivo
+    # (antes 25, generate_rodinia_synthetic_inputs.py --heartwall-frames)
+    # -- se procesan 1000 de esos 20000 (ver mas abajo por que no los
+    # 20000). Mismo cuadro repetido mas veces no cambia la intensidad
+    # operacional: remedido con ncu a 20000 cuadros procesados: 35.30
+    # FLOP/byte (antes 35.3), sin cambio de clasificacion.
+    exec_args: "data/heartwall/test.avi 1000"
+    phase_label_hint: compute_bound
+    operational_intensity_flops_per_byte: 35.3
+    gpu_precision: fp32
+    size_variant: "1000frames"
+    # ARC-86: 1000 en vez de 20000 -- el harness (shim de blocking-sync,
+    # ARC-72) sincroniza por cada uno de los muchos lanzamientos de kernel
+    # por cuadro, así que el costo escala ~5.7 ms/cuadro bajo instrumentacion
+    # (vs. ~0.2 ms/cuadro en el binario sin instrumentar): a 20000 cuadros el
+    # run tardo 115 s reales (medido), muy por encima de cualquier ventana
+    # practica. 1000 cuadros da ~6.5 s, suficiente senal NVML sin ese costo.
+    expected_runtime_seconds: 10 # medido en paccaA100 (con harness): 6.49 s
+    # ARC-86: tEndoRowLoc/tEndoColLoc/tEpiRowLoc/tEpiColLoc escalan con
+    # no_frames del AVI (no con frames_processed) -- a 20000 cuadros eso
+    # agrega ~10 MB frente a los 25 originales; presupuesto ampliado con
+    # margen generoso, muy por debajo de la memoria real de la A100.
+    estimated_memory_bytes: 134217728 # con margen sobre buffers de frames + tracking
+    # ARC-86: warmup medido con datos reales (measure_warmup.py, 1049
+    # muestras NVML a 5ms) -- transicion limpia y real: gpu_util_pct
+    # 1.4%->90.8% y gpu_power_mw 37.8W->52.7W (piso de idle -> carga real)
+    # en t=0.24s. Reemplaza el 1.0s heredado sin respaldo de medicion.
+    warmup_seconds: 0.2929
+    success_check: {type: exit_code}
+    binary_checksum:
+      pacca-a100: "sha256:72e9b633d928bc0219c9f2e373552475e54c8dbb2d5b6ff73c9e6284a80eb795"
+    # ncu (ARC-75): 35.3 FLOP/byte (dram__bytes.sum), FP32, sin Tensor
+    # Cores -- compute_bound confirmado contra el ridge FP32 vainilla medido
+    # (~7.28, ARC-76). Video sintetico generado localmente (no ffmpeg -- no
+    # disponible en el nodo de computo): ver
+    # scripts/pacca/generate_rodinia_synthetic_inputs.py.
+
+  - id: rodinia_lud
+    suite: Rodinia
+    role: dataset
+    device: gpu
+    exec_path: bin/rodinia_lud
+    exec_args: "-s 2048 -v"
+    # ARC-76: hint = intermedio, no "compute" como se esperaba por ser
+    # "algebra lineal densa" (Rodinia solo describe el dominio, no clasifica
+    # bound) ni "memory_bound" como se penso brevemente en ARC-75 contra un
+    # ridge mal derivado de cuBLAS/Tensor Cores (~7.4, descartado). Con el
+    # ridge FP32 vainilla medido con nuestro propio probe (~7.28 FLOP/byte,
+    # ver gpu_ert_probe_fp32 mas arriba) la intensidad de lud (7.82
+    # FLOP/byte, remedido para N=2048 exacto en ARC-80, agregando los 200+
+    # lanzamientos de kernel con ncu --launch-count) cae justo encima, a
+    # menos de 8% de la frontera -- un caso genuinamente borderline, no
+    # claramente de un lado. Se deja que la ventana lo confirme
+    # empiricamente, mismo criterio que npb_sp/npb_bt.
+    phase_label_hint: intermedio
+    operational_intensity_flops_per_byte: 7.82
+    gpu_precision: fp32
+    size_variant: N2048
+    expected_runtime_seconds: 12 # medido en paccaA100: 7.99 s (la mayor parte es verificacion CPU O(N^3), no el kernel CUDA)
+    warmup_seconds: 1.0
+    estimated_memory_bytes: 67108864 # matriz 2048^2 x 4 B (float) ~16 MB, con margen
+    success_check: {type: exit_code}
+    binary_checksum:
+      pacca-a100: "sha256:a6e0ad653062eaa47a21ee51158afc0ac8e11d6daca34701cf0fbb74f98e3b46"
+    # ncu (ARC-80): 7.82 FLOP/byte exacto para N=2048 (dram__bytes.sum vs
+    # FMA+add+mul agregados sobre 200 lanzamientos de kernel reales), FP32,
+    # sin Tensor Cores.
+
+  - id: rodinia_myocyte
+    suite: Rodinia
+    role: dataset
+    device: gpu
+    exec_path: bin/rodinia_myocyte
+    # ARC-86: xmax (duracion de simulacion en ms) 100->100000 para generar
+    # suficiente senal NVML para medir warmup real (mismo patron que
+    # rodinia_hotspot/ARC-85 -- mas pasos del mismo solver ODE, workload=1
+    # y mode=0 sin cambiar, no altera la intensidad operacional).
+    # Remedido con ncu: 0.017 FLOP/byte (identico), sin cambio de
+    # clasificacion.
+    exec_args: "100000 1 0"
+    phase_label_hint: memory_bound
+    operational_intensity_flops_per_byte: 0.017
+    gpu_precision: fp32
+    size_variant: "100000ms_xmax"
+    expected_runtime_seconds: 12 # medido en paccaA100: 5.58 s binario puro
+    # ARC-86: incluso alargando xmax 1000x (100->100000), gpu_util_pct sigue
+    # sin senal real -- blips de 3-19% sin correlacion con gpu_power_mw
+    # (37.9W en el tramo "activo" vs 36.6W en el resto, ambos = piso de
+    # idle de la A100). Causa raiz: cada lanzamiento de kernel es de grid
+    # (2,1,1)x(32,1,1) = 64 hilos (workload=1, un solo ODE), demasiado
+    # corto para que el muestreo NVML lo resuelva sin importar cuantos
+    # pasos de simulacion se acumulen -- mismo tipo de senal degenerada que
+    # ARC-84 encontro en otros 3 kernels. No se puede medir warmup real
+    # para este kernel; se mantiene el valor heredado (1.0s, igual al resto
+    # de kernels sin medicion posible) en vez de confiar en el 0.78s que
+    # devuelve measure_warmup.py sobre esta senal contaminada.
+    warmup_seconds: 1.0
+    estimated_memory_bytes: 33554432 # con margen, dataset pequeno (EDOs por lanzamiento)
+    success_check: {type: exit_code}
+    binary_checksum:
+      pacca-a100: "sha256:cc2e1b507d7e4c88d338720ea19ab39691e5a526510acf4ad1256abe8214ae07"
+    # ncu --launch-count 5 (ARC-75): 0.017 FLOP/byte, FP32 (#define fp
+    # float) -- memory_bound con margen de dos ordenes de magnitud,
+    # refuta la hipotesis inicial de "compute" por completo. Verificado
+    # estable con datos de entrada reales (y.txt/params.txt sinteticos,
+    # no el caso degenerado que produce el binario sin ellos) y con
+    # datos degenerados: mismo resultado en ambos casos.
+
+  - id: rodinia_dwt2d
+    suite: Rodinia
+    role: dataset
+    device: gpu
+    exec_path: bin/rodinia_dwt2d
+    # -9 (transformada 9/7, FP32) es obligatorio: la variante -5 (5/3) es
+    # aritmetica entera pura, mismo defecto que npb_is/npb_ep (ARC-57) --
+    # no hay FLOPs que medir. No cambiar sin volver a confirmar el tipo
+    # del kernel CUDA en el fuente.
+    # ARC-86: imagen 192x192->16384x16384 (generate_rodinia_synthetic_inputs.py
+    # --dwt2d-size) para poder medir warmup con datos reales -- el binario
+    # resuelve la ruta del BMP el mismo internamente (dirname(argv[0]) +
+    # "../../data/dwt2d/"), asi que el argumento sigue siendo solo el
+    # nombre del archivo, sin importar el cwd del harness. Remedido con
+    # ncu: 2.17 FLOP/byte (antes 4.10 a 192x192) -- baja porque a esta
+    # escala el filtro DWT deja de caber tan bien en cache y aumenta el
+    # trafico DRAM sostenido, pero sigue muy por debajo de cualquier ridge
+    # FP32 posible (~7.28, ARC-76): la clasificacion memory_bound no cambia.
+    exec_args: "-d 16384x16384 -f -9 test_16384.bmp"
+    phase_label_hint: memory_bound
+    operational_intensity_flops_per_byte: 2.17
+    gpu_precision: fp32
+    size_variant: "16384x16384_97"
+    expected_runtime_seconds: 20 # medido en paccaA100: 7.56 s binario puro
+    # ARC-86: incluso a 16384x16384, gpu_power_mw nunca supera 46.6W en
+    # toda la corrida (piso de idle ~37-38W) -- el filtro DWT es demasiado
+    # liviano/memory-bound para generar una carga sostenida real sin
+    # importar el tamano de imagen, el tiempo de pared lo domina la carga
+    # del BMP (805 MB) y la inicializacion, no el computo GPU. Misma
+    # categoria de senal degenerada que rodinia_myocyte/rodinia_backprop
+    # (ARC-86): se mantiene el valor heredado (1.0s) en vez del 0.537s que
+    # devuelve measure_warmup.py sobre esta senal sin carga real.
+    warmup_seconds: 1.0
+    # ARC-86: memoria real medida con nvidia-smi (16384x16384): ~8352 MiB,
+    # con margen ~50% sobre eso (antes 16 MB, calibrado para 192x192).
+    estimated_memory_bytes: 12884901888
+    success_check: {type: exit_code}
+    binary_checksum:
+      pacca-a100: "sha256:d88d0610dbc5d25013752bdfc3b0f7712962555e36e8ee044a230f12e816ee9c"
+    # ncu (ARC-75): 4.10 FLOP/byte, FP32 confirmado en el kernel CUDA
+    # (fdwt97Kernel) -- memory_bound confirmado. BMP de entrada sintetico:
+    # ver scripts/pacca/generate_rodinia_synthetic_inputs.py.
 
   - id: dgemm_n2048
     suite: DGEMM-OpenBLAS
     role: dataset
     exec_path: bin/dgemm_bench
-    exec_args: "--size 2048 --iterations 6"
+    # ARC-83: --iterations 6->80. La corrida original (~0.255s en pacca) era
+    # más corta que cualquier warmup separable -- confirmado dos veces
+    # (ARC-71, ARC-81). Aumentar iteraciones no cambia la intensidad
+    # operacional (misma multiplicación repetida más veces, no un tamaño de
+    # problema distinto), así que no invalida ninguna medición de ncu ya
+    # hecha -- solo diluye el transitorio de arranque en una fracción menor
+    # del total. Medido en pacca: 2.82 s con 80 iteraciones.
+    exec_args: "--size 2048 --iterations 80"
     phase_label_hint: compute_bound
     size_variant: N2048
-    expected_runtime_seconds: 15 # medido en felix (6 hilos): 12.18 s
+    expected_runtime_seconds: 5 # medido en pacca con 80 iter: 2.98 s (verificado con corrida instrumentada real, ARC-83)
     warmup_seconds: 0.5
     estimated_memory_bytes: 134217728 # 3 arreglos x 2048^2 x 8 B ~= 96 MB, con margen
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}

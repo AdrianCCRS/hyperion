@@ -208,6 +208,278 @@ def test_cal10_inestabilidad_marca_accepted_false(tmp_path):
     assert refs.cv_pct > 5.0
 
 
+def test_arc78_run_calibration_calibra_por_cada_nivel_de_frecuencia(tmp_path):
+    # P_pico escala con el reloj de nucleo, BW_pico no -- un i_ridge unico
+    # para toda la campana clasificaria mal las ventanas de cualquier nivel
+    # distinto al que se calibro (ver Consolidacion_Kernels_Dataset_Fase1.md
+    # seccion 0). run_calibration() debe calibrar cada nivel por separado.
+    stream_entry = _kernel_entry(id="stream", reports_bandwidth_stdout=True, bandwidth_stdout_pattern=r"BW=([0-9.]+)")
+    ert_entry = _kernel_entry(id="ert", reports_flops_stdout=True, flops_stdout_pattern=r"FLOPS=([0-9.]+)")
+    manifest = _manifest(tmp_path, datasheet={"bw_pico_bytes_per_s": 1.0e10, "p_pico_flops_per_s": 1.0e10})
+    manifest.frequency_levels = (
+        SimpleNamespace(id="REF", mode="native_governor", fraction=None),
+        SimpleNamespace(id="FG_1", mode="fixed", fraction=0.5),
+    )
+    catalog = {"stream": stream_entry, "ert": ert_entry}
+
+    apply_calls = []
+
+    def fake_apply_frequency(cpus, level, env):
+        apply_calls.append(level.id)
+
+    run_calls = []
+
+    def fake_run_single(entry, manifest, kernel_ref, freq_level_id, repetition, **kwargs):
+        run_calls.append((kernel_ref, freq_level_id))
+        run_dir = tmp_path / f"{kernel_ref}_{freq_level_id}"
+        run_dir.mkdir(exist_ok=True)
+        # BW_pico no cambia con el reloj; P_pico si -- FG_1 mide la mitad.
+        # (regex de prueba es [0-9.]+, sin soporte de notacion cientifica --
+        # se escriben los numeros completos, no "1.0e10").
+        flops = "10000000000" if freq_level_id == "REF" else "5000000000"
+        if entry is stream_entry:
+            (run_dir / "stdout.txt").write_text("BW=10000000000\n")
+        else:
+            (run_dir / "stdout.txt").write_text(f"FLOPS={flops}\n")
+        return _fake_run_result(run_dir)
+
+    env_profile = SimpleNamespace(frequency_write_capable=True)
+
+    result = calibration.run_calibration(
+        manifest, catalog, environment_profile=env_profile, run_single=fake_run_single,
+        apply_frequency=fake_apply_frequency,
+    )
+
+    # Se aplico frecuencia para los 2 niveles (referencia primero), y se
+    # corrieron stream/ert una vez cada uno POR NIVEL, no una sola vez para
+    # toda la campana.
+    assert apply_calls == ["REF", "FG_1"]
+    assert run_calls == [("stream", "REF"), ("ert", "REF"), ("stream", "FG_1"), ("ert", "FG_1")]
+
+    # El valor de retorno sigue siendo el de la referencia (compatibilidad
+    # con validate_campaign_calibration/CampaignResult, que esperan un solo
+    # RooflineCalibration).
+    assert result.freq_level_id == "REF"
+    assert result.p_pico_flops_per_s == pytest.approx(1.0e10)
+
+    # Cada nivel quedo persistido en su propio archivo, con su propio ridge
+    # -- postprocess.py debe poder pedir el de FG_1 sin tocar el de REF.
+    ref_loaded = calibration.load_calibration(tmp_path, "REF")
+    fg1_loaded = calibration.load_calibration(tmp_path, "FG_1")
+    assert ref_loaded.i_ridge_flops_per_byte == pytest.approx(1.0)
+    assert fg1_loaded.i_ridge_flops_per_byte == pytest.approx(0.5)
+    assert fg1_loaded.p_pico_flops_per_s < ref_loaded.p_pico_flops_per_s
+
+
+def test_arc78_nivel_no_referencia_no_puede_medir_mas_flops_que_la_referencia(tmp_path):
+    # Si un nivel de frecuencia mas bajo mide MAS FLOPs/s que la referencia,
+    # algo salio mal (la frecuencia pedida no se aplico de verdad, o al
+    # reves) -- D03 debe bloquear la campana, no solo el nivel.
+    stream_entry = _kernel_entry(id="stream", reports_bandwidth_stdout=True, bandwidth_stdout_pattern=r"BW=([0-9.]+)")
+    ert_entry = _kernel_entry(id="ert", reports_flops_stdout=True, flops_stdout_pattern=r"FLOPS=([0-9.]+)")
+    manifest = _manifest(tmp_path, datasheet={"bw_pico_bytes_per_s": 1.0e10, "p_pico_flops_per_s": 1.0e10})
+    manifest.frequency_levels = (
+        SimpleNamespace(id="REF", mode="native_governor", fraction=None),
+        SimpleNamespace(id="FG_1", mode="fixed", fraction=0.5),
+    )
+    catalog = {"stream": stream_entry, "ert": ert_entry}
+
+    def fake_run_single(entry, manifest, kernel_ref, freq_level_id, repetition, **kwargs):
+        run_dir = tmp_path / f"{kernel_ref}_{freq_level_id}"
+        run_dir.mkdir(exist_ok=True)
+        flops = "10000000000" if freq_level_id == "REF" else "20000000000"
+        if entry is stream_entry:
+            (run_dir / "stdout.txt").write_text("BW=10000000000\n")
+        else:
+            (run_dir / "stdout.txt").write_text(f"FLOPS={flops}\n")
+        return _fake_run_result(run_dir)
+
+    with pytest.raises(calibration.CalibrationError, match="D03"):
+        calibration.run_calibration(manifest, catalog, run_single=fake_run_single)
+
+
+def test_arc78_load_calibration_sin_freq_level_id_usa_el_archivo_legado(tmp_path):
+    calibration_obj = calibration.RooflineCalibration(
+        campaign_id="c", timestamp="t", delegated_cpus="0-3", bw_pico_bytes_per_s=1.0,
+        p_pico_flops_per_s=2.0, i_ridge_flops_per_byte=2.0, stream_raw_output="", ert_raw_output="",
+        plausibility_check_passed=True, freq_level_id="",
+    )
+    path = calibration.write_calibration(calibration_obj, tmp_path)
+
+    assert path.name == "roofline_calibration.json"
+    assert calibration.load_calibration(tmp_path) == calibration_obj
+
+
+def _gpu_kernel_entry(**overrides) -> KernelEntry:
+    defaults = dict(
+        id="k", suite="s", role="calibration", exec_path="/bin/true", binary_checksum="sha256:x",
+        phase_label_hint=None, size_variant=None, expected_runtime_seconds=None, warmup_seconds=None,
+        success_check={"type": "exit_code"}, device="gpu",
+    )
+    defaults.update(overrides)
+    return KernelEntry(**defaults)
+
+
+def test_arc80_run_gpu_calibration_sin_manifest_gpu_calibration_no_hace_nada(tmp_path):
+    manifest = _manifest(tmp_path)
+    manifest.gpu = {}
+    assert calibration.run_gpu_calibration(manifest, {}) == {}
+
+
+def test_arc80_run_gpu_calibration_calibra_fp32_y_fp64_por_nivel(tmp_path):
+    stream = _gpu_kernel_entry(id="gpu_stream_bw", reports_bandwidth_stdout=True,
+                                bandwidth_stdout_pattern=r"BW=([0-9.]+)")
+    ert32 = _gpu_kernel_entry(id="gpu_ert_probe_fp32", reports_flops_stdout=True,
+                               flops_stdout_pattern=r"FLOPS=([0-9.]+)", gpu_precision="fp32")
+    ert64 = _gpu_kernel_entry(id="gpu_ert_probe_fp64", reports_flops_stdout=True,
+                               flops_stdout_pattern=r"FLOPS=([0-9.]+)", gpu_precision="fp64")
+    catalog_map = {"gpu_stream_bw": stream, "gpu_ert_probe_fp32": ert32, "gpu_ert_probe_fp64": ert64}
+
+    manifest = _manifest(tmp_path)
+    manifest.gpu = {"calibration": ["gpu_stream_bw", "gpu_ert_probe_fp32", "gpu_ert_probe_fp64"]}
+    manifest.frequency_levels = (
+        SimpleNamespace(id="REF", mode="native_governor", fraction=None),
+    )
+
+    run_calls = []
+
+    def fake_run_single(entry, manifest, kernel_ref, freq_level_id, repetition, **kwargs):
+        run_calls.append((kernel_ref, freq_level_id))
+        run_dir = tmp_path / f"{kernel_ref}_{freq_level_id}"
+        run_dir.mkdir(exist_ok=True)
+        if entry is stream:
+            (run_dir / "stdout.txt").write_text("BW=10000000000\n")
+        elif entry is ert32:
+            (run_dir / "stdout.txt").write_text("FLOPS=20000000000\n")
+        else:
+            (run_dir / "stdout.txt").write_text("FLOPS=8000000000\n")
+        return _fake_run_result(run_dir)
+
+    result = calibration.run_gpu_calibration(manifest, catalog_map, run_single=fake_run_single)
+
+    assert set(run_calls) == {
+        ("gpu_stream_bw", "REF"), ("gpu_ert_probe_fp32", "REF"), ("gpu_ert_probe_fp64", "REF"),
+    }
+    assert result["fp32"].i_ridge_flops_per_byte == pytest.approx(2.0)
+    assert result["fp64"].i_ridge_flops_per_byte == pytest.approx(0.8)
+    assert result["fp32"].gpu_precision == "fp32"
+    assert result["fp64"].gpu_precision == "fp64"
+
+    # Cada precision/nivel queda en su propio archivo -- load_calibration
+    # debe poder pedir cualquiera de los dos sin tocar el otro.
+    loaded_fp32 = calibration.load_calibration(tmp_path, "REF", gpu_precision="fp32")
+    loaded_fp64 = calibration.load_calibration(tmp_path, "REF", gpu_precision="fp64")
+    assert loaded_fp32.i_ridge_flops_per_byte == pytest.approx(2.0)
+    assert loaded_fp64.i_ridge_flops_per_byte == pytest.approx(0.8)
+
+
+def test_arc80_run_gpu_calibration_no_confunde_gpu_dgemm_calibration_con_el_ridge(tmp_path):
+    # gpu_dgemm_calibration tambien reporta FLOPs de GPU (referencia
+    # informativa de cuBLAS, ARC-76) pero NO debe usarse como fuente del
+    # ridge -- solo lo que manifest.gpu["calibration"] declara explicitamente.
+    stream = _gpu_kernel_entry(id="gpu_stream_bw", reports_bandwidth_stdout=True,
+                                bandwidth_stdout_pattern=r"BW=([0-9.]+)")
+    ert32 = _gpu_kernel_entry(id="gpu_ert_probe_fp32", reports_flops_stdout=True,
+                               flops_stdout_pattern=r"FLOPS=([0-9.]+)", gpu_precision="fp32")
+    ert64 = _gpu_kernel_entry(id="gpu_ert_probe_fp64", reports_flops_stdout=True,
+                               flops_stdout_pattern=r"FLOPS=([0-9.]+)", gpu_precision="fp64")
+    dgemm_calibration = _gpu_kernel_entry(id="gpu_dgemm_calibration", role="calibration",
+                                           reports_flops_stdout=True, flops_stdout_pattern=r"FLOPS=([0-9.]+)")
+    catalog_map = {
+        "gpu_stream_bw": stream, "gpu_ert_probe_fp32": ert32, "gpu_ert_probe_fp64": ert64,
+        "gpu_dgemm_calibration": dgemm_calibration,
+    }
+
+    manifest = _manifest(tmp_path)
+    manifest.gpu = {"calibration": ["gpu_stream_bw", "gpu_ert_probe_fp32", "gpu_ert_probe_fp64"]}
+    manifest.frequency_levels = (SimpleNamespace(id="REF", mode="native_governor", fraction=None),)
+
+    def fake_run_single(entry, manifest, kernel_ref, freq_level_id, repetition, **kwargs):
+        run_dir = tmp_path / kernel_ref
+        run_dir.mkdir(exist_ok=True)
+        if entry is stream:
+            (run_dir / "stdout.txt").write_text("BW=10000000000\n")
+        else:
+            (run_dir / "stdout.txt").write_text("FLOPS=20000000000\n")
+        return _fake_run_result(run_dir)
+
+    # No debe fallar por la colision de gpu_dgemm_calibration -- ni siquiera
+    # se corre, porque no esta en manifest.gpu["calibration"].
+    calibration.run_gpu_calibration(manifest, catalog_map, run_single=fake_run_single)
+
+
+def test_arc87_run_gpu_calibration_fija_el_reloj_de_gpu_por_nivel(tmp_path):
+    # ARC-87: sin fijar tambien el reloj de GPU en cada nivel, un "ridge
+    # point por nivel" no mediria nada distinto entre niveles -- el reloj
+    # fisico seguiria siendo el mismo en REF y en FG_1.
+    stream = _gpu_kernel_entry(id="gpu_stream_bw", reports_bandwidth_stdout=True,
+                                bandwidth_stdout_pattern=r"BW=([0-9.]+)")
+    ert32 = _gpu_kernel_entry(id="gpu_ert_probe_fp32", reports_flops_stdout=True,
+                               flops_stdout_pattern=r"FLOPS=([0-9.]+)", gpu_precision="fp32")
+    ert64 = _gpu_kernel_entry(id="gpu_ert_probe_fp64", reports_flops_stdout=True,
+                               flops_stdout_pattern=r"FLOPS=([0-9.]+)", gpu_precision="fp64")
+    catalog_map = {"gpu_stream_bw": stream, "gpu_ert_probe_fp32": ert32, "gpu_ert_probe_fp64": ert64}
+
+    manifest = _manifest(tmp_path)
+    manifest.gpu = {"calibration": ["gpu_stream_bw", "gpu_ert_probe_fp32", "gpu_ert_probe_fp64"]}
+    manifest.frequency_levels = (
+        SimpleNamespace(id="REF", mode="native_governor", fraction=None),
+        SimpleNamespace(id="FG_1", mode="fixed", fraction=0.5),
+    )
+
+    def fake_run_single(entry, manifest, kernel_ref, freq_level_id, repetition, **kwargs):
+        run_dir = tmp_path / f"{kernel_ref}_{freq_level_id}"
+        run_dir.mkdir(exist_ok=True)
+        if entry is stream:
+            (run_dir / "stdout.txt").write_text("BW=10000000000\n")
+        else:
+            (run_dir / "stdout.txt").write_text("FLOPS=20000000000\n")
+        return _fake_run_result(run_dir)
+
+    apply_calls = []
+    env_profile = SimpleNamespace(gpu_frequency_write_capable=True)
+
+    calibration.run_gpu_calibration(
+        manifest, catalog_map, run_single=fake_run_single, environment_profile=env_profile,
+        apply_gpu_frequency=lambda level, env: apply_calls.append((level.id, env)),
+    )
+
+    assert apply_calls == [("REF", env_profile), ("FG_1", env_profile)]
+
+
+def test_arc87_run_gpu_calibration_no_fija_reloj_si_no_hay_permiso(tmp_path):
+    stream = _gpu_kernel_entry(id="gpu_stream_bw", reports_bandwidth_stdout=True,
+                                bandwidth_stdout_pattern=r"BW=([0-9.]+)")
+    ert32 = _gpu_kernel_entry(id="gpu_ert_probe_fp32", reports_flops_stdout=True,
+                               flops_stdout_pattern=r"FLOPS=([0-9.]+)", gpu_precision="fp32")
+    ert64 = _gpu_kernel_entry(id="gpu_ert_probe_fp64", reports_flops_stdout=True,
+                               flops_stdout_pattern=r"FLOPS=([0-9.]+)", gpu_precision="fp64")
+    catalog_map = {"gpu_stream_bw": stream, "gpu_ert_probe_fp32": ert32, "gpu_ert_probe_fp64": ert64}
+
+    manifest = _manifest(tmp_path)
+    manifest.gpu = {"calibration": ["gpu_stream_bw", "gpu_ert_probe_fp32", "gpu_ert_probe_fp64"]}
+    manifest.frequency_levels = (SimpleNamespace(id="REF", mode="native_governor", fraction=None),)
+
+    def fake_run_single(entry, manifest, kernel_ref, freq_level_id, repetition, **kwargs):
+        run_dir = tmp_path / f"{kernel_ref}_{freq_level_id}"
+        run_dir.mkdir(exist_ok=True)
+        if entry is stream:
+            (run_dir / "stdout.txt").write_text("BW=10000000000\n")
+        else:
+            (run_dir / "stdout.txt").write_text("FLOPS=20000000000\n")
+        return _fake_run_result(run_dir)
+
+    apply_calls = []
+    env_profile = SimpleNamespace(gpu_frequency_write_capable=False)
+
+    calibration.run_gpu_calibration(
+        manifest, catalog_map, run_single=fake_run_single, environment_profile=env_profile,
+        apply_gpu_frequency=lambda level, env: apply_calls.append((level.id, env)),
+    )
+
+    assert apply_calls == []
+
+
 def test_cal11_run_calibration_references_persiste_json_aunque_no_acepte(tmp_path):
     entry = _kernel_entry(id="npb_ep", role="dataset", phase_label_hint="compute_bound",
                            size_variant="S", expected_runtime_seconds=1, warmup_seconds=0.0,
@@ -229,3 +501,59 @@ def test_cal11_run_calibration_references_persiste_json_aunque_no_acepte(tmp_pat
     assert refs.accepted is False
     loaded = calibration.load_calibration_references(tmp_path)
     assert loaded == refs
+
+
+def test_cal12_run_calibration_references_re_fija_ref_antes_de_medir(tmp_path):
+    """ARC-94: run_calibration()/run_gpu_calibration() dejan el ULTIMO
+    nivel fixed (tipicamente F4) todavia aplicado -- sin volver a fijar
+    native_governor aqui, las 5 repeticiones de referencia (IPC/MPKI P95)
+    quedarian medidas bajo esa frecuencia pinneada, contaminando
+    ipc_relative/mpki_relative de toda la campaña."""
+    entry = _kernel_entry(id="npb_ep", role="dataset", phase_label_hint="compute_bound",
+                           size_variant="S", expected_runtime_seconds=1, warmup_seconds=0.0,
+                           estimated_memory_bytes=1)
+    manifest = _manifest(tmp_path)
+    manifest.frequency_levels = (
+        SimpleNamespace(id="REF", mode="native_governor", fraction=None),
+        SimpleNamespace(id="F4", mode="fixed", fraction=0.0),
+    )
+
+    def fake_run_single(entry, manifest, kernel_ref, freq_level_id, repetition, **kwargs):
+        run_dir = tmp_path / f"rep{repetition}"
+        _write_samples_csv(run_dir, instructions=2_000_000_000, cycles=1_000_000_000,
+                            cache_references=10_000_000, cache_misses=100_000)
+        return _fake_run_result(run_dir, elapsed_seconds=1.0)
+
+    apply_calls = []
+    env_profile = SimpleNamespace(frequency_write_capable=True)
+
+    calibration.run_calibration_references(
+        entry, manifest, "npb_ep", node_id="pacca-a100", run_single=fake_run_single,
+        environment_profile=env_profile,
+        apply_frequency=lambda cpus, level, env: apply_calls.append((cpus, level.id, env)),
+    )
+
+    assert apply_calls == [((2, 3, 4, 5), "REF", env_profile)]
+
+
+def test_cal13_run_calibration_references_no_aplica_si_no_hay_permiso(tmp_path):
+    entry = _kernel_entry(id="npb_ep", role="dataset", phase_label_hint="compute_bound",
+                           size_variant="S", expected_runtime_seconds=1, warmup_seconds=0.0,
+                           estimated_memory_bytes=1)
+    manifest = _manifest(tmp_path)
+    manifest.frequency_levels = (SimpleNamespace(id="REF", mode="native_governor", fraction=None),)
+
+    def fake_run_single(entry, manifest, kernel_ref, freq_level_id, repetition, **kwargs):
+        run_dir = tmp_path / f"rep{repetition}"
+        _write_samples_csv(run_dir, instructions=2_000_000_000, cycles=1_000_000_000,
+                            cache_references=10_000_000, cache_misses=100_000)
+        return _fake_run_result(run_dir, elapsed_seconds=1.0)
+
+    apply_calls = []
+    calibration.run_calibration_references(
+        entry, manifest, "npb_ep", node_id="pacca-a100", run_single=fake_run_single,
+        environment_profile=SimpleNamespace(frequency_write_capable=False),
+        apply_frequency=lambda cpus, level, env: apply_calls.append((cpus, level.id, env)),
+    )
+
+    assert apply_calls == []
