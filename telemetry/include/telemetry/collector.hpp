@@ -140,6 +140,17 @@ namespace telemetry {
             }
 
             /**
+             * @brief Whether this run's node could open FP_ARITH_INST_RETIRED.
+             *
+             * ARC-97: same per-node capability semantics as
+             * has_l2_lines_in_all() -- only ever true on the Ice Lake-SP
+             * family/model this raw encoding was validated on.
+             */
+            bool has_fp_arith() const noexcept {
+                return perf_reader_.has_fp_arith();
+            }
+
+            /**
              * @brief Number of failed try_push attempts.
              *
              * A nonzero value indicates that the ring was full at least once.

@@ -6,6 +6,9 @@ int main() {
 
     if(reader.is_open()) return 1;
     if(reader.read(sample)) return 1;
+    if(reader.has_stalled_cycles_backend()) return 1;
+    if(reader.has_l2_lines_in_all()) return 1;
+    if(reader.has_fp_arith()) return 1; // ARC-97: false before open(), same as the other optional counters
 
     reader.enable();
     reader.disable();

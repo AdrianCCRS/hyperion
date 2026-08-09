@@ -35,6 +35,19 @@ namespace telemetry {
         uint64_t cache_misses;      /**< PERF_COUNT_HW_CACHE_MISSES. */
         uint64_t stalled_cycles_backend; /**< PERF_COUNT_HW_STALLED_CYCLES_BACKEND. */
         uint64_t l2_lines_in_all;   /**< Raw L2_LINES_IN_ALL (event=0xF1,umask=0x1F), Ice Lake-SP only. */
+        /* ARC-97: raw FP_ARITH_INST_RETIRED sub-events (event=0xC7), double
+         * precision only, Ice Lake-SP only. Each represents "computations",
+         * not instructions -- weight by elements-per-instruction downstream
+         * (1/2/4/8) to get a flops total, never sum these raw. Validated
+         * empirically against dgemm_bench's analytical 2*iterations*n^3
+         * (0.30% error, no multiplexing at the full 10-counter budget) and
+         * against a memory-bound NPB kernel (7.48% error, explained by the
+         * kernel's own self-timed window excluding its verification phase).
+         * See docs/libro/main.tex Fase 1 for the full validation record. */
+        uint64_t fp_scalar_double;        /**< Raw FP_ARITH_INST_RETIRED.SCALAR_DOUBLE (0xC7, umask=0x01). 1 flop/count. */
+        uint64_t fp_128b_packed_double;   /**< Raw FP_ARITH_INST_RETIRED.128B_PACKED_DOUBLE (0xC7, umask=0x04). 2 flops/count. */
+        uint64_t fp_256b_packed_double;   /**< Raw FP_ARITH_INST_RETIRED.256B_PACKED_DOUBLE (0xC7, umask=0x10). 4 flops/count. */
+        uint64_t fp_512b_packed_double;   /**< Raw FP_ARITH_INST_RETIRED.512B_PACKED_DOUBLE (0xC7, umask=0x40). 8 flops/count. */
         uint64_t time_enabled_ns;   /**< Perf enabled time for multiplexing diagnostics. */
         uint64_t time_running_ns;   /**< Perf running time for multiplexing diagnostics. */
     };

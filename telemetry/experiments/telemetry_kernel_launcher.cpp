@@ -87,6 +87,7 @@ namespace {
         // runs where collection failed to start.
         bool stalled_cycles_backend_available = false;
         bool l2_lines_in_all_available = false; // ARC-63, same semantics as above
+        bool fp_arith_available = false; // ARC-97, same semantics as above
     };
 
     /** @brief Sample plus repetition id, used to avoid cross-run deltas. */
@@ -534,6 +535,7 @@ namespace {
         // reports false regardless of what actually happened during the run.
         bool stalled_cycles_backend_available = false;
         bool l2_lines_in_all_available = false; // ARC-63, same must-read-before-stop() constraint
+        bool fp_arith_available = false; // ARC-97, same must-read-before-stop() constraint
 
         try {
             // The child is still stopped here: cgroup placement and perf
@@ -556,6 +558,7 @@ namespace {
                 collector.start();
                 stalled_cycles_backend_available = collector.has_stalled_cycles_backend();
                 l2_lines_in_all_available = collector.has_l2_lines_in_all();
+                fp_arith_available = collector.has_fp_arith();
             }
 
             // Release the child unconditionally: it stopped itself right
@@ -619,6 +622,7 @@ namespace {
         result.pid = pid;
         result.stalled_cycles_backend_available = stalled_cycles_backend_available;
         result.l2_lines_in_all_available = l2_lines_in_all_available;
+        result.fp_arith_available = fp_arith_available;
         if(use_ready_go) {
             if(result.exit_code == 0) result.elapsed_ns = parse_elapsed_ns(output);
         } else if(collect && result.exit_code == 0) {
@@ -689,7 +693,8 @@ namespace {
                            const Options& opt,
                            const std::vector<RecordedSample>& samples,
                            bool stalled_cycles_backend_available,
-                           bool l2_lines_in_all_available) {
+                           bool l2_lines_in_all_available,
+                           bool fp_arith_available) {
         const telemetry::experiment::RaplExportConfig rapl_config = read_rapl_export_config(opt);
         telemetry::experiment::RaplDeltaState rapl_state{};
 
@@ -697,7 +702,9 @@ namespace {
         // unused fields remain empty. This makes downstream ML ingestion simple.
         std::ofstream out(path);
         out << "run_id,repetition,kernel,label,timestamp_ns,tag,instructions,cycles,"
-               "cache_references,cache_misses,stalled_cycles_backend,l2_lines_in_all,time_enabled_ns,time_running_ns,"
+               "cache_references,cache_misses,stalled_cycles_backend,l2_lines_in_all,"
+               "fp_scalar_double,fp_128b_packed_double,fp_256b_packed_double,fp_512b_packed_double,"
+               "time_enabled_ns,time_running_ns,"
                "pkg_uj,dram_uj,pkg_delta_uj,dram_delta_uj,energy_delta_valid,"
                "gpu_power_mw,gpu_util_pct,gpu_mem_util_pct,gpu_sm_clock_mhz,gpu_energy_mj,gpu_temperature_c\n";
         const std::string label = dataset_label(opt.kernel);
@@ -738,6 +745,19 @@ namespace {
                 } else {
                     empty_field();
                 }
+                // ARC-97: same empty-not-zero rule; all 4 open/close together
+                // as a unit, so a single availability flag covers all 4.
+                if(fp_arith_available) {
+                    value_field(sample.cpu.fp_scalar_double);
+                    value_field(sample.cpu.fp_128b_packed_double);
+                    value_field(sample.cpu.fp_256b_packed_double);
+                    value_field(sample.cpu.fp_512b_packed_double);
+                } else {
+                    empty_field();
+                    empty_field();
+                    empty_field();
+                    empty_field();
+                }
                 value_field(sample.cpu.time_enabled_ns);
                 value_field(sample.cpu.time_running_ns);
                 empty_field();
@@ -769,6 +789,10 @@ namespace {
                 empty_field();
                 empty_field();
                 empty_field();
+                empty_field(); // fp_scalar_double
+                empty_field(); // fp_128b_packed_double
+                empty_field(); // fp_256b_packed_double
+                empty_field(); // fp_512b_packed_double
                 empty_field();
                 empty_field();
                 value_field(sample.energy.pkg_uj);
@@ -791,6 +815,10 @@ namespace {
                 empty_field();
                 empty_field();
                 empty_field();
+                empty_field(); // fp_scalar_double
+                empty_field(); // fp_128b_packed_double
+                empty_field(); // fp_256b_packed_double
+                empty_field(); // fp_512b_packed_double
                 empty_field();
                 empty_field();
                 empty_field();
@@ -965,6 +993,7 @@ int main(int argc, char** argv) {
         // across repetitions defensively rather than assumed from the first.
         bool stalled_cycles_backend_available = false;
         bool l2_lines_in_all_available = false; // ARC-63, same semantics as above
+        bool fp_arith_available = false; // ARC-97, same semantics as above
 
         telemetry_elapsed_ns.reserve(static_cast<size_t>(opt.repetitions));
         push_retries_by_repetition.reserve(static_cast<size_t>(opt.repetitions));
@@ -1011,6 +1040,8 @@ int main(int argc, char** argv) {
                     stalled_cycles_backend_available || telemetry.stalled_cycles_backend_available;
                 l2_lines_in_all_available =
                     l2_lines_in_all_available || telemetry.l2_lines_in_all_available;
+                fp_arith_available =
+                    fp_arith_available || telemetry.fp_arith_available;
                 continue;
             }
 
@@ -1069,11 +1100,13 @@ int main(int argc, char** argv) {
                 stalled_cycles_backend_available || telemetry.stalled_cycles_backend_available;
             l2_lines_in_all_available =
                 l2_lines_in_all_available || telemetry.l2_lines_in_all_available;
+            fp_arith_available =
+                fp_arith_available || telemetry.fp_arith_available;
         }
 
         const fs::path run_dir = opt.output_dir / opt.run_id;
         fs::create_directories(run_dir);
-        write_samples_csv(run_dir / "samples.csv", opt, samples, stalled_cycles_backend_available, l2_lines_in_all_available);
+        write_samples_csv(run_dir / "samples.csv", opt, samples, stalled_cycles_backend_available, l2_lines_in_all_available, fp_arith_available);
         write_metadata_json(run_dir / "metadata.json",
                             opt,
                             baseline_elapsed_ns,

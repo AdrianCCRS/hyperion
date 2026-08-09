@@ -104,6 +104,31 @@ namespace telemetry {
         // existing cache-misses-based estimate. Same Ice Lake-SP gate as the
         // stalls fallback: never applied to a CPU this was not verified on.
         constexpr uint64_t kIceLakeL2LinesInAllRawConfig = 0xF1u | (0x1Fu << 8);
+
+        // ARC-97: FP_ARITH_INST_RETIRED (event=0xC7), double-precision
+        // sub-events only -- no CMask, same bit layout as L2_LINES_IN_ALL
+        // above (event in bits [7:0], umask in bits [15:8]). Encoding
+        // cross-checked against LIKWID's validated per-microarchitecture
+        // event table (`likwid-perfctr -e | grep -i FP_ARITH` on pacca:
+        // "FP_ARITH_INST_RETIRED_SCALAR_DOUBLE, 0xC7, 0x1, PMC",
+        // "..._128B_PACKED_DOUBLE, 0xC7, 0x4, PMC", "..._256B_PACKED_DOUBLE,
+        // 0xC7, 0x10, PMC", "..._512B_PACKED_DOUBLE, 0xC7, 0x40, PMC") and
+        // re-verified empirically: all 4 opened simultaneously alongside
+        // the other 6 events (pacca's full pmc_count=10 budget, ARC-53)
+        // with 0% multiplexing (time_running == time_enabled on every
+        // counter), and the weighted sum (1*scalar + 2*128B + 4*256B +
+        // 8*512B) tracked dgemm_bench's analytical 2*iterations*n^3 within
+        // 0.29-0.30% across both single-threaded and 6-core-pinned runs.
+        // Single-precision sub-events (umask 0x02/0x08/0x20/0x80) are
+        // deliberately not opened: the dataset catalog is double-precision
+        // only (confirmed per-kernel via "Operation type = floating point"
+        // in ARC-57), and there is no budget left to measure both. Same
+        // Ice Lake-SP gate as the other raw fallbacks: never applied to a
+        // CPU this was not verified on.
+        constexpr uint64_t kIceLakeFpScalarDoubleRawConfig    = 0xC7u | (0x01u << 8);
+        constexpr uint64_t kIceLakeFp128bPackedDoubleRawConfig = 0xC7u | (0x04u << 8);
+        constexpr uint64_t kIceLakeFp256bPackedDoubleRawConfig = 0xC7u | (0x10u << 8);
+        constexpr uint64_t kIceLakeFp512bPackedDoubleRawConfig = 0xC7u | (0x40u << 8);
     }
 
     //Wrapper for perf_event_open syscall, since it's not exposed in glibc headers.
@@ -160,6 +185,10 @@ namespace telemetry {
             PERF_COUNT_HW_CACHE_MISSES,
             PERF_COUNT_HW_STALLED_CYCLES_BACKEND,
             0, // kL2LinesInAll: never opened via this generic path, see below
+            0, // kFpScalarDouble: raw-only, see below
+            0, // kFp128bPackedDouble: raw-only, see below
+            0, // kFp256bPackedDouble: raw-only, see below
+            0, // kFp512bPackedDouble: raw-only, see below
         };
         static constexpr const char* kContexts[kEventCount] = {
             "perf_event_open instructions failed",
@@ -168,21 +197,37 @@ namespace telemetry {
             "perf_event_open cache misses failed",
             "perf_event_open stalled cycles backend failed",
             "perf_event_open l2 lines in all failed",
+            "perf_event_open fp scalar double failed",
+            "perf_event_open fp 128b packed double failed",
+            "perf_event_open fp 256b packed double failed",
+            "perf_event_open fp 512b packed double failed",
+        };
+        // ARC-97: raw-only events (no PERF_TYPE_HARDWARE generic mapping),
+        // same treatment as kL2LinesInAll -- indexed by event index for the
+        // branch below.
+        static constexpr uint64_t kRawOnlyConfigs[kEventCount] = {
+            0, 0, 0, 0, 0,
+            kIceLakeL2LinesInAllRawConfig,
+            kIceLakeFpScalarDoubleRawConfig,
+            kIceLakeFp128bPackedDoubleRawConfig,
+            kIceLakeFp256bPackedDoubleRawConfig,
+            kIceLakeFp512bPackedDoubleRawConfig,
         };
 
         std::vector<int> opened;
         opened.reserve(kEventCount);
         for(size_t i = 0; i < kEventCount; ++i) {
             int fd = -1;
-            if(i == kL2LinesInAll) {
-                // ARC-63: no generic PERF_TYPE_HARDWARE mapping exists for
-                // this event at all, so skip straight to the model-gated
-                // raw encoding instead of trying (and always failing) a
-                // generic attempt first.
+            if(i == kL2LinesInAll || i == kFpScalarDouble || i == kFp128bPackedDouble ||
+               i == kFp256bPackedDouble || i == kFp512bPackedDouble) {
+                // ARC-63/ARC-97: no generic PERF_TYPE_HARDWARE mapping exists
+                // for these events at all, so skip straight to the
+                // model-gated raw encoding instead of trying (and always
+                // failing) a generic attempt first.
                 int family = 0, model = 0;
                 if(detect_intel_family_model(family, model) &&
                    family == kIceLakeSPFamily && model == kIceLakeSPModel) {
-                    auto raw_attr = make_raw_attr(kIceLakeL2LinesInAllRawConfig);
+                    auto raw_attr = make_raw_attr(kRawOnlyConfigs[i]);
                     fd = (int) perf_event_open(&raw_attr, pid_, cpu_, -1, 0);
                 }
             } else {
@@ -243,7 +288,7 @@ namespace telemetry {
         struct timespec ts;
         clock_gettime(CLOCK_MONOTONIC, &ts);
 
-        uint64_t scaled[kEventCount] = {0, 0, 0, 0, 0, 0};
+        uint64_t scaled[kEventCount] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
         uint64_t time_enabled = 0;
         uint64_t time_running = 0;
 
@@ -267,6 +312,10 @@ namespace telemetry {
         sample.cache_misses = scaled[kCacheMisses];
         sample.stalled_cycles_backend = scaled[kStalledCyclesBackend];
         sample.l2_lines_in_all = scaled[kL2LinesInAll];
+        sample.fp_scalar_double = scaled[kFpScalarDouble];
+        sample.fp_128b_packed_double = scaled[kFp128bPackedDouble];
+        sample.fp_256b_packed_double = scaled[kFp256bPackedDouble];
+        sample.fp_512b_packed_double = scaled[kFp512bPackedDouble];
         sample.time_enabled_ns = time_enabled;
         sample.time_running_ns = time_running;
         out = sample;
