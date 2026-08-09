@@ -27,7 +27,14 @@ REQUIRED_OUTPUT_COLUMNS: tuple[str, ...] = (
     "ipc_relative", "mpki_relative", "miss_rate_relative",
     "delta_running_ns", "delta_enabled_ns", "running_ratio",
     "pkg_delta_uj", "dram_delta_uj", "power_w", "energy_valid",
-    "flops_window_estimate", "bytes_moved_window", "operational_intensity",
+    # ARC-97: direct hardware measurement (FP_ARITH_INST_RETIRED, Ice Lake-SP
+    # only) replaces flops_window_estimate's instruction-prorated value as
+    # the source of operational_intensity whenever it is available on this
+    # node -- flops_window_estimate is still computed and kept as an audit
+    # column (and as the fallback source), but flops_source records which
+    # one actually fed operational_intensity for this row.
+    "flops_window_estimate", "flops_measured_window", "flops_source",
+    "bytes_moved_window", "operational_intensity",
     "i_ridge_used", "roofline_calibration_ref", "node_profile_ref", "calibration_ref",
     "binary_checksum", "quality_status",
     # ARC-70: filas GPU (tag=GPU en samples.csv) -- ver build_windows() y el
@@ -40,6 +47,10 @@ REQUIRED_OUTPUT_COLUMNS: tuple[str, ...] = (
     # térmica) -- las tres opcionales, None si el launcher no las reportó
     # (driver/GPU sin soporte, o corrida generada antes de este cambio).
     "gpu_sm_clock_mhz", "gpu_energy_mj", "gpu_temperature_c",
+    # ARC-95: delta de energía GPU entre esta ventana y la anterior (mJ),
+    # con su propio bit de validez -- gpu_energy_mj por sí solo es un
+    # acumulado crudo, insuficiente para EDP de GPU sin este cálculo.
+    "gpu_energy_delta_mj", "gpu_energy_valid",
 )
 
 VALID_QUALITY_STATUSES = frozenset({
@@ -67,6 +78,23 @@ _QUALITY_PRIORITY: tuple[str, ...] = (
     "energy_invalid",
     "no_freq_reading",
 )
+
+# ARC-97: FP_ARITH_INST_RETIRED double-precision sub-events report
+# "computations", not instructions -- each count already represents this
+# many double-precision flops (1 for scalar, 2/4/8 for 128B/256B/512B
+# packed, per Intel's own counter definition and LIKWID's FLOPS_DP group).
+# Weights confirmed empirically on pacca (Ice Lake-SP): the weighted sum
+# tracked dgemm_bench's analytical 2*iterations*n^3 within 0.29-0.30%
+# (single-threaded and 6-core-pinned) and NPB MG's self-reported total
+# within 7.48% (explained by MG's own timer excluding its verification
+# phase, not by these weights). See telemetry/src/perf_reader.cpp for the
+# raw event encoding this multiplies.
+_FP_ARITH_DOUBLES_PER_EVENT: dict[str, int] = {
+    "fp_scalar_double": 1,
+    "fp_128b_packed_double": 2,
+    "fp_256b_packed_double": 4,
+    "fp_512b_packed_double": 8,
+}
 
 
 @dataclass(frozen=True)
@@ -239,6 +267,13 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
     l2_lines_in_all_supported = any(
         r.get("l2_lines_in_all") not in (None, "") for r in cpu_rows
     )
+    # ARC-97: same per-node-capability rule -- the 4 FP_ARITH_INST_RETIRED
+    # sub-events open/close together as a unit (see PerfReader::has_fp_arith
+    # in telemetry/include/telemetry/perf_reader.hpp), so checking one is
+    # enough to know whether all 4 columns are populated for this run.
+    fp_arith_supported = any(
+        r.get("fp_scalar_double") not in (None, "") for r in cpu_rows
+    )
 
     run_total_instructions = _to_int(cpu_rows[-1].get("instructions"))
     run_start_ns = int(cpu_rows[0]["timestamp_ns"])
@@ -280,6 +315,24 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
             _delta(_to_int(cur.get("l2_lines_in_all")), _to_int(prev.get("l2_lines_in_all")))
             if l2_lines_in_all_supported else None
         )
+        # ARC-97: all 4 deltas are None together (fp_arith_supported gates
+        # all of them at once, same as the single l2 column above).
+        delta_fp_scalar_double = (
+            _delta(_to_int(cur.get("fp_scalar_double")), _to_int(prev.get("fp_scalar_double")))
+            if fp_arith_supported else None
+        )
+        delta_fp_128b_packed_double = (
+            _delta(_to_int(cur.get("fp_128b_packed_double")), _to_int(prev.get("fp_128b_packed_double")))
+            if fp_arith_supported else None
+        )
+        delta_fp_256b_packed_double = (
+            _delta(_to_int(cur.get("fp_256b_packed_double")), _to_int(prev.get("fp_256b_packed_double")))
+            if fp_arith_supported else None
+        )
+        delta_fp_512b_packed_double = (
+            _delta(_to_int(cur.get("fp_512b_packed_double")), _to_int(prev.get("fp_512b_packed_double")))
+            if fp_arith_supported else None
+        )
         delta_running_ns = _delta(_to_int(cur.get("time_running_ns")), _to_int(prev.get("time_running_ns")))
         delta_enabled_ns = _delta(_to_int(cur.get("time_enabled_ns")), _to_int(prev.get("time_enabled_ns")))
 
@@ -296,6 +349,18 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
             core_deltas.append(delta_stalled_cycles_backend)
         if l2_lines_in_all_supported:
             core_deltas.append(delta_l2_lines_in_all)
+        if fp_arith_supported:
+            # ARC-97: same gate as l2_lines_in_all above -- a negative or
+            # missing FP delta on a node that DOES support the counter is a
+            # real anomaly (e.g. counter overflow/reset), not silently
+            # dropped from operational_intensity via flops_measured_window's
+            # own None-check alone.
+            core_deltas.extend([
+                delta_fp_scalar_double,
+                delta_fp_128b_packed_double,
+                delta_fp_256b_packed_double,
+                delta_fp_512b_packed_double,
+            ])
         counters_negative = any(value is not None and value < 0 for value in core_deltas)
         counters_missing = any(value is None for value in core_deltas)
 
@@ -393,12 +458,50 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
         ):
             flops_window_estimate = context.run_flops_total * (delta_instructions / run_total_instructions)
 
+        # ARC-97: direct hardware measurement, preferred over the
+        # instruction-prorated estimate above whenever this node/PMU could
+        # open the 4 FP_ARITH_INST_RETIRED sub-events. All-or-nothing: a
+        # partial delta set (one width missing) is treated the same as none,
+        # since silently omitting a SIMD width would under-count without any
+        # signal that it happened.
+        flops_measured_window = None
+        if (
+            valid_counters
+            and fp_arith_supported
+            and delta_fp_scalar_double is not None
+            and delta_fp_128b_packed_double is not None
+            and delta_fp_256b_packed_double is not None
+            and delta_fp_512b_packed_double is not None
+        ):
+            flops_measured_window = (
+                _FP_ARITH_DOUBLES_PER_EVENT["fp_scalar_double"] * delta_fp_scalar_double
+                + _FP_ARITH_DOUBLES_PER_EVENT["fp_128b_packed_double"] * delta_fp_128b_packed_double
+                + _FP_ARITH_DOUBLES_PER_EVENT["fp_256b_packed_double"] * delta_fp_256b_packed_double
+                + _FP_ARITH_DOUBLES_PER_EVENT["fp_512b_packed_double"] * delta_fp_512b_packed_double
+            )
+
+        # ARC-97: measured beats estimated whenever both exist -- this is
+        # the whole point of adding direct measurement. flops_window_estimate
+        # stays computed and exported regardless, both as an audit trail and
+        # as the fallback for nodes/runs where fp_arith is unavailable.
+        if flops_measured_window is not None:
+            flops_for_intensity = flops_measured_window
+            flops_source = "measured"
+        elif flops_window_estimate is not None:
+            flops_for_intensity = flops_window_estimate
+            flops_source = "estimated"
+        else:
+            flops_for_intensity = None
+            flops_source = None
+
         bytes_moved_window = (
             delta_cache_misses * context.llc_line_size_bytes
             if valid_counters and delta_cache_misses is not None
             else None
         )
         row["flops_window_estimate"] = flops_window_estimate
+        row["flops_measured_window"] = flops_measured_window
+        row["flops_source"] = flops_source
         row["bytes_moved_window"] = bytes_moved_window
 
         # ARC-63: independent cross-check for bytes_moved_window's bias
@@ -414,13 +517,13 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
         )
 
         intensity_undefined = (
-            bytes_moved_window is None or bytes_moved_window == 0 or flops_window_estimate is None
+            bytes_moved_window is None or bytes_moved_window == 0 or flops_for_intensity is None
         )
         if intensity_undefined:
             row["operational_intensity"] = float("nan")
             row["phase_label_train"] = None
         else:
-            operational_intensity = flops_window_estimate / bytes_moved_window
+            operational_intensity = flops_for_intensity / bytes_moved_window
             row["operational_intensity"] = operational_intensity
             # POST-11: always derived from Roofline, never copied from
             # phase_label_hint.
@@ -466,6 +569,14 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
         if r.get("tag") == "GPU" and _to_int(r.get("repetition")) == _LAUNCHER_INTERNAL_REPETITION
     ]
     gpu_rows.sort(key=lambda r: int(r["timestamp_ns"]))
+    # ARC-95: gpu_energy_mj es un contador acumulado (nvmlDeviceGetTotalEnergyConsumption,
+    # mJ desde que cargó el driver) -- exactamente igual que pkg_uj de RAPL,
+    # necesita un delta por ventana para servir de insumo a EDP de GPU; antes
+    # de esto solo se copiaba el acumulado crudo, insuficiente para el
+    # análisis energético posterior. Mismo criterio de invalidez que RAPL
+    # (ARC-56): primera muestra sin predecesor, o el contador retrocede
+    # (wraparound o reinicio del driver) -> delta inválido, nunca negativo.
+    previous_energy_mj: int | None = None
     for gpu_index, gpu_row in enumerate(gpu_rows):
         row = _base_row(context, window_index=gpu_index)
         row["t_start_ns"] = None
@@ -482,7 +593,17 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
         row["gpu_util_pct"] = _to_int(gpu_row.get("gpu_util_pct"))
         row["gpu_mem_util_pct"] = _to_int(gpu_row.get("gpu_mem_util_pct"))
         row["gpu_sm_clock_mhz"] = _to_int(gpu_row.get("gpu_sm_clock_mhz"))
-        row["gpu_energy_mj"] = _to_int(gpu_row.get("gpu_energy_mj"))
+        current_energy_mj = _to_int(gpu_row.get("gpu_energy_mj"))
+        row["gpu_energy_mj"] = current_energy_mj
+        gpu_energy_delta_mj: int | None = None
+        gpu_energy_valid = False
+        if current_energy_mj is not None:
+            if previous_energy_mj is not None and current_energy_mj >= previous_energy_mj:
+                gpu_energy_delta_mj = current_energy_mj - previous_energy_mj
+                gpu_energy_valid = True
+            previous_energy_mj = current_energy_mj
+        row["gpu_energy_delta_mj"] = gpu_energy_delta_mj
+        row["gpu_energy_valid"] = gpu_energy_valid
         row["gpu_temperature_c"] = _to_int(gpu_row.get("gpu_temperature_c"))
         row["operational_intensity"] = context.gpu_operational_intensity
         row["i_ridge_used"] = context.gpu_i_ridge_flops_per_byte
@@ -544,6 +665,8 @@ def _base_row(context: WindowContext, *, window_index: int) -> dict[str, Any]:
         "power_w": None,
         "energy_valid": False,
         "flops_window_estimate": None,
+        "flops_measured_window": None,
+        "flops_source": None,
         "bytes_moved_window": None,
         "operational_intensity": None,
         "i_ridge_used": context.i_ridge_flops_per_byte,
@@ -557,6 +680,8 @@ def _base_row(context: WindowContext, *, window_index: int) -> dict[str, Any]:
         "gpu_mem_util_pct": None,
         "gpu_sm_clock_mhz": None,
         "gpu_energy_mj": None,
+        "gpu_energy_delta_mj": None,
+        "gpu_energy_valid": False,
         "gpu_temperature_c": None,
     }
 

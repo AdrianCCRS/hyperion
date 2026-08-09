@@ -369,7 +369,14 @@ def restore_original_state(original: OriginalState, env: Any) -> bool:
                         _write_and_verify(setspeed_path, str(state.setspeed_khz), attr=_SETSPEED_ATTR, cpu=cpu)
                         and all_ok
                     )
-            if state.governor is not None:
+            # ARC-95: mismo bug que _apply_native_governor ya corrigió en
+            # ARC-94 -- bounded_range (intel_pstate/amd-pstate) nunca
+            # escribe scaling_governor, así que restaurarlo aquí exige un
+            # permiso (escritura de governor) que P1 no cubre. Solo
+            # discrete_bounds (acpi-cpufreq) alguna vez lo cambió
+            # (_apply_discrete lo fija a "userspace") y necesita
+            # restaurarlo de verdad.
+            if state.governor is not None and original.strategy == STRATEGY_DISCRETE:
                 governor_path = _attr_path(env, cpu, _GOVERNOR_ATTR)
                 if governor_path is not None:
                     all_ok = _write_and_verify(governor_path, state.governor, attr=_GOVERNOR_ATTR, cpu=cpu) and all_ok

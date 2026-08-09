@@ -1,4 +1,5 @@
 from pathlib import Path
+import subprocess
 import sys
 from types import SimpleNamespace
 
@@ -160,6 +161,44 @@ def test_arc87_apply_fixed_sin_relojes_disponibles_falla_ruidosamente():
 
     with pytest.raises(gpu_freqctl.GpuFrequencyControlError, match="gpu_available_clocks_mhz"):
         gpu_freqctl.apply_gpu_frequency(level, env, run_nvidia_smi=_fake_run_nvidia_smi([]))
+
+
+def test_arc95_apply_native_governor_convierte_excepcion_de_subproceso():
+    """ARC-95: run_nvidia_smi (un subprocess.run real) puede levantar
+    OSError/FileNotFoundError (binario ausente) o TimeoutExpired sin que
+    nada lo capturara -- ahora se normaliza a GpuFrequencyControlError,
+    el tipo de error que este modulo ya documenta."""
+    env = _env(write_capable=True)
+    level = SimpleNamespace(id="REF", mode="native_governor", fraction=None)
+
+    def run_nvidia_smi_que_falla(args, *, gpu_index):
+        raise FileNotFoundError("nvidia-smi no encontrado")
+
+    with pytest.raises(gpu_freqctl.GpuFrequencyControlError, match="no se pudo ejecutar"):
+        gpu_freqctl.apply_gpu_frequency(level, env, run_nvidia_smi=run_nvidia_smi_que_falla)
+
+
+def test_arc95_apply_fixed_convierte_excepcion_de_subproceso():
+    env = _env(write_capable=True)
+    level = SimpleNamespace(id="F2", mode="fixed", fraction=0.5)
+
+    def run_nvidia_smi_que_falla(args, *, gpu_index):
+        raise subprocess.TimeoutExpired(cmd="nvidia-smi", timeout=30)
+
+    with pytest.raises(gpu_freqctl.GpuFrequencyControlError, match="no se pudo ejecutar"):
+        gpu_freqctl.apply_gpu_frequency(level, env, run_nvidia_smi=run_nvidia_smi_que_falla)
+
+
+def test_arc95_restore_gpu_state_nunca_lanza_ante_excepcion_real():
+    """ARC-95: el docstring prometia 'nunca lanza' pero nada capturaba una
+    excepcion real del subproceso -- critico porque puede correr desde un
+    manejador de SIGINT/SIGTERM sin segunda oportunidad."""
+    env = _env(write_capable=True)
+
+    def run_nvidia_smi_que_falla(args, *, gpu_index):
+        raise FileNotFoundError("nvidia-smi no encontrado")
+
+    assert gpu_freqctl.restore_gpu_state(env, run_nvidia_smi=run_nvidia_smi_que_falla) is False
 
 
 def test_arc87_restore_no_op_si_no_hay_permiso():

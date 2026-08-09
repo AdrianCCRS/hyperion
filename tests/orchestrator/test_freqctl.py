@@ -280,6 +280,28 @@ def test_arc94_restore_continua_con_los_demas_cpus_si_uno_falla(tmp_path):
     assert (tmp_path / "cpu1/cpufreq/scaling_max_freq").read_text() == "2261000"
 
 
+def test_arc95_restore_bounded_range_no_exige_governor_escribible(tmp_path):
+    """ARC-95: restore_original_state() tenia el mismo bug que
+    _apply_native_governor ya corrigio en ARC-94 -- reescribia el governor
+    incondicionalmente, exigiendo un permiso que P1 (solo min/max) no
+    concede para bounded_range."""
+    paths = {0: _write_cpu(tmp_path, 0, governor="powersave", min_khz=1064000, max_khz=2261000)}
+    env = _env(paths, write_capable=True, strategy="bounded_range")
+    original = freqctl.snapshot_original_state([0], env)
+
+    governor_path = tmp_path / "cpu0/cpufreq/scaling_governor"
+    os.chmod(governor_path, 0o444)
+
+    level = SimpleNamespace(id="F0", mode="fixed", fraction=1.0)
+    freqctl.apply_frequency([0], level, env, original=original)
+
+    result = freqctl.restore_original_state(original, env)
+
+    assert result is True  # no debio fallar por no poder escribir el governor
+    assert (tmp_path / "cpu0/cpufreq/scaling_min_freq").read_text() == "1064000"
+    assert (tmp_path / "cpu0/cpufreq/scaling_max_freq").read_text() == "2261000"
+
+
 def test_frq04_restore_no_escribe_si_write_capable_es_false(tmp_path):
     paths = {0: _write_cpu(tmp_path, 0, governor="performance")}
     env = _env(paths, write_capable=False, strategy="discrete_bounds")

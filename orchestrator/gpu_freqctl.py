@@ -132,7 +132,12 @@ def apply_gpu_frequency(
         return _apply_unavailable(level.id)
 
     if getattr(level, "mode", None) == "native_governor":
-        result = run_nvidia_smi(["-rgc"], gpu_index=gpu_index)
+        try:
+            result = run_nvidia_smi(["-rgc"], gpu_index=gpu_index)
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise GpuFrequencyControlError(
+                f"gpu_freqctl: nvidia-smi -rgc no se pudo ejecutar para el nivel {level.id!r}: {exc}"
+            ) from exc
         if result.returncode != 0:
             raise GpuFrequencyControlError(
                 f"gpu_freqctl: nvidia-smi -rgc falló para el nivel {level.id!r}: {result.stderr.strip()}"
@@ -152,7 +157,12 @@ def apply_gpu_frequency(
             f"gpu_freqctl: apply_gpu_frequency({level.id!r}) requiere gpu_available_clocks_mhz no vacío"
         )
     target = _nearest_available(_target_mhz(level, available), available)
-    result = run_nvidia_smi(["-lgc", f"{target},{target}"], gpu_index=gpu_index)
+    try:
+        result = run_nvidia_smi(["-lgc", f"{target},{target}"], gpu_index=gpu_index)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise GpuFrequencyControlError(
+            f"gpu_freqctl: nvidia-smi -lgc {target} no se pudo ejecutar para el nivel {level.id!r}: {exc}"
+        ) from exc
     if result.returncode != 0:
         raise GpuFrequencyControlError(
             f"gpu_freqctl: nvidia-smi -lgc {target} falló para el nivel {level.id!r}: {result.stderr.strip()}"
@@ -184,12 +194,24 @@ def restore_gpu_state(
     freqctl.OriginalState). Nunca lanza: puede llamarse desde un manejador
     de señal sin segunda oportunidad, mismo contrato best-effort que
     freqctl.restore_original_state (devuelve bool, registra el error, no
-    interrumpe la restauración de otros subsistemas)."""
+    interrumpe la restauración de otros subsistemas).
+
+    ARC-95: el "nunca lanza" del docstring anterior no estaba garantizado
+    en código -- ``run_nvidia_smi`` (un ``subprocess.run`` real) puede
+    levantar ``OSError``/``FileNotFoundError`` (binario ausente) o
+    ``subprocess.TimeoutExpired`` sin que nada lo capturara aquí, exactamente
+    el tipo de excepción que un manejador de SIGINT/SIGTERM sin segunda
+    oportunidad no puede permitirse.
+    """
     if not getattr(env, "gpu_frequency_write_capable", False):
         # Igual que FRQ-06 en freqctl: nunca se escribió nada, nada que
         # restaurar.
         return True
-    result = run_nvidia_smi(["-rgc"], gpu_index=gpu_index)
+    try:
+        result = run_nvidia_smi(["-rgc"], gpu_index=gpu_index)
+    except (OSError, subprocess.SubprocessError):
+        logger.exception("gpu_freqctl: nvidia-smi -rgc no se pudo ejecutar durante la restauración")
+        return False
     if result.returncode != 0:
         logger.error("gpu_freqctl: nvidia-smi -rgc no confirmó el reset: %s", result.stderr.strip())
         return False
