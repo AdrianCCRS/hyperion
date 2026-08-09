@@ -129,15 +129,32 @@ def check_governor(delegated_cpus: Iterable[int], expected: str | None, cpu_root
     return _result("E07", "Governor efectivo", passed, True, {"governors": observed, "expected": expected}, "El governor efectivo no coincide con el esperado")
 
 
-def check_frequency_write_permission(delegated_cpus: Iterable[int], cpu_root: str | Path | None = None, control_paths: Mapping[int, Mapping[str, str]] | None = None) -> CheckResult:
+def check_frequency_write_permission(
+    delegated_cpus: Iterable[int],
+    cpu_root: str | Path | None = None,
+    control_paths: Mapping[int, Mapping[str, str]] | None = None,
+    required_attrs: Iterable[str] | None = None,
+) -> CheckResult:
+    """E09.
+
+    ARC-95: ``required_attrs`` es, igual que ``check_governor(expected=None)``,
+    la corrección para ``bounded_range`` (intel_pstate/amd-pstate) -- exigir
+    ``scaling_governor`` escribible aquí hacía que E09 bloqueara con
+    exactamente el permiso P1 solicitado (solo scaling_min_freq/max_freq),
+    porque este chequeo nunca se enteró de la misma distinción de
+    estrategia que ya se aplicó en environment.py/check_governor. Por
+    defecto sigue exigiendo los tres atributos (compatibilidad con
+    llamadores que no declaran estrategia).
+    """
+    attrs = tuple(required_attrs) if required_attrs is not None else ("scaling_governor", "scaling_min_freq", "scaling_max_freq")
     root = Path(cpu_root) if cpu_root is not None else load_config().sysfs.cpu_root
     paths = (
-        [Path(path) for cpu in delegated_cpus for path in (control_paths or {}).get(cpu, {}).values()]
+        [Path(path) for cpu in delegated_cpus for name, path in (control_paths or {}).get(cpu, {}).items() if name in attrs]
         if control_paths is not None
         else [
             root / f"cpu{cpu}" / "cpufreq" / filename
             for cpu in delegated_cpus
-            for filename in ("scaling_governor", "scaling_min_freq", "scaling_max_freq")
+            for filename in attrs
         ]
     )
     writable = {str(path): os.access(path, os.W_OK) for path in paths}
@@ -427,12 +444,19 @@ def run_campaign_preflight(
         results.append(check_cgroup_clean(cgroup_path))
     if _requires_frequency_control(manifest):
         control_paths = _value(env, "frequency_control_paths", None)
-        results.append(check_frequency_write_permission(cores, sysfs.cpu_root, control_paths))
-        # ARC-94: "userspace" solo es requisito real del kernel para la
-        # estrategia discrete_bounds (scaling_setspeed, acpi-cpufreq); para
-        # bounded_range (intel_pstate/amd-pstate, fija min=max=target) no
-        # hay un governor obligatorio -- ver check_governor().
+        # ARC-94/95: "userspace"/scaling_governor solo son requisito real del
+        # kernel para la estrategia discrete_bounds (scaling_setspeed,
+        # acpi-cpufreq); para bounded_range (intel_pstate/amd-pstate, fija
+        # min=max=target) no hay governor obligatorio -- ver check_governor().
+        # ARC-95: E09 tenía el mismo bug que E07 ya corrigió -- exigía
+        # scaling_governor escribible sin importar la estrategia, bloqueando
+        # con exactamente el permiso P1 solicitado (solo min/max).
         strategy = _value(env, "frequency_control_strategy", None)
+        required_attrs = (
+            ("scaling_min_freq", "scaling_max_freq") if strategy == "bounded_range"
+            else ("scaling_governor", "scaling_min_freq", "scaling_max_freq")
+        )
+        results.append(check_frequency_write_permission(cores, sysfs.cpu_root, control_paths, required_attrs))
         expected_governor = "userspace" if strategy == "discrete_bounds" else None
         results.append(check_governor(cores, expected_governor, sysfs.cpu_root, control_paths))
         results.append(check_frequency_domain(cores, _value(env, "frequency_domain_cpus", None)))

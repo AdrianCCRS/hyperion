@@ -579,6 +579,28 @@ def test_cam09_fingerprint_cambia_con_argumentos_de_kernel(tmp_path):
     assert campaign.compute_protocol_fingerprint(manifest, catalog_a) != campaign.compute_protocol_fingerprint(manifest, catalog_b)
 
 
+def test_arc95_fingerprint_cambia_con_device_del_kernel(tmp_path):
+    """ARC-95: cambiar un kernel de device=cpu a device=gpu en el catálogo
+    cambia si se le aplica frecuencia de GPU y como se valida su
+    telemetría -- el fingerprint no lo notaba."""
+    manifest = _manifest(tmp_path)
+    catalog_a = _catalog(tmp_path)
+    catalog_b = _catalog(tmp_path)
+    catalog_b["npb_ep"] = _kernel_entry(
+        tmp_path, "npb_ep", device="gpu", operational_intensity_flops_per_byte=5.0, gpu_precision="fp32",
+    )
+
+    assert campaign.compute_protocol_fingerprint(manifest, catalog_a) != campaign.compute_protocol_fingerprint(manifest, catalog_b)
+
+
+def test_arc95_fingerprint_cambia_con_campaign_id(tmp_path):
+    manifest_a = _manifest(tmp_path, campaign_id="campA")
+    manifest_b = _manifest(tmp_path, campaign_id="campB")
+    catalog = _catalog(tmp_path)
+
+    assert campaign.compute_protocol_fingerprint(manifest_a, catalog) != campaign.compute_protocol_fingerprint(manifest_b, catalog)
+
+
 def test_cam03_reanudacion_salta_combinacion_ya_aceptada(tmp_path):
     manifest = _manifest(tmp_path)
     catalog = _catalog(tmp_path)

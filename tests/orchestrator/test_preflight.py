@@ -193,6 +193,50 @@ def test_pre_bounded_range_no_exige_userspace(tmp_path, env):
     assert governor_result.passed is True
 
 
+def test_arc95_e09_bounded_range_no_exige_governor_escribible(tmp_path, env):
+    """ARC-95: E09 tenia el mismo bug que E07 ya corrigio en ARC-94 -- exigia
+    scaling_governor escribible sin importar la estrategia, bloqueando con
+    exactamente el permiso P1 solicitado (solo min/max)."""
+    cpu_path = tmp_path / "sys/cpu2/cpufreq"
+    cpu_path.mkdir(parents=True)
+    (cpu_path / "scaling_governor").write_text("powersave")
+    (cpu_path / "scaling_min_freq").write_text("800000")
+    (cpu_path / "scaling_max_freq").write_text("3600000")
+    os.chmod(cpu_path / "scaling_governor", 0o444)  # sin permiso, como P1 real
+    binary = tmp_path / "kernel"
+    binary.write_text("#!/bin/sh\nexit 0\n")
+    binary.chmod(0o755)
+    checksum = f"sha256:{hashlib.sha256(binary.read_bytes()).hexdigest()}"
+    entry = SimpleNamespace(exec_path=binary, binary_checksum=checksum, success_check={"type": "exit_code"}, estimated_memory_bytes=1)
+    env.frequency_control_strategy = "bounded_range"
+    env.frequency_control_paths = {
+        2: {
+            "scaling_governor": str(cpu_path / "scaling_governor"),
+            "scaling_min_freq": str(cpu_path / "scaling_min_freq"),
+            "scaling_max_freq": str(cpu_path / "scaling_max_freq"),
+        }
+    }
+    manifest = {
+        "cores": {"delegated_cpus": [2]},
+        "smt_policy": "all_threads",
+        "rapl": {"enabled": False},
+        "gpu": {"enabled": False},
+        "output_dir": tmp_path / "salida",
+        "overwrite": False,
+        "calibration": [],
+        "kernels": ["dataset"],
+        "frequency_levels": [{"id": "F0", "mode": "fixed", "fraction": 1.0}],
+        "projected_campaign_bytes": 0,
+        "remaining_core_hours": 1.0,
+        "projected_core_hours": 0.5,
+    }
+    results = preflight.run_campaign_preflight(
+        manifest, env, {"dataset": entry}, sysfs=SysfsPaths.from_base(tmp_path / "sys"), node_profile=SimpleNamespace(pmc_count=0)
+    )
+    e09 = next(r for r in results if r.factor_id == "E09")
+    assert e09.passed is True
+
+
 def test_e09_requiere_permisos_en_todos_los_cores(monkeypatch):
     monkeypatch.setattr(preflight.os, "access", lambda path, mode: "cpu3" not in str(path))
     result = preflight.check_frequency_write_permission([2, 3], "/sys-falso")

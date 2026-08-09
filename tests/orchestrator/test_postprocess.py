@@ -14,14 +14,23 @@ from orchestrator import postprocess
 SAMPLES_HEADER = [
     "run_id", "repetition", "kernel", "label", "timestamp_ns", "tag",
     "instructions", "cycles", "cache_references", "cache_misses",
-    "stalled_cycles_backend", "l2_lines_in_all", "time_enabled_ns", "time_running_ns",
+    "stalled_cycles_backend", "l2_lines_in_all",
+    "fp_scalar_double", "fp_128b_packed_double", "fp_256b_packed_double", "fp_512b_packed_double",
+    "time_enabled_ns", "time_running_ns",
     "pkg_uj", "dram_uj", "pkg_delta_uj", "dram_delta_uj", "energy_delta_valid",
     "gpu_power_mw", "gpu_util_pct", "gpu_mem_util_pct", "gpu_sm_clock_mhz", "gpu_energy_mj", "gpu_temperature_c",
 ]
 
 
 def _cpu_row(*, repetition, ts, instructions, cycles, cache_references, cache_misses,
-             time_enabled, time_running, stalled_cycles_backend=0, l2_lines_in_all=0):
+             time_enabled, time_running, stalled_cycles_backend=0, l2_lines_in_all=0,
+             # ARC-97: "" by default (not 0), matching the launcher's real
+             # empty-not-zero convention for a node/PMU that never opened
+             # these -- most existing fixtures don't care about FLOPs
+             # measurement and must keep exercising the flops_window_estimate
+             # fallback path, exactly as they did before this column existed.
+             fp_scalar_double="", fp_128b_packed_double="",
+             fp_256b_packed_double="", fp_512b_packed_double=""):
     return {
         "run_id": "r", "repetition": repetition, "kernel": "k", "label": "k",
         "timestamp_ns": ts, "tag": "CPU",
@@ -29,6 +38,10 @@ def _cpu_row(*, repetition, ts, instructions, cycles, cache_references, cache_mi
         "cache_references": cache_references, "cache_misses": cache_misses,
         "stalled_cycles_backend": stalled_cycles_backend,
         "l2_lines_in_all": l2_lines_in_all,
+        "fp_scalar_double": fp_scalar_double,
+        "fp_128b_packed_double": fp_128b_packed_double,
+        "fp_256b_packed_double": fp_256b_packed_double,
+        "fp_512b_packed_double": fp_512b_packed_double,
         "time_enabled_ns": time_enabled, "time_running_ns": time_running,
     }
 
@@ -385,6 +398,59 @@ def test_post09_post10_flops_prorateado_y_bytes_con_line_size_del_node_profile(t
     window1 = windows[1]
     assert window1["flops_window_estimate"] == pytest.approx(500_000.0)  # mitad de 1_000_000
     assert window1["bytes_moved_window"] == 1_000 * 128  # linea real del node_profile, no 64 hardcodeado
+    # ARC-97: sin columnas fp_* pobladas (nodo sin FP_ARITH_INST_RETIRED),
+    # operational_intensity debe seguir cayendo al prorrateo, exactamente
+    # como antes de que existiera la medicion directa.
+    assert window1["flops_measured_window"] is None
+    assert window1["flops_source"] == "estimated"
+
+
+def test_arc97_flops_medidos_por_hardware_reemplazan_al_prorrateo(tmp_path):
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0,
+                 fp_scalar_double=0, fp_128b_packed_double=0,
+                 fp_256b_packed_double=0, fp_512b_packed_double=0),
+        _cpu_row(repetition=1, ts=1_001_000_000, instructions=4_000_000, cycles=2_000_000,
+                 cache_references=200_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000,
+                 # 10 scalar*1 + 10 128B*2 + 10 256B*4 + 10 512B*8 = 10+20+40+80 = 150 flops
+                 fp_scalar_double=10, fp_128b_packed_double=10,
+                 fp_256b_packed_double=10, fp_512b_packed_double=10),
+    ])
+    # run_flops_total deliberadamente muy distinto del valor medido, para que
+    # el assert de abajo solo pueda pasar si de verdad se prefirio la medida
+    # por hardware sobre el prorrateo (que daria 1_000_000.0, no 150.0).
+    windows = postprocess.build_windows(
+        samples, _context(run_flops_total=1_000_000.0, llc_line_size_bytes=128)
+    )
+
+    window1 = windows[1]
+    assert window1["flops_measured_window"] == 150.0
+    assert window1["flops_source"] == "measured"
+    assert window1["flops_window_estimate"] == pytest.approx(1_000_000.0)  # se sigue calculando (auditoria)
+    assert window1["operational_intensity"] == pytest.approx(150.0 / (1_000 * 128))  # usa la medida, no el prorrateo
+
+
+def test_arc97_delta_fp_negativo_marca_pmu_degraded(tmp_path):
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0,
+                 fp_scalar_double=50, fp_128b_packed_double=0,
+                 fp_256b_packed_double=0, fp_512b_packed_double=0),
+        _cpu_row(repetition=1, ts=1_001_000_000, instructions=4_000_000, cycles=2_000_000,
+                 cache_references=200_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000,
+                 # fp_scalar_double bajo de 50 a 10: delta negativo, mismo
+                 # tratamiento que un contador de nucleo que retrocede.
+                 fp_scalar_double=10, fp_128b_packed_double=0,
+                 fp_256b_packed_double=0, fp_512b_packed_double=0),
+    ])
+    windows = postprocess.build_windows(samples, _context(run_flops_total=1_000_000.0))
+
+    window1 = windows[1]
+    assert window1["quality_status"] == "pmu_degraded"
+    assert window1["flops_measured_window"] is None  # valid_counters=False lo bloquea
 
 
 def test_post11_phase_label_train_por_roofline_no_por_hint(tmp_path):
@@ -493,6 +559,53 @@ def test_arc94_filas_gpu_excluyen_calentamiento(tmp_path):
     usable = [w for w in gpu_windows if w["quality_status"] == "gpu_telemetry"]
     assert len(usable) == 2
     assert usable[0]["gpu_power_mw"] == 45000
+
+
+def test_arc95_filas_gpu_calculan_delta_de_energia(tmp_path):
+    """ARC-95: gpu_energy_mj es un contador acumulado (igual que pkg_uj de
+    RAPL) -- sin un delta por ventana no es insumo utilizable para EDP de
+    GPU. Primera fila sin predecesor -> invalida, igual que RAPL."""
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0),
+        _gpu_row(repetition=1, ts=1_000_100_000, gpu_power_mw=45000, gpu_util_pct=80,
+                  gpu_energy_mj=1_000_000),
+        _gpu_row(repetition=1, ts=1_000_200_000, gpu_power_mw=45000, gpu_util_pct=80,
+                  gpu_energy_mj=1_004_500),
+        _gpu_row(repetition=1, ts=1_000_300_000, gpu_power_mw=45000, gpu_util_pct=80,
+                  gpu_energy_mj=1_009_000),
+    ])
+    windows = postprocess.build_windows(samples, _context())
+    gpu_rows = sorted(
+        (w for w in windows if w["quality_status"] == "gpu_telemetry"),
+        key=lambda w: w["t_end_ns"],
+    )
+    assert gpu_rows[0]["gpu_energy_delta_mj"] is None
+    assert gpu_rows[0]["gpu_energy_valid"] is False
+    assert gpu_rows[1]["gpu_energy_delta_mj"] == 4500
+    assert gpu_rows[1]["gpu_energy_valid"] is True
+    assert gpu_rows[2]["gpu_energy_delta_mj"] == 4500
+    assert gpu_rows[2]["gpu_energy_valid"] is True
+
+
+def test_arc95_filas_gpu_energia_invalida_si_el_contador_retrocede(tmp_path):
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0),
+        _gpu_row(repetition=1, ts=1_000_100_000, gpu_power_mw=45000, gpu_util_pct=80,
+                  gpu_energy_mj=1_000_000),
+        _gpu_row(repetition=1, ts=1_000_200_000, gpu_power_mw=45000, gpu_util_pct=80,
+                  gpu_energy_mj=500),  # el contador retrocedio (reinicio del driver)
+    ])
+    windows = postprocess.build_windows(samples, _context())
+    gpu_rows = sorted(
+        (w for w in windows if w["quality_status"] == "gpu_telemetry"),
+        key=lambda w: w["t_end_ns"],
+    )
+    assert gpu_rows[1]["gpu_energy_delta_mj"] is None
+    assert gpu_rows[1]["gpu_energy_valid"] is False
 
 
 def test_arc94_filas_gpu_propagan_reloj_sm_energia_y_temperatura(tmp_path):

@@ -69,12 +69,25 @@ def compute_protocol_fingerprint(manifest: Any, catalog: Mapping[str, Any]) -> s
             "success_check": getattr(catalog[ref], "success_check", None),
             "operational_intensity_flops_per_byte": getattr(catalog[ref], "operational_intensity_flops_per_byte", None),
             "gpu_precision": getattr(catalog[ref], "gpu_precision", None),
+            # ARC-95: cambiar device (cpu<->gpu) de un kernel en el catálogo
+            # cambia si se le aplica frecuencia de GPU y si su telemetría se
+            # valida como CPU u GPU en validate_windows() -- sin este campo
+            # el fingerprint no lo notaba.
+            "device": getattr(catalog[ref], "device", None),
         }
         for ref in references
         if ref in catalog
     ]
     cores = manifest.cores
     payload = {
+        # ARC-95: campaign_id entra en build_run_id() -- si cambia, TODOS
+        # los run_id de esta carpeta cambian de forma (no hay colisión
+        # posible con corridas viejas), así que no es un riesgo de mezcla
+        # silenciosa como los demás campos. Se incluye de todas formas para
+        # que dos manifiestos que solo difieran en campaign_id dentro del
+        # mismo output_dir queden marcados como protocolos distintos, en
+        # vez de indistinguibles.
+        "campaign_id": manifest.campaign_id,
         "interval_ns": manifest.interval_ns,
         "gpu_interval_ns": getattr(manifest, "gpu_interval_ns", None),
         "running_ratio_min": manifest.running_ratio_min,
