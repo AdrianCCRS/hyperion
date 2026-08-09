@@ -1,0 +1,16 @@
+elapsed_seconds,interval_ns,ipc_mean,kernel_ref,n_windows_ok,n_windows_total,quality_json,repetition,sampling_interval_cv_pct,success
+3.0244116950780153,500000,2.8060796958606655,dgemm_n2048,4922,5924,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 1000, ""ok"": 4922, ""intensity_undefined"": 1}",1,0.183634,True
+3.0745045049116015,500000,2.7931877759430925,dgemm_n2048,4944,5945,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 1000, ""ok"": 4944}",2,0.184952,True
+3.0247692558914423,500000,2.795071506664952,dgemm_n2048,4937,5938,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 1000, ""ok"": 4937}",3,0.184132,True
+3.0249165119603276,1000000,2.7991692287406504,dgemm_n2048,2458,2959,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 500, ""ok"": 2458}",1,0.118316,True
+3.0236446568742394,1000000,2.7989297925638548,dgemm_n2048,2461,2962,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 500, ""ok"": 2461}",2,0.428151,True
+3.0246365889906883,1000000,2.7942483588384768,dgemm_n2048,2459,2960,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 500, ""ok"": 2459}",3,0.116754,True
+3.0250014308840036,2000000,2.7980858865953193,dgemm_n2048,1226,1477,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 250, ""ok"": 1226}",1,0.17991,True
+3.0249967630952597,2000000,2.798893325949009,dgemm_n2048,1226,1477,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 250, ""ok"": 1226}",2,0.192223,True
+3.0240851687267423,2000000,2.794365686035975,dgemm_n2048,1229,1480,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 250, ""ok"": 1229}",3,0.202591,True
+3.023768287152052,5000000,2.809076086553011,dgemm_n2048,488,589,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 100, ""ok"": 488}",1,0.0515112,True
+3.0242045866325498,5000000,2.799042486203306,dgemm_n2048,490,591,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 100, ""ok"": 490}",2,0.057578,True
+3.0242245960980654,5000000,2.8050101578323834,dgemm_n2048,489,590,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 100, ""ok"": 489}",3,0.0633958,True
+3.0246420111507177,10000000,2.804234721176461,dgemm_n2048,244,295,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 50, ""ok"": 244}",1,0.0400206,True
+3.0245617097243667,10000000,2.795558958304387,dgemm_n2048,245,296,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 50, ""ok"": 245}",2,0.040074,True
+3.0246370574459434,10000000,2.800742639841887,dgemm_n2048,244,295,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 50, ""ok"": 244}",3,0.0377662,True

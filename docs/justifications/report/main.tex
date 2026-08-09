@@ -1,0 +1,221 @@
+\documentclass[11pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{amsmath}
+\usepackage[numbers]{natbib}
+\usepackage{xcolor}
+\usepackage{float}
+\usepackage{hyperref}
+\usepackage{parskip}
+
+\hypersetup{colorlinks=true, linkcolor=black, citecolor=black, urlcolor=blue}
+
+\title{Justificación empírica y teórica de los hiperparámetros \\ experimentales de la campaña de caracterización (Fase 1)}
+\author{Proyecto Hyperion}
+\date{Agosto de 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Este documento audita, con evidencia empírica recolectada en \texttt{paccaA100}
+mediante campañas de barrido dedicadas y no contaminantes de los datos reales
+del catálogo, cada uno de los valores numéricos de decisión del diseño
+experimental de la Fase 1 del proyecto: cadencias de muestreo, número de
+repeticiones, ventanas objetivo, tolerancias de calibración, márgenes de
+seguridad de calentamiento y de \textit{timeout}, y niveles de frecuencia
+previstos. Para cada parámetro se reporta el valor actual, la evidencia
+directa que sostiene o cuestiona ese valor, y --- cuando la medición directa no
+es posible o no es la vía adecuada --- la justificación teórica o de estado
+del arte correspondiente. Ningún parámetro queda sin veredicto explícito,
+pero el veredicto se formula con el cuidado correspondiente: donde la
+evidencia sostiene ``valor razonable y verificado en esta plataforma'' se
+usa esa formulación, reservando ``confirmado'' u ``óptimo'' para los casos
+donde la medición efectivamente lo sostiene. Una revisión posterior de este
+mismo trabajo corrigió varias afirmaciones sobredimensionadas de una
+versión anterior (Secciones~\ref{sec:interval-ns},
+\ref{sec:gpu-interval-ns}, \ref{sec:repetitions}), corrigió dos errores
+bibliográficos y una temperatura de referencia mal citada, y añadió una
+confirmación aleatorizada de los casos frontera más citados
+(Sección~\ref{sec:randomized-confirmation}) y el cierre por medición
+directa de dos parámetros adicionales (\texttt{smt\_policy} y la
+convergencia de \texttt{rodinia\_lud} en el perfilado con \texttt{ncu}).
+\end{abstract}
+
+\tableofcontents
+\clearpage
+
+\section{Metodología del barrido}
+\label{sec:metodologia}
+
+Todas las campañas de barrido de este documento se ejecutaron sobre
+\texttt{paccaA100} usando el mismo instrumento de medición que las campañas
+reales de construcción del conjunto de datos (\texttt{orchestrator/runner.py},
+\texttt{orchestrator/postprocess.py}), invocado kernel por kernel
+(\texttt{runner.run\_single()}) en vez de a través de la orquestación completa
+de campaña, para mantener acotado el costo de cómputo en una cuenta
+compartida. Los resultados se escriben en un árbol de salida completamente
+separado (\texttt{hyperion-results/sweeps/}) de las campañas reales de
+construcción del catálogo (\texttt{hyperion-results/campaigns/}), de modo
+que ningún barrido contamina el conjunto de datos de Fase 1. Los scripts
+correspondientes viven en \texttt{docs/justifications/scripts/}. Los datos
+en \texttt{docs/justifications/data/} son, en su mayoría, \textbf{resúmenes
+por corrida ya procesados} (un valor agregado por combinación
+kernel/parámetro/repetición), suficientes para verificar las cifras de
+este informe; la excepción es el Sweep E (sensibilidad del detector de
+calentamiento), cuyas trazas ventana-por-ventana sí se conservan completas
+en \texttt{data/raw\_for\_sweep\_e/}. Los datos verdaderamente crudos de
+los demás barridos (\texttt{samples.csv} por corrida, los CSV originales
+de \texttt{ncu} por lanzamiento, la salida estándar de las 50
+calibraciones) \textbf{no se trajeron al repositorio} -- permanecen en
+\texttt{paccaA100} bajo \texttt{hyperion-results/sweeps/} (ver
+\texttt{docs/justifications/campaigns/README.md}). Reproducir un análisis puntual sobre esos crudos (como el conteo de
+actualizaciones de potencia NVML de la Sección~\ref{sec:gpu-interval-ns})
+requiere volver a acceder a esos archivos en el nodo, no solo a este
+repositorio -- una limitación real de reproducibilidad, aceptada aquí por
+el volumen de datos involucrado y el alcance de un proyecto de pregrado,
+no resuelta con infraestructura de archivado adicional.
+
+Una restricción real del clúster condicionó el diseño de estos barridos: el
+binario del instrumento de medición está enlazado incondicionalmente contra
+\texttt{libnvidia-ml.so.1} (NVML), incluso para kernels puramente de CPU, así
+que \emph{toda} corrida --- CPU o GPU --- debe ejecutarse en el único nodo
+con GPU del clúster (\texttt{paccaA100}), compartido con el resto de usuarios
+de la infraestructura. En consecuencia, el alcance de cada barrido (número de
+kernels, número de puntos por parámetro, número de repeticiones) se
+dimensionó para mantener el uso total del recurso compartido en un rango de
+minutos a pocas horas, documentado explícitamente en cada sección cuando el
+alcance se redujo por esta razón.
+
+\textbf{Limitación metodológica declarada, con una corrección importante}:
+los barridos principales (\texttt{interval\_ns}, \texttt{gpu\_interval\_ns})
+invocan \texttt{runner.run\_single()} directamente, sin pasar por
+\texttt{run\_campaign\_preflight}. Una versión anterior de este análisis
+afirmaba que esto era seguro porque E08 (carga externa) y E02 (temperatura)
+``ya se verificaron al iniciar la sesión de barrido'' -- esa afirmación era
+falsa y se corrige aquí: al revisar el código directamente,
+\texttt{run\_campaign\_preflight} \textbf{no ejecuta ningún chequeo de E02
+ni E08} (esos viven en \texttt{run\_reduced\_preflight}, pensado para
+correr por combinación, antes de cada corrida individual -- no antes de la
+campaña completa); \texttt{cli.py} invoca \texttt{run\_campaign\_preflight}
+una sola vez, al inicio de la campaña, mientras que
+\texttt{run\_reduced\_preflight}, a su vez, \textbf{no es invocado en
+ningún punto de \texttt{campaign.py} en producción} -- existe y tiene
+pruebas unitarias propias, pero nunca se llama antes de cada combinación
+en una campaña real (\texttt{campaign.py} sí verifica E06, procesos
+ajenos, antes de cada combinación -- pero no E02 ni E08). Peor aún,
+\texttt{Manifest} no declara un campo \texttt{package\_temperature\_c},
+así que aunque se llamara, \texttt{check\_temperature(None, ...)} aprueba
+el chequeo de forma no bloqueante con el mensaje ``no hay sensor
+disponible''.
+
+Un hallazgo de la misma naturaleza, encontrado en la misma revisión de
+código: el preflight de GPU (G01--G03, dentro de \texttt{check\_gpu}) solo
+se ejecuta si el manifiesto declara \texttt{gpu.enabled: true} -- y el
+manifiesto de referencia GPU del proyecto
+(\texttt{campaign\_pacca\_gpu\_ref.yaml}) declara
+\texttt{gpu.enabled: false}, así que G01--G03 nunca corren, aunque el
+\texttt{runner} sí activa NVML para los kernels GPU. Además, \texttt{cli.py}
+no le pasa ningún \texttt{gpu\_inspector} a
+\texttt{run\_campaign\_preflight}, así que aunque \texttt{gpu.enabled}
+fuera \texttt{true}, \texttt{check\_gpu(None)} tampoco tendría con qué
+verificar procesos CUDA ajenos, modo persistente ni configuración MIG.
+
+En otras palabras: \textbf{E02, E08 y el preflight de GPU no se verifican
+hoy en ninguna campaña real del proyecto}, ni en los barridos de este
+informe ni en las campañas de producción de Fase 1 -- este es un hallazgo
+de auditoría sobre el instrumento mismo, no solo sobre el diseño de estos
+barridos, y se documenta con el mismo nivel de seriedad que el defecto de
+datos de \texttt{rodinia\_heartwall} (Sección~\ref{sec:balance}). Por
+alcance de un proyecto de pregrado, este informe documenta el hallazgo y
+lo deja como prerrequisito explícito antes de la campaña DVFS definitiva
+-- integrar estos tres chequeos en el flujo de producción real es trabajo
+de implementación fuera del alcance de esta auditoría de parámetros.
+
+Un efecto colateral real, ahora secundario frente a lo anterior, es que las
+combinaciones de cada
+barrido se ejecutaron en \textbf{orden fijo, no aleatorizado} (todas las
+repeticiones de un valor de parámetro antes de pasar al siguiente). En un
+nodo compartido como \texttt{paccaA100}, esto abre la puerta a que una
+deriva temporal del nodo (otro proceso de otro usuario iniciando o
+terminando durante el barrido) se confunda con el efecto del parámetro que
+se está midiendo. Para acotar este riesgo sin repetir las $\sim$375
+corridas completas de esos dos barridos, la Sección~\ref{sec:randomized-confirmation} reporta
+una confirmación dirigida, pequeña y con orden aleatorizado, sobre los dos
+casos frontera más citados de este informe.
+
+\textbf{Nota metodológica transversal}: todos los CV\% de este informe se
+calculan con desviación estándar poblacional (denominador $n$), no
+muestral (denominador $n-1$) -- una convención de los scripts de análisis,
+no un error, pero que subestima el CV\% frente al estimador muestral
+habitual en una proporción que crece cuando $n$ es pequeño ($\sqrt{n/(n-1)}$:
+$\approx$22\,\% para $n=3$, $\approx$12\,\% para $n=5$, $\approx$5\,\% para
+$n=10$). Se detalla con su magnitud exacta donde más importa
+(Sección~\ref{sec:repetitions}, $n=3$).
+
+\section{Confirmación aleatorizada de los casos frontera}
+\label{sec:randomized-confirmation}
+
+\input{sections/randomized_confirmation.tex}
+
+\section{Cadencia de muestreo de CPU (\texttt{interval\_ns})}
+\label{sec:interval-ns}
+
+\input{sections/interval_ns.tex}
+
+\section{Cadencia de muestreo de GPU (\texttt{gpu\_interval\_ns})}
+\label{sec:gpu-interval-ns}
+
+\input{sections/gpu_interval_ns.tex}
+
+\section[Repeticiones y ventanas objetivo]{Número de repeticiones (\texttt{repetitions\_per\_combination}) y ventanas objetivo (\texttt{target\_windows\_per\_repetition})}
+\label{sec:repetitions}
+
+\input{sections/repetitions.tex}
+
+\section{Política de \textit{hyperthreading} (\texttt{smt\_policy})}
+\label{sec:smt-policy}
+
+\input{sections/smt_policy.tex}
+
+\section{Sensibilidad del detector de calentamiento}
+\label{sec:warmup-sensitivity}
+
+\input{sections/warmup_sensitivity.tex}
+
+\section{Convergencia del número de lanzamientos perfilados con \texttt{ncu}}
+\label{sec:ncu-convergence}
+
+\input{sections/ncu_convergence.tex}
+
+\section{Distribución empírica de la calibración Roofline}
+\label{sec:calibration-distribution}
+
+\input{sections/calibration_distribution.tex}
+
+\section{Parámetros justificados por estado del arte, sin barrido dedicado}
+\label{sec:literatura}
+
+\input{sections/literatura.tex}
+
+\section{Tabla maestra: los 24 parámetros, estado real y evidencia}
+\label{sec:master-table}
+
+\input{sections/master_table.tex}
+
+\section{Balance final}
+\label{sec:balance}
+
+\input{sections/balance.tex}
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

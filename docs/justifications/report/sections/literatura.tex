@@ -1,0 +1,132 @@
+Los tres parámetros de esta sección no quedan sin cerrar por alcance o
+descuido: cada uno tiene un veredicto explícito y una razón concreta por
+la que la medición directa no es la vía adecuada hoy -- un permiso externo
+pendiente en un caso, una decisión ética deliberada de no interferir con
+infraestructura compartida en otro, y una dependencia real de resultados
+que todavía no existen (Fase 4) en el tercero. Ninguno queda como
+``trabajo futuro'' genérico: cada uno indica la condición exacta que, de
+cumplirse, permitiría cerrarlo con medición.
+
+\subsection{Niveles de frecuencia previstos (F0--F4)}
+
+Los manifiestos de producción declaran cinco niveles fijos equiespaciados
+(100\,\%, 75\,\%, 50\,\%, 25\,\% y 0\,\% del rango real de frecuencia
+detectado en el nodo) además del nivel de referencia (gobernador nativo).
+Esta elección no puede verificarse empíricamente hoy: requiere el permiso
+de escritura de frecuencia (P1 para CPU, P4 para GPU), que sigue sin
+llegar a la fecha de este informe. Tampoco se encontró en la literatura ya
+revisada una recomendación explícita sobre cuántos puntos son suficientes
+para caracterizar la curva DVFS de una carga: Guerreiro et al.
+\citep{Guerreiro2019} infieren el resto del espacio de frecuencias a partir
+de una única frecuencia base, sin barrer puntos uniformes; Ali et al.
+\citep{Ali2023} parten igualmente de una configuración base y extrapolan de
+forma analítica el resto del espacio, en vez de medir en un conjunto fijo
+de puntos como aquí. La elección de cinco puntos equiespaciados es
+razonable como decisión de diseño (visibiliza la forma de la curva sin
+disparar el tamaño de la matriz experimental), pero no está anclada a un
+estudio específico. Queda como pendiente explícito: en cuanto lleguen los
+permisos, correr primero un reconocimiento con más puntos (por ejemplo,
+nueve, cada 12{,}5\,\%) sobre dos o tres kernels representativos para
+verificar si cinco puntos ya capturan la forma real de la curva.
+
+\subsection{Umbral de carga externa (E08) y rango de temperatura (E02)}
+
+\textbf{Corrección importante respecto a una versión anterior de este
+análisis, y hallazgo más serio que una simple falta de barrido}: no es
+solo que E08 y E02 se excluyan deliberadamente de prueba de estrés por
+razones éticas -- una revisión del código de \texttt{preflight.py} y
+\texttt{campaign.py} encontró que \textbf{ninguno de los dos chequeos se
+ejecuta hoy en ninguna campaña real}. \texttt{run\_campaign\_preflight}
+(el preflight que sí se invoca en producción) no incluye ni E02 ni E08;
+ambos viven en \texttt{run\_reduced\_preflight}, una función con pruebas
+unitarias propias pero que \texttt{campaign.py} nunca llama. Y aunque se
+llamara, \texttt{Manifest} no declara el campo
+\texttt{package\_temperature\_c} que \texttt{check\_temperature} necesita
+-- con ese campo ausente (\texttt{None}), el chequeo aprueba de forma no
+bloqueante con el mensaje ``no hay sensor disponible'', nunca bloquea
+nada. El mismo tipo de hallazgo aplica al preflight de GPU (G01--G03): el
+manifiesto de referencia GPU declara \texttt{gpu.enabled: false}, así que
+esos chequeos tampoco corren hoy, y ni siquiera se les pasa un inspector
+NVML desde \texttt{cli.py}. Este hallazgo se documenta con el mismo
+detalle en la Sección~\ref{sec:metodologia} y en el balance final
+(Sección~\ref{sec:balance}); aquí se completa con la justificación
+teórica de cada umbral, ahora explícitamente como un umbral \emph{sin
+mecanismo de verificación activo}, no como un umbral verificado pero sin
+barrido de estrés.
+
+E08 (carga externa normalizada $\leq 1{,}0$) se apoya en la convención
+estándar de "nodo no saturado" en HPC, pero merece una precisión: el
+propio \texttt{/proc/loadavg} cuenta procesos ejecutables o en espera de
+E/S a nivel de \emph{todo el sistema}, no solo los de los núcleos
+delegados a la corrida -- dividir esa cifra global entre 6 núcleos
+delegados no aísla, por sí solo, si la contaminación ocurre específicamente
+sobre esos 6 núcleos o en otra parte del nodo (irrelevante para la corrida
+si el nodo tiene núcleos libres en otro socket). El umbral sigue siendo una
+señal razonable de saturación general del nodo, pero no un chequeo preciso
+de aislamiento por núcleo -- y, de cualquier forma, hoy no se ejecuta en
+ninguna corrida real por el hallazgo anterior.
+
+E02 (temperatura de paquete en $[0,90]\,^{\circ}\text{C}$) queda
+\textbf{solo parcialmente} justificado por ficha técnica, no confirmado:
+la hoja de especificaciones de Intel ARK para el SKU exacto del nodo (Xeon
+Gold 5315Y, ARK 215286) documenta una temperatura de caja máxima
+($T_{\text{case}}$) de 81\,$^{\circ}$C, no
+90\,$^{\circ}$C.\footnote{\url{https://www.intel.com/content/www/us/en/products/sku/215286/}}
+La temperatura de unión máxima ($T_j$máx, un límite distinto y típicamente
+más alto que $T_{\text{case}}$) no tiene, hasta donde se pudo verificar en
+esta revisión, una cifra pública específica para este SKU en ARK -- una
+versión anterior de este análisis citaba un rango de 100--110\,$^{\circ}$C
+sin fuente oficial que lo respaldara para este procesador en particular, y
+se retira aquí por no estar verificado, en vez de mantenerlo sin cita. Lo
+que sí queda establecido con fuente verificable es que $T_{\text{case}}$
+(81\,$^{\circ}$C) es menor que el umbral configurado (90\,$^{\circ}$C),
+así que el margen de seguridad no puede compararse directamente contra
+$T_{\text{case}}$ sin aclarar que son magnitudes distintas: ninguna
+corresponde exactamente a lo que \texttt{coretemp} reportaría si el sensor
+estuviera conectado -- \texttt{coretemp} entrega un DTS (\textit{Digital
+Thermal Sensor}) relativo a $T_j$máx, no una lectura directa de
+$T_{\text{case}}$; y RAPL, aunque está habilitado en este nodo, mide
+energía consumida, no temperatura -- ninguno de los dos provee hoy el dato
+que \texttt{package\_temperature\_c} necesitaría. Diseñar E02 comparando
+directamente una futura lectura DTS de \texttt{coretemp} contra
+$T_{\text{case}}$ sería, por esta razón, metodológicamente incorrecto; el
+chequeo, si se activa, debería compararse contra un límite expresado en
+los mismos términos que el sensor real (DTS relativo a $T_j$máx). Así que
+90\,$^{\circ}$C no puede describirse como "el umbral típico verificado", y
+merece una precisión más incómoda que la de una versión anterior de este
+análisis: 90\,$^{\circ}$C está \emph{por encima}, no por debajo, de la
+única cifra con fuente oficial verificada para este SKU
+($T_{\text{case}}=81\,^{\circ}\text{C}$). Que 90\,$^{\circ}$C sea o no un
+margen conservador depende enteramente de $T_j$máx (típicamente mayor que
+$T_{\text{case}}$ en procesadores Intel modernos, pero sin cifra pública
+verificada para este SKU específico) -- una afirmación que no se puede
+confirmar ni descartar con la evidencia disponible hoy. En ausencia de esa
+cifra, lo único que puede decirse con evidencia real es que 90\,$^{\circ}$C
+no está anclado a ningún límite térmico verificado y publicado por Intel
+para este procesador exacto -- una versión previa de este análisis
+afirmaba lo contrario (que 90\,$^{\circ}$C sí correspondía a un umbral
+documentado), lo cual se corrige aquí.
+
+\subsection{Peso del Producto Energía-Retardo (Fase 4)}
+
+El peso $w$ de $EDP = E \cdot T^{w}$ tiene precedente para ambos valores
+usuales en la literatura ya citada en el marco conceptual del proyecto --
+$w=1$ (EDP clásico, Laros et al. \citep{Laros2013}) y $w=2$ ($ED^2P$,
+evaluado junto con EDP por Ali et al. \citep{Ali2023} cuando se quiere
+penalizar más fuertemente la degradación de rendimiento). Una versión
+previa de este análisis proponía diferir la elección de $w$ hasta observar
+los resultados de Fase 4 -- eso es metodológicamente incorrecto incluso sin
+mala intención: decidir la métrica de evaluación \emph{después} de ver qué
+resultado produce cada una abre la puerta, aunque no sea deliberado, a
+escoger implícitamente la que favorezca al agente de control.
+
+Este informe corrige eso fijando, desde ahora, $w=1$ (EDP clásico) como
+\textbf{métrica primaria pre-registrada} de la Fase 4: es la formulación
+con la que el objetivo del proyecto está planteado en el documento
+metodológico principal, y no depende de ninguna medición pendiente. $ED^2P$
+($w=2$) se reporta como \textbf{análisis de sensibilidad secundario} en
+Fase 4 -- útil para mostrar si la conclusión cualitativa (el agente ahorra
+energía sin degradar tiempo de forma inaceptable) es robusta a cuánto se
+penaliza el retardo, pero nunca como la métrica que decide si el agente
+"funciona". Fijar esto ahora, antes de tener datos de Fase 4, es
+precisamente lo que evita la selección posterior de métrica.

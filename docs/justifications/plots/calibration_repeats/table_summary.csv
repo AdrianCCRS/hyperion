@@ -1,0 +1,6 @@
+kernel_ref,mean,cv_pct,deviation_vs_datasheet_pct
+ert_probe,71839200000.0,0.1271,0.2289
+gpu_ert_probe_fp32,10178091400000.0,0.0012,
+gpu_ert_probe_fp64,4698581200000.0,0.0,
+gpu_stream_bw,1265944083100.0,0.628,
+stream_official,58412190000.0,0.5926,0.0999

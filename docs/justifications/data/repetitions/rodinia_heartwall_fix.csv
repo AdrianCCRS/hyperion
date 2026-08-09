@@ -1,0 +1,11 @@
+device,elapsed_seconds,kernel_ref,n_windows_total,quality_json,repetition,success,target_windows_per_repetition,windows_achieved
+gpu,6.4841828579083085,rodinia_heartwall,7097,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 217, ""pmu_degraded"": 4079, ""intensity_undefined"": 1740, ""gpu_telemetry"": 1060}",1,True,5,1060
+gpu,6.484918415546417,rodinia_heartwall,7091,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 211, ""pmu_degraded"": 4099, ""intensity_undefined"": 1722, ""gpu_telemetry"": 1058}",2,True,5,1058
+gpu,6.4841955518350005,rodinia_heartwall,7090,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 210, ""pmu_degraded"": 4093, ""intensity_undefined"": 1728, ""gpu_telemetry"": 1058}",3,True,5,1058
+gpu,6.486163664609194,rodinia_heartwall,7093,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 212, ""pmu_degraded"": 4068, ""intensity_undefined"": 1751, ""gpu_telemetry"": 1061}",4,True,5,1061
+gpu,6.482871003448963,rodinia_heartwall,7098,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 212, ""pmu_degraded"": 4102, ""intensity_undefined"": 1725, ""gpu_telemetry"": 1058}",5,True,5,1058
+gpu,6.4334701504558325,rodinia_heartwall,7097,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 212, ""pmu_degraded"": 4072, ""intensity_undefined"": 1736, ""gpu_telemetry"": 1076}",6,True,5,1076
+gpu,6.484004863537848,rodinia_heartwall,7091,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 212, ""pmu_degraded"": 4080, ""intensity_undefined"": 1739, ""gpu_telemetry"": 1059}",7,True,5,1059
+gpu,6.48423848580569,rodinia_heartwall,7108,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 211, ""pmu_degraded"": 4066, ""intensity_undefined"": 1753, ""gpu_telemetry"": 1077}",8,True,5,1077
+gpu,6.4844960160553455,rodinia_heartwall,7090,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 208, ""pmu_degraded"": 4098, ""intensity_undefined"": 1725, ""gpu_telemetry"": 1058}",9,True,5,1058
+gpu,6.484134828671813,rodinia_heartwall,7110,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 216, ""pmu_degraded"": 4083, ""intensity_undefined"": 1732, ""gpu_telemetry"": 1078}",10,True,5,1078
