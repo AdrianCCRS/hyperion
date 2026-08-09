@@ -1,0 +1,222 @@
+Este informe corrió ocho campañas de barrido dedicadas en \texttt{paccaA100},
+separadas por completo del árbol de resultados de las campañas reales de
+construcción del catálogo (\texttt{hyperion-results/sweeps/} vs.\
+\texttt{hyperion-results/campaigns/}), para auditar con evidencia directa
+los parámetros de diseño experimental de la Fase 1. La
+Tabla~\ref{tab:run-accounting} desglosa la contabilidad exacta de corridas,
+separando \textbf{corridas válidas retenidas para el análisis} de
+\textbf{invocaciones inválidas ya reemplazadas} -- estas últimas no se
+descartan del registro histórico: son precisamente la evidencia de los dos
+defectos de infraestructura documentados en este informe
+(\texttt{dgemm\_n2048}/\texttt{libopenblas.so.0}, y el video truncado de
+\texttt{rodinia\_heartwall}).
+
+\begin{table}[H]
+\centering
+\caption{Contabilidad de invocaciones del harness, por barrido.}
+\label{tab:run-accounting}
+\small
+\begin{tabular}{@{}lrrl@{}}
+\toprule
+\textbf{Barrido} & \textbf{Válidas} & \textbf{Inválidas reemplazadas} & \textbf{Cálculo (válidas)} \\
+\midrule
+\texttt{interval\_ns} (Sección~\ref{sec:interval-ns}) & 105 & 15 (\texttt{dgemm\_n2048}) & 7 kernels $\times$ 5 cadencias $\times$ 3 reps \\
+\texttt{gpu\_interval\_ns} (Sección~\ref{sec:gpu-interval-ns}) & 120 & 15 (\texttt{rodinia\_heartwall}) & 8 kernels $\times$ 5 cadencias $\times$ 3 reps \\
+\texttt{repetitions} (Sección~\ref{sec:repetitions}) & 150 & 20 (10 \texttt{dgemm\_n2048} + 10 \texttt{rodinia\_heartwall}) & 15 kernels $\times$ 10 reps \\
+\texttt{smt\_policy} (Sección~\ref{sec:smt-policy}) & 10 & 0 & 2 políticas $\times$ 5 reps \\
+Confirmación aleatorizada (Sección~\ref{sec:randomized-confirmation}) & 24 & 0 & 18 CPU + 6 GPU \\
+\midrule
+\textbf{Total} & \textbf{409} & \textbf{50} & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+En total, el harness se invocó \textbf{459 veces} (409 válidas + 50
+inválidas reemplazadas) a lo largo de estos ocho barridos. Todas las
+cifras de este informe (medias, CV\%, tablas) usan únicamente las 409
+corridas válidas -- las 50 inválidas se muestran aquí por transparencia de
+auditoría, no porque contribuyan al análisis. Aparte de estas, se
+perfilaron 24 combinaciones independientes con
+\texttt{ncu} (21 del barrido F original + 3 de la extensión de
+\texttt{rodinia\_lud}) y se corrieron 50 calibraciones repetidas -- ninguna
+de las dos usa \texttt{runner.run\_single()}, así que no se suman al total
+de corridas del harness. Los reintentos por fallos de infraestructura
+(\texttt{dgemm\_n2048} por \texttt{libopenblas.so.0} ausente,
+\texttt{rodinia\_heartwall} por el video truncado) \textbf{reemplazan}
+corridas ya contadas en su barrido original -- no se cuentan aparte, para
+no inflar el total con corridas que en su momento fueron inválidas y
+después se repitieron. La Sección~\ref{sec:master-table} recoge el estado
+real de los 24 parámetros identificados originalmente; este balance resume
+las conclusiones cualitativas, con el cuidado de no reclamar más de lo que
+cada medición sostiene.
+
+\textbf{Valor razonable y conservador, verificado en esta plataforma} --
+la formulación correcta para la mayoría de estos parámetros, distinta de
+``valor óptimo demostrado'': \texttt{interval\_ns} (1\,ms es el primer
+punto donde el riesgo de jitter severo cae de forma abrupta y el IPC ya es
+estable, sin que esto excluya que otros valores cercanos también serían
+válidos, Sección~\ref{sec:interval-ns}); \texttt{gpu\_interval\_ns} (5\,ms
+es viable y conservador, pero la resolución real del sensor NVML
+($\sim$100--120\,ms) hace que el margen efectivo sobre el objetivo de
+ventanas sea mucho más estrecho de lo que sugiere contar lecturas crudas,
+y 10\,ms también sería viable, Sección~\ref{sec:gpu-interval-ns});
+\texttt{repetitions\_per\_combination} (3 es un mínimo operativo razonable
+para Fase 1, no una garantía estadística -- el reanálisis combinatorio
+completo sobre las 120 ternas posibles de cada kernel muestra que el
+resultado depende de qué terna se ejecute, y que la limitación es más
+seria para la futura evaluación energética de Fase 4,
+Sección~\ref{sec:repetitions}); y \texttt{target\_windows\_per\_repetition}
+(un guardarraíl de duración mínima nunca activo en 150 corridas, no una
+prueba de suficiencia estadística de la muestra resultante).
+
+\textbf{Confirmado con medición directa, sin matices adicionales}: el
+número de lanzamientos de \texttt{ncu} por kernel (con un criterio de
+convergencia declarado de antemano, y con la extensión dirigida que cierra
+el caso más exigente, \texttt{rodinia\_lud}, en 200 lanzamientos, por
+encima de su punto de convergencia real de 150,
+Sección~\ref{sec:ncu-convergence}).
+
+\textbf{Efecto observado con medición directa, causa y ventaja energética
+no aisladas}: \texttt{smt\_policy} -- en \texttt{npb\_cg}, la
+configuración de 12 hilos con SMT completo reduce el IPC agregado en
+40{,}4\,\% frente a 6 hilos en 6 núcleos físicos, un efecto sistemático y
+no ruido de medición (Sección~\ref{sec:smt-policy}). Pero el diseño cambió
+\texttt{OMP\_NUM\_THREADS} (6$\to$12) a la vez que la política de SMT, así
+que MPKI y tasa de fallos de LLC constantes descartan más tráfico de caché
+por unidad de acceso, pero no descartan mayor tráfico total por unidad de
+tiempo, ni aíslan contención de \textit{pipeline} de otras causas
+(sincronización de OpenMP, ancho de banda de memoria). Tampoco se midió
+energía, y el tiempo de pared fue menor bajo SMT completo -- así que este
+resultado no permite afirmar que \texttt{one\_thread\_per\_physical\_core}
+sea la política energéticamente superior. Se mantiene por consistencia de
+telemetría en Fase 1, no como óptimo de EDP confirmado.
+
+\textbf{Confirmado en dirección, no en magnitud extrema}: la confirmación
+aleatorizada de los dos casos frontera (Sección~\ref{sec:randomized-confirmation})
+tiene fuerza distinta en cada dominio. En GPU, \texttt{rodinia\_backprop}
+reprodujo exactamente 17 y 9 muestras bajo orden aleatorizado -- una
+confirmación fuerte, cifra por cifra. En CPU, la confirmación solo
+reprodujo una diferencia moderada en la media de CV\% entre 0{,}5\,ms y
+1\,ms para 3 kernels -- no reapareció la cola severa (el máximo de
+8{,}448\,\% que es el argumento central contra 0{,}5\,ms en la
+Sección~\ref{sec:interval-ns}), porque esa cola depende de un evento
+ocasional de interferencia del planificador que 3 repeticiones por punto
+no garantizan capturar. La confirmación aleatorizada de CPU respalda la
+\emph{dirección} del hallazgo (0{,}5\,ms es más ruidoso), no una
+reconfirmación del riesgo de cola extrema en sí.
+
+\textbf{Guardarraíl conservador confirmado, no tolerancia derivada
+estadísticamente}: \texttt{D03\_TOLERANCE\_FRACTION} (40\,\%, CPU) -- el
+ruido real medido está casi tres órdenes de magnitud por debajo, pero eso
+confirma que el guardarraíl nunca se ha acercado a su límite, no que 40\,\%
+sea el valor óptimo frente a 10\,\% o 20\,\%. La tolerancia cruzada de GPU
+(5\,\%) queda \textbf{parcialmente justificada}: tiene el mismo margen
+frente al ruido, pero su capacidad real de detectar una aplicación fallida
+de frecuencia sigue sin poder verificarse hasta el permiso P4
+(Sección~\ref{sec:calibration-distribution}).
+
+\textbf{Justificados por decisión metodológica explícita, no por
+medición} (Sección~\ref{sec:literatura}): los niveles de frecuencia F0-F4
+(sin permiso de escritura disponible todavía) y el umbral de carga externa
+E08 (razonable por convención de sistemas). El rango de temperatura E02
+queda \textbf{parcial y corregido}: la hoja de especificaciones exacta del
+SKU del nodo (Xeon Gold 5315Y) documenta un $T_{\text{case}}$ máximo de
+81\,$^{\circ}$C, no 90\,$^{\circ}$C, así que 90\,$^{\circ}$C debe
+presentarse como margen de seguridad conservador frente al rango típico de
+$T_j$máx de la familia, no como un umbral verificado contra el datasheet
+exacto de este procesador -- una corrección respecto a una afirmación más
+fuerte en una versión anterior de este análisis.
+
+\textbf{Hallazgo de integración, más serio que la falta de barrido de
+E08/E02}: revisando el código directamente (no solo el diseño conceptual),
+se encontró que \textbf{ni E08 ni E02 se ejecutan hoy en ninguna campaña
+real del proyecto}, y que el preflight de GPU (G01--G03) tampoco corre
+porque el manifiesto de referencia GPU declara \texttt{gpu.enabled: false}.
+\texttt{run\_campaign\_preflight} (invocado una vez, al inicio de la
+campaña, desde \texttt{cli.py}) no incluye E02 ni E08; ambos viven en
+\texttt{run\_reduced\_preflight}, pensado para correr antes de cada
+combinación, pero que \texttt{campaign.py} nunca llama (sí verifica E06,
+procesos ajenos, antes de cada combinación -- pero no E02 ni E08). Y
+aunque se llamara, \texttt{Manifest} no declara
+\texttt{package\_temperature\_c}, así que E02 aprobaría siempre por sensor
+ausente; y aunque \texttt{gpu.enabled} fuera \texttt{true}, \texttt{cli.py}
+no le pasa ningún inspector NVML a G01--G03, así que tampoco podrían
+verificar procesos CUDA ajenos, modo persistente ni configuración MIG.
+Esto no es una limitación del alcance de este informe -- es un hallazgo
+sobre el instrumento de producción mismo, documentado en detalle en la
+Sección~\ref{sec:metodologia} y en la Sección~\ref{sec:literatura}, con la
+misma seriedad que el defecto de datos de \texttt{rodinia\_heartwall}
+descrito más abajo. Por alcance de un proyecto de pregrado, este informe
+documenta el hallazgo y lo deja como prerrequisito explícito antes de la
+campaña DVFS definitiva -- integrar estos tres chequeos en
+\texttt{campaign.py} es trabajo de implementación fuera del alcance de
+esta auditoría de parámetros, no algo que este informe deba resolver.
+
+\textbf{Fijado por diseño para evitar sesgo de selección posterior}: el
+peso $w$ del EDP se pre-registra en $w=1$ (EDP clásico) como métrica
+primaria de Fase 4, con $w=2$ ($ED^2P$) como análisis de sensibilidad
+secundario -- decidir esto \emph{antes} de tener resultados de Fase 4 es
+lo que evita, aunque no fuera la intención original, escoger
+implícitamente la métrica que favorezca al agente de control
+(Sección~\ref{sec:literatura}).
+
+\textbf{Limitación metodológica declarada, no oculta}: los barridos
+principales corrieron sus combinaciones en orden fijo, no aleatorizado,
+sin preflight repetido de carga externa/temperatura por combinación -- un
+riesgo real en un nodo compartido. Una confirmación dirigida y aleatorizada
+de los dos casos frontera más citados reprodujo el mismo resultado
+(Sección~\ref{sec:randomized-confirmation}), pero eso acota el riesgo solo
+para esos dos casos, no para la totalidad de los barridos.
+
+\textbf{Hallazgo no buscado, con impacto real fuera del alcance original
+de este informe}: se encontró y corrigió un defecto de datos de producción
+-- \texttt{rodinia\_heartwall} corría, desde algún momento posterior a su
+caracterización original (ARC-86), contra un video sintético truncado a 25
+cuadros en vez de los 20000 esperados, sin que el harness lo detectara
+(el binario de Rodinia termina con código de salida 0 tras su propio error
+de validación de argumentos). Esto invalidaba silenciosamente tres
+repeticiones ya marcadas \texttt{accepted} en la campaña de producción y
+los resultados de \texttt{rodinia\_heartwall} en dos de los barridos de
+este mismo informe. Se corrigió la causa raíz, se recuperaron los datos de
+producción, y se re-corrieron los barridos afectados. Este episodio es, en
+sí mismo, la mejor evidencia del valor de este ejercicio de auditoría: no
+se estaba buscando este problema, y no se habría encontrado sin medir de
+verdad en vez de asumir que los datos ya existentes eran correctos. La
+misma disciplina de verificación llevó, en una revisión posterior de este
+informe, a corregir una segunda afirmación demasiado fuerte sobre
+\texttt{rodinia\_heartwall} y sobre el rango de temperatura E02, y a
+descubrir que la resolución real del sensor NVML es mucho más gruesa de lo
+que el conteo ingenuo de lecturas sugería.
+
+\textbf{Alcance y límites del informe, dichos sin rodeos}: este trabajo
+valida que la instrumentación y varios parámetros de adquisición funcionan
+de forma reproducible en \texttt{paccaA100}, y justifica decisiones
+locales de ingeniería para construir el dataset de Fase 1. No demuestra
+que estos parámetros sean universales para otras plataformas. No valida
+todavía el efecto de DVFS, el ahorro energético ni el EDP final, porque
+faltan las campañas reales multifrecuencia (bloqueadas por los permisos
+P1/P4). Tampoco convierte automáticamente las ventanas recolectadas en un
+dataset estadísticamente suficiente para entrenar un modelo -- eso deberá
+verificarse en Fase 2 con partición por corrida/carga, balance de clases y
+evaluación fuera de muestra, un análisis que este informe no realiza.
+
+De los 24 parámetros originalmente identificados, la clasificación
+canónica es la de la Tabla~\ref{tab:master}
+(Sección~\ref{sec:master-table}) -- una versión anterior de este balance
+daba un conteo distinto (12/3/4) que no coincidía con esa tabla; se
+corrige aquí para que ambos sean la misma fuente. Ninguno de los 24 queda
+sin veredicto explícito: \textbf{10} quedan medidos con barrido dedicado
+en este informe y sus extensiones sin matices adicionales, \textbf{2}
+provienen de medición directa ya reportada en el documento anterior,
+\textbf{5} quedan parcialmente justificados con una condición de cierre
+concreta (tolerancia cruzada GPU, \texttt{MARGIN}, \texttt{plateau\_ratio},
+rango de temperatura E02, y \texttt{delegated\_cpus}), \textbf{2} quedan
+justificados por decisión metodológica o convención explícita (F0-F4, E08),
+\textbf{1} queda fijado por diseño para evitar sesgo de selección
+posterior (peso del EDP), y \textbf{4} permanecen explícitamente sin
+justificar, sin haber sido tocados por ningún barrido hasta ahora. La
+diferencia frente a la primera versión de este informe no es cuántos
+parámetros tienen veredicto -- ya eran todos -- sino qué tan fuerte es la
+palabra que describe cada veredicto: ``razonable y verificado en esta
+plataforma'' en vez de ``óptimo'' o ``confirmado'' donde la evidencia no
+alcanza para lo segundo.

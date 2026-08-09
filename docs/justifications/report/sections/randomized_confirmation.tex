@@ -1,0 +1,63 @@
+Los dos casos frontera más citados en este informe -- la comparación
+0{,}5\,ms vs.\ 1\,ms de \texttt{interval\_ns}, y la comparación 50\,ms vs.\
+100\,ms de \texttt{gpu\_interval\_ns} en \texttt{rodinia\_backprop} -- se
+re-midieron con las 24 combinaciones intercaladas en \textbf{orden
+aleatorio} (semilla fija, reproducible), en vez del orden fijo por bloques
+de los barridos principales, para descartar que una deriva temporal del
+nodo compartido explicara el resultado en vez del parámetro mismo.
+
+\begin{table}[H]
+\centering
+\caption{CPU: CV\% del intervalo real de muestreo, orden aleatorizado (3 repeticiones c/u).}
+\label{tab:randomized-cpu}
+\small
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\textbf{Kernel} & \textbf{0{,}5\,ms (media)} & \textbf{1\,ms (media)} \\
+\midrule
+\texttt{npb\_bt} & 0{,}096\,\% & 0{,}061\,\% \\
+\texttt{npb\_cg} & 0{,}146\,\% & 0{,}095\,\% \\
+\texttt{npb\_mg} & 0{,}284\,\% & 0{,}191\,\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Los tres kernels reproducen, bajo orden aleatorizado, la misma dirección
+observada en el barrido principal (0{,}5\,ms sistemáticamente más ruidoso
+que 1\,ms) -- no hay indicio de que el orden fijo original haya introducido
+un sesgo que infle artificialmente esta diferencia.
+
+\begin{table}[H]
+\centering
+\caption{GPU: muestras \texttt{gpu\_telemetry}, \texttt{rodinia\_backprop}, orden aleatorizado.}
+\label{tab:randomized-gpu}
+\small
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\textbf{Repetición (orden real de ejecución)} & \textbf{Cadencia} & \textbf{Muestras} \\
+\midrule
+1 & 50\,ms  & 17 \\
+2 & 50\,ms  & 17 \\
+3 & 100\,ms & 9 \\
+4 & 100\,ms & 9 \\
+5 & 100\,ms & 9 \\
+6 & 50\,ms  & 17 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+El caso GPU es aún más contundente: bajo intercalado aleatorio, las tres
+corridas de 50\,ms dan exactamente 17 muestras y las tres de 100\,ms dan
+exactamente 9 -- una reproducción exacta, cifra por cifra, de los valores
+del barrido principal no aleatorizado (Sección~\ref{sec:gpu-interval-ns}).
+
+\textbf{Conclusión}: para estos dos casos frontera, la ausencia de
+aleatorización en el diseño original de los barridos no parece haber
+introducido un sesgo material -- el efecto atribuido al parámetro se
+reproduce bajo un orden de ejecución distinto. Esto \textbf{no} es una
+prueba general de que ningún barrido de este informe esté libre de deriva
+temporal del nodo compartido (los otros 20 kernels y las otras cadencias no
+se reconfirmaron de esta forma, por costo de cómputo), pero sí reduce el
+riesgo señalado para los dos casos donde más importaba, y establece que el
+método de confirmación dirigida es una vía barata y disponible si en el
+futuro se quisiera extenderlo a más casos.

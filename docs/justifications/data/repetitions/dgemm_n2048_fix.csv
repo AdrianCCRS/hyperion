@@ -1,0 +1,11 @@
+device,elapsed_seconds,ipc_mean,kernel_ref,n_windows_total,quality_json,repetition,sampling_interval_cv_pct,success,target_windows_per_repetition,windows_achieved
+cpu,3.024051464162767,2.795009728236797,dgemm_n2048,2965,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 500, ""ok"": 2464}",1,0.672677,True,50,2464
+cpu,3.024270299822092,2.7954414964512013,dgemm_n2048,2960,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 500, ""ok"": 2459}",2,0.115723,True,50,2459
+cpu,3.0240640211850405,2.799701485907388,dgemm_n2048,2958,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 500, ""ok"": 2457}",3,0.612716,True,50,2457
+cpu,3.0242151701822877,2.7961050892475168,dgemm_n2048,2961,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 500, ""ok"": 2460}",4,0.11613,True,50,2460
+cpu,3.0250973869115114,2.792550030006255,dgemm_n2048,2969,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 500, ""ok"": 2468}",5,0.133244,True,50,2468
+cpu,3.024477807804942,2.7890726486857886,dgemm_n2048,2973,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 500, ""ok"": 2472}",6,0.114034,True,50,2472
+cpu,3.024431779049337,2.797239683887574,dgemm_n2048,2964,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 500, ""ok"": 2463}",7,0.115562,True,50,2463
+cpu,3.0250076185911894,2.7851251998376787,dgemm_n2048,2974,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 500, ""ok"": 2473}",8,0.118306,True,50,2473
+cpu,3.0241355458274484,2.7968360916431148,dgemm_n2048,2963,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 500, ""ok"": 2462}",9,0.115465,True,50,2462
+cpu,3.024034627713263,2.790318615185545,dgemm_n2048,2970,"{""first_sample_no_delta"": 1, ""warmup_excluded"": 500, ""ok"": 2469}",10,0.115481,True,50,2469

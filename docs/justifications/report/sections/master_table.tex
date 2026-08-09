@@ -1,0 +1,69 @@
+La Tabla~\ref{tab:master} recoge, en un único lugar, el estado real de los
+24 parámetros originalmente identificados en el reporte anterior (ARC-88),
+incluyendo los que este documento y sus extensiones (ARC-89/90/91) no
+tocan directamente -- para que ningún parámetro quede implícito o se
+confunda ``mencionado en el resumen'' con ``auditado en este documento''.
+La columna \textbf{Evidencia} indica dónde vive la justificación real de
+cada uno; cuando es este documento, se referencia la sección; cuando es el
+reporte anterior (medición de campaña real, no barrido dedicado) o no
+existe medición, se indica explícitamente.
+
+\begin{longtable}{@{}p{0.03\textwidth}p{0.24\textwidth}p{0.1\textwidth}p{0.13\textwidth}p{0.44\textwidth}@{}}
+\toprule
+\textbf{\#} & \textbf{Parámetro} & \textbf{Valor} & \textbf{Estado} & \textbf{Evidencia} \\
+\midrule
+\endhead
+1  & \texttt{interval\_ns} (CPU) & 1\,ms & Medido (este doc.) & Sección~\ref{sec:interval-ns} -- valor razonable y conservador, verificado en esta plataforma \\
+2  & \texttt{gpu\_interval\_ns} & 5\,ms & Medido (este doc.) & Sección~\ref{sec:gpu-interval-ns} -- viable y conservador; no aislado como único óptimo frente a 10\,ms \\
+3  & \texttt{target\_windows\_per\_repetition} (CPU) & 50 & Medido (este doc.), reencuadrado & Sección~\ref{sec:repetitions} -- guardarraíl de duración mínima, nunca activo; no es prueba de suficiencia estadística \\
+4  & \texttt{target\_windows\_per\_repetition} (GPU) & 5 & Medido (este doc.), reencuadrado & Sección~\ref{sec:repetitions} -- misma salvedad que \#3, más la resolución NVML de $\sim$100\,ms (Sección~\ref{sec:gpu-interval-ns}) \\
+5  & \texttt{running\_ratio\_min} & 0{,}90 & Medido (reporte anterior) & \emph{Reporte\_Justificacion\_Parametros\_Experimentales.md} §2.3 -- valor real observado = 1{,}0 en el 100\,\% de las corridas; sin barrido dedicado en este documento \\
+6  & \texttt{repetitions\_per\_combination} & 3 & Medido (este doc.), con límite documentado & Sección~\ref{sec:repetitions} -- mínimo operativo razonable, no garantía de detectar anomalías infrecuentes ni de precisión estadística para energía/EDP en Fase 4 \\
+7  & \texttt{D03\_TOLERANCE\_FRACTION} (CPU) & 40\,\% & Medido (este doc.), guardarraíl & Sección~\ref{sec:calibration-distribution} -- confirmado conservador frente al ruido real; no derivado estadísticamente \\
+8  & Tolerancia cruzada GPU & 5\,\% & Parcial & Sección~\ref{sec:calibration-distribution} -- margen confirmado frente al ruido; detección end-to-end pendiente de permiso P4 \\
+9  & Umbral de estabilidad CAL-10 & 5\,\% CV & Sin justificar de origen & \emph{Reporte\_Justificacion\_Parametros\_Experimentales.md} §2.7 -- razonable en la práctica, sin cita propia; no tocado en este documento \\
+10 & \texttt{CV\_THRESHOLD\_PCT} (calentamiento) & 5\,\% & Medido (este doc.) & Sección~\ref{sec:warmup-sensitivity} -- robusto en la mayoría de kernels, con excepciones reales documentadas (\texttt{rodinia\_lud}, \texttt{npb\_cg}); antecedente de Georges et al. recontextualizado (JVM, no HPC nativo) \\
+11 & \texttt{MARGIN} (post-detección) & $\times$1{,}2 & Parcial & Sección~\ref{sec:warmup-sensitivity} -- barrido cuantifica el efecto en segundos (0{,}01--0{,}73\,s según kernel), pero sin evidencia de que $\times 1{,}2$ sea suficiente ni excesivo; decisión de ingeniería pendiente de validación estadística entre repeticiones \\
+12 & \texttt{min\_mean\_floor} (piso GPU) & 5{,}0\,\% util & Medido (este doc.) & Sección~\ref{sec:warmup-sensitivity} -- confirmado del lado correcto con margen en los 3 kernels GPU elegibles; el codo exacto cae en (2,5]\,\%, no resuelto con mayor precisión \\
+13 & \texttt{plateau\_ratio} (changepoint) & 0{,}8 & Parcial, método no activado & Sección~\ref{sec:warmup-sensitivity} -- ninguno de los 6 kernels de la muestra activó el método de respaldo por punto de cambio; el valor sigue respaldado solo por evidencia histórica de ARC-86, barrido dirigido pendiente \\
+14 & \texttt{min\_relative\_gain} / \texttt{max\_depth} (changepoint) & 0{,}10 / 6 & \textbf{Sin justificar, NO cubierto por este documento} & \texttt{sensitivity\_warmup\_detector.py} pasa estos valores fijos, nunca los varía -- no confundir con los 4 parámetros sí barridos en \#10-13 \\
+15 & \texttt{\_adaptive\_window\_size} & $\max(3,\min(15,n/4))$ & Sin justificar & Heurística propia sin barrido de sensibilidad; no tocado en este documento \\
+16 & Niveles de frecuencia F0--F4 & 5 puntos equiespaciados + REF & No medible hoy & Sección~\ref{sec:literatura} -- bloqueado por permiso P1/P4 pendiente, condición de cierre declarada \\
+17 & \texttt{SAFETY\_MARGIN} (timeout) & $\times$3{,}0 & Medido (reporte anterior) & \emph{Reporte\_Justificacion\_Parametros\_Experimentales.md} §2.12 -- presupuesto real usado 1--22\,\%; no tocado en este documento \\
+18 & \texttt{timeouts\_seconds} base & ready=15, run=180, shutdown=15 & Sin justificar, bajo impacto & \emph{Reporte\_Justificacion\_Parametros\_Experimentales.md} §2.13 \\
+19 & Umbral de carga externa E08 & 1{,}0 & Justificado por convención, \textbf{no integrado en producción} & Sección~\ref{sec:literatura} -- valor razonable por convención, pero \texttt{run\_campaign\_preflight} no lo ejecuta y \texttt{run\_reduced\_preflight} (que sí lo incluye) nunca es invocado por \texttt{campaign.py} -- el chequeo no corre hoy en ninguna campaña real \\
+20 & Rango de temperatura E02 & $[0,90]\,^\circ$C & Parcial, \textbf{no integrado en producción} & Sección~\ref{sec:literatura} -- 90\,$^\circ$C no coincide con el $T_{\text{case}}$ de 81\,$^\circ$C documentado para el SKU exacto (Xeon Gold 5315Y); además, \texttt{Manifest} no declara \texttt{package\_temperature\_c}, así que el chequeo -- aunque se invocara -- aprobaría siempre por sensor ausente \\
+21 & \texttt{delegated\_cpus} & 6 núcleos & Parcial & \emph{Reporte\_Justificacion\_Parametros\_Experimentales.md} §2.16 -- topología justificada, el conteo exacto no; no tocado en este documento \\
+22 & \texttt{smt\_policy} & 1 hilo/núcleo físico & \textbf{Medido (este doc.)} & Sección~\ref{sec:smt-policy} -- IPC cae 40{,}4\,\% con SMT completo, sin cambio en MPKI/LLC (descarta más tráfico de caché; contención de pipeline es la causa compatible, no la única aislada -- el diseño cambia OMP\_NUM\_THREADS a la vez que SMT) \\
+23 & Lanzamientos \texttt{ncu} por kernel & Varía, 5--200 & Medido (este doc.) & Sección~\ref{sec:ncu-convergence} -- criterio de convergencia declarado; \texttt{rodinia\_lud} cerrado con extensión a 200 \\
+24 & Peso $w$ del EDP (Fase 4) & $w=1$ primario, $w=2$ sensibilidad & Fijado por diseño (este doc.) & Sección~\ref{sec:literatura} -- pre-registrado antes de Fase 4 para evitar selección posterior de métrica \\
+\bottomrule
+\caption{Tabla maestra de los 24 parámetros identificados en ARC-88, con su estado real y ubicación de la evidencia tras ARC-89/90/91.}
+\label{tab:master}
+\end{longtable}
+
+De los 24: \textbf{10 fueron medidos con barrido dedicado en este documento
+y sus extensiones} (\#1,2,3,4,6,7,10,12,22,23 -- incluyendo el cierre nuevo
+de \texttt{smt\_policy} y de la convergencia de \texttt{rodinia\_lud}; esto
+no significa que ninguno tenga matices -- \#3/\#4 quedan reencuadrados como
+guardarraíl, no prueba de suficiencia estadística, \#6 documenta un límite
+real de detección de anomalías, \#7 es guardarraíl conservador y no
+tolerancia derivada, y \#22 tiene causa parcialmente aislada -- ver cada
+sección para el matiz exacto), \textbf{2 provienen de medición directa ya
+reportada en el documento anterior} sin barrido adicional aquí (\#5,17),
+\textbf{5 quedan parcialmente justificados con condición de cierre
+declarada} (\#8 tolerancia cruzada GPU, \#11 \texttt{MARGIN} -- cuantificado
+pero no validado como suficiente, \#13 \texttt{plateau\_ratio} -- método de
+respaldo nunca activado en este barrido, \#20 rango de temperatura E02, y
+\#21 \texttt{delegated\_cpus} -- topología justificada, conteo exacto no),
+\textbf{2 quedan justificados por decisión metodológica o convención, pero
+además con un hallazgo de integración pendiente} (\#16 F0-F4 bloqueado por
+permiso pendiente; \#19 E08 por convención de sistemas, pero ni E08 ni E02
+ni el preflight de GPU se ejecutan hoy en ninguna campaña real -- ver
+Sección~\ref{sec:literatura}), \textbf{1 queda fijado por diseño para
+evitar sesgo de selección posterior} (\#24, peso del EDP), y \textbf{4
+permanecen explícitamente sin
+justificar} (\#9, \#14, \#15, \#18), sin haber sido tocados por este
+documento ni por su predecesor -- listados aquí precisamente para que no
+desaparezcan de la vista por no formar parte del alcance de ningún barrido
+hecho hasta ahora.

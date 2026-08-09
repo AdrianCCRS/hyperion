@@ -1,0 +1,16 @@
+kernel_ref,device,target_windows,windows_achieved_mean,windows_achieved_min,cv3,cv10
+dgemm_n2048,cpu,50,2464.7,2457,0.003,0.012
+npb_bt,cpu,50,24920.5,24828,0.164,0.234
+npb_cg,cpu,50,6692.7,6605,1.569,1.225
+npb_ft,cpu,50,3718.4,3649,2.747,1.815
+npb_lu,cpu,50,16347.1,16212,0.231,0.394
+npb_mg,cpu,50,637.1,629,0.052,0.036
+npb_sp,cpu,50,16758.7,16601,0.395,0.53
+gpu_dgemm_n4096,gpu,5,798.2,750,0.052,0.305
+rodinia_backprop,gpu,5,148.0,140,0.063,0.051
+rodinia_dwt2d,gpu,5,375.2,366,0.022,0.784
+rodinia_heartwall,gpu,5,1064.3,1058,0.005,0.236
+rodinia_hotspot,gpu,5,1231.6,1165,0.327,0.311
+rodinia_lavamd,gpu,5,980.7,922,0.425,0.353
+rodinia_lud,gpu,5,1564.2,1413,1.325,3.27
+rodinia_myocyte,gpu,5,1152.4,1113,0.352,0.746

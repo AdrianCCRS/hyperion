@@ -1,0 +1,68 @@
+\subsection{Suficiencia de \texttt{target\_windows\_per\_repetition}}
+
+Usando las mismas 150 corridas, la Tabla~\ref{tab:target-windows} reporta,
+para cada kernel, el mínimo de ventanas útiles logradas en cualquiera de
+las diez repeticiones (\texttt{windows\_achieved\_min}) frente al objetivo
+configurado (50 para CPU, 5 para GPU). En los 15 kernels del catálogo, el
+mínimo observado supera el objetivo por al menos un orden de magnitud
+(\texttt{npb\_mg}, el caso más ajustado del lado CPU, con 629 ventanas
+mínimas frente a un objetivo de 50; \texttt{rodinia\_backprop}, el más
+ajustado del lado GPU, con 140 frente a un objetivo de 5).
+
+\begin{table}[H]
+\centering
+\caption{Ventanas útiles logradas (media y mínimo sobre 10 repeticiones) vs. objetivo configurado.}
+\label{tab:target-windows}
+\small
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+\textbf{Kernel} & \textbf{Objetivo} & \textbf{Media} & \textbf{Mínimo} \\
+\midrule
+\texttt{dgemm\_n2048} & 50 & 2464{,}7 & 2457 \\
+\texttt{npb\_bt} & 50 & 24920{,}5 & 24828 \\
+\texttt{npb\_cg} & 50 & 6692{,}7 & 6605 \\
+\texttt{npb\_ft} & 50 & 3718{,}4 & 3649 \\
+\texttt{npb\_lu} & 50 & 16347{,}1 & 16212 \\
+\texttt{npb\_mg} & 50 & 637{,}1 & 629 \\
+\texttt{npb\_sp} & 50 & 16758{,}7 & 16601 \\
+\midrule
+\texttt{gpu\_dgemm\_n4096} & 5 & 798{,}2 & 750 \\
+\texttt{rodinia\_backprop} & 5 & 148{,}0 & 140 \\
+\texttt{rodinia\_dwt2d} & 5 & 375{,}2 & 366 \\
+\texttt{rodinia\_heartwall} & 5 & 1064{,}3 & 1058 \\
+\texttt{rodinia\_hotspot} & 5 & 1231{,}6 & 1165 \\
+\texttt{rodinia\_lavamd} & 5 & 980{,}7 & 922 \\
+\texttt{rodinia\_lud} & 5 & 1564{,}2 & 1413 \\
+\texttt{rodinia\_myocyte} & 5 & 1152{,}4 & 1113 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Conclusión (con el alcance correcto del chequeo)}: los datos
+demuestran con claridad que \texttt{target\_windows\_per\_repetition}
+\textbf{no condiciona el catálogo actual} -- en ningún caso observado
+(150 corridas) estuvo cerca de ser la restricción activa, y el margen es
+tan amplio (10--500$\times$ el objetivo contando lecturas crudas) que el
+valor exacto configurado (50 o 5) no cambia qué corridas se aceptan hoy.
+Eso es una afirmación distinta, y más débil, de decir que 50 o 5 son un
+\emph{mínimo estadísticamente suficiente}: las ventanas contiguas de un
+mismo kernel están correlacionadas entre sí (no son extracciones
+independientes de una distribución), y para los kernels GPU, la
+Sección~\ref{sec:gpu-interval-ns} muestra que varias "ventanas" NVML
+consecutivas pueden compartir el mismo valor de sensor subyacente -- 5
+lecturas GPU no equivalen necesariamente a 5 observaciones físicas
+distintas. \texttt{target\_windows\_per\_repetition} debe entenderse,
+entonces, como un \textbf{guardarraíl de duración mínima de la corrida}
+(evita aceptar un kernel que termina casi de inmediato, sin tiempo
+suficiente para que el detector de calentamiento y el resto del pipeline
+operen con sentido) y no como una prueba de suficiencia estadística de la
+muestra resultante. En la práctica, para el catálogo actual, ese
+guardarraíl nunca es la restricción activa -- los seis casos ya
+documentados con evidencia negativa de calentamiento (ARC-86) son
+precisamente ejemplos de kernels cerca del límite en duración total,
+aunque no en conteo de ventanas -- pero esto no debe leerse como una
+validación de que el dataset resultante tiene suficiencia estadística
+para ningún uso posterior (por ejemplo, entrenamiento de un modelo en
+Fase 2): esa es una pregunta distinta, que requiere su propio análisis
+de partición por corrida/carga, balance de clases y evaluación fuera de
+muestra.
