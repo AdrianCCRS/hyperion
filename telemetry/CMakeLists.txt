@@ -1,3 +1,12 @@
+# ARC-107: en pacca (paccaA100), el modulo por defecto carga nvc++ (NVHPC
+# 23.1) como CXX -- su libstdc++ empaquetado esta fijado por RPATH y le
+# falta GLIBCXX_3.4.26, asi que binarios de este proyecto (confirmado con
+# telemetry_kernel_launcher, rapl_reader_test, collector_no_perf_test) no
+# arrancan en absoluto ("version GLIBCXX_3.4.26 not found"), aunque
+# compilen sin error. Nada aqui requiere nvc++ (sin .cu, WITH_GPU=OFF por
+# defecto) -- si reconfiguras el build en pacca, hazlo con:
+#   cmake -S . -B build -DCMAKE_CXX_COMPILER=/opt/ohpc/pub/compiler/gcc/12.4.0/bin/g++
+# o el problema reaparece en cualquier binario que recompiles desde cero.
 cmake_minimum_required(VERSION 3.18)
 project(telemetry CXX)
 set(CMAKE_CXX_STANDARD 17)
