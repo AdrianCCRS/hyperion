@@ -686,6 +686,8 @@ El criterio de inclusión en el catálogo experimental combina tres condiciones.
 
 Los experimentos se ejecutan sobre un nodo de cómputo heterogéneo cuyas características se resumen en la Tabla \ref{tab:plataforma}. La selección de la plataforma no fue arbitraria: además de la disponibilidad de un acelerador gráfico instrumentable mediante NVML, se estableció como condición de admisibilidad la presencia de una interfaz de medición energética interna accesible sin privilegios administrativos, dado que, como se argumentó en el marco conceptual, dicha capacidad es una propiedad del procesador que no admite sustitución por software.
 
+La identidad precisa de la microarquitectura no es un dato meramente descriptivo en este trabajo: varios de los eventos crudos de PMU que el instrumento utiliza (sección \ref{sec:paranoid}) carecen de mapeo genérico en el kernel de este nodo y se abren mediante una codificación específica del procesador, verificada empíricamente y restringida en el código a coincidir exactamente con el par \texttt{cpu family}/\texttt{model} de la Tabla \ref{tab:plataforma}; ese mismo gateo es lo que impide, por diseño, que el instrumento aplique sin verificación una codificación cruda a un nodo distinto de este.
+
 \begin{table}[H]
 \centering
 \caption{Características de la plataforma experimental.}
@@ -694,7 +696,10 @@ Los experimentos se ejecutan sobre un nodo de cómputo heterogéneo cuyas caract
 \toprule
 \textbf{Componente} & \textbf{Descripción} \\
 \midrule
-Procesador & 2 $\times$ Intel Xeon Gold 5315Y (Ice Lake-SP) \\
+Procesador & 2 $\times$ Intel Xeon Gold 5315Y \\
+Microarquitectura & Ice Lake-SP (10~nm, generación de servidor lanzada en 2021) \\
+Identificador CPUID (\texttt{cpu family}/\texttt{model}) & 6 / 106 --- el mismo par leído en tiempo de ejecución desde \texttt{/proc/cpuinfo} que gatea, en el instrumento, cada \textit{encoding} crudo de PMU específico de esta plataforma (\texttt{stalled\_cycles\_backend}, \texttt{L2\_LINES\_IN\_ALL}, \texttt{FP\_ARITH\_INST\_RETIRED}) \\
+Extensiones SIMD relevantes & AVX2, FMA3, AVX-512 (\texttt{avx512f}, \texttt{avx512bw}, \texttt{avx512cd}, \texttt{avx512dq}, \texttt{avx512vl}, \texttt{avx512\_vnni}, entre otras) --- el ancho de 512 bits es el que domina el conteo de FLOPs medido en las cargas de álgebra lineal densa del catálogo \\
 Núcleos & 8 núcleos físicos por zócalo, 2 hilos por núcleo (32 lógicos) \\
 Nodos NUMA & 2 (uno por zócalo) \\
 Jerarquía de caché & L1d 48~KiB, L1i 32~KiB, L2 1.25~MiB por núcleo; L3 12~MiB por zócalo \\
