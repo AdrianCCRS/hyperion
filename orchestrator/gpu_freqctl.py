@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
+import os
 import subprocess
 from typing import Any, Callable, Iterable
 
@@ -42,6 +43,25 @@ class AppliedGpuFrequency:
     observed_sm_mhz: int | None = None
 
 
+def _resolve_gpu_index(gpu_index: int | str | None) -> int | str:
+    """ARC-104: bajo `--exclusive --gres=gpu:1`, Slurm típicamente remapea
+    la única GPU visible al índice 0 dentro del cgroup, así que `-i 0` y
+    `-i $CUDA_VISIBLE_DEVICES` deberían coincidir -- pero el permiso P4
+    especifica explícitamente `-i $CUDA_VISIBLE_DEVICES`, y confiar en un
+    índice hardcodeado sin verificarlo contra hardware era una duda
+    evitable. Si `gpu_index` no se pasó explícitamente (None), se lee
+    `CUDA_VISIBLE_DEVICES` (puede ser un índice o, en drivers recientes,
+    un UUID -- `nvidia-smi -i` acepta ambos); si viene una lista separada
+    por comas, se toma el primer valor (coherente con `--gres=gpu:1`, un
+    solo dispositivo por job). Sin la variable seteada, cae a 0."""
+    if gpu_index is not None:
+        return gpu_index
+    raw = os.environ.get("CUDA_VISIBLE_DEVICES", "").strip()
+    if not raw:
+        return 0
+    return raw.split(",")[0].strip()
+
+
 def _nearest_available(target_mhz: float, available_mhz: Iterable[int]) -> int:
     return min(available_mhz, key=lambda value: abs(value - target_mhz))
 
@@ -55,7 +75,7 @@ def _target_mhz(level: Any, available_mhz: Iterable[int]) -> int:
     return round(low + float(fraction) * (high - low))
 
 
-def _default_run_nvidia_smi(args: list[str], *, gpu_index: int) -> subprocess.CompletedProcess:
+def _default_run_nvidia_smi(args: list[str], *, gpu_index: int | str) -> subprocess.CompletedProcess:
     # ARC-104: -lgc/-rgc exigen root en este driver (ARC-62); pacca delega
     # esto vía sudo restringido a la cuenta de ejecución (no root literal),
     # así que la escritura real -- a diferencia de la relectura de solo
@@ -67,7 +87,7 @@ def _default_run_nvidia_smi(args: list[str], *, gpu_index: int) -> subprocess.Co
     )
 
 
-def _default_query_sm_clock_mhz(gpu_index: int) -> int | None:
+def _default_query_sm_clock_mhz(gpu_index: int | str) -> int | None:
     """Relectura independiente del reloj SM real, vía una consulta separada
     de la que aplicó el cambio -- mismo principio que freqctl._write_and_verify
     (nunca confiar solo en el returncode de la escritura)."""
@@ -102,9 +122,9 @@ def apply_gpu_frequency(
     level: Any,
     env: Any,
     *,
-    gpu_index: int = 0,
+    gpu_index: int | str | None = None,
     run_nvidia_smi: Callable[..., subprocess.CompletedProcess] = _default_run_nvidia_smi,
-    query_sm_clock_mhz: Callable[[int], int | None] = _default_query_sm_clock_mhz,
+    query_sm_clock_mhz: Callable[[int | str], int | None] = _default_query_sm_clock_mhz,
 ) -> AppliedGpuFrequency:
     """Fija el reloj de SM de la GPU al valor que implica `level.fraction`
     sobre `env.gpu_available_clocks_mhz`, vía `nvidia-smi -lgc <t>,<t>`
@@ -135,6 +155,8 @@ def apply_gpu_frequency(
     """
     if not getattr(env, "gpu_frequency_write_capable", False):
         return _apply_unavailable(level.id)
+
+    gpu_index = _resolve_gpu_index(gpu_index)
 
     if getattr(level, "mode", None) == "native_governor":
         try:
@@ -191,7 +213,7 @@ def apply_gpu_frequency(
 def restore_gpu_state(
     env: Any,
     *,
-    gpu_index: int = 0,
+    gpu_index: int | str | None = None,
     run_nvidia_smi: Callable[..., subprocess.CompletedProcess] = _default_run_nvidia_smi,
 ) -> bool:
     """`nvidia-smi -rgc` incondicional -- idempotente incluso si nunca se
@@ -212,6 +234,7 @@ def restore_gpu_state(
         # Igual que FRQ-06 en freqctl: nunca se escribió nada, nada que
         # restaurar.
         return True
+    gpu_index = _resolve_gpu_index(gpu_index)
     try:
         result = run_nvidia_smi(["-rgc"], gpu_index=gpu_index)
     except (OSError, subprocess.SubprocessError):

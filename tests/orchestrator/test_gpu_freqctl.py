@@ -255,3 +255,36 @@ def test_arc104_default_query_sm_clock_no_usa_sudo(monkeypatch):
     gpu_freqctl._default_query_sm_clock_mhz(0)
 
     assert captured["cmd"][0] != "sudo"
+
+
+def test_arc104_resolve_gpu_index_usa_cuda_visible_devices(monkeypatch):
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "3")
+    assert gpu_freqctl._resolve_gpu_index(None) == "3"
+
+
+def test_arc104_resolve_gpu_index_toma_el_primero_de_una_lista(monkeypatch):
+    # --gres=gpu:1 debería exponer un solo dispositivo, pero por si acaso
+    # el driver entrega una lista separada por comas, se toma el primero.
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "2,3")
+    assert gpu_freqctl._resolve_gpu_index(None) == "2"
+
+
+def test_arc104_resolve_gpu_index_cae_a_cero_sin_env_var(monkeypatch):
+    monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+    assert gpu_freqctl._resolve_gpu_index(None) == 0
+
+
+def test_arc104_resolve_gpu_index_explicito_no_consulta_el_env(monkeypatch):
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "9")
+    assert gpu_freqctl._resolve_gpu_index(5) == 5
+
+
+def test_arc104_apply_fixed_usa_cuda_visible_devices_por_defecto(monkeypatch):
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "3")
+    calls = []
+    env = _env(write_capable=True)
+    level = SimpleNamespace(id="FG_2", mode="fixed", fraction=0.5)
+
+    gpu_freqctl.apply_gpu_frequency(level, env, run_nvidia_smi=_fake_run_nvidia_smi(calls))
+
+    assert calls[0][1] == "3"
