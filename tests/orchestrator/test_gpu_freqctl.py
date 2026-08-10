@@ -224,3 +224,34 @@ def test_arc87_restore_nunca_lanza_si_nvidia_smi_falla():
     # Espejo de freqctl.restore_original_state: best-effort, nunca lanza --
     # puede llamarse desde un manejador de señal sin segunda oportunidad.
     assert gpu_freqctl.restore_gpu_state(env, run_nvidia_smi=run_nvidia_smi) is False
+
+
+def test_arc104_default_run_nvidia_smi_antepone_sudo(monkeypatch):
+    # ARC-104: nvidia-smi -lgc/-rgc exige root en este driver (ARC-62); pacca
+    # delega esto vía sudo restringido, no root literal -- sin el prefijo
+    # "sudo" toda escritura real falla con "Insufficient Permissions".
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return SimpleNamespace(returncode=0, stderr="", stdout="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    gpu_freqctl._default_run_nvidia_smi(["-lgc", "1005,1005"], gpu_index=0)
+
+    assert captured["cmd"] == ["sudo", "nvidia-smi", "-i", "0", "-lgc", "1005,1005"]
+
+
+def test_arc104_default_query_sm_clock_no_usa_sudo(monkeypatch):
+    # La relectura es de solo lectura y no necesita el sudo restringido --
+    # elevarla innecesariamente sería una superficie de privilegio extra.
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return SimpleNamespace(returncode=0, stderr="", stdout="1005\n")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    gpu_freqctl._default_query_sm_clock_mhz(0)
+
+    assert captured["cmd"][0] != "sudo"

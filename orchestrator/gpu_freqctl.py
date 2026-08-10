@@ -56,8 +56,13 @@ def _target_mhz(level: Any, available_mhz: Iterable[int]) -> int:
 
 
 def _default_run_nvidia_smi(args: list[str], *, gpu_index: int) -> subprocess.CompletedProcess:
+    # ARC-104: -lgc/-rgc exigen root en este driver (ARC-62); pacca delega
+    # esto vía sudo restringido a la cuenta de ejecución (no root literal),
+    # así que la escritura real -- a diferencia de la relectura de solo
+    # lectura en _default_query_sm_clock_mhz, que no lo necesita -- debe
+    # invocarse con sudo o falla con "Insufficient Permissions" siempre.
     return subprocess.run(
-        ["nvidia-smi", "-i", str(gpu_index), *args],
+        ["sudo", "nvidia-smi", "-i", str(gpu_index), *args],
         capture_output=True, text=True, timeout=30, check=False,
     )
 
