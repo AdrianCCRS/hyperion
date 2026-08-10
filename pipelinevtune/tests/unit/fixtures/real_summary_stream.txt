@@ -1,0 +1,48 @@
+# CAPTURA REAL — vtune -report summary -r fase0_smoke/stream_hpc
+# Nodo: paccaA100.unicartagena.edu.co (Xeon Gold 5315Y, Ice Lake-SP)
+# VTune 2023.0.0 (build 624757), analisis hpc-performance
+# Kernel: STREAM (stream_omp), array size 50e6 elementos (default de stream.c),
+# OMP_NUM_THREADS=8 OMP_PLACES=cores OMP_PROC_BIND=close
+# Capturado: Fase 0, 2026-08-07 UTC. Caso ANCLA MEMORY-BOUND real.
+# Triad autorreportado por STREAM (no VTune): 80171.5 MB/s (ver baseline stdout).
+
+Elapsed Time: 0.687s
+    SP GFLOPS: 0.000
+    DP GFLOPS: 2.746
+    x87 GFLOPS: 0.000
+    CPI Rate: 5.345
+    Average CPU Frequency: 3.416 GHz
+    Total Thread Count: 8
+Effective Physical Core Utilization: 43.6% (6.970 out of 16)
+    Effective Logical Core Utilization: 22.3% (7.137 out of 32)
+Memory Bound: 51.9% of Pipeline Slots
+    Cache Bound: 19.2% of Clockticks
+    DRAM Bound: 67.7% of Clockticks
+    NUMA: % of Remote Accesses: 0.0%
+Vectorization: 100.0% of Packed FP Operations
+    Instruction Mix
+        SP FLOPs: 0.0% of uOps
+            Packed: 0.0% from SP FP
+                128-bit: 0.0% from SP FP
+                256-bit: 0.0% from SP FP
+                512-bit: 0.0% from SP FP
+            Scalar: 0.0% from SP FP
+        DP FLOPs: 20.0% of uOps
+            Packed: 100.0% from DP FP
+                128-bit: 0.0% from DP FP
+                256-bit: 100.0% from DP FP
+                512-bit: 0.0% from DP FP
+            Scalar: 0.0% from DP FP
+        x87 FLOPs: 0.0% of uOps
+        Non-FP: 80.0% of uOps
+    FP Arith/Mem Rd Instr. Ratio: 0.645
+    FP Arith/Mem Wr Instr. Ratio: 1.019
+Collection and Platform Info
+    Application Command Line: ./bin/STREAM/stream_omp
+    Computer Name: paccaA100.unicartagena.edu.co
+    Collector Type: Driverless Perf per-process sampling
+    CPU
+        Name: Intel(R) Xeon(R) Processor code named Icelake
+        Frequency: 3.192 GHz
+        Logical CPU Count: 32
+        LLC size: 12.6 MB
