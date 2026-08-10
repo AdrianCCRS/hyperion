@@ -78,6 +78,8 @@ Si agregas una verificación nueva, dale un `factor_id` del prefijo correspondie
 | `cloud_own` | Servidor cloud propio | Mecánica del pipeline; frecuencia/RAPL reales solo si es instancia bare-metal/dedicada |
 | `hpc_sc3` | Nodo real del clúster SC3 | Todo, pendiente de permisos formales — **no tocar hasta que el checklist de "listos para escalar" esté en verde** |
 
+**Cuenta compartida en pacca (Unicartagena):** el login `latorresn` en `paccaA100` es una cuenta compartida entre varias personas/proyectos, no exclusiva de este trabajo de grado. Cualquier archivo de scratch, exploración, probes en C, scripts de verificación o diagnóstico generado por un agente de IA para este proyecto va dentro de `~/yacacerest/` en ese nodo, **nunca suelto en `$HOME`** — hay un `README_SCRATCH.txt` en el `$HOME` de esa cuenta que repite esta convención. Los directorios de instalación real del proyecto (`hyperion/`, `hyperion-kernels/`, `hyperion-results/`, `hyperion-venv/`) sí viven directamente en `$HOME`, son la excepción. Nunca borrar ni mover nada en esa cuenta que no se identifique con certeza como parte de este proyecto (hay directorios de otras personas ahí).
+
 ## 7. Tests y verificación
 
 - Cada módulo se acompaña de sus tests en `tests/orchestrator/`, con los IDs definidos en el Plan de Tests (documento de referencia, sección 8).
