@@ -339,6 +339,18 @@ def run_campaign(
     run_calibration_references: Callable[..., Any] = calibration_module.run_calibration_references,
     run_postprocess: Callable[..., Any] = postprocess_module.run_postprocess,
     detect_foreign_affinity_pids: Callable[..., Any] = preflight_module.detect_foreign_affinity_pids,
+    # ARC-101: preflight.run_reduced_preflight() ya implementaba este check
+    # (E08, carga externa) pero nunca estuvo conectado a ningun camino de
+    # produccion real -- ni campaign.py ni runner.py lo llamaban. Se agrega
+    # aqui, no como llamada a run_reduced_preflight() completa, porque esa
+    # funcion tambien duplica E06 (ya cubierto abajo por su cuenta) y exige
+    # E02 (temperatura), que no tiene todavia una lectura real de sensor en
+    # ningun lugar del proyecto (check_temperature siempre se alimento de un
+    # valor estatico del manifiesto, nunca de hwmon/coretemp) -- conectar
+    # temperatura con una ruta de sysfs adivinada sin poder verificarla en
+    # pacca es mas riesgoso que dejarla pendiente explicitamente.
+    load_reader: Callable[[], tuple[float, float, float]] = os.getloadavg,
+    load_threshold: float = 1.0,
 ) -> CampaignResult:
     """Orchestrates one full campaign, in order: snapshot original frequency
     state -> Roofline calibration -> node_profile -> calibration_references
@@ -501,6 +513,35 @@ def run_campaign(
                     validation_module.Verdict(
                         accepted=False, factor_id="E06",
                         message=f"Procesos ajenos con afinidad a delegated_cpus: {foreign_pids}",
+                    ),
+                    run_dir,
+                )
+                progress.rejected_run_ids.append(telemetry_run_id)
+                seen_run_ids.add(telemetry_run_id)
+                write_campaign_metadata(progress, manifest, manifest.output_dir)  # CAM-02
+                continue
+
+            # E08 (ARC-101): carga externa, verificada CADA VEZ igual que E06
+            # justo arriba -- una corrida que arranca durante un pico de
+            # carga ajena (otro job del clúster compartido, por ejemplo)
+            # produce contención real que ninguna atribución por PID puede
+            # evitar ni corregir después. check_external_load() ya existía
+            # en preflight.py, nunca estuvo conectada a un camino de
+            # producción real.
+            load_check = preflight_module.check_external_load(
+                load_threshold, load_reader, max(len(delegated_cpus), 1)
+            )
+            if not load_check.passed:
+                logger.warning(
+                    "E08: carga externa por encima del umbral, se salta la combinación (run_id=%s, observed=%s)",
+                    telemetry_run_id, load_check.observed,
+                )
+                run_dir = Path(manifest.output_dir) / telemetry_run_id
+                run_dir.mkdir(parents=True, exist_ok=True)
+                validation_module.write_verdict(
+                    validation_module.Verdict(
+                        accepted=False, factor_id="E08",
+                        message=f"Carga externa por encima del umbral: {load_check.observed}",
                     ),
                     run_dir,
                 )

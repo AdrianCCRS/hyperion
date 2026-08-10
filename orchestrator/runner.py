@@ -315,25 +315,46 @@ def run_single(
 
     applied_frequency = None
     if apply_frequency is not None:
+        frequency_level = _resolve_frequency_level(manifest, freq_level_id)
         if environment_profile is not None and getattr(environment_profile, "frequency_write_capable", False):
-            frequency_level = _resolve_frequency_level(manifest, freq_level_id)
             applied_frequency = apply_frequency(manifest.cores.delegated_cpus, frequency_level, environment_profile)
+        elif frequency_level.mode != "native_governor":
+            # RUN-09 (ARC-101): a "fixed" level was requested but this node
+            # cannot actually write frequency. Silently running at native
+            # frequency while the run/window still gets labeled with this
+            # freq_level_id would corrupt the dataset without any signal --
+            # confirmed to happen in practice (ARC-97 campaign produced
+            # accepted F0-F4 runs at ~800MHz/native, freq_khz_requested/
+            # applied both empty). Fail loud instead of degrading silently.
+            raise RuntimeError(
+                f"RUN-09: freq_level_id={freq_level_id!r} (mode={frequency_level.mode!r}) "
+                f"para {kernel_ref!r} requiere escritura real de frecuencia CPU, pero "
+                "frequency_write_capable=False -- no se aplica silenciosamente a la "
+                "frecuencia nativa. Si esta corrida debía ser solo REF, revisa el manifiesto."
+            )
         else:
             logger.debug(
-                "RUN-08: frequency_write_capable=False, omitiendo apply_frequency para %s/%s",
-                kernel_ref,
+                "RUN-08: frequency_write_capable=False, nivel %s es native_governor y no requiere escritura",
                 freq_level_id,
             )
 
     applied_gpu_frequency = None
     if apply_gpu_frequency is not None and getattr(entry, "device", "cpu") == "gpu":
+        frequency_level = _resolve_frequency_level(manifest, freq_level_id)
         if environment_profile is not None and getattr(environment_profile, "gpu_frequency_write_capable", False):
-            frequency_level = _resolve_frequency_level(manifest, freq_level_id)
             applied_gpu_frequency = apply_gpu_frequency(frequency_level, environment_profile)
+        elif frequency_level.mode != "native_governor":
+            # RUN-09 (ARC-101): same principle as the CPU branch above, for
+            # the GPU clock axis (ARC-87).
+            raise RuntimeError(
+                f"RUN-09: freq_level_id={freq_level_id!r} (mode={frequency_level.mode!r}) "
+                f"para {kernel_ref!r} requiere escritura real de frecuencia GPU, pero "
+                "gpu_frequency_write_capable=False -- no se aplica silenciosamente al "
+                "reloj nativo."
+            )
         else:
             logger.debug(
-                "ARC-87: gpu_frequency_write_capable=False, omitiendo apply_gpu_frequency para %s/%s",
-                kernel_ref,
+                "ARC-87: gpu_frequency_write_capable=False, nivel %s es native_governor y no requiere escritura",
                 freq_level_id,
             )
 

@@ -280,6 +280,28 @@ namespace telemetry {
             opened.push_back(fd);
         }
 
+        // ARC-101: enforce the all-or-nothing FP_ARITH invariant this class
+        // already documents (has_fp_arith()) but this loop never enforced.
+        // Each of the 4 sub-events opens independently and best-effort
+        // (i >= kCoreEventCount), so a partial open -- e.g. scalar opens but
+        // 512B fails -- was possible and went undetected: has_fp_arith()
+        // only checks fds_[kFpScalarDouble], so callers would read "FLOPs
+        // available" while the missing width's counter silently reads back
+        // 0, indistinguishable from a real zero. Force all 4 to fail
+        // together if any one of them did.
+        bool fp_arith_partial = false;
+        for(size_t i = kFpScalarDouble; i <= kFp512bPackedDouble; ++i) {
+            if(opened[i] < 0) fp_arith_partial = true;
+        }
+        if(fp_arith_partial) {
+            for(size_t i = kFpScalarDouble; i <= kFp512bPackedDouble; ++i) {
+                if(opened[i] >= 0) {
+                    ::close(opened[i]);
+                    opened[i] = -1;
+                }
+            }
+        }
+
         for(int fd : opened) {
             if(fd < 0) continue; // optional event never opened, nothing to arm
             if(ioctl(fd, PERF_EVENT_IOC_RESET, 0) < 0) {

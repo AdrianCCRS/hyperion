@@ -41,9 +41,9 @@ Si vas a tocar estas secciones, mantén ese nivel de precisión — no lo simpli
 ## 5. Verificación técnica contra el código real
 
 Cualquier afirmación sobre "qué mide/hace el instrumento" en la Metodología debe poder verificarse contra el código real, no inventarse por plausibilidad. Puntos de verdad concretos:
-- Contadores realmente adquiridos: `telemetry/src/perf_reader.cpp` (actualmente: instructions, cycles, cache-references, cache-misses, stalled-cycles-backend — **no** hay evento de FLOPs por hardware integrado).
-- Catálogo de kernels: `orchestrator/schemas/kernels/catalog.yaml`.
-- Lógica de post-procesamiento / prorrateo de FLOPs / `phase_label_train`: `orchestrator/postprocess.py`.
+- Contadores realmente adquiridos: `telemetry/src/perf_reader.cpp` (actualmente 10: instructions, cycles, cache-references, cache-misses, stalled-cycles-backend, L2_LINES_IN_ALL, y los 4 sub-eventos de `FP_ARITH_INST_RETIRED` — ARC-97, presupuesto exacto sin holgura en pacca).
+- Catálogo de kernels: `orchestrator/schemas/kernels/catalog.yaml` (9 entradas de CPU: 7 dataset + 2 calibración — no "8", error ya corregido en el texto del libro).
+- Lógica de post-procesamiento / `phase_label_train`: `orchestrator/postprocess.py`. FLOPs por ventana se **miden** directamente por hardware (`flops_measured_window`), no se prorratean — el mecanismo de prorrateo se eliminó por completo en ARC-100; no reintroducirlo sin que el usuario lo pida explícitamente.
 - Decisiones de diseño fuera del plan original, con su justificación y número ARC: `docs/orchestator/agents/Registro_Cambios_Fuera_Plan_Original.md`.
 
 Si el texto del libro y el código no coinciden, el código manda — corrige el texto, no al revés.

@@ -311,6 +311,33 @@ def test_run08_invoca_apply_frequency_si_hay_permiso(tmp_path, monkeypatch):
     assert env is env_profile
 
 
+def test_run09_nivel_fixed_sin_permiso_falla_en_vez_de_correr_en_nativo(tmp_path, monkeypatch):
+    # ARC-101: antes de este fix, un nivel fixed (F0-F4) sin
+    # frequency_write_capable simplemente se omitia (logger.debug) y la
+    # corrida seguia a la frecuencia nativa, pero quedaba etiquetada con el
+    # freq_level_id solicitado -- confirmado que esto paso de verdad en la
+    # campana pacca_ref_full_arc97_20260809 (corridas F0-F4 aceptadas con
+    # freq_khz_observed~800MHz y freq_khz_requested/applied vacios). Un
+    # nivel fixed sin capacidad real debe abortar la corrida, nunca
+    # degradarse en silencio a REF con una etiqueta enganosa.
+    monkeypatch.delenv("FAKE_LAUNCHER_BEHAVIOR", raising=False)
+    entry = _make_entry(tmp_path)
+    manifest = _make_manifest(tmp_path)
+    env_profile = SimpleNamespace(frequency_write_capable=False)
+
+    with pytest.raises(RuntimeError, match="RUN-09"):
+        runner.run_single(
+            entry,
+            manifest,
+            "npb_ep",
+            "F0",
+            1,
+            harness=_harness(),
+            environment_profile=env_profile,
+            apply_frequency=lambda cpus, level, env: (_ for _ in ()).throw(AssertionError("no debe llamarse")),
+        )
+
+
 def test_frq03_frecuencia_solicitada_y_aplicada_llegan_a_la_metadata_de_la_corrida(tmp_path, monkeypatch):
     monkeypatch.delenv("FAKE_LAUNCHER_BEHAVIOR", raising=False)
     entry = _make_entry(tmp_path)
@@ -395,7 +422,9 @@ def test_arc87_no_invoca_apply_gpu_frequency_para_kernel_cpu(tmp_path, monkeypat
     assert result.applied_gpu_frequency is None
 
 
-def test_arc87_no_invoca_apply_gpu_frequency_si_no_hay_permiso(tmp_path, monkeypatch):
+def test_arc87_gpu_ref_sin_permiso_no_invoca_apply_gpu_frequency(tmp_path, monkeypatch):
+    # Nivel REF (native_governor): no requiere escritura real, sigue
+    # omitiendose en silencio sin importar el permiso.
     monkeypatch.delenv("FAKE_LAUNCHER_BEHAVIOR", raising=False)
     entry = _make_entry(tmp_path, device="gpu")
     manifest = _make_manifest(tmp_path)
@@ -403,12 +432,30 @@ def test_arc87_no_invoca_apply_gpu_frequency_si_no_hay_permiso(tmp_path, monkeyp
     calls = []
 
     runner.run_single(
-        entry, manifest, "npb_ep", "F0", 1,
+        entry, manifest, "npb_ep", "REF", 1,
         harness=_harness(), environment_profile=env_profile,
         apply_gpu_frequency=lambda level, env: calls.append((level, env)),
     )
 
     assert calls == []
+
+
+def test_run09_nivel_gpu_fixed_sin_permiso_falla_en_vez_de_correr_en_nativo(tmp_path, monkeypatch):
+    # ARC-101: mismo criterio que el caso de CPU -- un nivel fixed (F0-F4)
+    # en el eje GPU sin gpu_frequency_write_capable debe abortar la
+    # corrida, nunca degradarse en silencio al reloj nativo con una
+    # etiqueta enganosa.
+    monkeypatch.delenv("FAKE_LAUNCHER_BEHAVIOR", raising=False)
+    entry = _make_entry(tmp_path, device="gpu")
+    manifest = _make_manifest(tmp_path)
+    env_profile = SimpleNamespace(frequency_write_capable=False, gpu_frequency_write_capable=False)
+
+    with pytest.raises(RuntimeError, match="RUN-09"):
+        runner.run_single(
+            entry, manifest, "npb_ep", "F0", 1,
+            harness=_harness(), environment_profile=env_profile,
+            apply_gpu_frequency=lambda level, env: (_ for _ in ()).throw(AssertionError("no debe llamarse")),
+        )
 
 
 def test_arc87_invoca_apply_gpu_frequency_para_kernel_gpu_con_permiso(tmp_path, monkeypatch):

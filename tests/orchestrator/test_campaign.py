@@ -152,6 +152,13 @@ def _freqctl_fakes():
         # de la máquina que corre los tests (no hermético, y casi seguro
         # rechazaría todo ya que nada está pinneado a los cores del test).
         detect_foreign_affinity_pids=lambda cpus, **kwargs: [],
+        # E08 (ARC-101): mismo motivo que detect_foreign_affinity_pids arriba
+        # -- sin este default, la implementación real llamaría a
+        # os.getloadavg() de la máquina que corre los tests (no hermético, y
+        # el resultado dependería de cuánta carga real tenga esa máquina en
+        # ese instante). Carga "cero" por defecto; los tests que sí quieren
+        # ejercitar el rechazo por carga externa sobreescriben esta clave.
+        load_reader=lambda: (0.0, 0.0, 0.0),
     ), restore_calls, install_calls
 
 

@@ -10,6 +10,24 @@ from typing import Any, Callable, Iterable, Mapping, Protocol
 from .config import SysfsPaths, load_config
 from .catalog import verify_binary
 
+# ARC-101: el conjunto real y fijo de eventos de PMU que
+# telemetry_kernel_launcher pide por muestra de CPU
+# (telemetry/include/telemetry/perf_reader.hpp, kEventCount=10) -- no es
+# configurable desde el manifiesto, el harness siempre pide los 10 (o
+# degrada evento por evento, nunca menos de golpe). D05 debe compararse
+# contra este número real, no contra un campo del manifiesto que nunca
+# existió: antes de este fix, check_perf_counter_capacity() se llamaba con
+# manifest.perf_events, un atributo que Manifest jamás declaró, así que
+# _value() siempre caía en su default () y D05 pasaba trivialmente sin
+# comparar nada contra el presupuesto real de contadores del nodo. Si
+# perf_reader.hpp cambia su conjunto de eventos, esta tupla debe
+# actualizarse a mano junto con él.
+_HARNESS_PERF_EVENTS = (
+    "instructions", "cycles", "cache_references", "cache_misses",
+    "stalled_cycles_backend", "l2_lines_in_all",
+    "fp_scalar_double", "fp_128b_packed_double", "fp_256b_packed_double", "fp_512b_packed_double",
+)
+
 
 @dataclass(frozen=True)
 class CheckResult:
@@ -475,7 +493,7 @@ def run_campaign_preflight(
         entry = catalog[reference]
         results.extend([check_binary_exists(entry), check_binary_checksum(entry, node_id), check_success_check(entry), check_memory_size(entry)])
     results.append(check_toolchain(bool(_value(manifest, "rebuild", False))))
-    results.append(check_perf_counter_capacity(_value(manifest, "perf_events", ()), _value(node_profile, "pmc_count", _value(env, "pmc_count"))))
+    results.append(check_perf_counter_capacity(_HARNESS_PERF_EVENTS, _value(node_profile, "pmc_count", _value(env, "pmc_count"))))
     results.append(check_core_hour_budget(_value(manifest, "remaining_core_hours"), _value(manifest, "projected_core_hours")))
     return results
 
