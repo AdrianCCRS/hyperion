@@ -121,20 +121,23 @@ namespace telemetry {
         // 0.29-0.30% across both single-threaded and 6-core-pinned runs.
         // Single-precision sub-events (umask 0x02/0x08/0x20/0x80) are
         // deliberately not opened: there is no budget left to measure both
-        // (10/10 already spent) and the two extreme kernels of the catalog
-        // (dgemm_bench: compute-bound, OpenBLAS cblas_dgemm; npb_mg: memory-
-        // bound) were spot-checked with a variant probe using the SP umasks
-        // instead -- dgemm_bench read exactly 0 on all 4 SP sub-events (pure
-        // double precision, as expected from cblas_dgemm specifically, never
-        // cblas_sgemm) and npb_mg read 2 scalar-single counts against ~1.05e10
-        // double-precision operations (statistically negligible, plausibly
-        // startup/libc noise, not the kernel's own arithmetic). NOTE: this is
-        // NOT a per-kernel verification of the other 6 catalog entries --
-        // "Operation type = floating point" in their own stdout (ARC-57)
-        // only confirms they report FLOPs, not which precision produces
-        // them; the DP-only assumption for the rest of the catalog rests on
-        // NPB's and OpenBLAS's own double-precision convention, not on a
-        // counter reading. Same
+        // (10/10 already spent). ARC-98: all 8 CPU catalog entries were
+        // spot-checked with a variant probe using the SP umasks instead of
+        // the DP ones above -- dgemm_bench and stream_c/ert_probe read
+        // exactly 0 on all 4 SP sub-events; the 6 NPB kernels (bt/cg/sp/ft/
+        // lu/mg) each read either 0 or 1-2 scalar-single counts against
+        // 1e9-1e10 double-precision operations in the same run (statistically
+        // negligible, plausibly startup/libc noise, not the kernel's own
+        // arithmetic). Full 8/8 coverage of the CPU catalog, not a partial
+        // sample: single precision is not a meaningful source of FLOPs on
+        // any CPU kernel currently in this catalog. GPU catalog entries with
+        // gpu_precision=fp32 (Rodinia hotspot/heartwall/myocyte,
+        // gpu_ert_probe_fp32) are unaffected by this budget constraint --
+        // GPU FLOPs are measured via Nsight Compute, a separate pipeline
+        // with no interaction with this CPU PMU counter budget (section
+        // sec:gpu-calibracion in the thesis). If a future CPU kernel is
+        // added to the catalog, its precision should be spot-checked the
+        // same way before assuming double precision applies to it too. Same
         // Ice Lake-SP gate as the other raw fallbacks: never applied to a
         // CPU this was not verified on.
         constexpr uint64_t kIceLakeFpScalarDoubleRawConfig    = 0xC7u | (0x01u << 8);
