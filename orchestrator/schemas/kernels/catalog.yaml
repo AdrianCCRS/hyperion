@@ -286,11 +286,28 @@ kernels:
 
   # Mismo binario que gpu_dgemm_calibration, id distinto porque aqui juega
   # el rol de dataset (compute_bound), no de calibracion -- exactamente el
-  # mismo patron que dgemm_n2048 en CPU. Empiricamente confirmado con ncu
-  # (ARC-70): 68.0 FLOP/byte -- muy por encima de cualquier ridge posible en
-  # este nodo (3.36-7.28 FLOP/byte, ARC-76), asi que compute_bound se
-  # mantiene sin ambiguedad pase lo que pase con la ruta de ejecucion
-  # (Tensor Core o no).
+  # mismo patron que dgemm_n2048 en CPU. 68.0 FLOP/byte, pero -- correccion
+  # ARC-110, no era del todo preciso decir solo "confirmado con ncu" -- el
+  # NUMERADOR de FLOPs no viene de contar instrucciones con ncu (a
+  # diferencia de los kernels Rodinia de mas abajo): es el conteo
+  # analitico del algoritmo (2*n^3*iteraciones, mismo criterio que
+  # dgemm_n2048 en CPU y que el propio "Mop/s total" que imprime el
+  # binario). ncu solo aporta el denominador (dram__bytes.sum) y la
+  # confirmacion de que la ruta de ejecucion es Tensor Core (DMMA) --
+  # verificado en esta revision: sm__inst_executed_pipe_tensor_op_dmma.sum
+  # > 0 y sm__sass_thread_inst_executed_op_dfma_pred_on.sum = 0 en el
+  # mismo perfilado, confirmando que el metodo de conteo de instrucciones
+  # clasico (el que SI usan los scripts de docs/justifications/scripts/
+  # para los kernels Rodinia) daria ~0.008 FLOP/byte para este kernel --
+  # cuatro ordenes de magnitud por debajo de 68.0. El valor analitico se
+  # verifico independientemente contra el propio "Mop/s total" del binario
+  # (687,259 M-ops observadas vs 687,195 M-ops analiticas para 5
+  # lanzamientos, <0.01% de diferencia) -- el numero es correcto, no un
+  # bug; lo que faltaba era declarar que su procedencia es distinta a la
+  # de los demas kernels GPU del catalogo. 68.0 FLOP/byte sigue muy por
+  # encima de cualquier ridge posible en este nodo (3.36-7.28 FLOP/byte,
+  # ARC-76), asi que compute_bound se mantiene sin ambiguedad pase lo que
+  # pase con la ruta de ejecucion (Tensor Core o no).
   - id: gpu_dgemm_n4096
     suite: cuBLAS-DGEMM
     role: dataset
@@ -319,47 +336,81 @@ kernels:
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
 
+  # ARC-110: rodinia_hotspot se retiro del catalogo -- una auditoria de
+  # precision (pedida explicitamente por el usuario) encontro que, pese a
+  # declararse fp32, ejecuta 30.4% de sus FLOPs reales en FP64 (medido con
+  # ncu solicitando ambas precisiones simultaneamente, no solo la
+  # declarada). Con esa mezcla, la intensidad operacional real (7.21
+  # FLOP/byte) queda justo en el borde del ridge FP32 (~7.28-7.98) -- muy
+  # distinto del 5.02 FLOP/byte que el metodo anterior (solo contadores
+  # FP32) reportaba, y no hay una base solida para decidir contra que
+  # techo comparar un kernel mixto sin disenar un Roofline multitecho
+  # (fuera de alcance de este trabajo). Se prefirio retirarlo a asignarle
+  # un ridge arbitrariamente. Reemplazado por rodinia_gaussian (ver abajo)
+  # -- mismo principio que npb_ep/pathfinder ya aplicado antes (ARC-57/72):
+  # que lo diga la medición, y si la medición no permite una clasificación
+  # defendible, no forzarla.
+  #
   # Rodinia (terceros, sin modificar -- mismo principio que NPB en CPU).
-  # phase_label_hint=intermedio a propósito: Rodinia no clasifica sus
-  # benchmarks por bound Roofline (solo por dominio de aplicacion), asi que
-  # no hay "literatura" que contradecir aqui -- la medición real con ncu
-  # (ARC-70) dio 5.03 FLOP/byte, por debajo del ridge FP32 vainilla medido
-  # con nuestro propio probe (~7.28 FLOP/byte, ARC-76) -- memory_bound
-  # empíricamente. Mismo criterio que npb_bt/npb_sp (ARC-57): que lo diga la
-  # medición, no un hint previo.
-  - id: rodinia_hotspot
+  # Eliminacion Gaussiana (Dense Linear Algebra), sin archivo de entrada
+  # externo (genera su propia matriz internamente con -s <tamano>).
+  # Precision confirmada por codigo fuente (float, sin uso de double) y
+  # verificada empiricamente con ncu solicitando ambas precisiones
+  # simultaneamente (ARC-110): 100% FP32, fp64=0 exacto -- sin mezcla.
+  # phase_label_hint=intermedio a propósito, mismo criterio que el resto
+  # del catalogo Rodinia: no hay literatura Roofline que contradecir, que
+  # lo diga la medición.
+  - id: rodinia_gaussian
     suite: Rodinia
     role: dataset
     device: gpu
-    exec_path: bin/rodinia_hotspot
-    # ARC-85: iteraciones de simulacion 1000->50000 para poder medir
-    # warmup con datos reales (ARC-84 encontro que la corrida corta no
-    # generaba suficiente senal NVML). Igual que dgemm_n2048/gpu_dgemm_n4096
-    # (ARC-83), mas iteraciones del mismo stencil no cambia la intensidad
-    # operacional -- remedido con ncu: 5.02 FLOP/byte (antes 5.03), sin
-    # cambio de clasificacion.
-    exec_args: "2048 2 50000 data/hotspot/temp_2048 data/hotspot/power_2048 data/hotspot/output.out"
+    exec_path: bin/rodinia_gaussian
+    # ARC-110: -s 4096 (matriz generada internamente) para un runtime de
+    # varios segundos -- 6.4s medido en paccaA100 (5.94s de kernels CUDA,
+    # el resto transferencias H2D/D2H).
+    exec_args: "-s 4096"
     phase_label_hint: intermedio
-    operational_intensity_flops_per_byte: 5.02
+    # ARC-110: 0.2814 FLOP/byte, medido con ncu (--launch-count 20) sobre
+    # los primeros 20 lanzamientos de kernel de un total de ~8190 (n-1
+    # pasos de eliminacion x 2 kernels Fan1/Fan2 cada uno) -- NO es un
+    # promedio de la corrida completa, es una muestra del inicio del
+    # algoritmo (los pasos con la submatriz de trabajo mas grande, ya que
+    # el trabajo por paso decrece a medida que avanza la eliminacion).
+    # Perfilar los ~8190 lanzamientos completos con ncu no es practico
+    # (costo de perfilado por lanzamiento). La clasificacion memory_bound
+    # es robusta a esta limitacion: 0.2814 esta muy por debajo de
+    # cualquier ridge posible en este nodo (3.36-7.98 FLOP/byte), asi que
+    # incluso un promedio de toda la corrida tendria que estar mas de un
+    # orden de magnitud por encima para cambiar la clasificacion.
+    operational_intensity_flops_per_byte: 0.2814
     gpu_precision: fp32
-    size_variant: "2048x2048_sim50000"
-    expected_runtime_seconds: 15 # medido en paccaA100: 6.8 s
-    # ARC-86: warmup medido con datos reales (measure_warmup.py, 1232
-    # muestras NVML a 5ms) -- gpu_util_pct se queda en ~0-4% hasta t=1.85s
-    # (H2D de temp_2048/power_2048 + primeras iteraciones) y luego se
-    # sostiene en 100% hasta el cierre; ambos metodos (CV% con piso de
-    # ruido y changepoint por meseta) coinciden en esa ventana. Reemplaza
-    # el 1.0s heredado, que no tenia respaldo de medicion para este kernel.
-    warmup_seconds: 2.2189
-    estimated_memory_bytes: 134217728 # 3 arreglos 2048^2 x 4 B ~= 50 MB, con margen
+    size_variant: N4096
+    expected_runtime_seconds: 8 # medido en paccaA100: 6.4 s
+    # ARC-110: warmup_seconds puesto a mano, NO medido con measure_warmup.py
+    # (a diferencia de rodinia_hotspot/dwt2d, que si tuvieron esa medicion
+    # dedicada) -- 0.5s es conservador frente a los ~0.19s de overhead de
+    # transferencia medidos (6.14s totales - 5.94s de kernels CUDA), pero
+    # queda como limitacion explicita, no una medicion real.
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 268435456 # 2 matrices 4096^2 x 4 B + vectores ~128 MB, con margen
     success_check: {type: exit_code}
     binary_checksum:
-      pacca-a100: "sha256:4573ce8b697170befd1b4570e7af29483069352cb4fa3885bcea3f7bd43cdec4"
+      pacca-a100: "sha256:4afd5fc53117a449598a87deb7e20fb192fa1ad2a339d1fb6c726623a2eb7b11"
 
   # Rodinia (terceros). phase_label_hint=memory_bound: medición real (ncu,
   # ARC-70: 0.087 FLOP/byte) muy por debajo de cualquier ridge posible en
   # este nodo (3.36-7.28 FLOP/byte, ARC-76) -- acceso irregular a memoria
   # (backpropagation), casi sin reuso aritmético por byte movido.
+  # ARC-110: gpu_precision corregido de fp32 a fp64 -- una auditoria de
+  # precision (ncu solicitando ambas precisiones simultaneamente, en vez
+  # de solo la declarada) encontro que este kernel ejecuta 82.3% de sus
+  # FLOPs reales en FP64, no FP32 como declaraba el catalogo desde su
+  # incorporacion original (ARC-72). operational_intensity_flops_per_byte
+  # tambien se remidio con el metodo corregido (0.45 FLOP/byte, antes
+  # 0.0799 solo-FP32) -- la clasificacion memory_bound no cambia (ambos
+  # valores estan ordenes de magnitud por debajo de cualquier ridge
+  # posible en este nodo), pero la metadata ahora refleja lo medido, no
+  # el diseno original del kernel.
   - id: rodinia_backprop
     suite: Rodinia
     role: dataset
@@ -378,8 +429,8 @@ kernels:
     # frente a cualquier ridge posible).
     exec_args: "1048560"
     phase_label_hint: memory_bound
-    operational_intensity_flops_per_byte: 0.0799
-    gpu_precision: fp32
+    operational_intensity_flops_per_byte: 0.45
+    gpu_precision: fp64
     size_variant: "1048560"
     expected_runtime_seconds: 5 # medido en paccaA100 (con harness): 1.28 s
     # ARC-86: incluso al tamano maximo seguro, gpu_power_mw se queda plano
@@ -541,10 +592,17 @@ kernels:
     # y mode=0 sin cambiar, no altera la intensidad operacional).
     # Remedido con ncu: 0.017 FLOP/byte (identico), sin cambio de
     # clasificacion.
+    # ARC-110: gpu_precision corregido de fp32 a fp64, y
+    # operational_intensity_flops_per_byte de 0.017 a 0.06 -- auditoria de
+    # precision (ncu solicitando ambas precisiones simultaneamente) encontro
+    # que este kernel ejecuta 71.3% de sus FLOPs reales en FP64, no FP32
+    # como declaraba el catalogo desde su incorporacion original (ARC-75).
+    # Clasificacion memory_bound sin cambio (ambos valores estan ordenes de
+    # magnitud por debajo de cualquier ridge posible en este nodo).
     exec_args: "100000 1 0"
     phase_label_hint: memory_bound
-    operational_intensity_flops_per_byte: 0.017
-    gpu_precision: fp32
+    operational_intensity_flops_per_byte: 0.06
+    gpu_precision: fp64
     size_variant: "100000ms_xmax"
     expected_runtime_seconds: 12 # medido en paccaA100: 5.58 s binario puro
     # ARC-86: incluso alargando xmax 1000x (100->100000), gpu_util_pct sigue

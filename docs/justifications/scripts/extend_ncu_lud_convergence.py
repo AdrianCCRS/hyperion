@@ -6,6 +6,11 @@ insuficiente. Esta extension perfila rodinia_lud con --launch-count
 100, 150 y 200 (unico kernel, 3 corridas de ncu adicionales, costo bajo) y
 aplica un criterio de convergencia declarado ANTES de ver el resultado:
 convergencia = cambio relativo < 1% entre cada par consecutivo de puntos.
+
+ARC-110: ya NO usa `entry.gpu_precision` para elegir contadores -- pide
+ambas precisiones simultaneamente (rodinia_lud es el kernel mas cercano al
+ridge de todo el catalogo, cf. ARC-76/89 -- si hubiera mezcla de
+precision, es aqui donde mas importaria).
 """
 import sys
 import os
@@ -13,72 +18,29 @@ import csv
 import subprocess
 from pathlib import Path
 
-sys.path.insert(0, "/home/latorresn/hyperion-gpu-fase1")
+sys.path.insert(0, "/home/latorresn/hyperion")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 os.chdir("/home/latorresn/hyperion-kernels")
 
 from orchestrator.catalog import load_catalog
 from orchestrator.gpu_shim import cuda_lib_dirs
+from ncu_gpu_precision import ALL_METRICS, compute_gpu_precision_result, is_mixed_precision, parse_ncu_csv_totals
 
-CATALOG_PATH = "/home/latorresn/hyperion-gpu-fase1/orchestrator/schemas/kernels/catalog.yaml"
+CATALOG_PATH = "/home/latorresn/hyperion/orchestrator/schemas/kernels/catalog.yaml"
 OUTPUT_ROOT = Path("/home/latorresn/hyperion-results/sweeps/ncu_launch_count")
 KERNEL_REF = "rodinia_lud"
 LAUNCH_COUNTS = [100, 150, 200]
 CONVERGENCE_THRESHOLD_PCT = 1.0
 
-METRICS_BY_PRECISION = {
-    "fp32": (
-        "dram__bytes.sum",
-        "sm__sass_thread_inst_executed_op_ffma_pred_on.sum",
-        "sm__sass_thread_inst_executed_op_fadd_pred_on.sum",
-        "sm__sass_thread_inst_executed_op_fmul_pred_on.sum",
-    ),
-    "fp64": (
-        "dram__bytes.sum",
-        "sm__sass_thread_inst_executed_op_dfma_pred_on.sum",
-        "sm__sass_thread_inst_executed_op_dadd_pred_on.sum",
-        "sm__sass_thread_inst_executed_op_dmul_pred_on.sum",
-    ),
-}
-
 
 def _run_ncu(entry, launch_count, env):
     args = entry.exec_args.split() if entry.exec_args else []
-    metrics = ",".join(METRICS_BY_PRECISION[entry.gpu_precision])
     cmd = [
-        "ncu", "--metrics", metrics, "--launch-count", str(launch_count), "--csv",
+        "ncu", "--metrics", ",".join(ALL_METRICS), "--launch-count", str(launch_count), "--csv",
         entry.exec_path, *args,
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=600, env=env)
     return result.stdout
-
-
-def _parse_flop_per_byte(csv_text, precision):
-    lines = csv_text.splitlines()
-    header_idx = next((i for i, l in enumerate(lines) if l.startswith('"ID"')), None)
-    if header_idx is None:
-        return None, 0
-    reader = csv.DictReader(lines[header_idx:])
-    rows = list(reader)
-
-    def to_num(v):
-        v = v.replace(",", "").strip()
-        return float(v) if v not in ("", "N/A") else 0.0
-
-    totals = {}
-    for r in rows:
-        name = r["Metric Name"]
-        totals[name] = totals.get(name, 0.0) + to_num(r["Metric Value"])
-
-    prefix = "d" if precision == "fp64" else "f"
-    total_bytes = totals.get("dram__bytes.sum", 0.0)
-    fma_key = f"sm__sass_thread_inst_executed_op_{prefix}fma_pred_on.sum"
-    add_key = f"sm__sass_thread_inst_executed_op_{prefix}add_pred_on.sum"
-    mul_key = f"sm__sass_thread_inst_executed_op_{prefix}mul_pred_on.sum"
-    total_flops = 2 * totals.get(fma_key, 0.0) + totals.get(add_key, 0.0) + totals.get(mul_key, 0.0)
-    n_launches = len({r["ID"] for r in rows})
-    if total_bytes <= 0:
-        return None, n_launches
-    return total_flops / total_bytes, n_launches
 
 
 def main():
@@ -93,24 +55,35 @@ def main():
 
     # Puntos previos (5, 20, 50) ya medidos en el Sweep F original -- se
     # reincorporan aqui solo para el reporte de convergencia continuo,
-    # tomados del summary.csv ya existente, sin volver a perfilar.
+    # tomados del summary.csv ya existente, sin volver a perfilar. Solo
+    # validos si vienen de la version corregida del sweep (con
+    # operational_intensity ya calculado con ambas precisiones).
     prior = {}
     prior_csv = OUTPUT_ROOT / "summary.csv"
     if prior_csv.exists():
         with open(prior_csv, newline="") as f:
             for r in csv.DictReader(f):
-                if r["kernel_ref"] == KERNEL_REF:
+                if r["kernel_ref"] == KERNEL_REF and r.get("operational_intensity"):
                     prior[int(r["requested_launch_count"])] = float(r["operational_intensity"])
 
     points = dict(prior)
+    mixed_findings = []
     for launch_count in LAUNCH_COUNTS:
         raw = _run_ncu(entry, launch_count, env)
         (OUTPUT_ROOT / f"{KERNEL_REF}_lc{launch_count}.csv").write_text(raw)
-        oi, n_launches = _parse_flop_per_byte(raw, entry.gpu_precision)
-        points[launch_count] = oi
-        print(f"{KERNEL_REF} launch_count={launch_count}: OI={oi} (n_launches reales={n_launches})")
+        totals, n_launches = parse_ncu_csv_totals(raw)
+        result = compute_gpu_precision_result(totals, n_launches)
+        points[launch_count] = result.operational_intensity
+        mixed = is_mixed_precision(result)
+        print(
+            f"{KERNEL_REF} launch_count={launch_count}: OI={result.operational_intensity} "
+            f"(n_launches reales={n_launches}, fp32={result.flops_fp32:.3e}, fp64={result.flops_fp64:.3e}) "
+            f"{'*** MIXTO ***' if mixed else ''}"
+        )
+        if mixed:
+            mixed_findings.append((launch_count, result))
 
-    ordered = sorted(points.items())
+    ordered = sorted((lc, oi) for lc, oi in points.items() if oi is not None)
     rows = []
     converged_at = None
     for i, (lc, oi) in enumerate(ordered):
@@ -131,6 +104,18 @@ def main():
     print(f"Criterio declarado: cambio relativo < {CONVERGENCE_THRESHOLD_PCT}% entre puntos consecutivos")
     print(f"Convergencia alcanzada en launch_count={converged_at}" if converged_at else "NO converge dentro del rango medido (5..200)")
     print(f"Escrito: {out_csv}")
+
+    if mixed_findings:
+        print("\n" + "=" * 70)
+        print(f"ATENCION: {KERNEL_REF} muestra precision mixta (ARC-110, paso 6).")
+        print("Kernel cercano al ridge -- una mezcla real aqui SI puede cambiar la clasificacion.")
+        print("NO se le asigna un ridge unico automaticamente -- decision pendiente del usuario.")
+        print("=" * 70)
+        for launch_count, result in mixed_findings:
+            print(
+                f"  launch_count={launch_count}: fraction_fp32={result.fraction_fp32:.4f} "
+                f"fraction_fp64={result.fraction_fp64:.4f}"
+            )
 
 
 if __name__ == "__main__":

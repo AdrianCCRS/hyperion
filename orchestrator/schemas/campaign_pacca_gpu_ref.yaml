@@ -12,6 +12,14 @@
 # (run_calibration() la corre siempre, es infraestructura del pipeline, no
 # depende de si hay kernels GPU en la matriz).
 #
+# ARC-110: rodinia_hotspot reemplazado por rodinia_gaussian -- una
+# auditoría de precisión encontró que hotspot ejecuta 30.4% de sus FLOPs
+# reales en FP64 pese a declararse fp32, con la intensidad operacional
+# real (7.21 FLOP/byte) justo en el borde del ridge FP32 -- sin una base
+# sólida para asignarle un ridge sin diseñar un Roofline multitecho (fuera
+# de alcance), se retiró del catálogo. Ver comentario completo en
+# kernels/catalog.yaml.
+#
 # CORREGIDO (ARC-94): gpu_stream_bw, gpu_dgemm_calibration,
 # gpu_ert_probe_fp32 y gpu_ert_probe_fp64 (los 4, role=="calibration")
 # estaban mezclados aquí, dentro de `kernels:` -- generaban filas de
@@ -58,7 +66,7 @@ calibration:
 
 kernels:
   - kernel_ref: gpu_dgemm_n4096
-  - kernel_ref: rodinia_hotspot
+  - kernel_ref: rodinia_gaussian
   - kernel_ref: rodinia_backprop
   - kernel_ref: rodinia_lavamd
   - kernel_ref: rodinia_heartwall

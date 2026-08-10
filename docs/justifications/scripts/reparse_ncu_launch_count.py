@@ -1,51 +1,31 @@
 #!/usr/bin/env python3
 """Re-parsea los CSV crudos de ncu ya guardados en disco (sin volver a
-perfilar) con la clave de metrica corregida para FP32 (ver ARC-89:
-sweep_ncu_launch_count.py construia "..._fma_pred_on.sum" para FP32 en vez
-de "..._ffma_pred_on.sum")."""
+perfilar) con la logica compartida de ncu_gpu_precision.py.
+
+ARC-110: los CSV generados por versiones ANTERIORES a esta correccion
+solo contienen los contadores de UNA precision (la que `gpu_precision`
+declaraba en el catalogo) -- este script ya no puede recuperar la
+precision faltante de esos archivos viejos, porque `ncu` nunca la
+recolecto en primer lugar. Solo tiene sentido reparsear CSV generados por
+la version corregida de sweep_ncu_launch_count.py (que pide ambas
+precisiones simultaneamente).
+"""
 import csv
 import sys
 from pathlib import Path
 
-sys.path.insert(0, "/home/latorresn/hyperion-gpu-fase1")
+sys.path.insert(0, "/home/latorresn/hyperion")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from orchestrator.catalog import load_catalog
+from ncu_gpu_precision import compute_gpu_precision_result, is_mixed_precision, parse_ncu_csv_totals
 
-CATALOG_PATH = "/home/latorresn/hyperion-gpu-fase1/orchestrator/schemas/kernels/catalog.yaml"
+CATALOG_PATH = "/home/latorresn/hyperion/orchestrator/schemas/kernels/catalog.yaml"
 OUTPUT_ROOT = Path("/home/latorresn/hyperion-results/sweeps/ncu_launch_count")
 LAUNCH_COUNTS = [5, 20, 50]
 GPU_DATASET_KERNELS = [
     "rodinia_hotspot", "rodinia_backprop", "rodinia_lavamd",
     "rodinia_heartwall", "rodinia_lud", "rodinia_myocyte", "rodinia_dwt2d",
 ]
-
-
-def _parse_flop_per_byte(csv_text: str, precision: str):
-    lines = csv_text.splitlines()
-    header_idx = next((i for i, l in enumerate(lines) if l.startswith('"ID"')), None)
-    if header_idx is None:
-        return None, 0
-    reader = csv.DictReader(lines[header_idx:])
-    rows = list(reader)
-
-    def to_num(v):
-        v = v.replace(",", "").strip()
-        return float(v) if v not in ("", "N/A") else 0.0
-
-    totals = {}
-    for r in rows:
-        name = r["Metric Name"]
-        totals[name] = totals.get(name, 0.0) + to_num(r["Metric Value"])
-
-    prefix = "d" if precision == "fp64" else "f"
-    total_bytes = totals.get("dram__bytes.sum", 0.0)
-    fma_key = f"sm__sass_thread_inst_executed_op_{prefix}fma_pred_on.sum"
-    add_key = f"sm__sass_thread_inst_executed_op_{prefix}add_pred_on.sum"
-    mul_key = f"sm__sass_thread_inst_executed_op_{prefix}mul_pred_on.sum"
-    total_flops = 2 * totals.get(fma_key, 0.0) + totals.get(add_key, 0.0) + totals.get(mul_key, 0.0)
-    n_launches = len({r["ID"] for r in rows})
-    if total_bytes <= 0:
-        return None, n_launches
-    return total_flops / total_bytes, n_launches
 
 
 def main():
@@ -56,13 +36,27 @@ def main():
         for launch_count in LAUNCH_COUNTS:
             raw_path = OUTPUT_ROOT / f"{kernel_ref}_lc{launch_count}.csv"
             raw = raw_path.read_text()
-            oi, n_launches = _parse_flop_per_byte(raw, entry.gpu_precision)
+            totals, n_launches = parse_ncu_csv_totals(raw)
+            result = compute_gpu_precision_result(totals, n_launches)
             rows.append({
-                "kernel_ref": kernel_ref, "requested_launch_count": launch_count,
-                "actual_n_launches": n_launches, "operational_intensity": oi,
+                "kernel_ref": kernel_ref,
+                "requested_launch_count": launch_count,
+                "actual_n_launches": n_launches,
+                "flops_fp32": result.flops_fp32,
+                "flops_fp64": result.flops_fp64,
+                "flops_total": result.flops_total,
+                "dram_bytes": result.dram_bytes,
+                "fraction_fp32": result.fraction_fp32,
+                "fraction_fp64": result.fraction_fp64,
+                "operational_intensity": result.operational_intensity,
+                "catalog_declared_gpu_precision": entry.gpu_precision,
                 "catalog_declared_oi": entry.operational_intensity_flops_per_byte,
+                "mixed_precision_detected": is_mixed_precision(result),
             })
-            print(f"{kernel_ref} launch_count={launch_count}: OI={oi} (catalogo declara {entry.operational_intensity_flops_per_byte})")
+            print(
+                f"{kernel_ref} launch_count={launch_count}: OI={result.operational_intensity} "
+                f"(catalogo declara {entry.gpu_precision}, OI={entry.operational_intensity_flops_per_byte})"
+            )
 
     out_csv = OUTPUT_ROOT / "summary.csv"
     fieldnames = sorted({key for row in rows for key in row})
