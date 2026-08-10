@@ -120,9 +120,21 @@ namespace telemetry {
         // 8*512B) tracked dgemm_bench's analytical 2*iterations*n^3 within
         // 0.29-0.30% across both single-threaded and 6-core-pinned runs.
         // Single-precision sub-events (umask 0x02/0x08/0x20/0x80) are
-        // deliberately not opened: the dataset catalog is double-precision
-        // only (confirmed per-kernel via "Operation type = floating point"
-        // in ARC-57), and there is no budget left to measure both. Same
+        // deliberately not opened: there is no budget left to measure both
+        // (10/10 already spent) and the two extreme kernels of the catalog
+        // (dgemm_bench: compute-bound, OpenBLAS cblas_dgemm; npb_mg: memory-
+        // bound) were spot-checked with a variant probe using the SP umasks
+        // instead -- dgemm_bench read exactly 0 on all 4 SP sub-events (pure
+        // double precision, as expected from cblas_dgemm specifically, never
+        // cblas_sgemm) and npb_mg read 2 scalar-single counts against ~1.05e10
+        // double-precision operations (statistically negligible, plausibly
+        // startup/libc noise, not the kernel's own arithmetic). NOTE: this is
+        // NOT a per-kernel verification of the other 6 catalog entries --
+        // "Operation type = floating point" in their own stdout (ARC-57)
+        // only confirms they report FLOPs, not which precision produces
+        // them; the DP-only assumption for the rest of the catalog rests on
+        // NPB's and OpenBLAS's own double-precision convention, not on a
+        // counter reading. Same
         // Ice Lake-SP gate as the other raw fallbacks: never applied to a
         // CPU this was not verified on.
         constexpr uint64_t kIceLakeFpScalarDoubleRawConfig    = 0xC7u | (0x01u << 8);
