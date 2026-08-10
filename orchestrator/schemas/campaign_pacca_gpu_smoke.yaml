@@ -1,0 +1,79 @@
+# Smoke test de la campaña GPU DVFS (ARC-110/111), antes de relanzar
+# campaign_pacca_gpu_ref.yaml completa (144 combinaciones). Objetivo:
+# validar dos cosas nunca antes ejercitadas end-to-end en una campaña
+# real: (1) apply_gpu_frequency() aplicando frecuencia real de GPU desde
+# dentro del harness (hasta ahora solo se probó `sudo nvidia-smi -lgc/-rgc`
+# manualmente, fuera del pipeline, ARC-104/105); (2) rodinia_gaussian (el
+# kernel nuevo de ARC-110) corriendo a través del harness completo
+# (LD_PRELOAD del shim de blocking-sync, NVML, postprocess) -- hasta ahora
+# solo se ejecutó suelto para medir precisión con ncu.
+#
+# 1 kernel (rodinia_gaussian) x 3 niveles (REF, F0, F4 -- los extremos del
+# rango de GPU, para confirmar que apply_gpu_frequency() realmente pinea
+# en ambas direcciones) x 3 repeticiones (mínimo MAN-02) = 9 combinaciones.
+#
+# Resto de la configuración idéntica a campaign_pacca_gpu_ref.yaml, ya
+# validada en hardware real.
+
+campaign_id: pacca_gpu_smoke_20260810
+environment_tier: hpc_sc3
+seed: 20260807
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_gpu_smoke_20260810
+overwrite: true
+
+catalog_path: kernels/catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: rodinia_gaussian
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F0, mode: fixed, fraction: 1.0}
+  - {id: F4, mode: fixed, fraction: 0.0}
+
+repetitions_per_combination: 3
+target_windows_per_repetition: 5
+interval_ns: 1000000  # 1 ms
+gpu_interval_ns: 5000000  # 5 ms
+
+running_ratio_min: 0.90
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+rapl:
+  enabled: true
+
+gpu:
+  enabled: false
+  calibration:
+    - gpu_stream_bw
+    - gpu_ert_probe_fp32
+    - gpu_ert_probe_fp64
+
+timeouts_seconds:
+  ready: 15
+  run: 60
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 58353900000
+  p_pico_flops_per_s: 72004000000
+
+projected_campaign_bytes: 50000000
+remaining_core_hours: 1000.0
+projected_core_hours: 2.0

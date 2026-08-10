@@ -1,12 +1,25 @@
-# ARC-107: en pacca (paccaA100), el modulo por defecto carga nvc++ (NVHPC
-# 23.1) como CXX -- su libstdc++ empaquetado esta fijado por RPATH y le
-# falta GLIBCXX_3.4.26, asi que binarios de este proyecto (confirmado con
-# telemetry_kernel_launcher, rapl_reader_test, collector_no_perf_test) no
-# arrancan en absoluto ("version GLIBCXX_3.4.26 not found"), aunque
-# compilen sin error. Nada aqui requiere nvc++ (sin .cu, WITH_GPU=OFF por
-# defecto) -- si reconfiguras el build en pacca, hazlo con:
-#   cmake -S . -B build -DCMAKE_CXX_COMPILER=/opt/ohpc/pub/compiler/gcc/12.4.0/bin/g++
-# o el problema reaparece en cualquier binario que recompiles desde cero.
+# ARC-107/111: en pacca (paccaA100), reconfigurar este build desde cero
+# (`rm CMakeCache.txt`) SIN declarar explicitamente los flags de abajo
+# reintroduce 2 problemas reales ya encontrados:
+#   (1) ARC-107: el modulo por defecto carga nvc++ (NVHPC 23.1) como CXX --
+#       su libstdc++ empaquetado esta fijado por RPATH y le falta
+#       GLIBCXX_3.4.26, asi que binarios de este proyecto (confirmado con
+#       telemetry_kernel_launcher, rapl_reader_test, collector_no_perf_test)
+#       no arrancan en absoluto ("version GLIBCXX_3.4.26 not found"),
+#       aunque compilen sin error. Nada aqui requiere nvc++ (sin .cu).
+#   (2) ARC-111: WITH_GPU cae a su default (OFF) en cualquier reconfigure
+#       que no lo declare -- telemetry_kernel_launcher compila igual, pero
+#       corre en modo *stub* de NVML sin avisar (gpu_power_mw y demas
+#       campos GPU quedan vacios/degradados en la campana real). Ademas,
+#       find_library(NVML_LIB) no encuentra la libreria por defecto en
+#       pacca (solo existe libnvidia-ml.so.1, sin el simlink .so sin
+#       version) -- hay que apuntarla a mano al stub oficial de NVIDIA.
+# Reconfigura siempre con los 3 flags juntos:
+#   cmake -S . -B build \
+#     -DCMAKE_CXX_COMPILER=/opt/ohpc/pub/compiler/gcc/12.4.0/bin/g++ \
+#     -DWITH_GPU=ON \
+#     -DNVML_LIB=/opt/ohpc/pub/devtools/nvidia/hpc_sdk/Linux_x86_64/23.1/cuda/12.0/targets/x86_64-linux/lib/stubs/libnvidia-ml.so \
+#     -DNVML_INCLUDE_DIR=/opt/ohpc/pub/devtools/nvidia/hpc_sdk/Linux_x86_64/23.1/cuda/12.0/targets/x86_64-linux/include
 cmake_minimum_required(VERSION 3.18)
 project(telemetry CXX)
 set(CMAKE_CXX_STANDARD 17)
