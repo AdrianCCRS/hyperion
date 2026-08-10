@@ -206,9 +206,38 @@ def check_frequency_domain(delegated_cpus: Iterable[int], frequency_domain_cpus:
 
 
 def check_external_load(threshold: float, load_reader: Callable[[], tuple[float, float, float]] = os.getloadavg, cpu_count: int = 1) -> CheckResult:
+    """E08.
+
+    ARC-109: la versión original comparaba ``load_1m / cpu_count`` contra
+    ``threshold`` directamente -- pero ``load_1m`` (promedio de carga del
+    sistema) incluye el trabajo LEGÍTIMO y ESPERADO de la propia campaña
+    sobre los CPUs delegados, no solo contaminación externa. En una
+    campaña real, densa y de larga duración (corridas casi consecutivas
+    en `cpu_count` núcleos dedicados durante horas), la media exponencial
+    de 1 minuto de Linux converge y se mantiene estable cerca de
+    `cpu_count` mientras el trabajo propio sigue -- confirmado en pacca:
+    ``load_1m`` se mantuvo en 6.04 (cpu_count=6) de forma prácticamente
+    constante durante toda una campaña real, rechazando 105 de 126
+    combinaciones por "carga externa" que en realidad era el propio
+    harness. El chequeo original no podía distinguir "mis 6 núcleos
+    delegados están ocupados, como se espera" de "hay 6 núcleos de más
+    ocupados por un proceso ajeno".
+
+    Fix: en vez de comparar el promedio total, se compara el EXCESO sobre
+    `cpu_count` -- la parte de `load_1m` que NO se explica por el trabajo
+    esperado de la propia campaña sobre sus núcleos delegados. `threshold`
+    ahora expresa cuánto exceso, como fracción de `cpu_count`, se tolera
+    antes de sospechar contaminación real (p. ej. threshold=1.0 tolera
+    hasta el doble de `cpu_count` de carga total antes de bloquear).
+    """
     load = float(load_reader()[0])
-    normalized = load / max(cpu_count, 1)
-    return _result("E08", "Carga externa", normalized <= threshold, True, {"load_1m": load, "normalized_load_1m": normalized, "cpu_count": max(cpu_count, 1), "threshold": threshold}, "La carga externa supera el umbral")
+    excess = max(load - cpu_count, 0.0)
+    normalized_excess = excess / max(cpu_count, 1)
+    return _result(
+        "E08", "Carga externa", normalized_excess <= threshold, True,
+        {"load_1m": load, "excess_load_1m": excess, "normalized_excess_load_1m": normalized_excess, "cpu_count": max(cpu_count, 1), "threshold": threshold},
+        "La carga externa (más allá de lo que explica la propia campaña) supera el umbral",
+    )
 
 
 def check_temperature(temperature_c: float | None, minimum_c: float = 0.0, maximum_c: float = 90.0) -> CheckResult:

@@ -66,7 +66,26 @@ def test_pre_t04c_governor_none_falla_si_no_se_puede_leer(tmp_path):
 
 
 def test_pre_t05_carga_externa_supera_umbral():
-    result = preflight.check_external_load(0.8, lambda: (0.9, 0.1, 0.1))
+    # ARC-109: threshold expresa exceso sobre cpu_count, no el promedio
+    # total -- load_1m=6.0 con cpu_count=4 es 2.0 de exceso (0.5
+    # normalizado), por encima de threshold=0.3.
+    result = preflight.check_external_load(0.3, lambda: (6.0, 0.1, 0.1), cpu_count=4)
+    assert (result.passed, result.factor_id) == (False, "E08")
+
+
+def test_arc109_carga_propia_de_la_campana_no_se_confunde_con_carga_externa():
+    # El bug real que motivó ARC-109: load_1m estabilizado cerca de
+    # cpu_count (el propio trabajo de la campaña sobre sus núcleos
+    # delegados) no debe rechazar la combinación.
+    result = preflight.check_external_load(1.0, lambda: (6.04, 0.1, 0.1), cpu_count=6)
+    assert (result.passed, result.factor_id) == (True, "E08")
+
+
+def test_arc109_exceso_real_sobre_cpu_count_si_rechaza():
+    # Un proceso ajeno que añade carga MÁS ALLÁ de los cpu_count núcleos
+    # delegados sigue detectándose -- esto es lo que E08 debe seguir
+    # atrapando.
+    result = preflight.check_external_load(0.3, lambda: (9.0, 0.1, 0.1), cpu_count=6)
     assert (result.passed, result.factor_id) == (False, "E08")
 
 
