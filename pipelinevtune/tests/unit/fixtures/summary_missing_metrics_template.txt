@@ -1,0 +1,13 @@
+# PLANTILLA ILUSTRATIVA — simula un reporte donde el Top-Down no se pudo calcular
+# (ej. corrida demasiado corta, o restriccion de permisos mas severa de lo esperado).
+# Este caso debe producir classification_vtune_native = "invalid", no un valor adivinado.
+
+Elapsed Time: 0.041s
+DP GFLOPS: N/A
+Average CPU Frequency: N/A
+Effective Physical Core Utilization: N/A
+
+CPI Rate: N/A
+
+Memory Bound: N/A
+Core Bound: N/A

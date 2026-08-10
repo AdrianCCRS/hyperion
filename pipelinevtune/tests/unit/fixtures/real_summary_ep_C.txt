@@ -1,0 +1,47 @@
+# CAPTURA REAL — vtune -report summary -r fase0_smoke/hpc
+# Nodo: paccaA100.unicartagena.edu.co (Xeon Gold 5315Y, Ice Lake-SP)
+# VTune 2023.0.0 (build 624757), analisis hpc-performance
+# Kernel: NPB EP clase C, OMP_NUM_THREADS=8 OMP_PLACES=cores OMP_PROC_BIND=close
+# Capturado: Fase 0, 2026-08-07 UTC. Caso ANCLA COMPUTE-ISH (EP, ver D4 - riesgo
+# de subconteo de FLOPs, no usar como ancla de calibracion).
+
+Elapsed Time: 13.634s
+    SP GFLOPS: 0.000
+    DP GFLOPS: 9.841
+    x87 GFLOPS: 0.000
+    CPI Rate: 0.641
+    Average CPU Frequency: 3.492 GHz
+    Total Thread Count: 8
+Effective Physical Core Utilization: 48.7% (7.794 out of 16)
+    Effective Logical Core Utilization: 24.4% (7.803 out of 32)
+Memory Bound: 6.1% of Pipeline Slots
+    Cache Bound: 11.5% of Clockticks
+    DRAM Bound: 0.0% of Clockticks
+    NUMA: % of Remote Accesses: 0.0%
+Vectorization: 10.7% of Packed FP Operations
+    Instruction Mix
+        SP FLOPs: 0.0% of uOps
+            Packed: 0.0% from SP FP
+                128-bit: 0.0% from SP FP
+                256-bit: 0.0% from SP FP
+                512-bit: 0.0% from SP FP
+            Scalar: 0.0% from SP FP
+        DP FLOPs: 26.7% of uOps
+            Packed: 10.7% from DP FP
+                128-bit: 10.7% from DP FP
+                256-bit: 0.0% from DP FP
+                512-bit: 0.0% from DP FP
+            Scalar: 89.3% from DP FP
+        x87 FLOPs: 0.0% of uOps
+        Non-FP: 73.3% of uOps
+    FP Arith/Mem Rd Instr. Ratio: 1.280
+    FP Arith/Mem Wr Instr. Ratio: 4.900
+Collection and Platform Info
+    Application Command Line: ./bin/ep.C.x
+    Computer Name: paccaA100.unicartagena.edu.co
+    Collector Type: Driverless Perf per-process sampling
+    CPU
+        Name: Intel(R) Xeon(R) Processor code named Icelake
+        Frequency: 3.192 GHz
+        Logical CPU Count: 32
+        LLC size: 12.6 MB
