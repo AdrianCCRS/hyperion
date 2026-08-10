@@ -294,8 +294,15 @@ def test_arc78_nivel_no_referencia_no_puede_medir_mas_flops_que_la_referencia(tm
             (run_dir / "stdout.txt").write_text(f"FLOPS={flops}\n")
         return _fake_run_result(run_dir)
 
+    # ARC-102: FG_1 es "fixed" -- desde el guard RUN-09, run_calibration()
+    # exige capacidad real de aplicar frecuencia para medirlo (si no, aborta
+    # antes de llegar a D03, que es justo lo que este test quiere ejercitar).
     with pytest.raises(calibration.CalibrationError, match="D03"):
-        calibration.run_calibration(manifest, catalog, run_single=fake_run_single)
+        calibration.run_calibration(
+            manifest, catalog, run_single=fake_run_single,
+            environment_profile=SimpleNamespace(frequency_write_capable=True),
+            apply_frequency=lambda cpus, level, env: None,
+        )
 
 
 def test_arc78_load_calibration_sin_freq_level_id_usa_el_archivo_legado(tmp_path):
@@ -371,6 +378,79 @@ def test_arc80_run_gpu_calibration_calibra_fp32_y_fp64_por_nivel(tmp_path):
     loaded_fp64 = calibration.load_calibration(tmp_path, "REF", gpu_precision="fp64")
     assert loaded_fp32.i_ridge_flops_per_byte == pytest.approx(2.0)
     assert loaded_fp64.i_ridge_flops_per_byte == pytest.approx(0.8)
+
+
+def test_arc102_run_calibration_nivel_fixed_sin_permiso_falla_en_vez_de_medir_en_nativo(tmp_path):
+    # ARC-102: run_calibration() tiene su propia logica de aplicacion de
+    # frecuencia (separada de runner.run_single), que nunca heredaba el
+    # guard RUN-09 -- un nivel "fixed" sin capacidad real de escritura debe
+    # abortar, no calibrar en silencio a la frecuencia nativa y persistir
+    # roofline_calibration_<level.id>.json como si fuera real.
+    stream_entry = _kernel_entry(id="stream", reports_bandwidth_stdout=True, bandwidth_stdout_pattern=r"BW=([0-9.]+)")
+    ert_entry = _kernel_entry(id="ert", reports_flops_stdout=True, flops_stdout_pattern=r"FLOPS=([0-9.]+)")
+    manifest = _manifest(tmp_path, datasheet={"bw_pico_bytes_per_s": 1.0e10, "p_pico_flops_per_s": 1.0e10})
+    manifest.frequency_levels = (
+        SimpleNamespace(id="REF", mode="native_governor", fraction=None),
+        SimpleNamespace(id="FG_1", mode="fixed", fraction=0.5),
+    )
+    catalog = {"stream": stream_entry, "ert": ert_entry}
+
+    def fake_run_single(entry, manifest, kernel_ref, freq_level_id, repetition, **kwargs):
+        # REF (native_governor) no requiere escritura, se mide normalmente
+        # -- el guard debe activarse recien al llegar a FG_1 (fixed).
+        assert freq_level_id != "FG_1", "no debe medirse FG_1 sin capacidad real de frecuencia"
+        run_dir = tmp_path / f"{kernel_ref}_{freq_level_id}"
+        run_dir.mkdir(exist_ok=True)
+        if entry is stream_entry:
+            (run_dir / "stdout.txt").write_text("BW=10000000000\n")
+        else:
+            (run_dir / "stdout.txt").write_text("FLOPS=10000000000\n")
+        return _fake_run_result(run_dir)
+
+    with pytest.raises(calibration.CalibrationError, match="RUN-09"):
+        calibration.run_calibration(
+            manifest, catalog, run_single=fake_run_single,
+            environment_profile=SimpleNamespace(frequency_write_capable=False),
+        )
+
+
+def test_arc102_run_gpu_calibration_nivel_fixed_sin_permiso_gpu_falla(tmp_path):
+    # ARC-102: mismo principio, eje GPU -- sin gpu_frequency_write_capable,
+    # un nivel "fixed" debe abortar en vez de calibrar el ridge de GPU al
+    # mismo reloj nativo en los 6 niveles (justo el problema que ARC-87
+    # documenta que este fijado de reloj existe para evitar).
+    stream = _gpu_kernel_entry(id="gpu_stream_bw", reports_bandwidth_stdout=True,
+                                bandwidth_stdout_pattern=r"BW=([0-9.]+)")
+    ert32 = _gpu_kernel_entry(id="gpu_ert_probe_fp32", reports_flops_stdout=True,
+                               flops_stdout_pattern=r"FLOPS=([0-9.]+)", gpu_precision="fp32")
+    ert64 = _gpu_kernel_entry(id="gpu_ert_probe_fp64", reports_flops_stdout=True,
+                               flops_stdout_pattern=r"FLOPS=([0-9.]+)", gpu_precision="fp64")
+    catalog_map = {"gpu_stream_bw": stream, "gpu_ert_probe_fp32": ert32, "gpu_ert_probe_fp64": ert64}
+
+    manifest = _manifest(tmp_path)
+    manifest.gpu = {"calibration": ["gpu_stream_bw", "gpu_ert_probe_fp32", "gpu_ert_probe_fp64"]}
+    manifest.frequency_levels = (
+        SimpleNamespace(id="REF", mode="native_governor", fraction=None),
+        SimpleNamespace(id="FG_1", mode="fixed", fraction=0.5),
+    )
+
+    def fake_run_single(entry, manifest, kernel_ref, freq_level_id, repetition, **kwargs):
+        # REF no requiere escritura de GPU; el guard debe activarse recien
+        # al llegar a FG_1 (fixed).
+        assert freq_level_id != "FG_1", "no debe medirse FG_1 sin capacidad real de frecuencia de GPU"
+        run_dir = tmp_path / f"{kernel_ref}_{freq_level_id}"
+        run_dir.mkdir(exist_ok=True)
+        if entry is stream:
+            (run_dir / "stdout.txt").write_text("BW=10000000000\n")
+        else:
+            (run_dir / "stdout.txt").write_text("FLOPS=10000000000\n")
+        return _fake_run_result(run_dir)
+
+    with pytest.raises(calibration.CalibrationError, match="RUN-09"):
+        calibration.run_gpu_calibration(
+            manifest, catalog_map, run_single=fake_run_single,
+            environment_profile=SimpleNamespace(gpu_frequency_write_capable=False),
+        )
 
 
 def test_arc80_run_gpu_calibration_no_confunde_gpu_dgemm_calibration_con_el_ridge(tmp_path):

@@ -95,19 +95,24 @@ def test_arc73_projected_bytes_y_core_hours_ausentes_por_defecto(tmp_path, monke
     assert resultado.projected_campaign_bytes is None
     assert resultado.remaining_core_hours is None
     assert resultado.projected_core_hours is None
+    # ARC-102: ausente -> run_campaign() usa su propio default (1.0), nunca
+    # se infiere aquí.
+    assert resultado.load_threshold is None
 
 
 def test_arc73_projected_bytes_y_core_hours_se_leen_del_manifiesto(tmp_path, monkeypatch, catalogo, campaign):
     campaign["projected_campaign_bytes"] = 200_000_000
     campaign["remaining_core_hours"] = 1000.0
     campaign["projected_core_hours"] = 10.0
+    campaign["load_threshold"] = 2.5
     resultado = cargar(tmp_path, monkeypatch, catalogo, campaign)
     assert resultado.projected_campaign_bytes == 200_000_000
     assert resultado.remaining_core_hours == 1000.0
     assert resultado.projected_core_hours == 10.0
+    assert resultado.load_threshold == pytest.approx(2.5)
 
 
-@pytest.mark.parametrize("field", ["projected_campaign_bytes", "remaining_core_hours", "projected_core_hours"])
+@pytest.mark.parametrize("field", ["projected_campaign_bytes", "remaining_core_hours", "projected_core_hours", "load_threshold"])
 def test_arc73_projected_bytes_y_core_hours_negativos_fallan(tmp_path, monkeypatch, catalogo, campaign, field):
     campaign[field] = -1
     with pytest.raises(manifest.ManifestValidationError, match="MAN-00"):

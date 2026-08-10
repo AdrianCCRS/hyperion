@@ -85,6 +85,13 @@ class Manifest:
     projected_campaign_bytes: int | None = None
     remaining_core_hours: float | None = None
     projected_core_hours: float | None = None
+    # ARC-102: umbral de carga externa normalizada (E08, load_1m/cpu_count)
+    # por encima del cual una combinación o la calibración se rechaza antes
+    # de medir -- opcional, ausente usa el default conservador de
+    # campaign.py (1.0) para no romper manifiestos existentes que no lo
+    # declaraban (no existía como campo real hasta este cambio, aunque
+    # run_campaign() ya lo aceptaba como parámetro).
+    load_threshold: float | None = None
     # ARC-88: runner.build_command() ya lee esto con getattr(manifest,
     # "gpu_interval_ns", None), pero nunca estaba declarado como campo real
     # del manifiesto -- ningún YAML podía fijarlo, así que toda campaña GPU
@@ -345,6 +352,7 @@ def load(path: str | Path) -> Manifest:
     )
     remaining_core_hours = _parse_optional_non_negative_number(document, "remaining_core_hours")
     projected_core_hours = _parse_optional_non_negative_number(document, "projected_core_hours")
+    load_threshold = _parse_optional_non_negative_number(document, "load_threshold")
 
     # ARC-88: mismo criterio de validación que interval_ns (entero positivo),
     # pero opcional -- ausente significa "usar el default del launcher"
@@ -360,7 +368,7 @@ def load(path: str | Path) -> Manifest:
         frequency_levels, repetitions, target_windows, interval_ns, float(running_ratio),
         cores, smt_policy, cgroup_path, perf_enabled, dict(rapl), dict(gpu), timeouts,
         hardware_datasheet, projected_campaign_bytes, remaining_core_hours, projected_core_hours,
-        gpu_interval_ns_raw,
+        load_threshold, gpu_interval_ns_raw,
     )
     matrix_size = compute_matrix_size(manifest)
     # MAN-03: cada combinación tiene baseline y telemetry, por eso se duplica.

@@ -327,11 +327,12 @@ def run_calibration(
 
     reference_calibration: RooflineCalibration | None = None
     for level in ordered_levels:
-        if (
+        can_apply_frequency = (
             apply_frequency is not None
             and environment_profile is not None
             and getattr(environment_profile, "frequency_write_capable", False)
-        ):
+        )
+        if can_apply_frequency:
             # ARC-78: `apply_frequency` sigue el mismo contrato de 3
             # argumentos que runner.run_single ya usa (cpus, level, env) --
             # si el nivel es native_governor, freqctl.apply_frequency()
@@ -339,6 +340,25 @@ def run_calibration(
             # ya dejó ligado con functools.partial antes de inyectar este
             # callable, no algo que calibration.py deba conocer.
             apply_frequency(manifest.cores.delegated_cpus, level, environment_profile)
+        elif getattr(level, "mode", None) not in (None, "native_governor"):
+            # RUN-09 (ARC-102): mismo principio que runner.run_single -- esta
+            # función tiene su PROPIA lógica de aplicación de frecuencia
+            # (arriba), separada de la de run_single, y nunca heredó su
+            # guard: _measure_bw_and_flops_peak() llama a run_single() sin
+            # pasarle apply_frequency, así que el guard de runner.py nunca
+            # se activa aquí. Sin capacidad real de escritura, un nivel de
+            # calibración "fixed" (no native_governor ni el nivel sintético
+            # de compatibilidad con mode=None) no debe medirse en silencio a
+            # la frecuencia nativa y persistirse como
+            # roofline_calibration_<level.id>.json igual: eso desplazaría el
+            # ridge point de ese nivel y contaminaría el etiquetado de toda
+            # ventana clasificada contra él, sin ninguna señal de que pasó.
+            raise CalibrationError(
+                f"RUN-09: nivel de calibración {level.id!r} (mode={getattr(level, 'mode', None)!r}) "
+                "requiere escritura real de frecuencia, pero no hay apply_frequency "
+                "disponible o frequency_write_capable=False -- no se calibra "
+                "silenciosamente a la frecuencia nativa."
+            )
 
         bw_pico, p_pico, stream_raw, ert_raw = _measure_bw_and_flops_peak(
             manifest, stream_ref, stream_kernel, ert_ref, ert_kernel, level.id,
@@ -446,6 +466,16 @@ def run_gpu_calibration(
     native_level = next((lvl for lvl in levels if getattr(lvl, "mode", None) == "native_governor"), levels[0])
     ordered_levels = [native_level] + [lvl for lvl in levels if lvl is not native_level]
 
+    # ARC-102: a diferencia de run_calibration() (eje CPU puro), esta
+    # calibración de GPU no exige capacidad de escritura de frecuencia de
+    # CPU para un nivel "fixed" -- el pineo de núcleos aquí es incidental
+    # (mide FLOPs/BW de la GPU, no de la CPU), y test_arc87_run_gpu_
+    # calibration_fija_el_reloj_de_gpu_por_nivel ya fija ese contrato
+    # deliberadamente (ARC-87: solo el reloj de GPU es el que determina si
+    # el "ridge point por nivel" mide algo distinto entre niveles). El guard
+    # RUN-09 real de esta función va en el eje de GPU, más abajo.
+    is_fixed_level = lambda lvl: getattr(lvl, "mode", None) not in (None, "native_governor")  # noqa: E731
+
     reference: dict[str, RooflineCalibration] = {}
     for level in ordered_levels:
         if (
@@ -465,6 +495,16 @@ def run_gpu_calibration(
             and getattr(environment_profile, "gpu_frequency_write_capable", False)
         ):
             apply_gpu_frequency(level, environment_profile)
+        elif is_fixed_level(level):
+            # RUN-09 (ARC-102): sin esto, un nivel "fixed" sin
+            # gpu_frequency_write_capable mediría el ridge point de GPU al
+            # mismo reloj nativo en los 6 niveles -- el problema exacto que
+            # el comentario de arriba explica, ocurriendo en silencio.
+            raise CalibrationError(
+                f"RUN-09: nivel de calibración {level.id!r} (mode={getattr(level, 'mode', None)!r}) "
+                "requiere escritura real de frecuencia de GPU, pero no hay apply_gpu_frequency "
+                "disponible o gpu_frequency_write_capable=False."
+            )
 
         # BW se mide una sola vez por nivel, compartida entre fp32/fp64 --
         # el reloj de memoria no es parte del espacio DVFS de este proyecto

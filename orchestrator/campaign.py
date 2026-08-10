@@ -40,6 +40,14 @@ class CampaignProtocolMismatchError(RuntimeError):
     "accepted" after the manifest moved on to a different cadence."""
 
 
+class CampaignPreflightError(RuntimeError):
+    """ARC-102: a campaign-wide precondition (checked once, before the first
+    real measurement -- e.g. E08 external load ahead of calibration) failed.
+    Unlike a per-combination rejection (E06/E08 inside the matrix loop,
+    which skips just that combination and continues), there is no run_id to
+    reject yet at this point -- the whole campaign must not start."""
+
+
 def compute_protocol_fingerprint(manifest: Any, catalog: Mapping[str, Any]) -> str:
     """CAM-09 (ARC-94): a hash of every manifest/catalog field that affects
     what a run actually measures -- sampling cadence, frequency levels,
@@ -399,7 +407,33 @@ def run_campaign(
     start_time = time.monotonic()
     progress = CampaignProgress()
 
+    # ARC-102: manifest.load_threshold (opcional) tiene prioridad sobre el
+    # default de este parámetro -- así un manifiesto YAML real puede
+    # declararlo (antes era imposible, el 1.0 estaba fijo como default de
+    # función, sin campo real en Manifest que lo expusiera).
+    effective_load_threshold = (
+        manifest.load_threshold if getattr(manifest, "load_threshold", None) is not None else load_threshold
+    )
+
     try:
+        # E08 (ARC-102): la calibración Roofline/GPU/referencias, igual que
+        # cada combinación de la matriz más abajo, puede contaminarse por
+        # contención externa -- y a diferencia de una combinación individual
+        # (que se puede saltar y reintentar), una calibración contaminada
+        # desplaza el ridge point que clasifica TODA la campaña. Se verifica
+        # una sola vez aquí, antes de la primera medición real, y aborta la
+        # campaña completa (nunca "salta" la calibración) si la carga externa
+        # ya está por encima del umbral -- no hay combinación que rechazar
+        # todavía, así que la única opción segura es no empezar.
+        pre_calibration_load = preflight_module.check_external_load(
+            effective_load_threshold, load_reader, max(len(delegated_cpus), 1)
+        )
+        if not pre_calibration_load.passed:
+            raise CampaignPreflightError(
+                f"E08: carga externa por encima del umbral antes de calibrar, "
+                f"observado={pre_calibration_load.observed}"
+            )
+
         roofline = run_calibration(
             manifest, catalog, environment_profile=environment_profile, node_id=node_id, run_single=run_single,
             apply_frequency=bound_apply_frequency,
@@ -529,7 +563,7 @@ def run_campaign(
             # en preflight.py, nunca estuvo conectada a un camino de
             # producción real.
             load_check = preflight_module.check_external_load(
-                load_threshold, load_reader, max(len(delegated_cpus), 1)
+                effective_load_threshold, load_reader, max(len(delegated_cpus), 1)
             )
             if not load_check.passed:
                 logger.warning(

@@ -393,6 +393,78 @@ def test_e06_procesos_ajenos_saltan_la_combinacion_sin_medir(tmp_path):
     assert "9999" in verdict.message
 
 
+def test_arc102_e08_carga_externa_salta_la_combinacion_sin_medir(tmp_path):
+    # ARC-102: mismo patron que test_e06_procesos_ajenos_saltan_la_
+    # combinacion_sin_medir, pero para carga externa -- el revisor senalo
+    # correctamente que todos los tests previos solo inyectaban carga cero
+    # (load_reader=lambda: (0.0,0.0,0.0) en _freqctl_fakes()), sin ejercitar
+    # nunca el rechazo real desde run_campaign().
+    manifest = _manifest(tmp_path)
+    catalog = _catalog(tmp_path)
+    calibration_deps, postprocess_calls = _fake_calibration_deps()
+    freqctl_deps, _, _ = _freqctl_fakes()
+    # Carga baja para el chequeo previo a calibrar (una sola lectura), alta
+    # de ahi en adelante -- para aislar el rechazo POR COMBINACION (dentro
+    # del bucle de la matriz) del aborto previo a calibrar que ya cubre
+    # test_arc102_e08_antes_de_calibrar_aborta_toda_la_campana.
+    load_reads = [0.0]
+
+    def load_reader():
+        current = load_reads[0]
+        load_reads[0] = 999.0
+        return (current, 0.0, 0.0)
+
+    freqctl_deps["load_reader"] = load_reader
+    calls: list[tuple[str, bool]] = []
+
+    result = campaign.run_campaign(
+        manifest, catalog, SimpleNamespace(frequency_write_capable=False),
+        node_id="felix-sc3", reference_kernel_ref="npb_ep",
+        run_single=_fake_run_single(calls), **calibration_deps, **freqctl_deps,
+    )
+
+    # No se ejecuta ni el baseline ni el telemetry -- se salta ANTES de medir.
+    assert calls == []
+    assert len(postprocess_calls) == 0
+    run_id = "camp01__npb_ep__REF__rep01"
+    assert result.progress.rejected_run_ids == [run_id]
+    assert result.progress.accepted_run_ids == []
+
+    verdict = validation_module.load_verdict(manifest.output_dir / run_id)
+    assert verdict.accepted is False
+    assert verdict.factor_id == "E08"
+
+
+def test_arc102_e08_antes_de_calibrar_aborta_toda_la_campana(tmp_path):
+    # ARC-102: a diferencia de una combinacion individual (que se salta y
+    # la campana sigue), carga externa alta ANTES de calibrar debe abortar
+    # la campana completa -- no hay run_id todavia que rechazar, y una
+    # calibracion contaminada desplazaria el ridge point de todas las
+    # ventanas clasificadas contra ella.
+    manifest = _manifest(tmp_path)
+    catalog = _catalog(tmp_path)
+    freqctl_deps, _, _ = _freqctl_fakes()
+    freqctl_deps["load_reader"] = lambda: (999.0, 0.0, 0.0)
+
+    calibration_calls = []
+
+    def fake_run_calibration(manifest, catalog, *, environment_profile, node_id, run_single, apply_frequency=None):
+        calibration_calls.append(True)
+        return SimpleNamespace(plausibility_check_passed=True, plausibility_message="")
+
+    with pytest.raises(campaign.CampaignPreflightError, match="E08"):
+        campaign.run_campaign(
+            manifest, catalog, SimpleNamespace(frequency_write_capable=False),
+            node_id="felix-sc3", reference_kernel_ref="npb_ep",
+            run_single=_fake_run_single([]), run_calibration=fake_run_calibration,
+            **freqctl_deps,
+        )
+
+    # run_calibration() nunca debe llegar a llamarse -- el chequeo E08 va
+    # ANTES de la primera medicion real, no despues.
+    assert calibration_calls == []
+
+
 def test_e06_sin_procesos_ajenos_corre_normalmente(tmp_path):
     manifest = _manifest(tmp_path)
     catalog = _catalog(tmp_path)
