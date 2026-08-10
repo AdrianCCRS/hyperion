@@ -1,0 +1,84 @@
+# Smoke test de escritura real de frecuencia en paccaA100 (ARC-104,
+# 2026-08-10), tras la llegada del permiso P1 (scaling_min_freq/
+# scaling_max_freq, ver correo del admin del cluster). Objetivo: confirmar
+# que apply_frequency() realmente pinea el hardware y que RUN-09 no
+# dispara -- no producir datos para el dataset final. Reduce
+# campaign_pacca_dvfs.yaml a 1 kernel (npb_mg, el más rápido del catálogo:
+# expected_runtime_seconds=4) x 6 niveles (REF + F0-F4, la variable que se
+# está validando, así que no se recorta) x 3 repeticiones = 18 corridas +
+# calibración. GPU sigue deshabilitada (gpu.enabled=false) -- este smoke
+# test valida solo el eje CPU; el eje GPU (P4, nvidia-smi -lgc/-rgc con
+# sudo) se valida por separado. repetitions_per_combination=3 (no 1): es
+# el mínimo que exige MAN-02, sigue siendo barato con npb_mg (~4s/corrida).
+#
+# Resto de la configuración (cores, RAPL, catálogo, smt_policy,
+# hardware_datasheet) idéntica a campaign_pacca_dvfs.yaml/
+# campaign_pacca_ref.yaml, ya validada en hardware real.
+
+campaign_id: pacca_dvfs_smoke_20260810
+environment_tier: hpc_sc3
+seed: 20260806
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_dvfs_smoke_20260810
+overwrite: true
+
+catalog_path: kernels/catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: npb_mg
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F0, mode: fixed, fraction: 1.0}
+  - {id: F1, mode: fixed, fraction: 0.75}
+  - {id: F2, mode: fixed, fraction: 0.5}
+  - {id: F3, mode: fixed, fraction: 0.25}
+  - {id: F4, mode: fixed, fraction: 0.0}
+
+repetitions_per_combination: 3
+target_windows_per_repetition: 50
+interval_ns: 1000000  # 1 ms
+
+running_ratio_min: 0.90
+
+# I09/OPS-01: la cuenta latorresn no tiene cuota de disco ni límite de
+# horas-núcleo real que el usuario haya pedido rastrear (confirmado
+# 2026-08-10, "uso ilimitado, no te preocupes por eso") -- estos valores
+# solo satisfacen el chequeo de preflight, no representan un límite real.
+# 200 MiB es generoso para 18 corridas cortas de ~4s con muestreo a 1ms;
+# 10 core-hours es igual de generoso frente a 18 combinaciones x 6 cores x
+# ~10s reales por corrida (calibración + overhead incluido) ≈ 0.3 core-h.
+projected_campaign_bytes: 209715200
+remaining_core_hours: 100000
+projected_core_hours: 10
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+rapl:
+  enabled: true
+
+gpu:
+  enabled: false
+
+timeouts_seconds:
+  ready: 15
+  run: 60
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 58353900000
+  p_pico_flops_per_s: 72004000000

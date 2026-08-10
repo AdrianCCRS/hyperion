@@ -75,6 +75,16 @@ interval_ns: 1000000  # 1 ms
 
 running_ratio_min: 0.90
 
+# I09/OPS-01 (ARC-104, 2026-08-10): la cuenta latorresn no tiene cuota de
+# disco ni límite de horas-núcleo real que rastrear (confirmado por el
+# usuario, "uso ilimitado, no te preocupes por eso") -- valores generosos
+# solo para satisfacer el preflight, no un límite real. 2 GiB y 200
+# core-hours son ~7x el smoke test (campaign_pacca_dvfs_smoke.yaml, 18
+# combinaciones vs 126 aquí), con margen de sobra.
+projected_campaign_bytes: 2147483648
+remaining_core_hours: 100000
+projected_core_hours: 200
+
 cores:
   delegated_cpus: [0, 1, 2, 3, 4, 5]
   collector_cpu: 6
