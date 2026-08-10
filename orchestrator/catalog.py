@@ -45,17 +45,15 @@ class KernelEntry:
     # Default 1.0 = el regex ya captura la unidad SI base (bytes/s, FLOP/s).
     bandwidth_stdout_unit_multiplier: float = 1.0
     flops_stdout_unit_multiplier: float = 1.0
-    # POST-09: regex with one capturing group around the total FLOP count a
-    # dataset kernel (NPB/...) reports on its own stdout, used to prorate
-    # flops_window_estimate. Optional: entries without it simply cannot
-    # produce a defined operational_intensity (postprocess.py marks those
-    # windows quality_status="intensity_undefined") until the real suite
-    # stdout format is confirmed in Fase 3.
+    # ARC-100: estos tres campos alimentaban el prorrateo de FLOPs por
+    # instrucciones (POST-09), retirado del pipeline una vez confirmada la
+    # medición directa por hardware (FP_ARITH_INST_RETIRED, ARC-97/98/99) --
+    # ver docs/libro/main.tex Marco Conceptual. Ya no los consume ningún
+    # código de producción; se conservan declarados en el catálogo como
+    # metadato histórico/de auditoría (el propio total/tasa que cada kernel
+    # reporta sigue siendo información real, solo que operational_intensity
+    # ya no depende de ella).
     flops_total_stdout_pattern: str | None = None
-    # F3.2: algunas suites (NPB) no imprimen un total de FLOPs, solo una tasa
-    # ("Mop/s total") y la duración de la corrida ("Time in seconds"). Cuando
-    # flops_total_stdout_pattern no aplica, postprocess.py multiplica ambos
-    # capturados por estos dos patrones para obtener el total equivalente.
     flops_rate_stdout_pattern: str | None = None
     runtime_seconds_stdout_pattern: str | None = None
     exec_args: str = ""

@@ -4,7 +4,6 @@ import csv
 from dataclasses import dataclass
 import math
 from pathlib import Path
-import re
 from typing import Any, Sequence
 
 from . import calibration as calibration_module
@@ -27,13 +26,10 @@ REQUIRED_OUTPUT_COLUMNS: tuple[str, ...] = (
     "ipc_relative", "mpki_relative", "miss_rate_relative",
     "delta_running_ns", "delta_enabled_ns", "running_ratio",
     "pkg_delta_uj", "dram_delta_uj", "power_w", "energy_valid",
-    # ARC-97: direct hardware measurement (FP_ARITH_INST_RETIRED, Ice Lake-SP
-    # only) replaces flops_window_estimate's instruction-prorated value as
-    # the source of operational_intensity whenever it is available on this
-    # node -- flops_window_estimate is still computed and kept as an audit
-    # column (and as the fallback source), but flops_source records which
-    # one actually fed operational_intensity for this row.
-    "flops_window_estimate", "flops_measured_window", "flops_source",
+    # ARC-97/100: FLOPs measured directly by hardware (FP_ARITH_INST_RETIRED,
+    # Ice Lake-SP only), sole source of operational_intensity -- no
+    # instruction-prorated fallback (see build_windows()).
+    "flops_measured_window",
     "bytes_moved_window", "operational_intensity",
     "i_ridge_used", "roofline_calibration_ref", "node_profile_ref", "calibration_ref",
     "binary_checksum", "quality_status",
@@ -116,7 +112,6 @@ class WindowContext:
     calibration_ref: str
     i_ridge_flops_per_byte: float
     llc_line_size_bytes: int
-    run_flops_total: float | None
     warmup_seconds: float
     running_ratio_min: float
     rapl_enabled: bool
@@ -444,26 +439,18 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
         # dropped from windows.csv.
         warmup_excluded = t_start_ns < warmup_end_ns
 
-        # POST-08/POST-09/POST-10: FLOPs from the binary's own stdout,
-        # prorated across windows proportionally to delta_instructions (a
-        # declared approximation, not a PMU measurement — see module
-        # docstring of run this came from in calibration.py/campaign.py).
-        # bytes_moved_window uses the node_profile's real LLC line size.
-        flops_window_estimate = None
-        if (
-            valid_counters
-            and context.run_flops_total is not None
-            and run_total_instructions
-            and delta_instructions is not None
-        ):
-            flops_window_estimate = context.run_flops_total * (delta_instructions / run_total_instructions)
-
-        # ARC-97: direct hardware measurement, preferred over the
-        # instruction-prorated estimate above whenever this node/PMU could
-        # open the 4 FP_ARITH_INST_RETIRED sub-events. All-or-nothing: a
-        # partial delta set (one width missing) is treated the same as none,
-        # since silently omitting a SIMD width would under-count without any
-        # signal that it happened.
+        # POST-08/POST-09/POST-10: FLOPs measured directly by hardware
+        # (ARC-97/98/99, single-node scope -- see docs/libro/main.tex Marco
+        # Conceptual). All-or-nothing across the 4 SIMD widths: a partial
+        # delta set (one width missing) is treated the same as none, since
+        # silently omitting a width would under-count without any signal
+        # that it happened. No instruction-prorated fallback: this project
+        # never claimed portability beyond the validated platform, and a
+        # silent estimate in place of a missing measurement would hide
+        # exactly the kind of gap this instrument is designed to surface
+        # (same principle as every other counter here -- see quality_status
+        # taxonomy below). bytes_moved_window uses the node_profile's real
+        # LLC line size.
         flops_measured_window = None
         if (
             valid_counters
@@ -480,28 +467,12 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
                 + _FP_ARITH_DOUBLES_PER_EVENT["fp_512b_packed_double"] * delta_fp_512b_packed_double
             )
 
-        # ARC-97: measured beats estimated whenever both exist -- this is
-        # the whole point of adding direct measurement. flops_window_estimate
-        # stays computed and exported regardless, both as an audit trail and
-        # as the fallback for nodes/runs where fp_arith is unavailable.
-        if flops_measured_window is not None:
-            flops_for_intensity = flops_measured_window
-            flops_source = "measured"
-        elif flops_window_estimate is not None:
-            flops_for_intensity = flops_window_estimate
-            flops_source = "estimated"
-        else:
-            flops_for_intensity = None
-            flops_source = None
-
         bytes_moved_window = (
             delta_cache_misses * context.llc_line_size_bytes
             if valid_counters and delta_cache_misses is not None
             else None
         )
-        row["flops_window_estimate"] = flops_window_estimate
         row["flops_measured_window"] = flops_measured_window
-        row["flops_source"] = flops_source
         row["bytes_moved_window"] = bytes_moved_window
 
         # ARC-63: independent cross-check for bytes_moved_window's bias
@@ -517,13 +488,13 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
         )
 
         intensity_undefined = (
-            bytes_moved_window is None or bytes_moved_window == 0 or flops_for_intensity is None
+            bytes_moved_window is None or bytes_moved_window == 0 or flops_measured_window is None
         )
         if intensity_undefined:
             row["operational_intensity"] = float("nan")
             row["phase_label_train"] = None
         else:
-            operational_intensity = flops_for_intensity / bytes_moved_window
+            operational_intensity = flops_measured_window / bytes_moved_window
             row["operational_intensity"] = operational_intensity
             # POST-11: always derived from Roofline, never copied from
             # phase_label_hint.
@@ -553,7 +524,7 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
     # ARC-80: la ETIQUETA (phase_label_train) sí se calcula aquí, en Fase 1
     # -- es la corrección al error de diseño de ARC-72/ARC-79, que decía
     # "esto espera al modelo de GPU" confundiendo la etiqueta de verdad
-    # (Fase 1, análoga a bytes_moved_window/flops_window_estimate de CPU)
+    # (Fase 1, análoga a bytes_moved_window/flops_measured_window de CPU)
     # con el modelo que la va a consumir (Fase 2). La intensidad operacional
     # de este kernel (context.gpu_operational_intensity, medida offline con
     # `ncu` una sola vez, ARC-80) es constante en todas las filas de esta
@@ -664,9 +635,7 @@ def _base_row(context: WindowContext, *, window_index: int) -> dict[str, Any]:
         "dram_delta_uj": None,
         "power_w": None,
         "energy_valid": False,
-        "flops_window_estimate": None,
         "flops_measured_window": None,
-        "flops_source": None,
         "bytes_moved_window": None,
         "operational_intensity": None,
         "i_ridge_used": context.i_ridge_flops_per_byte,
@@ -709,42 +678,6 @@ def write_windows_csv(windows: Sequence[dict[str, Any]], output_path: str | Path
                 raise ValueError(f"quality_status inválido: {status!r}")
             writer.writerow([_format_cell(row.get(column)) for column in REQUIRED_OUTPUT_COLUMNS])
     return path
-
-
-def _extract_stdout_number(pattern: str | None, stdout_text: str) -> float | None:
-    if not pattern:
-        return None
-    match = re.search(pattern, stdout_text)
-    if not match or not match.groups():
-        return None
-    try:
-        return float(match.group(1))
-    except ValueError:
-        return None
-
-
-def extract_run_flops_total(kernel_entry: Any, stdout_text: str) -> float | None:
-    """POST-09: total FLOPs the kernel itself reported on stdout, never a PMU
-    counter. Returns None (never raises) when the catalog entry has no
-    flops_total_stdout_pattern or the pattern does not match, so the caller
-    ends up with quality_status="intensity_undefined" windows instead of a
-    hard failure.
-
-    F3.2: NPB (confirmed on felix) never prints an absolute FLOP total, only
-    a rate ("Mop/s total") and the run duration ("Time in seconds"). When
-    flops_total_stdout_pattern is absent, fall back to
-    flops_rate_stdout_pattern (Mop/s) x 1e6 x runtime_seconds_stdout_pattern
-    (seconds) — both regexes read from the kernel's own stdout, still never
-    a PMU counter.
-    """
-    total = _extract_stdout_number(getattr(kernel_entry, "flops_total_stdout_pattern", None), stdout_text)
-    if total is not None:
-        return total
-    rate = _extract_stdout_number(getattr(kernel_entry, "flops_rate_stdout_pattern", None), stdout_text)
-    runtime = _extract_stdout_number(getattr(kernel_entry, "runtime_seconds_stdout_pattern", None), stdout_text)
-    if rate is None or runtime is None:
-        return None
-    return rate * 1e6 * runtime
 
 
 def run_postprocess(
@@ -806,8 +739,6 @@ def run_postprocess(
             gpu_i_ridge = None
 
     run_dir = Path(run_dir)
-    stdout_text = (run_dir / "stdout.txt").read_text(errors="replace") if (run_dir / "stdout.txt").exists() else ""
-    run_flops_total = extract_run_flops_total(kernel_entry, stdout_text)
 
     context = WindowContext(
         run_id=run_id,
@@ -827,7 +758,6 @@ def run_postprocess(
         calibration_ref=str(Path(calibration_dir) / "calibration_references.json"),
         i_ridge_flops_per_byte=roofline.i_ridge_flops_per_byte,
         llc_line_size_bytes=profile.cache_line_size_bytes,
-        run_flops_total=run_flops_total,
         warmup_seconds=warmup_seconds,
         running_ratio_min=running_ratio_min,
         rapl_enabled=rapl_enabled,

@@ -24,13 +24,16 @@ SAMPLES_HEADER = [
 
 def _cpu_row(*, repetition, ts, instructions, cycles, cache_references, cache_misses,
              time_enabled, time_running, stalled_cycles_backend=0, l2_lines_in_all=0,
-             # ARC-97: "" by default (not 0), matching the launcher's real
-             # empty-not-zero convention for a node/PMU that never opened
-             # these -- most existing fixtures don't care about FLOPs
-             # measurement and must keep exercising the flops_window_estimate
-             # fallback path, exactly as they did before this column existed.
-             fp_scalar_double="", fp_128b_packed_double="",
-             fp_256b_packed_double="", fp_512b_packed_double=""):
+             # ARC-100: 0 by default, same convention as stalled_cycles_backend/
+             # l2_lines_in_all above -- "supported, zero delta" is the sane
+             # default now that FLOPs measurement is the only source (no more
+             # prorated fallback to silently exercise instead). Tests that
+             # want to exercise the "node/PMU never opened this" path pass
+             # fp_scalar_double="" (empty) explicitly, same pattern as the
+             # dedicated l2_lines_in_all/stalled_cycles_backend "no soportado"
+             # tests below.
+             fp_scalar_double=0, fp_128b_packed_double=0,
+             fp_256b_packed_double=0, fp_512b_packed_double=0):
     return {
         "run_id": "r", "repetition": repetition, "kernel": "k", "label": "k",
         "timestamp_ns": ts, "tag": "CPU",
@@ -82,7 +85,7 @@ def _context(**overrides) -> postprocess.WindowContext:
         freq_khz_requested=None, freq_khz_applied=None, freq_khz_observed=2261000,
         binary_checksum="sha256:x", roofline_calibration_ref="cal/roofline_calibration.json",
         node_profile_ref="cal/node_profile.json", calibration_ref="cal/calibration_references.json",
-        i_ridge_flops_per_byte=1.0, llc_line_size_bytes=64, run_flops_total=None,
+        i_ridge_flops_per_byte=1.0, llc_line_size_bytes=64,
         warmup_seconds=0.0, running_ratio_min=0.9, rapl_enabled=False,
         calibration_references=None,
     )
@@ -138,7 +141,7 @@ def test_post04_ventana_normal_usa_delta_t_real(tmp_path):
                  cache_references=100_000, cache_misses=1_000,
                  time_enabled=1_500_000, time_running=1_500_000),
     ])
-    windows = postprocess.build_windows(samples, _context(run_flops_total=1_000_000.0))
+    windows = postprocess.build_windows(samples, _context())
 
     window = windows[1]
     assert window["delta_t_ns"] == 1_500_000  # no el --interval-ns nominal
@@ -177,7 +180,7 @@ def test_stalled_cycles_backend_delta_y_ratio_se_calculan(tmp_path):
                  cache_references=100_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000,
                  stalled_cycles_backend=400_000),
     ])
-    windows = postprocess.build_windows(samples, _context(run_flops_total=1_000_000.0))
+    windows = postprocess.build_windows(samples, _context())
 
     window = windows[1]
     assert window["delta_stalled_cycles_backend"] == 400_000
@@ -199,7 +202,7 @@ def test_l2_lines_in_all_delta_y_bytes_moved_l2_proxy_se_calculan(tmp_path):
                  cache_references=100_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000,
                  l2_lines_in_all=2_000),
     ])
-    windows = postprocess.build_windows(samples, _context(run_flops_total=1_000_000.0, llc_line_size_bytes=64))
+    windows = postprocess.build_windows(samples, _context(llc_line_size_bytes=64))
 
     window = windows[1]
     assert window["delta_l2_lines_in_all"] == 2_000
@@ -224,7 +227,7 @@ def test_l2_lines_in_all_no_soportado_no_afecta_bytes_moved_window(tmp_path):
         ]:
             row.pop("l2_lines_in_all", None)
             writer.writerow(row)
-    windows = postprocess.build_windows(samples, _context(run_flops_total=1_000_000.0))
+    windows = postprocess.build_windows(samples, _context())
 
     window = windows[1]
     assert window["delta_l2_lines_in_all"] is None
@@ -256,7 +259,7 @@ def test_stalled_cycles_backend_no_soportado_en_el_nodo_no_marca_pmu_degraded(tm
         ]:
             row.pop("stalled_cycles_backend", None)
             writer.writerow(row)
-    windows = postprocess.build_windows(samples, _context(run_flops_total=1_000_000.0))
+    windows = postprocess.build_windows(samples, _context())
 
     window = windows[1]
     assert window["delta_stalled_cycles_backend"] is None
@@ -291,7 +294,7 @@ def test_post05_post06_energia_invalida_nunca_se_reporta_como_consumo_real(tmp_p
                  cache_references=100_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000),
         _energy_row(repetition=1, ts=1_001_000_000, pkg_delta_uj=500_000, valid=False),
     ])
-    windows = postprocess.build_windows(samples, _context(rapl_enabled=True, run_flops_total=1_000_000.0))
+    windows = postprocess.build_windows(samples, _context(rapl_enabled=True))
 
     window = windows[1]
     assert window["energy_valid"] is False
@@ -310,7 +313,7 @@ def test_post05_energia_valida_calcula_power_w(tmp_path):
                  cache_references=100_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000),
         _energy_row(repetition=1, ts=1_001_000_000, pkg_delta_uj=2_000_000, valid=True),  # 2 J en 1 ms
     ])
-    windows = postprocess.build_windows(samples, _context(rapl_enabled=True, run_flops_total=1_000_000.0))
+    windows = postprocess.build_windows(samples, _context(rapl_enabled=True))
 
     window = windows[1]
     assert window["energy_valid"] is True
@@ -336,7 +339,7 @@ def test_arc56_power_w_usa_el_intervalo_real_de_rapl_no_el_de_la_ventana_cpu(tmp
                  cache_references=100_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000),
         _energy_row(repetition=1, ts=1_000_000_010, pkg_delta_uj=2_000_000, valid=True),  # 2 J, 1 ms real de RAPL
     ])
-    windows = postprocess.build_windows(samples, _context(rapl_enabled=True, run_flops_total=1_000_000.0))
+    windows = postprocess.build_windows(samples, _context(rapl_enabled=True))
 
     window = windows[1]
     assert window["delta_t_ns"] == 10  # la ventana CPU en si sigue siendo la real, sin tocar
@@ -355,7 +358,7 @@ def test_post07_ventana_en_warmup_se_conserva_pero_se_marca(tmp_path):
                  cache_references=100_000, cache_misses=1_000, time_enabled=500_000, time_running=500_000),
     ])
     # warmup_seconds=1.0 -> la ventana (t=1_000_000_000 a 1_000_500_000) cae dentro del warmup.
-    windows = postprocess.build_windows(samples, _context(warmup_seconds=1.0, run_flops_total=1000.0))
+    windows = postprocess.build_windows(samples, _context(warmup_seconds=1.0))
 
     window = windows[1]
     assert window["quality_status"] == "warmup_excluded"
@@ -371,7 +374,7 @@ def test_post08_bytes_movidos_cero_da_nan_y_no_divide_por_cero(tmp_path):
                  cache_references=100_000, cache_misses=0,  # sin misses -> bytes_moved_window = 0
                  time_enabled=1_000_000, time_running=1_000_000),
     ])
-    windows = postprocess.build_windows(samples, _context(run_flops_total=1_000_000.0))
+    windows = postprocess.build_windows(samples, _context())
 
     window = windows[1]
     assert window["bytes_moved_window"] == 0
@@ -380,32 +383,26 @@ def test_post08_bytes_movidos_cero_da_nan_y_no_divide_por_cero(tmp_path):
     assert window["phase_label_train"] is None
 
 
-def test_post09_post10_flops_prorateado_y_bytes_con_line_size_del_node_profile(tmp_path):
+def test_post10_bytes_moved_usa_line_size_del_node_profile(tmp_path):
     samples = tmp_path / "samples.csv"
     _write_samples(samples, [
         _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
                  cache_references=0, cache_misses=0, time_enabled=0, time_running=0),
         _cpu_row(repetition=1, ts=1_001_000_000, instructions=4_000_000, cycles=2_000_000,
                  cache_references=200_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000),
-        _cpu_row(repetition=1, ts=1_002_000_000, instructions=8_000_000, cycles=4_000_000,
-                 cache_references=400_000, cache_misses=1_000, time_enabled=2_000_000, time_running=2_000_000),
     ])
-    # run_total_instructions = 8_000_000 (ultima fila). Ventana 1: delta=4_000_000 -> mitad del total.
-    windows = postprocess.build_windows(
-        samples, _context(run_flops_total=1_000_000.0, llc_line_size_bytes=128)
-    )
+    windows = postprocess.build_windows(samples, _context(llc_line_size_bytes=128))
 
     window1 = windows[1]
-    assert window1["flops_window_estimate"] == pytest.approx(500_000.0)  # mitad de 1_000_000
     assert window1["bytes_moved_window"] == 1_000 * 128  # linea real del node_profile, no 64 hardcodeado
-    # ARC-97: sin columnas fp_* pobladas (nodo sin FP_ARITH_INST_RETIRED),
-    # operational_intensity debe seguir cayendo al prorrateo, exactamente
-    # como antes de que existiera la medicion directa.
-    assert window1["flops_measured_window"] is None
-    assert window1["flops_source"] == "estimated"
 
 
-def test_arc97_flops_medidos_por_hardware_reemplazan_al_prorrateo(tmp_path):
+def test_arc100_flops_medidos_alimentan_operational_intensity(tmp_path):
+    # ARC-100: FLOPs por ventana ya no se estiman por prorrateo -- se miden
+    # directamente por hardware (ARC-97/98/99) y esa es la unica fuente de
+    # operational_intensity. Este test verifica el camino completo: los 4
+    # contadores crudos ponderados 1/2/4/8 -> flops_measured_window ->
+    # operational_intensity = flops_measured_window / bytes_moved_window.
     samples = tmp_path / "samples.csv"
     _write_samples(samples, [
         _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
@@ -418,18 +415,41 @@ def test_arc97_flops_medidos_por_hardware_reemplazan_al_prorrateo(tmp_path):
                  fp_scalar_double=10, fp_128b_packed_double=10,
                  fp_256b_packed_double=10, fp_512b_packed_double=10),
     ])
-    # run_flops_total deliberadamente muy distinto del valor medido, para que
-    # el assert de abajo solo pueda pasar si de verdad se prefirio la medida
-    # por hardware sobre el prorrateo (que daria 1_000_000.0, no 150.0).
-    windows = postprocess.build_windows(
-        samples, _context(run_flops_total=1_000_000.0, llc_line_size_bytes=128)
-    )
+    windows = postprocess.build_windows(samples, _context(llc_line_size_bytes=128))
 
     window1 = windows[1]
     assert window1["flops_measured_window"] == 150.0
-    assert window1["flops_source"] == "measured"
-    assert window1["flops_window_estimate"] == pytest.approx(1_000_000.0)  # se sigue calculando (auditoria)
-    assert window1["operational_intensity"] == pytest.approx(150.0 / (1_000 * 128))  # usa la medida, no el prorrateo
+    assert window1["operational_intensity"] == pytest.approx(150.0 / (1_000 * 128))
+
+
+def test_arc100_sin_fp_arith_operational_intensity_queda_indefinida(tmp_path):
+    # Sin fallback: un nodo/corrida donde FP_ARITH_INST_RETIRED nunca se abrio
+    # (columnas fp_* ausentes por completo, no solo vacias) debe dejar
+    # operational_intensity/phase_label_train indefinidos, nunca recurrir a
+    # una estimacion silenciosa.
+    samples = tmp_path / "samples.csv"
+    old_header = [c for c in SAMPLES_HEADER if c not in (
+        "fp_scalar_double", "fp_128b_packed_double", "fp_256b_packed_double", "fp_512b_packed_double",
+    )]
+    with samples.open("w", newline="", encoding="utf-8") as samples_file:
+        writer = csv.DictWriter(samples_file, fieldnames=old_header, restval="")
+        writer.writeheader()
+        for row in [
+            _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                     cache_references=0, cache_misses=0, time_enabled=0, time_running=0),
+            _cpu_row(repetition=1, ts=1_001_000_000, instructions=4_000_000, cycles=2_000_000,
+                     cache_references=200_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000),
+        ]:
+            for column in ("fp_scalar_double", "fp_128b_packed_double", "fp_256b_packed_double", "fp_512b_packed_double"):
+                row.pop(column, None)
+            writer.writerow(row)
+    windows = postprocess.build_windows(samples, _context())
+
+    window1 = windows[1]
+    assert window1["flops_measured_window"] is None
+    assert math.isnan(window1["operational_intensity"])
+    assert window1["phase_label_train"] is None
+    assert window1["quality_status"] == "intensity_undefined"
 
 
 def test_arc97_delta_fp_negativo_marca_pmu_degraded(tmp_path):
@@ -446,7 +466,7 @@ def test_arc97_delta_fp_negativo_marca_pmu_degraded(tmp_path):
                  fp_scalar_double=10, fp_128b_packed_double=0,
                  fp_256b_packed_double=0, fp_512b_packed_double=0),
     ])
-    windows = postprocess.build_windows(samples, _context(run_flops_total=1_000_000.0))
+    windows = postprocess.build_windows(samples, _context())
 
     window1 = windows[1]
     assert window1["quality_status"] == "pmu_degraded"
@@ -464,7 +484,7 @@ def test_post11_phase_label_train_por_roofline_no_por_hint(tmp_path):
     ])
     # phase_label_hint dice compute_bound, pero I = flops/bytes sera bajo -> memory_bound.
     windows = postprocess.build_windows(
-        samples, _context(phase_label_hint="compute_bound", run_flops_total=1.0, i_ridge_flops_per_byte=1.0)
+        samples, _context(phase_label_hint="compute_bound", i_ridge_flops_per_byte=1.0)
     )
 
     window = windows[1]
@@ -827,44 +847,6 @@ def test_arc78_run_postprocess_pide_el_ridge_del_propio_freq_level_id(tmp_path, 
     assert requested_freq_level_ids == ["FG_1"]
 
 
-def test_post09_flops_total_directo_tiene_prioridad_sobre_tasa():
-    entry = SimpleNamespace(
-        flops_total_stdout_pattern=r"TOTAL_FLOPS\s+([0-9.]+)",
-        flops_rate_stdout_pattern=r"Mop/s total\s*=\s*([0-9.]+)",
-        runtime_seconds_stdout_pattern=r"Time in seconds\s*=\s*([0-9.]+)",
-    )
-    stdout = "TOTAL_FLOPS 42.0\nMop/s total     =    372.35\nTime in seconds =      0.09\n"
-    assert postprocess.extract_run_flops_total(entry, stdout) == 42.0
-
-
-def test_post09_npb_sin_total_directo_usa_tasa_por_tiempo():
-    entry = SimpleNamespace(
-        flops_total_stdout_pattern=None,
-        flops_rate_stdout_pattern=r"Mop/s total\s*=\s*([0-9.]+)",
-        runtime_seconds_stdout_pattern=r"Time in seconds\s*=\s*([0-9.]+)",
-    )
-    stdout = "Mop/s total     =    372.35\nTime in seconds =      0.09\n"
-    resultado = postprocess.extract_run_flops_total(entry, stdout)
-    assert resultado == pytest.approx(372.35 * 1e6 * 0.09)
-
-
-def test_post09_sin_ningun_patron_devuelve_none():
-    entry = SimpleNamespace(
-        flops_total_stdout_pattern=None, flops_rate_stdout_pattern=None, runtime_seconds_stdout_pattern=None,
-    )
-    assert postprocess.extract_run_flops_total(entry, "cualquier salida") is None
-
-
-def test_post09_falta_uno_de_los_dos_patrones_de_tasa_devuelve_none():
-    entry = SimpleNamespace(
-        flops_total_stdout_pattern=None,
-        flops_rate_stdout_pattern=r"Mop/s total\s*=\s*([0-9.]+)",
-        runtime_seconds_stdout_pattern=None,
-    )
-    stdout = "Mop/s total     =    372.35\n"
-    assert postprocess.extract_run_flops_total(entry, stdout) is None
-
-
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
 
@@ -876,7 +858,7 @@ def test_fixture_fake_samples_cubre_wrap_running_ratio_bajo_bytes_cero_y_warmup(
         FIXTURES_DIR / "fake_samples.csv",
         _context(
             run_id="fake_run", kernel_ref="npb_ep", warmup_seconds=0.0005,
-            running_ratio_min=0.9, run_flops_total=6_000_000.0,
+            running_ratio_min=0.9,
         ),
     )
 
