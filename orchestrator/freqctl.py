@@ -6,6 +6,7 @@ import logging
 import os
 from pathlib import Path
 import signal
+import time
 from typing import Any, Callable, Iterable, Mapping
 
 logger = logging.getLogger(__name__)
@@ -104,17 +105,39 @@ def _write_text(path: Path, value: str) -> None:
     path.write_text(value, encoding="utf-8")
 
 
+_WRITE_VERIFY_RETRIES = 3
+_WRITE_VERIFY_RETRY_DELAY_S = 0.05
+
+
 def _write_and_verify(path: Path, value: str, *, attr: str, cpu: int) -> bool:
-    """FRQ-02/FRQ-04: never assume a write succeeded; reread and compare."""
-    _write_text(path, value)
-    observed = _read_text(path)
-    if observed != value:
-        logger.error(
-            "freqctl: %s en cpu%d no coincide tras escribir (esperado=%r, leido=%r)",
-            attr, cpu, value, observed,
-        )
-        return False
-    return True
+    """FRQ-02/FRQ-04: never assume a write succeeded; reread and compare.
+
+    ARC-108: bajo carga intensa en el núcleo justo antes de esta escritura
+    (confirmado en pacca: el HWP de intel_pstate puede rechazar
+    transitoriamente una escritura de scaling_min_freq inmediatamente
+    después de una calibración de FLOPs pico que satura los núcleos
+    delegados), la primera relectura puede no coincidir aun cuando el
+    permiso es real y la escritura eventualmente se aplica -- reproducido
+    de forma determinista fuera de este instrumento (mismo comando de
+    shell, mismo orden) sin ninguna falla, así que no es un problema de
+    permiso ni de orden de escritura. Se reintenta unas pocas veces con
+    una espera corta antes de declarar la falla -- un permiso realmente
+    ausente sigue fallando siempre (nunca sería intermitente), así que
+    este reintento no puede enmascarar el caso que FRQ-02 existe para
+    detectar.
+    """
+    for attempt in range(_WRITE_VERIFY_RETRIES):
+        _write_text(path, value)
+        observed = _read_text(path)
+        if observed == value:
+            return True
+        if attempt < _WRITE_VERIFY_RETRIES - 1:
+            time.sleep(_WRITE_VERIFY_RETRY_DELAY_S)
+    logger.error(
+        "freqctl: %s en cpu%d no coincide tras escribir (esperado=%r, leido=%r, intentos=%d)",
+        attr, cpu, value, observed, _WRITE_VERIFY_RETRIES,
+    )
+    return False
 
 
 def _nearest_available(target_khz: float, available_khz: Iterable[int]) -> int:

@@ -347,3 +347,33 @@ def test_frq10_read_observed_frequency_khz(tmp_path):
 
     assert freqctl.read_observed_frequency_khz(env, 0) == 1862000
     assert freqctl.read_observed_frequency_khz(env, 99) is None
+
+
+def test_arc108_write_and_verify_reintenta_ante_falla_transitoria(tmp_path, monkeypatch):
+    # ARC-108: bajo carga intensa justo antes de la escritura, intel_pstate
+    # puede rechazar transitoriamente una escritura -- reproducido en pacca
+    # de forma no determinista (el mismo comando, fuera del harness, nunca
+    # falla). Simula: la relectura falla las dos primeras veces y luego
+    # coincide, sin que el archivo real cambie de contenido entre lecturas
+    # (monkeypatch de _read_text, no del archivo).
+    path = tmp_path / "scaling_max_freq"
+    path.write_text("800000")
+    sleeps = []
+    monkeypatch.setattr(freqctl.time, "sleep", lambda s: sleeps.append(s))
+
+    reads = iter(["800000", "800000", "2261000"])
+    monkeypatch.setattr(freqctl, "_read_text", lambda p: next(reads))
+
+    assert freqctl._write_and_verify(path, "2261000", attr="scaling_max_freq", cpu=0) is True
+    assert len(sleeps) == 2
+
+
+def test_arc108_write_and_verify_falla_tras_agotar_reintentos(tmp_path, monkeypatch):
+    path = tmp_path / "scaling_max_freq"
+    path.write_text("800000")
+    monkeypatch.setattr(freqctl.time, "sleep", lambda s: None)
+    monkeypatch.setattr(freqctl, "_read_text", lambda p: "800000")
+
+    # Un permiso realmente ausente falla siempre, no de forma intermitente
+    # -- el reintento no debe convertir esto en un falso positivo.
+    assert freqctl._write_and_verify(path, "2261000", attr="scaling_max_freq", cpu=0) is False
