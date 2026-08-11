@@ -98,6 +98,7 @@ def test_arc94_apply_fixed_relee_el_reloj_aplicado():
     applied = gpu_freqctl.apply_gpu_frequency(
         level, env, run_nvidia_smi=_fake_run_nvidia_smi([]),
         query_sm_clock_mhz=lambda gpu_index: 1050,
+        query_gpu_utilization_pct=lambda gpu_index: 0,
     )
 
     assert applied.observed_sm_mhz == 1050
@@ -113,6 +114,7 @@ def test_arc94_apply_fixed_reloj_ocioso_bajo_el_target_no_es_falla():
     applied = gpu_freqctl.apply_gpu_frequency(
         level, env, run_nvidia_smi=_fake_run_nvidia_smi([]),
         query_sm_clock_mhz=lambda gpu_index: 210,  # reloj ocioso tipico
+        query_gpu_utilization_pct=lambda gpu_index: 0,
     )
 
     assert applied.observed_sm_mhz == 210
@@ -120,6 +122,8 @@ def test_arc94_apply_fixed_reloj_ocioso_bajo_el_target_no_es_falla():
 
 
 def test_arc94_apply_fixed_falla_si_la_relectura_supera_el_techo():
+    # ARC-112: solo bloquea si la GPU esta bajo carga real (utilizacion>0)
+    # -- ver test_arc112_* mas abajo para el caso ocioso, que NO bloquea.
     env = _env(write_capable=True)
     level = SimpleNamespace(id="F2", mode="fixed", fraction=0.5)  # target=1050
 
@@ -127,7 +131,45 @@ def test_arc94_apply_fixed_falla_si_la_relectura_supera_el_techo():
         gpu_freqctl.apply_gpu_frequency(
             level, env, run_nvidia_smi=_fake_run_nvidia_smi([]),
             query_sm_clock_mhz=lambda gpu_index: 1410,  # nunca deberia superar 1050
+            query_gpu_utilization_pct=lambda gpu_index: 87,  # GPU con carga real
         )
+
+
+def test_arc112_relectura_supera_el_techo_pero_gpu_ociosa_no_bloquea():
+    # El bug real que motivo ARC-112: nvidia-smi -lgc <bajo>,<bajo>
+    # confirmado con exito (returncode 0) en hardware real, pero el reloj
+    # SM observado sigue en su valor ocioso (~765MHz en la A100 de pacca)
+    # muy por encima de un techo bajo (ej. F4=210MHz) mientras la GPU no
+    # tiene carga -- nvidia-smi -q -d CLOCK confirma "Idle: Active" como
+    # la causa. Con utilizacion=0, el exceso sobre el techo es
+    # inconcluyente, no evidencia de fallo.
+    env = _env(write_capable=True)
+    level = SimpleNamespace(id="F4", mode="fixed", fraction=0.0)  # target=765 (el mas bajo)
+
+    applied = gpu_freqctl.apply_gpu_frequency(
+        level, env, run_nvidia_smi=_fake_run_nvidia_smi([]),
+        query_sm_clock_mhz=lambda gpu_index: 1410,  # reloj ocioso, por encima del techo
+        query_gpu_utilization_pct=lambda gpu_index: 0,  # GPU ociosa
+    )
+
+    assert applied.observed_sm_mhz == 1410
+    assert applied.applied_mhz == 765
+
+
+def test_arc112_utilizacion_no_disponible_no_bloquea():
+    # Si no se puede determinar la utilizacion, el exceso sobre el techo
+    # tampoco es evidencia suficiente -- mismo criterio que la relectura
+    # de reloj no disponible (ARC-94).
+    env = _env(write_capable=True)
+    level = SimpleNamespace(id="F2", mode="fixed", fraction=0.5)  # target=1050
+
+    applied = gpu_freqctl.apply_gpu_frequency(
+        level, env, run_nvidia_smi=_fake_run_nvidia_smi([]),
+        query_sm_clock_mhz=lambda gpu_index: 1410,
+        query_gpu_utilization_pct=lambda gpu_index: None,
+    )
+
+    assert applied.observed_sm_mhz == 1410
 
 
 def test_arc94_apply_fixed_relectura_no_disponible_no_bloquea():
@@ -137,6 +179,7 @@ def test_arc94_apply_fixed_relectura_no_disponible_no_bloquea():
     applied = gpu_freqctl.apply_gpu_frequency(
         level, env, run_nvidia_smi=_fake_run_nvidia_smi([]),
         query_sm_clock_mhz=lambda gpu_index: None,
+        query_gpu_utilization_pct=lambda gpu_index: 0,
     )
 
     assert applied.observed_sm_mhz is None

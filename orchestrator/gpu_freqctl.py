@@ -106,6 +106,25 @@ def _default_query_sm_clock_mhz(gpu_index: int | str) -> int | None:
         return None
 
 
+def _default_query_gpu_utilization_pct(gpu_index: int | str) -> int | None:
+    """ARC-112: señal independiente para distinguir un candado que no se
+    aplicó de un candado correctamente aplicado sobre una GPU ociosa --
+    ver el docstring de apply_gpu_frequency para el porqué."""
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "-i", str(gpu_index), "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        return int(result.stdout.strip().splitlines()[0])
+    except (ValueError, IndexError):
+        return None
+
+
 def _apply_unavailable(level_id: str) -> AppliedGpuFrequency:
     # ARC-87 (espejo de FRQ-06): ningún comando de nvidia-smi que escriba se
     # invoca por esta rama.
@@ -125,6 +144,7 @@ def apply_gpu_frequency(
     gpu_index: int | str | None = None,
     run_nvidia_smi: Callable[..., subprocess.CompletedProcess] = _default_run_nvidia_smi,
     query_sm_clock_mhz: Callable[[int | str], int | None] = _default_query_sm_clock_mhz,
+    query_gpu_utilization_pct: Callable[[int | str], int | None] = _default_query_gpu_utilization_pct,
 ) -> AppliedGpuFrequency:
     """Fija el reloj de SM de la GPU al valor que implica `level.fraction`
     sobre `env.gpu_available_clocks_mhz`, vía `nvidia-smi -lgc <t>,<t>`
@@ -146,12 +166,26 @@ def apply_gpu_frequency(
     siempre relee el sysfs escrito. La relectura de GPU no puede exigir
     igualdad estricta con el target: el reloj SM real cae a un nivel
     ocioso más bajo cuando no hay carga, incluso con el techo fijado por
-    `-lgc` -- eso es comportamiento esperado, no una falla. Lo que sí es
-    evidencia inequívoca de que el candado no se aplicó es observar un
-    reloj **por encima** del techo fijado; ese caso sí bloquea con
-    `GpuFrequencyControlError`. Si la consulta de relectura falla o no
-    está disponible, se registra `observed_sm_mhz=None` sin bloquear -- es
-    una verificación adicional, no un requisito nuevo de la ruta feliz.
+    `-lgc` -- eso es comportamiento esperado, no una falla.
+
+    ARC-112: la premisa original de ARC-94 -- "un reloj observado por
+    ENCIMA del techo fijado es evidencia inequívoca de que el candado no
+    se aplicó" -- resultó falsa para niveles con techo bajo (F3/F4):
+    verificado en hardware real que `nvidia-smi -lgc <bajo>,<bajo>`
+    reporta éxito (returncode 0, mensaje de confirmación) pero el reloj
+    SM observado inmediatamente después sigue en su valor ocioso (~765MHz
+    en esta A100, muy por encima de un techo de 210MHz) mientras la GPU
+    no tiene carga real -- `nvidia-smi -q -d CLOCK` confirma la causa con
+    su propio campo `Clocks Event Reasons: Idle: Active`: el candado
+    restringe el rango de DVFS bajo carga, no el reloj instantáneo en
+    reposo. Por eso la comparación `observado > objetivo` solo bloquea
+    cuando `query_gpu_utilization_pct` confirma que la GPU tiene trabajo
+    real (`> 0`) en el momento de la relectura -- con la GPU ociosa
+    (`== 0`) o si la consulta de utilización falla (`None`), el exceso
+    sobre el techo es inconcluyente, no evidencia de fallo, y no bloquea.
+    Si la consulta de relectura de reloj falla o no está disponible, se
+    registra `observed_sm_mhz=None` sin bloquear -- es una verificación
+    adicional, no un requisito nuevo de la ruta feliz.
     """
     if not getattr(env, "gpu_frequency_write_capable", False):
         return _apply_unavailable(level.id)
@@ -195,10 +229,12 @@ def apply_gpu_frequency(
             f"gpu_freqctl: nvidia-smi -lgc {target} falló para el nivel {level.id!r}: {result.stderr.strip()}"
         )
     observed = query_sm_clock_mhz(gpu_index)
-    if observed is not None and observed > target:
+    utilization_pct = query_gpu_utilization_pct(gpu_index)
+    if observed is not None and observed > target and utilization_pct is not None and utilization_pct > 0:
         raise GpuFrequencyControlError(
             f"gpu_freqctl: apply_gpu_frequency({level.id!r}) relectura {observed}MHz supera "
-            f"el techo fijado {target}MHz -- el candado no parece haberse aplicado"
+            f"el techo fijado {target}MHz con la GPU bajo carga (utilizacion={utilization_pct}%) "
+            "-- el candado no parece haberse aplicado"
         )
     return AppliedGpuFrequency(
         level_id=level.id,
