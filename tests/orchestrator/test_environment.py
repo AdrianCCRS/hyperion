@@ -93,6 +93,22 @@ def test_env_t01b_intel_pstate_sin_scaling_available_frequencies(tmp_path):
     assert perfil.available_frequencies_khz == [800000, 3600000]
 
 
+def test_arc138_no_turbo_limita_el_rango_a_base_frequency(tmp_path):
+    raiz = crear_sysfs(tmp_path, rapl=10)
+    intel_pstate = raiz / "devices/system/cpu/intel_pstate"
+    intel_pstate.mkdir(parents=True)
+    (intel_pstate / "no_turbo").write_text("1")
+    (intel_pstate / "status").write_text("active")
+    for cpu in range(2, 6):
+        (raiz / f"devices/system/cpu/cpu{cpu}/cpufreq/base_frequency").write_text("3200000")
+
+    perfil = environment.detect_environment("2-5", str(raiz))
+
+    assert perfil.available_frequencies_khz == [1200000, 2400000, 3200000]
+    assert perfil.base_frequency_khz == 3200000
+    assert perfil.turbo_hwp_state["no_turbo"] == "1"
+
+
 def test_env_t02_amd_pstate_es_controlable(tmp_path):
     raiz = crear_sysfs(tmp_path, driver="amd-pstate")
     perfil = environment.detect_environment("2-5", str(raiz))

@@ -88,7 +88,9 @@ def check_smt(env: Any, manifest: Any) -> CheckResult:
     return _result("E05", "Política SMT", passed, True, {"policy": policy, "siblings": _value(env, "smt_siblings", {})}, "Declare smt_policy como all_threads o one_thread_per_physical_core")
 
 
-def check_turbo_hwp(cpu_root: str | Path | None = None) -> CheckResult:
+def check_turbo_hwp(
+    cpu_root: str | Path | None = None, *, require_disabled: bool = False
+) -> CheckResult:
     root = Path(cpu_root) if cpu_root is not None else load_config().sysfs.cpu_root
     intel_pstate = root / "intel_pstate"
     amd_pstate = root / "amd_pstate"
@@ -100,7 +102,13 @@ def check_turbo_hwp(cpu_root: str | Path | None = None) -> CheckResult:
         "amd_pstate_status": _read(amd_pstate / "status"),
         "cpufreq_boost": _read(cpufreq / "boost"),
     }
-    return _result("E01", "Estado Turbo/HWP/CPB", True, True, observed, "Estado Turbo/HWP/CPB registrado para compararlo durante la campaña")
+    passed = not require_disabled or observed["no_turbo"] == "1"
+    message = (
+        "Estado Turbo/HWP/CPB registrado para compararlo durante la campaña"
+        if passed else
+        "La campaña exige turbo deshabilitado (intel_pstate/no_turbo=1)"
+    )
+    return _result("E01", "Estado Turbo/HWP/CPB", passed, True, observed, message)
 
 
 def check_turbo_hwp_unchanged(snapshot: Mapping[str, Any], cpu_root: str | Path | None = None) -> CheckResult:
@@ -311,6 +319,31 @@ def check_temperature(temperature_c: float | None, minimum_c: float = 0.0, maxim
         return _result("E02", "Temperatura de paquete", True, False, {"temperature_c": "unavailable"}, "No hay sensor térmico disponible")
     passed = minimum_c <= temperature_c <= maximum_c
     return _result("E02", "Temperatura de paquete", passed, True, {"temperature_c": temperature_c, "range_c": [minimum_c, maximum_c]}, "La temperatura está fuera del rango permitido")
+
+
+def read_package_temperature_c(hwmon_root: str | Path = "/sys/class/hwmon") -> float | None:
+    """Lee la mayor temperatura de paquete expuesta por coretemp.
+
+    Los índices hwmon no son estables entre arranques, por lo que se
+    descubre por `name=coretemp` y por etiquetas `Package id N`. Los valores
+    sysfs están en miligrados Celsius. Devuelve None si no existe una
+    lectura válida; nunca sustituye un sensor ausente por cero.
+    """
+    temperatures: list[float] = []
+    for hwmon_dir in sorted(Path(hwmon_root).glob("hwmon*")):
+        if _read(hwmon_dir / "name") != "coretemp":
+            continue
+        for label_path in sorted(hwmon_dir.glob("temp*_label")):
+            label = _read(label_path)
+            if label is None or not label.startswith("Package id "):
+                continue
+            input_path = label_path.with_name(label_path.name.replace("_label", "_input"))
+            raw = _read(input_path)
+            try:
+                temperatures.append(float(raw) / 1000.0)
+            except (TypeError, ValueError):
+                continue
+    return max(temperatures) if temperatures else None
 
 
 def check_foreign_processes(foreign_pids: Iterable[int]) -> CheckResult:
@@ -559,8 +592,12 @@ def run_campaign_preflight(
     node_id = _value(node_profile, "node_id", None)
     rapl = _value(manifest, "rapl", {})
     gpu = _value(manifest, "gpu", {})
+    turbo = _value(manifest, "turbo", {})
     results = [
-        check_turbo_hwp(sysfs.cpu_root),
+        check_turbo_hwp(
+            sysfs.cpu_root,
+            require_disabled=bool(_value(turbo, "require_disabled", False)),
+        ),
         check_numa(cores, getattr(env, "numa_cpu_map", {})),
         check_smt(env, manifest),
         check_rapl_wrap(env, rapl_enabled=bool(_value(rapl, "enabled", False)), rapl_root=sysfs.rapl_root),

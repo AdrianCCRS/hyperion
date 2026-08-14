@@ -174,6 +174,33 @@ def test_arc135_build_command_sin_environment_profile_no_agrega_freq_path(tmp_pa
     assert "--cpu-freq-sysfs-path" not in command
 
 
+def test_arc138_run_single_persiste_veredicto_de_traza_de_frecuencia(tmp_path, monkeypatch):
+    monkeypatch.delenv("FAKE_LAUNCHER_BEHAVIOR", raising=False)
+    entry = _make_entry(tmp_path)
+    manifest = _make_manifest(tmp_path)
+    manifest.frequency_validation = {"require_per_window": True, "tolerance_fraction": 0.05}
+    observed = {}
+
+    def fake_validate(path, **kwargs):
+        observed["path"] = path
+        observed.update(kwargs)
+        return (
+            runner.validation_module.Verdict(False, "E01", "fuera de objetivo"),
+            {"cpu_samples": 3, "mismatched_samples": 1},
+        )
+
+    monkeypatch.setattr(runner.validation_module, "validate_cpu_frequency_trace", fake_validate)
+    result = runner.run_single(entry, manifest, "npb_ep", "REF", 1, harness=_harness())
+
+    trace = result.metadata["frequency_trace_validation"]
+    assert trace["accepted"] is False
+    assert trace["factor_id"] == "E01"
+    assert trace["mismatched_samples"] == 1
+    assert observed["expected_khz"] is None
+    assert observed["tolerance_fraction"] == 0.05
+    assert "frequency_trace_validation" in (result.run_dir / "metadata.json").read_text()
+
+
 def test_arc70_run_single_setea_ld_preload_y_library_path_para_gpu(tmp_path, monkeypatch):
     monkeypatch.delenv("FAKE_LAUNCHER_BEHAVIOR", raising=False)
     fake_shim = tmp_path / "fake_shim.so"

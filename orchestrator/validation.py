@@ -25,6 +25,66 @@ class Verdict:
     message: str
 
 
+def validate_cpu_frequency_trace(
+    samples_path: str | Path,
+    *,
+    require_per_window: bool,
+    expected_khz: int | None,
+    tolerance_fraction: float | None,
+) -> tuple[Verdict, dict[str, Any]]:
+    """E01/FRQ-10: valida el reloj medido en los ticks reales del PMU.
+
+    Para REF no existe un objetivo numérico: solo se exige que la lectura
+    por ventana esté presente. Para un nivel fixed, todas las lecturas CPU
+    deben caer dentro de la tolerancia declarada respecto al valor aplicado.
+    """
+    with open(samples_path, newline="", encoding="utf-8") as handle:
+        rows = [row for row in csv.DictReader(handle) if row.get("tag") == "CPU"]
+
+    observed: list[int] = []
+    missing = 0
+    for row in rows:
+        raw = row.get("scaling_cur_freq_khz")
+        try:
+            observed.append(int(raw))
+        except (TypeError, ValueError):
+            missing += 1
+
+    summary = {
+        "cpu_samples": len(rows),
+        "observed_samples": len(observed),
+        "missing_samples": missing,
+        "expected_khz": expected_khz,
+        "tolerance_fraction": tolerance_fraction,
+        "observed_min_khz": min(observed) if observed else None,
+        "observed_max_khz": max(observed) if observed else None,
+    }
+    if require_per_window and (not rows or missing > 0):
+        return Verdict(
+            False, "E01",
+            f"traza de frecuencia incompleta: {missing} de {len(rows)} muestras CPU sin scaling_cur_freq_khz",
+        ), summary
+
+    if expected_khz is not None:
+        if tolerance_fraction is None:
+            return Verdict(False, "E01", "nivel fixed sin tolerance_fraction declarada"), summary
+        tolerance_khz = expected_khz * tolerance_fraction
+        summary["tolerance_khz_effective"] = tolerance_khz
+        mismatches = [value for value in observed if abs(value - expected_khz) > tolerance_khz]
+        summary["mismatched_samples"] = len(mismatches)
+        if mismatches:
+            return Verdict(
+                False, "E01",
+                f"frecuencia efectiva fuera de objetivo en {len(mismatches)}/{len(observed)} muestras "
+                f"(objetivo={expected_khz} kHz, tolerancia={tolerance_khz} kHz, "
+                f"rango={min(observed)}..{max(observed)} kHz)",
+            ), summary
+    else:
+        summary["mismatched_samples"] = 0
+
+    return Verdict(True, None, "ok"), summary
+
+
 def validate_run(
     run_result: Any,
     kernel_entry: KernelEntry,
@@ -86,6 +146,18 @@ def validate_run(
     # by runner.run_single() and stored on RunResult.success.
     if not run_result.success:
         return Verdict(False, "C03", "success_check no se cumplió")
+
+    # E01/FRQ-10 (ARC-138): runner.py calcula este resultado sobre todas
+    # las lecturas reales del colector y lo conserva en metadata. Rechazar
+    # aquí, en vez de lanzar una excepción desde runner, garantiza que
+    # campaign.py escriba verdict.json y preserve los crudos de la corrida.
+    frequency_trace = metadata.get("frequency_trace_validation")
+    if frequency_trace is not None and not frequency_trace.get("accepted", False):
+        return Verdict(
+            False,
+            frequency_trace.get("factor_id") or "E01",
+            frequency_trace.get("message") or "traza de frecuencia inválida",
+        )
 
     # E06-E08 (contamination / governor drift / external load), in that
     # order, whichever ones the caller supplied.

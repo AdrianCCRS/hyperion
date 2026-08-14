@@ -94,27 +94,20 @@ dimensionó para mantener el uso total del recurso compartido en un rango de
 minutos a pocas horas, documentado explícitamente en cada sección cuando el
 alcance se redujo por esta razón.
 
-\textbf{Limitación metodológica declarada, con una corrección importante}:
-los barridos principales (\texttt{interval\_ns}, \texttt{gpu\_interval\_ns})
-invocan \texttt{runner.run\_single()} directamente, sin pasar por
-\texttt{run\_campaign\_preflight}. Una versión anterior de este análisis
-afirmaba que esto era seguro porque E08 (carga externa) y E02 (temperatura)
-``ya se verificaron al iniciar la sesión de barrido'' -- esa afirmación era
-falsa y se corrige aquí: al revisar el código directamente,
-\texttt{run\_campaign\_preflight} \textbf{no ejecuta ningún chequeo de E02
-ni E08} (esos viven en \texttt{run\_reduced\_preflight}, pensado para
-correr por combinación, antes de cada corrida individual -- no antes de la
-campaña completa); \texttt{cli.py} invoca \texttt{run\_campaign\_preflight}
-una sola vez, al inicio de la campaña, mientras que
-\texttt{run\_reduced\_preflight}, a su vez, \textbf{no es invocado en
-ningún punto de \texttt{campaign.py} en producción} -- existe y tiene
-pruebas unitarias propias, pero nunca se llama antes de cada combinación
-en una campaña real (\texttt{campaign.py} sí verifica E06, procesos
-ajenos, antes de cada combinación -- pero no E02 ni E08). Peor aún,
-\texttt{Manifest} no declara un campo \texttt{package\_temperature\_c},
-así que aunque se llamara, \texttt{check\_temperature(None, ...)} aprueba
-el chequeo de forma no bloqueante con el mensaje ``no hay sensor
-disponible''.
+\textbf{Limitación metodológica declarada, con actualización del estado del
+instrumento}: los barridos principales (\texttt{interval\_ns},
+\texttt{gpu\_interval\_ns}) invocaron \texttt{runner.run\_single()}
+directamente y no registraron E08 (carga externa) ni E02 (temperatura) por
+combinación. Por ello esos valores no pueden reconstruirse a posteriori y
+la limitación permanece en la evidencia histórica de este informe. El
+instrumento de producción sí fue corregido después: E08 se ejecuta antes de
+calibrar y antes de cada combinación; para la campaña final CPU, E02
+descubre dinámicamente los sensores \texttt{coretemp} por la etiqueta
+\texttt{Package id N}, verificada en los dos paquetes de
+\texttt{paccaA100}, y ambos valores quedan guardados en
+\texttt{campaign\_metadata.json}. Esta corrección mejora las campañas
+nuevas, pero no convierte retroactivamente los barridos antiguos en datos
+con control térmico o de carga.
 
 Un hallazgo de la misma naturaleza, encontrado en la misma revisión de
 código: el preflight de GPU (G01--G03, dentro de \texttt{check\_gpu}) solo
@@ -128,16 +121,9 @@ no le pasa ningún \texttt{gpu\_inspector} a
 fuera \texttt{true}, \texttt{check\_gpu(None)} tampoco tendría con qué
 verificar procesos CUDA ajenos, modo persistente ni configuración MIG.
 
-En otras palabras: \textbf{E02, E08 y el preflight de GPU no se verifican
-hoy en ninguna campaña real del proyecto}, ni en los barridos de este
-informe ni en las campañas de producción de Fase 1 -- este es un hallazgo
-de auditoría sobre el instrumento mismo, no solo sobre el diseño de estos
-barridos, y se documenta con el mismo nivel de seriedad que el defecto de
-datos de \texttt{rodinia\_heartwall} (Sección~\ref{sec:balance}). Por
-alcance de un proyecto de pregrado, este informe documenta el hallazgo y
-lo deja como prerrequisito explícito antes de la campaña DVFS definitiva
--- integrar estos tres chequeos en el flujo de producción real es trabajo
-de implementación fuera del alcance de esta auditoría de parámetros.
+El preflight de GPU descrito arriba sigue siendo una limitación separada del
+flujo GPU; no afecta la campaña final analizada aquí, cuyos nueve kernels son
+de CPU y declaran \texttt{gpu.enabled: false}.
 
 Un efecto colateral real, ahora secundario frente a lo anterior, es que las
 combinaciones de cada

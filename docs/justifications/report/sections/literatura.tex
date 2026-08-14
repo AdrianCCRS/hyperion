@@ -12,9 +12,13 @@ cumplirse, permitiría cerrarlo con medición.
 Los manifiestos de producción declaran cinco niveles fijos equiespaciados
 (100\,\%, 75\,\%, 50\,\%, 25\,\% y 0\,\% del rango real de frecuencia
 detectado en el nodo) además del nivel de referencia (gobernador nativo).
-Esta elección no puede verificarse empíricamente hoy: requiere el permiso
-de escritura de frecuencia (P1 para CPU, P4 para GPU), que sigue sin
-llegar a la fecha de este informe. Tampoco se encontró en la literatura ya
+Esta elección no quedó verificada por los barridos originales. La escritura
+cpufreq de CPU y el control de reloj de GPU fueron habilitados después, pero
+la campaña CPU del 2026-08-13 mantuvo Turbo activo; el 2026-08-14 el helper
+\texttt{set\_turbo\_state} ya existía, aunque \texttt{sudo -n} todavía
+solicitaba contraseña incluso dentro de una asignación exclusiva. Por ello
+el barrido CPU sin Turbo sigue pendiente y los datos anteriores no cierran
+esta justificación. Tampoco se encontró en la literatura ya
 revisada una recomendación explícita sobre cuántos puntos son suficientes
 para caracterizar la curva DVFS de una carga: Guerreiro et al.
 \citep{Guerreiro2019} infieren el resto del espacio de frecuencias a partir
@@ -27,32 +31,20 @@ disparar el tamaño de la matriz experimental), pero no está anclada a un
 estudio específico. Queda como pendiente explícito: en cuanto lleguen los
 permisos, correr primero un reconocimiento con más puntos (por ejemplo,
 nueve, cada 12{,}5\,\%) sobre dos o tres kernels representativos para
-verificar si cinco puntos ya capturan la forma real de la curva.
+verificar si cinco puntos ya capturan la forma real de la curva. La prueba
+reducida debe ocurrir antes de la campaña final y verificar el reloj efectivo
+en cada ventana, no solo la escritura inicial del límite cpufreq.
 
 \subsection{Umbral de carga externa (E08) y rango de temperatura (E02)}
 
-\textbf{Corrección importante respecto a una versión anterior de este
-análisis, y hallazgo más serio que una simple falta de barrido}: no es
-solo que E08 y E02 se excluyan deliberadamente de prueba de estrés por
-razones éticas -- una revisión del código de \texttt{preflight.py} y
-\texttt{campaign.py} encontró que \textbf{ninguno de los dos chequeos se
-ejecuta hoy en ninguna campaña real}. \texttt{run\_campaign\_preflight}
-(el preflight que sí se invoca en producción) no incluye ni E02 ni E08;
-ambos viven en \texttt{run\_reduced\_preflight}, una función con pruebas
-unitarias propias pero que \texttt{campaign.py} nunca llama. Y aunque se
-llamara, \texttt{Manifest} no declara el campo
-\texttt{package\_temperature\_c} que \texttt{check\_temperature} necesita
--- con ese campo ausente (\texttt{None}), el chequeo aprueba de forma no
-bloqueante con el mensaje ``no hay sensor disponible'', nunca bloquea
-nada. El mismo tipo de hallazgo aplica al preflight de GPU (G01--G03): el
-manifiesto de referencia GPU declara \texttt{gpu.enabled: false}, así que
-esos chequeos tampoco corren hoy, y ni siquiera se les pasa un inspector
-NVML desde \texttt{cli.py}. Este hallazgo se documenta con el mismo
-detalle en la Sección~\ref{sec:metodologia} y en el balance final
-(Sección~\ref{sec:balance}); aquí se completa con la justificación
-teórica de cada umbral, ahora explícitamente como un umbral \emph{sin
-mecanismo de verificación activo}, no como un umbral verificado pero sin
-barrido de estrés.
+La revisión original encontró que E08 y E02 no estaban conectados al flujo
+de producción. Ese diagnóstico sigue describiendo correctamente los
+barridos históricos, pero no el código preparado el 2026-08-14: E08 se
+comprueba antes de calibrar y por combinación; E02 lee los sensores reales
+\texttt{coretemp} etiquetados \texttt{Package id N}, exige su presencia en
+el manifiesto final CPU y persiste ambas observaciones en la metadata de
+campaña. El preflight G01--G03 de GPU conserva un problema distinto de
+integración y queda fuera de esta campaña CPU.
 
 E08 (carga externa normalizada $\leq 1{,}0$) se apoya en la convención
 estándar de "nodo no saturado" en HPC, pero merece una precisión: el
@@ -63,8 +55,8 @@ delegados no aísla, por sí solo, si la contaminación ocurre específicamente
 sobre esos 6 núcleos o en otra parte del nodo (irrelevante para la corrida
 si el nodo tiene núcleos libres en otro socket). El umbral sigue siendo una
 señal razonable de saturación general del nodo, pero no un chequeo preciso
-de aislamiento por núcleo -- y, de cualquier forma, hoy no se ejecuta en
-ninguna corrida real por el hallazgo anterior.
+de aislamiento por núcleo. El pipeline actual lo aplica y registra con esa
+limitación explícita.
 
 E02 (temperatura de paquete en $[0,90]\,^{\circ}\text{C}$) queda
 \textbf{solo parcialmente} justificado por ficha técnica, no confirmado:
@@ -82,15 +74,14 @@ que sí queda establecido con fuente verificable es que $T_{\text{case}}$
 (81\,$^{\circ}$C) es menor que el umbral configurado (90\,$^{\circ}$C),
 así que el margen de seguridad no puede compararse directamente contra
 $T_{\text{case}}$ sin aclarar que son magnitudes distintas: ninguna
-corresponde exactamente a lo que \texttt{coretemp} reportaría si el sensor
-estuviera conectado -- \texttt{coretemp} entrega un DTS (\textit{Digital
+corresponde exactamente a lo que \texttt{coretemp} reporta en pacca:
+\texttt{coretemp} entrega un DTS (\textit{Digital
 Thermal Sensor}) relativo a $T_j$máx, no una lectura directa de
 $T_{\text{case}}$; y RAPL, aunque está habilitado en este nodo, mide
-energía consumida, no temperatura -- ninguno de los dos provee hoy el dato
-que \texttt{package\_temperature\_c} necesitaría. Diseñar E02 comparando
-directamente una futura lectura DTS de \texttt{coretemp} contra
+energía consumida, no temperatura. Diseñar E02 comparando directamente la
+lectura DTS real de \texttt{coretemp} contra
 $T_{\text{case}}$ sería, por esta razón, metodológicamente incorrecto; el
-chequeo, si se activa, debería compararse contra un límite expresado en
+chequeo debería compararse contra un límite expresado en
 los mismos términos que el sensor real (DTS relativo a $T_j$máx). Así que
 90\,$^{\circ}$C no puede describirse como "el umbral típico verificado", y
 merece una precisión más incómoda que la de una versión anterior de este

@@ -1,0 +1,50 @@
+# Caracterización reducida REF de RAJAPerf Polybench_3MM/Base_OpenMP. Su
+# inclusión en la campaña final depende exclusivamente de estas mediciones.
+campaign_id: pacca_candidate_3mm_ref_20260814
+environment_tier: hpc_sc3
+seed: 20260814
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_candidate_3mm_ref_20260814
+overwrite: true
+catalog_path: kernels/catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: rajaperf_polybench_3mm_omp
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+
+repetitions_per_combination: 10
+target_windows_per_repetition: 50
+interval_ns: 1000000
+running_ratio_min: 0.90
+
+projected_campaign_bytes: 1073741824
+remaining_core_hours: 100000
+projected_core_hours: 20
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+cgroup_path: null
+perf_enabled: true
+rapl: {enabled: true}
+uncore: {enabled: true}
+gpu: {enabled: false}
+
+timeouts_seconds:
+  ready: 15
+  run: 180
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 480000000000

@@ -460,12 +460,39 @@ def test_e01_snapshot_y_deriva_turbo_hwp(tmp_path):
     assert (changed.factor_id, changed.passed, changed.blocking) == ("E01", False, True)
 
 
+def test_arc138_e01_bloquea_si_manifiesto_exige_turbo_deshabilitado(tmp_path):
+    intel_pstate = tmp_path / "cpu/intel_pstate"
+    intel_pstate.mkdir(parents=True)
+    (intel_pstate / "no_turbo").write_text("0")
+    result = preflight.check_turbo_hwp(tmp_path / "cpu", require_disabled=True)
+    assert (result.factor_id, result.passed, result.blocking) == ("E01", False, True)
+    (intel_pstate / "no_turbo").write_text("1")
+    assert preflight.check_turbo_hwp(tmp_path / "cpu", require_disabled=True).passed is True
+
+
 def test_e02_temperatura_y_e06_procesos_ajenos():
     assert preflight.check_temperature(55.0).passed is True
     temperature = preflight.check_temperature(95.0)
     foreign = preflight.check_foreign_processes([1234])
     assert (temperature.factor_id, temperature.passed) == ("E02", False)
     assert (foreign.factor_id, foreign.passed) == ("E06", False)
+
+
+def test_arc138_descubre_temperatura_de_paquete_coretemp_sin_fijar_hwmon(tmp_path):
+    other = tmp_path / "hwmon0"
+    other.mkdir()
+    (other / "name").write_text("i350bb")
+    (other / "temp1_label").write_text("loc1")
+    (other / "temp1_input").write_text("51000")
+    for index, value in ((3, 37000), (8, 41000)):
+        hwmon = tmp_path / f"hwmon{index}"
+        hwmon.mkdir()
+        (hwmon / "name").write_text("coretemp")
+        (hwmon / "temp1_label").write_text(f"Package id {index}")
+        (hwmon / "temp1_input").write_text(str(value))
+        (hwmon / "temp2_label").write_text("Core 0")
+        (hwmon / "temp2_input").write_text("99000")
+    assert preflight.read_package_temperature_c(tmp_path) == 41.0
 
 
 def test_c03_success_check_valido_e_invalido():

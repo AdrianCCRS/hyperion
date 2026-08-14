@@ -1,5 +1,6 @@
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -597,6 +598,31 @@ def test_arc102_e08_antes_de_calibrar_aborta_toda_la_campana(tmp_path):
 
     # run_calibration() nunca debe llegar a llamarse -- el chequeo E08 va
     # ANTES de la primera medicion real, no despues.
+    assert calibration_calls == []
+
+
+def test_arc138_e02_sensor_requerido_ausente_aborta_antes_de_calibrar(tmp_path):
+    manifest = replace(
+        _manifest(tmp_path),
+        temperature={"require_package_sensor": True, "minimum_c": 0, "maximum_c": 90},
+    )
+    catalog = _catalog(tmp_path)
+    freqctl_deps, _, _ = _freqctl_fakes()
+    calibration_calls = []
+
+    def fake_run_calibration(manifest, catalog, *, environment_profile, node_id, run_single, apply_frequency=None):
+        calibration_calls.append(True)
+        return SimpleNamespace(plausibility_check_passed=True, plausibility_message="")
+
+    with pytest.raises(campaign.CampaignPreflightError, match="E02"):
+        campaign.run_campaign(
+            manifest, catalog, SimpleNamespace(frequency_write_capable=False),
+            node_id="felix-sc3", reference_kernel_ref="npb_ep",
+            run_single=_fake_run_single([]), run_calibration=fake_run_calibration,
+            package_temperature_reader=lambda: None,
+            **freqctl_deps,
+        )
+
     assert calibration_calls == []
 
 

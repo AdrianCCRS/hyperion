@@ -694,7 +694,9 @@ kernels:
     exec_args: "--size 2048 --iterations 80"
     phase_label_hint: compute_bound
     size_variant: N2048
-    expected_runtime_seconds: 5 # medido en pacca con 80 iter: 2.98 s (verificado con corrida instrumentada real, ARC-83)
+    # 3.31 s instrumentados en REF en la campaña 20260813; 6 s conserva
+    # margen para el extremo F4 sin cambiar el tamaño del problema.
+    expected_runtime_seconds: 6
     warmup_seconds: 0.5
     estimated_memory_bytes: 134217728 # 3 arreglos x 2048^2 x 8 B ~= 96 MB, con margen
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
@@ -703,3 +705,52 @@ kernels:
       pacca-a100: "sha256:a7f6919efa28ebf5a9341c9bfbb5463b139209ea4928712e3872cc1da311d06b"
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+
+  # Candidato CPU caracterizado en REF antes de incorporarlo a la campaña
+  # final. Fuente externa sin cambios algorítmicos: Rodinia commit
+  # 9c10d3ea16ddba2ba057cc3951a9efc4c2cc18a4, openmp/lavaMD. main.h fija
+  # `fp` como double; el binario se reproduce con
+  # scripts/pacca/build_rodinia_lavamd_omp.sh. La distribución empírica de
+  # etiquetas, no este comentario ni el tipo de kernel, decide su inclusión.
+  - id: rodinia_lavamd_omp
+    suite: Rodinia-OpenMP
+    role: dataset
+    exec_path: bin/rodinia_lavamd_omp
+    exec_args: "-cores 6 -boxes1d 24"
+    phase_label_hint: intermedio
+    size_variant: boxes1d24
+    # 7.44--7.54 s instrumentados en 10 repeticiones REF; 12 s cubre la
+    # proyección conservadora al extremo F4 antes del factor RUN-03 x3.
+    expected_runtime_seconds: 12
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 157286400 # RSS medido 108680 KiB, con margen
+    # Rodinia LavaMD no incluye verificador numérico. Este patrón exige que
+    # el binario confirme los inputs y alcance el final temporizado del
+    # kernel; la limitación queda registrada y no se presenta como checksum
+    # de resultado.
+    success_check:
+      type: stdout_regex
+      pattern: "(?s)Configuration used:\\s*cores = 6, boxes1d = 24.*Total time:\\s*[0-9.]+ s"
+    binary_checksum:
+      pacca-a100: "sha256:92cb259bd2ca1d0a67a4d52490b76cdb2eb844568c7e73864023c52d7abb2648"
+
+  # Segundo candidato CPU, medido solo después de comprobar que LavaMD no
+  # basta para aliviar el desbalance global. RAJAPerf v2025.12.1,
+  # Polybench_3MM/Base_OpenMP, Real_type=double (RP_USE_DOUBLE del build).
+  # El adaptador verifica en cada ejecución tanto el checksum del ELF real
+  # como el checksum numérico que RAJAPerf genera para el resultado.
+  - id: rajaperf_polybench_3mm_omp
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/rajaperf_polybench_3mm_omp
+    exec_args: "--repfact 10 --sizefact 1"
+    phase_label_hint: intermedio
+    size_variant: default_x10reps
+    # 12.65--12.94 s instrumentados con repfact=10 en 10 repeticiones REF;
+    # 25 s deja margen para el extremo F4 antes del factor RUN-03 x3.
+    expected_runtime_seconds: 25
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 100663296 # 59.36 MB asignados, RSS 62.7 MB, con margen
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:386fd7a0db562f12a872891268270171e289be744cebc86c94595d61239c467d"

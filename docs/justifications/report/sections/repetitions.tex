@@ -136,4 +136,15 @@ la misma confianza. Para Fase 4 conviene usar más repeticiones o un
 criterio adaptativo basado en el ancho del intervalo de confianza
 observado, en vez de heredar sin más el mínimo de Fase 1.
 
+\textbf{Decisión para el primer intento de dataset final de CPU
+(2026-08-14)}: se usarán \textbf{10 repeticiones por combinación}. Esta
+decisión no convierte diez en un ``óptimo'' universal ni demuestra una
+confianza estadística determinada: utiliza el máximo $n$ evaluado en este
+barrido porque el costo adicional de cómputo fue aceptado explícitamente y
+porque la propia evidencia muestra que $n=3$ puede omitir la anomalía de
+\texttt{rodinia\_lud} y subestimar la variabilidad según el trío elegido.
+Por tanto, tres se conserva como mínimo operativo para pruebas reducidas;
+diez es el valor del protocolo de adquisición final, sustentado por los
+datos disponibles sin extrapolar más allá del rango realmente ensayado.
+
 \input{sections/target_windows.tex}

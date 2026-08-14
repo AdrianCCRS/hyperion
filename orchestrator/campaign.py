@@ -101,6 +101,9 @@ def compute_protocol_fingerprint(manifest: Any, catalog: Mapping[str, Any]) -> s
         "running_ratio_min": manifest.running_ratio_min,
         "target_windows_per_repetition": manifest.target_windows_per_repetition,
         "repetitions_per_combination": manifest.repetitions_per_combination,
+        "turbo": dict(getattr(manifest, "turbo", None) or {}),
+        "frequency_validation": dict(getattr(manifest, "frequency_validation", None) or {}),
+        "temperature": dict(getattr(manifest, "temperature", None) or {}),
         "smt_policy": manifest.smt_policy,
         "perf_enabled": manifest.perf_enabled,
         "rapl": {"enabled": rapl.get("enabled"), "domains": sorted(rapl.get("domains", ()) or ())},
@@ -212,6 +215,10 @@ class CampaignProgress:
     # baseline.elapsed_seconds * 100, one entry per baseline+telemetry pair
     # actually executed this run (skipped/resumed pairs don't add one).
     overhead_pct_values: list[float] = field(default_factory=list)
+    # ARC-138: evidencia pre-corrida de los factores dinámicos que antes se
+    # comprobaban (E08) o quedaban pendientes (E02) sin persistir el valor.
+    pre_run_observations: dict[str, dict[str, Any]] = field(default_factory=dict)
+    pre_calibration_observation: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -331,6 +338,8 @@ def write_campaign_metadata(progress: CampaignProgress, manifest: Any, output_di
                 "total_core_hours": progress.total_core_hours,
                 "frequency_restored_verified": progress.frequency_restored_verified,
                 "overhead_pct_values": progress.overhead_pct_values,
+                "pre_run_observations": progress.pre_run_observations,
+                "pre_calibration_observation": progress.pre_calibration_observation,
             },
             metadata_file, indent=2, sort_keys=True,
         )
@@ -380,6 +389,8 @@ def run_campaign(
     # pacca es mas riesgoso que dejarla pendiente explicitamente.
     load_reader: Callable[[], tuple[float, float, float]] = os.getloadavg,
     load_threshold: float = 1.0,
+    package_temperature_reader: Callable[[], float | None] = preflight_module.read_package_temperature_c,
+    turbo_state_check: Callable[..., Any] = preflight_module.check_turbo_hwp_unchanged,
     # ARC-129: G01 (GPU sin actividad ajena), por combinación, mismo
     # criterio que E06 arriba pero para el eje de GPU -- None (el default,
     # y todo caller anterior a este cambio) desactiva el check por completo,
@@ -442,6 +453,31 @@ def run_campaign(
     effective_load_threshold = (
         manifest.load_threshold if getattr(manifest, "load_threshold", None) is not None else load_threshold
     )
+    temperature_config = getattr(manifest, "temperature", None) or {}
+    require_package_sensor = bool(temperature_config.get("require_package_sensor", False))
+    temperature_min_c = float(temperature_config.get("minimum_c", 0.0))
+    temperature_max_c = float(temperature_config.get("maximum_c", 90.0))
+    turbo_config = getattr(manifest, "turbo", None) or {}
+    require_turbo_disabled = bool(turbo_config.get("require_disabled", False))
+    turbo_snapshot = getattr(environment_profile, "turbo_hwp_state", None) or {}
+
+    def _temperature_check() -> Any:
+        temperature_c = package_temperature_reader() if require_package_sensor else None
+        check = preflight_module.check_temperature(
+            temperature_c, temperature_min_c, temperature_max_c
+        )
+        if require_package_sensor and temperature_c is None:
+            return preflight_module.CheckResult(
+                "E02", "Temperatura de paquete", False, True,
+                {"temperature_c": "unavailable", "range_c": [temperature_min_c, temperature_max_c]},
+                "La campaña exige un sensor de temperatura de paquete legible",
+            )
+        return check
+
+    def _turbo_check() -> Any | None:
+        if not require_turbo_disabled:
+            return None
+        return turbo_state_check(turbo_snapshot)
 
     try:
         # E08 (ARC-102): la calibración Roofline/GPU/referencias, igual que
@@ -456,10 +492,26 @@ def run_campaign(
         pre_calibration_load = preflight_module.check_external_load(
             effective_load_threshold, load_reader, max(len(delegated_cpus), 1)
         )
+        pre_calibration_temperature = _temperature_check()
+        pre_calibration_turbo = _turbo_check()
+        progress.pre_calibration_observation = {
+            "external_load": pre_calibration_load.observed,
+            "package_temperature": pre_calibration_temperature.observed,
+            "turbo_hwp": pre_calibration_turbo.observed if pre_calibration_turbo is not None else None,
+        }
+        write_campaign_metadata(progress, manifest, manifest.output_dir)
         if not pre_calibration_load.passed:
             raise CampaignPreflightError(
                 f"E08: carga externa por encima del umbral antes de calibrar, "
                 f"observado={pre_calibration_load.observed}"
+            )
+        if not pre_calibration_temperature.passed:
+            raise CampaignPreflightError(
+                f"E02: temperatura no apta antes de calibrar, observado={pre_calibration_temperature.observed}"
+            )
+        if pre_calibration_turbo is not None and not pre_calibration_turbo.passed:
+            raise CampaignPreflightError(
+                f"E01: estado Turbo/HWP cambió antes de calibrar, observado={pre_calibration_turbo.observed}"
             )
 
         roofline = run_calibration(
@@ -627,6 +679,16 @@ def run_campaign(
             load_check = preflight_module.check_external_load(
                 effective_load_threshold, load_reader, max(len(delegated_cpus), 1)
             )
+            temperature_check = _temperature_check()
+            turbo_check = _turbo_check()
+            progress.pre_run_observations[telemetry_run_id] = {
+                "external_load": load_check.observed,
+                "package_temperature": temperature_check.observed,
+                "turbo_hwp": turbo_check.observed if turbo_check is not None else None,
+            }
+            # Persistir antes de lanzar el baseline: si el proceso o el nodo
+            # falla durante la medición, la observación previa no se pierde.
+            write_campaign_metadata(progress, manifest, manifest.output_dir)
             if not load_check.passed:
                 logger.warning(
                     "E08: carga externa por encima del umbral, se salta la combinación (run_id=%s, observed=%s)",
@@ -644,6 +706,42 @@ def run_campaign(
                 progress.rejected_run_ids.append(telemetry_run_id)
                 seen_run_ids.add(telemetry_run_id)
                 write_campaign_metadata(progress, manifest, manifest.output_dir)  # CAM-02
+                continue
+            if not temperature_check.passed:
+                logger.warning(
+                    "E02: temperatura de paquete no apta, se salta la combinación (run_id=%s, observed=%s)",
+                    telemetry_run_id, temperature_check.observed,
+                )
+                run_dir = Path(manifest.output_dir) / telemetry_run_id
+                run_dir.mkdir(parents=True, exist_ok=True)
+                validation_module.write_verdict(
+                    validation_module.Verdict(
+                        accepted=False, factor_id="E02",
+                        message=f"Temperatura de paquete no apta: {temperature_check.observed}",
+                    ),
+                    run_dir,
+                )
+                progress.rejected_run_ids.append(telemetry_run_id)
+                seen_run_ids.add(telemetry_run_id)
+                write_campaign_metadata(progress, manifest, manifest.output_dir)
+                continue
+            if turbo_check is not None and not turbo_check.passed:
+                logger.warning(
+                    "E01: estado Turbo/HWP cambió, se salta la combinación (run_id=%s, observed=%s)",
+                    telemetry_run_id, turbo_check.observed,
+                )
+                run_dir = Path(manifest.output_dir) / telemetry_run_id
+                run_dir.mkdir(parents=True, exist_ok=True)
+                validation_module.write_verdict(
+                    validation_module.Verdict(
+                        accepted=False, factor_id="E01",
+                        message=f"Estado Turbo/HWP cambió: {turbo_check.observed}",
+                    ),
+                    run_dir,
+                )
+                progress.rejected_run_ids.append(telemetry_run_id)
+                seen_run_ids.add(telemetry_run_id)
+                write_campaign_metadata(progress, manifest, manifest.output_dir)
                 continue
 
             combination_calibration_refs = {

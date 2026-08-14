@@ -1,51 +1,48 @@
-# Campaña multi-frecuencia real contra paccaA100.
+# Primer intento de dataset final CPU multi-frecuencia contra paccaA100.
 #
 # ARC-127 (2026-08-12): el permiso P1 (escritura de scaling_min_freq/
 # scaling_max_freq) YA fue concedido y verificado (ARC-105/107) -- el
 # comentario original de este archivo, que decía que seguía bloqueado, ya
-# no aplica y se corrige aquí. El dataset de 126/126 combinaciones que se
-# recolectó bajo ese primer permiso quedó descartado por dos motivos
-# acumulados desde entonces (ARC-119/123 uncore real, ARC-125/126 AVX-512
-# en ert_probe -- ver docs/retoma/pacca/Reporte_Comparacion_Intel_Advisor_
-# Ppico_BWpico.md) y esta es la re-ejecución con ambos corregidos. Antes de
-# lanzar: fijar `campaign_id`/`output_dir` con la fecha real (siguen con el
-# placeholder PENDIENTE_FECHA).
+# no aplica. La campaña limpia de 126 corridas del 2026-08-13 tampoco es el
+# dataset final: se ejecutó con Turbo activo y sin frecuencia por ventana.
+# Esta configuración reemplaza ese protocolo y usa un output_dir nuevo.
 #
-# Niveles F0-F4 tal como los define Guia_Maestra_Fase1_DVFS.md sección 8.1
+# ARC-138 (2026-08-14): Turbo debe estar deshabilitado antes de que el CLI
+# detecte el entorno. El wrapper operacional aplica `set_turbo_state 1`, lo
+# verifica y restaura el estado original. Con no_turbo=1, environment.py
+# recorta el rango dinámicamente a base_frequency, sin hardcodear el SKU.
+# En pacca, la lectura real es 3200000 kHz y los niveles quedan:
+#   F0=3200, F1=2600, F2=2000, F3=1400, F4=800 MHz.
+#
+# Niveles F0-F4 tal como los define el diseño de campaña
 # (F0=f_max, F1=75%, F2=50%, F3=25%, F4=f_min del rango [scaling_min_freq,
 # scaling_max_freq] detectado en tiempo real por freqctl.py -- fraction se
 # resuelve contra el rango real del nodo, nunca contra un valor de kHz
 # hardcodeado aquí). Rango medido en pacca el 2026-08-06:
 #   cpuinfo_min_freq = 800000 kHz (0.8 GHz)
-#   cpuinfo_max_freq = 3600000 kHz (3.6 GHz, incluye turbo -- base_frequency
-#     real sin turbo es 3200000 kHz)
-#   num_pstates = 29 -> pasos de exactamente 100 MHz en todo el rango, así
-#   que F0-F4 caen todos en un p-state válido sin necesidad de redondeo:
-#     F0 = 3600 MHz, F1 = 2900 MHz, F2 = 2200 MHz, F3 = 1500 MHz, F4 = 800 MHz
+#   base_frequency = 3200000 kHz (3.2 GHz, techo nominal sin turbo)
 #
 # intel_pstate usa la estrategia bounded_range (freqctl.py ya la tiene
 # implementada): fija scaling_min_freq=scaling_max_freq=objetivo, no existe
 # governor userspace en este driver (confirmado en la auditoría).
 #
-# repetitions_per_combination=3 (el mínimo, MAN-02) para una primera
-# corrida real multi-frecuencia -- la Guía Maestra sugiere 10 repeticiones
-# para el dataset final (sección 8.2), pero eso es una decisión para
-# después de confirmar que el pipeline completo funciona igual de bien
-# bajo control de frecuencia real que bajo REF. 7 kernels x 6 niveles x 3
-# repeticiones = 126 combinaciones de telemetría (+ baselines de los
-# niveles fixed, RUN-0x) -- bastante más largo que la campaña REF (21
-# corridas), calcular tiempo de cola/ejecución antes de lanzar.
+# repetitions_per_combination=10: el barrido de repetitions.tex mostró que
+# 3 es solo un mínimo operativo dependiente del trío elegido y puede omitir
+# anomalías tardías. Al no existir una restricción de cómputo indicada por
+# el usuario, se conserva toda la evidencia disponible con n=10.
+# 9 kernels x 6 niveles x 10 repeticiones = 540 corridas de telemetría,
+# cada una con su baseline atómico.
 #
 # Resto de la configuración (cores, RAPL, catálogo, smt_policy,
 # hardware_datasheet) idéntica a campaign_pacca_ref.yaml, que ya está
 # validada en hardware real -- ver ese archivo para el historial completo
 # de cada decisión.
 
-campaign_id: pacca_dvfs_full_20260813_clean
+campaign_id: pacca_cpu_final_attempt01_20260814
 environment_tier: hpc_sc3
 seed: 20260806
 
-output_dir: /home/latorresn/hyperion-results/campaigns/pacca_dvfs_full_20260813_clean
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_cpu_final_attempt01_20260814
 overwrite: true
 
 catalog_path: kernels/catalog.yaml
@@ -62,6 +59,8 @@ kernels:
   - kernel_ref: npb_ft
   - kernel_ref: npb_lu
   - kernel_ref: dgemm_n2048
+  - kernel_ref: rodinia_lavamd_omp
+  - kernel_ref: rajaperf_polybench_3mm_omp
 
 frequency_levels:
   - {id: REF, mode: native_governor}
@@ -71,21 +70,40 @@ frequency_levels:
   - {id: F3, mode: fixed, fraction: 0.25}
   - {id: F4, mode: fixed, fraction: 0.0}
 
-repetitions_per_combination: 3
+repetitions_per_combination: 10
 target_windows_per_repetition: 50
 interval_ns: 1000000  # 1 ms
 
 running_ratio_min: 0.90
 
+# El 5% es la tolerancia configurable ya especificada por FRQ-T04 en el
+# Plan de Tests. Se valida cada lectura real del colector, no una lectura
+# post-hoc como en la campaña 20260813.
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+
+turbo:
+  require_disabled: true
+
+# E02 usa descubrimiento real de coretemp por etiqueta Package id (dos
+# paquetes confirmados legibles en pacca el 2026-08-14). El rango 0--90 C
+# es el guardarraíl ya existente del proyecto, no un límite nuevo ni una
+# afirmación sobre Tcase/Tjmax.
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+
 # I09/OPS-01 (ARC-104, 2026-08-10): la cuenta latorresn no tiene cuota de
 # disco ni límite de horas-núcleo real que rastrear (confirmado por el
 # usuario, "uso ilimitado, no te preocupes por eso") -- valores generosos
-# solo para satisfacer el preflight, no un límite real. 2 GiB y 200
-# core-hours son ~7x el smoke test (campaign_pacca_dvfs_smoke.yaml, 18
-# combinaciones vs 126 aquí), con margen de sobra.
-projected_campaign_bytes: 2147483648
+# solo para satisfacer el preflight, no un límite real. 12 GiB se basa en
+# el uso medido de la campaña anterior y las dos caracterizaciones REF,
+# escalado a n=10 y seis niveles con margen para calibración y baselines.
+projected_campaign_bytes: 12884901888
 remaining_core_hours: 100000
-projected_core_hours: 200
+projected_core_hours: 50
 
 cores:
   delegated_cpus: [0, 1, 2, 3, 4, 5]

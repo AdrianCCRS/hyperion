@@ -17,6 +17,7 @@ from .catalog import KernelEntry, resolve_exec_command, verify_binary
 from .config import HarnessConfig, load_config
 from .gpu_shim import compiled_blocking_sync_shim, cuda_lib_dirs
 from .metadata_schema import merge_metadata
+from . import validation as validation_module
 
 logger = logging.getLogger(__name__)
 
@@ -535,6 +536,28 @@ def run_single(
         applied_gpu_frequency,
         gpu_freq_level_id,
     )
+
+    frequency_validation = getattr(manifest, "frequency_validation", None) or {}
+    require_per_window_frequency = bool(frequency_validation.get("require_per_window", False))
+    frequency_tolerance_fraction = frequency_validation.get("tolerance_fraction")
+    if getattr(entry, "device", "cpu") == "cpu" and require_per_window_frequency:
+        expected_khz = getattr(applied_frequency, "requested_khz", None)
+        frequency_verdict, frequency_summary = validation_module.validate_cpu_frequency_trace(
+            run_dir / "samples.csv",
+            require_per_window=True,
+            expected_khz=expected_khz,
+            tolerance_fraction=frequency_tolerance_fraction,
+        )
+        frequency_summary.update({
+            "accepted": frequency_verdict.accepted,
+            "factor_id": frequency_verdict.factor_id,
+            "message": frequency_verdict.message,
+        })
+        metadata = merge_metadata(
+            metadata,
+            {"frequency_trace_validation": frequency_summary},
+            context="RUN-E01",
+        )
     # ARC-94 (segunda ronda): el diccionario fusionado (RUN-06) solo vivía
     # en memoria, en RunResult.metadata -- metadata.json en disco se
     # quedaba con lo que el launcher escribió (samples_collected,

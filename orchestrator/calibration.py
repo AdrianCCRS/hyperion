@@ -219,6 +219,7 @@ def _measure_bw_and_flops_peak(
     environment_profile: Any,
     node_id: str | None,
     run_single: Callable[..., RunResult],
+    apply_frequency: Callable[[Any, Any, Any], Any] | None = None,
 ) -> tuple[float, float, str, str]:
     """Runs STREAM (bandwidth) and ERT (FLOPs) once each at `freq_level_id`
     and returns (bw_pico, p_pico, stream_raw, ert_raw) already converted to
@@ -226,6 +227,7 @@ def _measure_bw_and_flops_peak(
     stream_result = run_single(
         stream_kernel, manifest, stream_ref, freq_level_id, 0,
         environment_profile=environment_profile, node_id=node_id,
+        apply_frequency=apply_frequency,
     )
     if not stream_result.success:
         raise CalibrationError(
@@ -235,6 +237,7 @@ def _measure_bw_and_flops_peak(
     ert_result = run_single(
         ert_kernel, manifest, ert_ref, freq_level_id, 0,
         environment_profile=environment_profile, node_id=node_id,
+        apply_frequency=apply_frequency,
     )
     if not ert_result.success:
         raise CalibrationError(
@@ -333,12 +336,10 @@ def run_calibration(
             and getattr(environment_profile, "frequency_write_capable", False)
         )
         if can_apply_frequency:
-            # ARC-78: `apply_frequency` sigue el mismo contrato de 3
-            # argumentos que runner.run_single ya usa (cpus, level, env) --
-            # si el nivel es native_governor, freqctl.apply_frequency()
-            # necesita el snapshot original, que el llamador (campaign.py)
-            # ya dejó ligado con functools.partial antes de inyectar este
-            # callable, no algo que calibration.py deba conocer.
+            # Conserva la transición explícita una vez por nivel (ARC-78).
+            # _measure_bw_and_flops_peak también pasa el callable a cada
+            # run_single para que el objetivo quede en metadata y la traza
+            # FRQ-10 pueda validarse en STREAM y ERT por separado.
             apply_frequency(manifest.cores.delegated_cpus, level, environment_profile)
         elif getattr(level, "mode", None) not in (None, "native_governor"):
             # RUN-09 (ARC-102): mismo principio que runner.run_single -- esta
@@ -363,6 +364,7 @@ def run_calibration(
         bw_pico, p_pico, stream_raw, ert_raw = _measure_bw_and_flops_peak(
             manifest, stream_ref, stream_kernel, ert_ref, ert_kernel, level.id,
             environment_profile=environment_profile, node_id=node_id, run_single=run_single,
+            apply_frequency=apply_frequency if can_apply_frequency else None,
         )
         if bw_pico <= 0:
             raise CalibrationError(f"CAL-04: BW_pico debe ser positivo, se obtuvo {bw_pico}")

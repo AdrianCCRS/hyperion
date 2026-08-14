@@ -1,16 +1,17 @@
 #!/bin/bash
 # Smoke test de escritura real de frecuencia (P1, ARC-104) contra
-# paccaA100. 1 kernel (npb_mg) x 6 niveles (REF+F0-F4) x 3 reps = 18
-# corridas cortas (~4s cada una) -- valida que apply_frequency() realmente
-# pinea el hardware antes de comprometer horas de cola en la campaña
-# completa (campaign_pacca_dvfs.yaml).
-set -o pipefail
+# paccaA100. 3 kernels (npb_mg, LavaMD y 3MM) x 10 niveles (REF + nueve
+# puntos fijos cada 12,5 %) x 3 reps = 90 corridas. Valida Turbo,
+# frecuencia por ventana, suficiencia de F0--F4 y distribución de los
+# candidatos antes de comprometer la campaña final.
+set -e -o pipefail
 # ARC-130: sin "-u" a proposito -- ver run_campaign_pacca_dvfs_full.sh
 # (ARC-126/127) para el detalle, mismo bug de Lmod en este cluster.
 
 export PYTHONPATH="/home/latorresn/hyperion:${PYTHONPATH:-}"
 
-srun -p GPU -w paccaA100 --nodes=1 --ntasks=1 --gres=gpu:1 --exclusive --time=00:20:00 bash -c '
+srun -p GPU -w paccaA100 --nodes=1 --ntasks=1 --gres=gpu:1 --exclusive --time=01:00:00 \
+  ~/hyperion/scripts/pacca/with_cpu_turbo_disabled.sh bash -c '
 module load gnu12/12.4.0 openblas/0.3.21 2>&1 || true
 export LD_LIBRARY_PATH="/opt/ohpc/pub/libs/gnu12/openblas/0.3.21/lib:${LD_LIBRARY_PATH:-}"
 source ~/hyperion-venv/bin/activate
@@ -20,6 +21,6 @@ python3 -m orchestrator.cli run-campaign \
   --node-id pacca-a100 \
   --hostname "$(hostname)" \
   --reference-kernel-ref npb_mg \
-  --campaign-timeout-seconds 900
+  --campaign-timeout-seconds 3300
 '
 echo CAMPAIGN_SCRIPT_DONE

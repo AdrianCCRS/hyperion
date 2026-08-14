@@ -1,4 +1,5 @@
 import hashlib
+import csv
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -8,6 +9,47 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from orchestrator import validation
 from orchestrator.catalog import KernelEntry
 from orchestrator.preflight import CheckResult
+
+
+def _write_frequency_samples(path: Path, values: list[str]) -> None:
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["tag", "scaling_cur_freq_khz"])
+        writer.writeheader()
+        for value in values:
+            writer.writerow({"tag": "CPU", "scaling_cur_freq_khz": value})
+
+
+def test_arc138_traza_de_frecuencia_fixed_se_valida_por_muestra(tmp_path):
+    path = tmp_path / "samples.csv"
+    _write_frequency_samples(path, ["3200000", "3150000", "3099999"])
+    verdict, summary = validation.validate_cpu_frequency_trace(
+        path, require_per_window=True, expected_khz=3_200_000, tolerance_fraction=0.03,
+    )
+    assert verdict.accepted is False
+    assert verdict.factor_id == "E01"
+    assert summary["mismatched_samples"] == 1
+
+
+def test_arc138_traza_ref_exige_lecturas_pero_no_objetivo(tmp_path):
+    path = tmp_path / "samples.csv"
+    _write_frequency_samples(path, ["3200000", ""])
+    verdict, summary = validation.validate_cpu_frequency_trace(
+        path, require_per_window=True, expected_khz=None, tolerance_fraction=0.05,
+    )
+    assert verdict.accepted is False
+    assert summary["missing_samples"] == 1
+
+
+def test_arc138_validate_run_rechaza_e01_y_conserva_el_resultado_en_metadata(tmp_path):
+    entry = _kernel_entry(tmp_path)
+    result = _run_result()
+    result.metadata["frequency_trace_validation"] = {
+        "accepted": False,
+        "factor_id": "E01",
+        "message": "frecuencia efectiva fuera de objetivo",
+    }
+    verdict = validation.validate_run(result, entry)
+    assert verdict == validation.Verdict(False, "E01", "frecuencia efectiva fuera de objetivo")
 
 
 def _kernel_entry(tmp_path: Path) -> KernelEntry:

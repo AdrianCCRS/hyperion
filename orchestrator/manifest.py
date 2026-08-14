@@ -122,6 +122,12 @@ class Manifest:
     # device=="gpu" (decisión explícita del usuario, no la opción acotada
     # que se había recomendado -- multiplica el tamaño de la matriz GPU).
     gpu_frequency_levels: tuple[FrequencyLevel, ...] | None = None
+    # Control global de turbo y validación del reloj efectivo. El helper que
+    # cambia no_turbo vive en el wrapper operacional de pacca; el manifiesto
+    # solo declara el estado requerido y cómo validar la traza ya medida.
+    turbo: Mapping[str, Any] = field(default_factory=dict)
+    frequency_validation: Mapping[str, Any] = field(default_factory=dict)
+    temperature: Mapping[str, Any] = field(default_factory=dict)
 
 
 def _error(rule_id: str, field: str, message: str) -> None:
@@ -405,12 +411,59 @@ def load(path: str | Path) -> Manifest:
     if not isinstance(uncore_raw, Mapping):
         _error("MAN-00", "uncore", "debe ser un objeto")
 
+    turbo_raw = document.get("turbo", {})
+    if not isinstance(turbo_raw, Mapping):
+        _error("MAN-00", "turbo", "debe ser un objeto")
+    require_disabled = turbo_raw.get("require_disabled", False)
+    if not isinstance(require_disabled, bool):
+        _error("MAN-00", "turbo.require_disabled", "debe ser booleano")
+
+    frequency_validation_raw = document.get("frequency_validation", {})
+    if not isinstance(frequency_validation_raw, Mapping):
+        _error("MAN-00", "frequency_validation", "debe ser un objeto")
+    require_per_window = frequency_validation_raw.get("require_per_window", False)
+    tolerance_fraction = frequency_validation_raw.get("tolerance_fraction")
+    if not isinstance(require_per_window, bool):
+        _error("MAN-00", "frequency_validation.require_per_window", "debe ser booleano")
+    if tolerance_fraction is not None and (
+        isinstance(tolerance_fraction, bool)
+        or not isinstance(tolerance_fraction, (int, float))
+        or not 0 <= float(tolerance_fraction) < 1
+    ):
+        _error(
+            "MAN-00", "frequency_validation.tolerance_fraction",
+            "debe ser un número en el intervalo [0, 1)",
+        )
+    if require_per_window and tolerance_fraction is None:
+        _error(
+            "MAN-00", "frequency_validation.tolerance_fraction",
+            "es obligatorio cuando require_per_window=true",
+        )
+
+    temperature_raw = document.get("temperature", {})
+    if not isinstance(temperature_raw, Mapping):
+        _error("MAN-00", "temperature", "debe ser un objeto")
+    require_package_sensor = temperature_raw.get("require_package_sensor", False)
+    temperature_min_c = temperature_raw.get("minimum_c", 0.0)
+    temperature_max_c = temperature_raw.get("maximum_c", 90.0)
+    if not isinstance(require_package_sensor, bool):
+        _error("MAN-00", "temperature.require_package_sensor", "debe ser booleano")
+    for field_name, value in (
+        ("temperature.minimum_c", temperature_min_c),
+        ("temperature.maximum_c", temperature_max_c),
+    ):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            _error("MAN-00", field_name, "debe ser numérico")
+    if float(temperature_min_c) >= float(temperature_max_c):
+        _error("MAN-00", "temperature", "minimum_c debe ser menor que maximum_c")
+
     manifest = Manifest(
         campaign_id, tier, seed, output_dir, overwrite, catalog_path, calibration, kernels,
         frequency_levels, repetitions, target_windows, interval_ns, float(running_ratio),
         cores, smt_policy, cgroup_path, perf_enabled, dict(rapl), dict(gpu), timeouts,
         hardware_datasheet, projected_campaign_bytes, remaining_core_hours, projected_core_hours,
         load_threshold, gpu_interval_ns_raw, dict(uncore_raw), gpu_frequency_levels,
+        dict(turbo_raw), dict(frequency_validation_raw), dict(temperature_raw),
     )
     matrix_size = compute_matrix_size(manifest)
     # MAN-03: cada combinación tiene baseline y telemetry, por eso se duplica.

@@ -41,6 +41,8 @@ class EnvironmentProfile:
     gpu_available_clocks_mhz: list[int] = field(default_factory=list)
     gpu_frequency_control_strategy: str = "unavailable"
     gpu_frequency_write_capable: bool = False
+    turbo_hwp_state: dict[str, str | None] = field(default_factory=dict)
+    base_frequency_khz: int | None = None
 
 
 def _read_text(path: Path) -> str | None:
@@ -129,6 +131,32 @@ def _frequency_data(sysfs: SysfsPaths, cpus: list[int]) -> tuple[str, list[int],
         if paths:
             controls[cpu] = paths
     return driver, sorted(frequencies), controls
+
+
+def _turbo_hwp_data(sysfs: SysfsPaths, cpus: list[int]) -> tuple[dict[str, str | None], int | None]:
+    """Estado de solo lectura usado para E01 y límite nominal sin turbo."""
+    intel_pstate = sysfs.cpu_root / "intel_pstate"
+    state = {
+        "scaling_driver": _read_text(_cpufreq_directory(sysfs, cpus[0]) / "scaling_driver") if cpus else None,
+        "no_turbo": _read_text(intel_pstate / "no_turbo"),
+        "status": _read_text(intel_pstate / "status"),
+        "amd_pstate_status": _read_text(sysfs.cpu_root / "amd_pstate" / "status"),
+        "cpufreq_boost": _read_text(sysfs.cpu_root / "cpufreq" / "boost"),
+    }
+    base_values = {
+        value
+        for cpu in cpus
+        if (value := _read_int_text(_cpufreq_directory(sysfs, cpu) / "base_frequency")) is not None
+    }
+    return state, min(base_values) if base_values else None
+
+
+def _read_int_text(path: Path) -> int | None:
+    value = _read_text(path)
+    try:
+        return int(value) if value is not None else None
+    except ValueError:
+        return None
 
 
 # D05: los 10 eventos genéricos de PERF_TYPE_HARDWARE definidos por el
@@ -379,6 +407,14 @@ def detect_environment(
     delegated = _parse_cpu_list(delegated_cpus)
     cpus = _available_cpus(sysfs, delegated)
     scaling_driver, frequencies, control_paths = _frequency_data(sysfs, cpus)
+    turbo_hwp_state, base_frequency_khz = _turbo_hwp_data(sysfs, cpus)
+    # ARC-138: cpuinfo_max_freq incluye turbo en intel_pstate. Cuando el
+    # admin ya fijó no_turbo=1, el extremo superior físicamente alcanzable
+    # es base_frequency; usar 3.6 GHz para F0 haría que el manifiesto pidiera
+    # un estado que el propio control global acaba de prohibir. No se
+    # hardcodea 3.2 GHz: se lee el valor del procesador.
+    if scaling_driver == "intel_pstate" and turbo_hwp_state.get("no_turbo") == "1" and base_frequency_khz:
+        frequencies = sorted({value for value in frequencies if value <= base_frequency_khz} | {base_frequency_khz})
     # ENV-02: solo drivers físicos conocidos y más de una frecuencia son válidos.
     freq_capable = (
         scaling_driver in {"intel_pstate", "acpi-cpufreq", "amd-pstate"}
@@ -463,6 +499,8 @@ def detect_environment(
         gpu_available_clocks_mhz=gpu_clocks_mhz,
         gpu_frequency_control_strategy=gpu_strategy,
         gpu_frequency_write_capable=gpu_frequency_write_capable,
+        turbo_hwp_state=turbo_hwp_state,
+        base_frequency_khz=base_frequency_khz,
     )
     # Datos complementarios requeridos por ENV-06 y ENV-08, conservando la API pública.
     profile.delegated_cpus = delegated

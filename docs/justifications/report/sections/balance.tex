@@ -61,10 +61,10 @@ es viable y conservador, pero la resolución real del sensor NVML
 ventanas sea mucho más estrecho de lo que sugiere contar lecturas crudas,
 y 10\,ms también sería viable, Sección~\ref{sec:gpu-interval-ns});
 \texttt{repetitions\_per\_combination} (3 es un mínimo operativo razonable
-para Fase 1, no una garantía estadística -- el reanálisis combinatorio
-completo sobre las 120 ternas posibles de cada kernel muestra que el
-resultado depende de qué terna se ejecute, y que la limitación es más
-seria para la futura evaluación energética de Fase 4,
+para pruebas reducidas, no una garantía estadística; el protocolo final de
+CPU adopta 10, el máximo evaluado, porque el cómputo adicional fue aceptado
+y el reanálisis de las 120 ternas muestra que el resultado con 3 depende de
+cuál terna se ejecute,
 Sección~\ref{sec:repetitions}); y \texttt{target\_windows\_per\_repetition}
 (un guardarraíl de duración mínima nunca activo en 150 corridas, no una
 prueba de suficiencia estadística de la muestra resultante).
@@ -112,45 +112,28 @@ confirma que el guardarraíl nunca se ha acercado a su límite, no que 40\,\%
 sea el valor óptimo frente a 10\,\% o 20\,\%. La tolerancia cruzada de GPU
 (5\,\%) queda \textbf{parcialmente justificada}: tiene el mismo margen
 frente al ruido, pero su capacidad real de detectar una aplicación fallida
-de frecuencia sigue sin poder verificarse hasta el permiso P4
+de frecuencia no formó parte de los barridos históricos de esta sección
 (Sección~\ref{sec:calibration-distribution}).
 
 \textbf{Justificados por decisión metodológica explícita, no por
 medición} (Sección~\ref{sec:literatura}): los niveles de frecuencia F0-F4
-(sin permiso de escritura disponible todavía) y el umbral de carga externa
+(cuya revalidación CPU sin Turbo sigue pendiente) y el umbral de carga externa
 E08 (razonable por convención de sistemas). El rango de temperatura E02
 queda \textbf{parcial y corregido}: la hoja de especificaciones exacta del
 SKU del nodo (Xeon Gold 5315Y) documenta un $T_{\text{case}}$ máximo de
-81\,$^{\circ}$C, no 90\,$^{\circ}$C, así que 90\,$^{\circ}$C debe
-presentarse como margen de seguridad conservador frente al rango típico de
-$T_j$máx de la familia, no como un umbral verificado contra el datasheet
-exacto de este procesador -- una corrección respecto a una afirmación más
-fuerte en una versión anterior de este análisis.
+81\,$^{\circ}$C, no 90\,$^{\circ}$C. Como $T_{\text{case}}$ y la lectura
+DTS relativa a $T_j$máx no son la misma magnitud, 90\,$^{\circ}$C queda
+como guardarraíl operativo ya existente, no como margen de seguridad
+validado contra el datasheet del procesador.
 
-\textbf{Hallazgo de integración, más serio que la falta de barrido de
-E08/E02}: revisando el código directamente (no solo el diseño conceptual),
-se encontró que \textbf{ni E08 ni E02 se ejecutan hoy en ninguna campaña
-real del proyecto}, y que el preflight de GPU (G01--G03) tampoco corre
-porque el manifiesto de referencia GPU declara \texttt{gpu.enabled: false}.
-\texttt{run\_campaign\_preflight} (invocado una vez, al inicio de la
-campaña, desde \texttt{cli.py}) no incluye E02 ni E08; ambos viven en
-\texttt{run\_reduced\_preflight}, pensado para correr antes de cada
-combinación, pero que \texttt{campaign.py} nunca llama (sí verifica E06,
-procesos ajenos, antes de cada combinación -- pero no E02 ni E08). Y
-aunque se llamara, \texttt{Manifest} no declara
-\texttt{package\_temperature\_c}, así que E02 aprobaría siempre por sensor
-ausente; y aunque \texttt{gpu.enabled} fuera \texttt{true}, \texttt{cli.py}
-no le pasa ningún inspector NVML a G01--G03, así que tampoco podrían
-verificar procesos CUDA ajenos, modo persistente ni configuración MIG.
-Esto no es una limitación del alcance de este informe -- es un hallazgo
-sobre el instrumento de producción mismo, documentado en detalle en la
-Sección~\ref{sec:metodologia} y en la Sección~\ref{sec:literatura}, con la
-misma seriedad que el defecto de datos de \texttt{rodinia\_heartwall}
-descrito más abajo. Por alcance de un proyecto de pregrado, este informe
-documenta el hallazgo y lo deja como prerrequisito explícito antes de la
-campaña DVFS definitiva -- integrar estos tres chequeos en
-\texttt{campaign.py} es trabajo de implementación fuera del alcance de
-esta auditoría de parámetros, no algo que este informe deba resolver.
+\textbf{Actualización del hallazgo de integración}: los barridos históricos
+siguen careciendo de observaciones E08/E02 por combinación, pero el pipeline
+CPU preparado para el dataset final ya ejecuta E08 antes de calibrar y antes
+de cada combinación, descubre E02 desde los sensores \texttt{coretemp}
+reales de pacca y persiste carga y temperatura en
+\texttt{campaign\_metadata.json}. El problema del inspector G01--G03
+permanece circunscrito al flujo GPU y no se usa para presentar como válida
+una campaña CPU.
 
 \textbf{Fijado por diseño para evitar sesgo de selección posterior}: el
 peso $w$ del EDP se pre-registra en $w=1$ (EDP clásico) como métrica
@@ -194,8 +177,9 @@ de forma reproducible en \texttt{paccaA100}, y justifica decisiones
 locales de ingeniería para construir el dataset de Fase 1. No demuestra
 que estos parámetros sean universales para otras plataformas. No valida
 todavía el efecto de DVFS, el ahorro energético ni el EDP final, porque
-faltan las campañas reales multifrecuencia (bloqueadas por los permisos
-P1/P4). Tampoco convierte automáticamente las ventanas recolectadas en un
+falta una campaña multifrecuencia CPU válida con Turbo deshabilitado: la
+campaña del 2026-08-13 no verificó la frecuencia por ventana y no se usa
+como dataset final. Tampoco convierte automáticamente las ventanas recolectadas en un
 dataset estadísticamente suficiente para entrenar un modelo -- eso deberá
 verificarse en Fase 2 con partición por corrida/carga, balance de clases y
 evaluación fuera de muestra, un análisis que este informe no realiza.

@@ -67,6 +67,37 @@ def test_man_t01_manifest_valido(tmp_path, monkeypatch, catalogo, campaign):
     # ARC-129: ausente en el YAML (campaign fixture no lo declara) -> None,
     # nunca se infiere -- preserva el comportamiento acoplado de siempre.
     assert resultado.gpu_frequency_levels is None
+    assert resultado.turbo == {}
+    assert resultado.frequency_validation == {}
+    assert resultado.temperature == {}
+
+
+def test_arc138_parsea_control_turbo_y_validacion_de_frecuencia(tmp_path, monkeypatch, catalogo, campaign):
+    campaign["turbo"] = {"require_disabled": True}
+    campaign["frequency_validation"] = {"require_per_window": True, "tolerance_fraction": 0.05}
+    resultado = cargar(tmp_path, monkeypatch, catalogo, campaign)
+    assert resultado.turbo == {"require_disabled": True}
+    assert resultado.frequency_validation == {
+        "require_per_window": True,
+        "tolerance_fraction": 0.05,
+    }
+
+
+def test_arc138_validacion_por_ventana_exige_tolerancia(tmp_path, monkeypatch, catalogo, campaign):
+    campaign["frequency_validation"] = {"require_per_window": True}
+    with pytest.raises(manifest.ManifestValidationError, match="tolerance_fraction"):
+        cargar(tmp_path, monkeypatch, catalogo, campaign)
+
+
+def test_arc138_parsea_monitoreo_de_temperatura(tmp_path, monkeypatch, catalogo, campaign):
+    campaign["temperature"] = {
+        "require_package_sensor": True,
+        "minimum_c": 0,
+        "maximum_c": 90,
+    }
+    resultado = cargar(tmp_path, monkeypatch, catalogo, campaign)
+    assert resultado.temperature["require_package_sensor"] is True
+    assert resultado.temperature["maximum_c"] == 90
 
 
 def test_arc129_gpu_frequency_levels_ausente_es_none(tmp_path, monkeypatch, catalogo, campaign):

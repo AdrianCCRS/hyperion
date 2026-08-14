@@ -3,13 +3,15 @@
 # scaling_max_freq, ver correo del admin del cluster). Objetivo: confirmar
 # que apply_frequency() realmente pinea el hardware y que RUN-09 no
 # dispara -- no producir datos para el dataset final. Reduce
-# campaign_pacca_dvfs.yaml a 1 kernel (npb_mg, el más rápido del catálogo:
-# expected_runtime_seconds=4) x 6 niveles (REF + F0-F4, la variable que se
-# está validando, así que no se recorta) x 3 repeticiones = 18 corridas +
-# calibración. GPU sigue deshabilitada (gpu.enabled=false) -- este smoke
+# campaign_pacca_dvfs.yaml a 3 kernels: npb_mg como extremo memory-bound y
+# los dos candidatos compute-bound recién caracterizados, por 10 niveles
+# (REF + nueve puntos fijos cada 12,5 %) x 3 repeticiones = 90 corridas +
+# calibración. Este reconocimiento permite decidir con datos si los cinco
+# niveles F0--F4 capturan la curva. GPU sigue deshabilitada (gpu.enabled=false) -- este smoke
 # test valida solo el eje CPU; el eje GPU (P4, nvidia-smi -lgc/-rgc con
-# sudo) se valida por separado. repetitions_per_combination=3 (no 1): es
-# el mínimo que exige MAN-02, sigue siendo barato con npb_mg (~4s/corrida).
+# sudo) se valida por separado. repetitions_per_combination=3 (no 1) es el
+# mínimo que exige MAN-02 y aquí solo sirve para el pre-vuelo reducido; la
+# campaña final usa 10.
 #
 # Resto de la configuración (cores, RAPL, catálogo, smt_policy,
 # hardware_datasheet) idéntica a campaign_pacca_dvfs.yaml/
@@ -26,11 +28,11 @@
 # hubiera rechazado). campaign_id/output_dir con fecha nueva para no
 # reanudar contra el smoke test viejo de ARC-104/108 (protocolo distinto,
 # CAM-09 lo rechazaría de todas formas, pero mejor no reusar el directorio).
-campaign_id: pacca_dvfs_smoke_20260812d
+campaign_id: pacca_cpu_final_preflight_20260814
 environment_tier: hpc_sc3
 seed: 20260806
 
-output_dir: /home/latorresn/hyperion-results/campaigns/pacca_dvfs_smoke_20260812d
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_cpu_final_preflight_20260814
 overwrite: true
 
 catalog_path: kernels/catalog.yaml
@@ -41,13 +43,19 @@ calibration:
 
 kernels:
   - kernel_ref: npb_mg
+  - kernel_ref: rodinia_lavamd_omp
+  - kernel_ref: rajaperf_polybench_3mm_omp
 
 frequency_levels:
   - {id: REF, mode: native_governor}
   - {id: F0, mode: fixed, fraction: 1.0}
+  - {id: F0125, mode: fixed, fraction: 0.875}
   - {id: F1, mode: fixed, fraction: 0.75}
+  - {id: F1375, mode: fixed, fraction: 0.625}
   - {id: F2, mode: fixed, fraction: 0.5}
+  - {id: F2375, mode: fixed, fraction: 0.375}
   - {id: F3, mode: fixed, fraction: 0.25}
+  - {id: F3125, mode: fixed, fraction: 0.125}
   - {id: F4, mode: fixed, fraction: 0.0}
 
 repetitions_per_combination: 3
@@ -56,16 +64,27 @@ interval_ns: 1000000  # 1 ms
 
 running_ratio_min: 0.90
 
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+
+turbo:
+  require_disabled: true
+
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+
 # I09/OPS-01: la cuenta latorresn no tiene cuota de disco ni límite de
 # horas-núcleo real que el usuario haya pedido rastrear (confirmado
 # 2026-08-10, "uso ilimitado, no te preocupes por eso") -- estos valores
 # solo satisfacen el chequeo de preflight, no representan un límite real.
-# 200 MiB es generoso para 18 corridas cortas de ~4s con muestreo a 1ms;
-# 10 core-hours es igual de generoso frente a 18 combinaciones x 6 cores x
-# ~10s reales por corrida (calibración + overhead incluido) ≈ 0.3 core-h.
-projected_campaign_bytes: 209715200
+# 3 GiB y 30 horas-núcleo cubren con margen las 90 combinaciones, sus
+# baselines y calibraciones, a partir del uso real de las campañas REF.
+projected_campaign_bytes: 3221225472
 remaining_core_hours: 100000
-projected_core_hours: 10
+projected_core_hours: 30
 
 cores:
   delegated_cpus: [0, 1, 2, 3, 4, 5]
