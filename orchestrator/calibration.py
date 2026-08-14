@@ -460,7 +460,17 @@ def run_gpu_calibration(
         )
     stream_ref, stream_kernel = bandwidth_entry
 
-    levels = getattr(manifest, "frequency_levels", None) or (
+    # ARC-129: manifest.gpu_frequency_levels, cuando existe, es el ÚNICO eje
+    # que importa para calibrar el ridge de GPU -- el ridge (P_pico_gpu/
+    # BW_pico_gpu) depende del reloj de GPU, no del de CPU (mismo principio
+    # que el comentario de más abajo ya establecía para el pineo de núcleos).
+    # Con un producto cartesiano CPU x GPU real, repetir esta calibración
+    # una vez por cada nivel de CPU además de GPU no mediría nada físicamente
+    # distinto -- solo multiplicaría el costo sin agregar señal. Ausente
+    # (None, todo manifiesto anterior a este cambio) cae al comportamiento
+    # de siempre: un ridge por cada nivel de frequency_levels (CPU).
+    gpu_levels = getattr(manifest, "gpu_frequency_levels", None)
+    levels = gpu_levels or getattr(manifest, "frequency_levels", None) or (
         SimpleNamespace(id=_CALIBRATION_FREQ_LEVEL_ID, mode=None, fraction=None),
     )
     native_level = next((lvl for lvl in levels if getattr(lvl, "mode", None) == "native_governor"), levels[0])
@@ -478,8 +488,14 @@ def run_gpu_calibration(
 
     reference: dict[str, RooflineCalibration] = {}
     for level in ordered_levels:
+        # ARC-129: si gpu_levels existe, `level` recorre gpu_frequency_levels
+        # (no frequency_levels) -- pinnear CPU contra ESE id sería un error
+        # de eje (dos listas de ids distintas), y físicamente incidental de
+        # todas formas (comentario de arriba). Sin gpu_frequency_levels
+        # declarado, comportamiento idéntico al de siempre.
         if (
-            apply_frequency is not None
+            gpu_levels is None
+            and apply_frequency is not None
             and environment_profile is not None
             and getattr(environment_profile, "frequency_write_capable", False)
         ):

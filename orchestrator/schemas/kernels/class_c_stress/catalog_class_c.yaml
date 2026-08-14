@@ -119,7 +119,8 @@ kernels:
     bandwidth_stdout_unit_multiplier: 1000000
     success_check: {type: stdout_regex, pattern: "Solution Validates"}
     binary_checksum:
-      pacca-a100: "sha256:2d473205b0d3f1cc0ac562c2bd486f7f634741b39f81eb621e18631a05636723"
+      # ARC-125: recompilado con -march=native, ver catalog.yaml principal.
+      pacca-a100: "sha256:aa85c916a9e39063c927d978b74c10cc30287521a672bc6c600ea04b9567b4fc"
     estimated_memory_bytes: 1536000000
 
   - id: ert_probe
@@ -132,4 +133,6 @@ kernels:
     success_check: {type: exit_code}
     estimated_memory_bytes: 67108864
     binary_checksum:
-      pacca-a100: "sha256:c3480c9221f8da217254308ef6fa6c85ddcd04176f3c91ba9a0adec59e14f9b1"
+      # ARC-125/126: recompilado con -march=native -mprefer-vector-width=512,
+      # ver catalog.yaml principal. Checksum final, ambas flags.
+      pacca-a100: "sha256:12b3310aaaf3f80e0fa18a54872c94621c5557f58c1f3f5b238a57df10cd200f"

@@ -1,6 +1,6 @@
 # Reporte para el admin: `nvidia-smi -lgc` no restringe el reloj real de GPU bajo carga (paccaA100)
 
-**Estado:** borrador, no enviado. Registrado en `docs/orchestator/agents/Registro_Cambios_Fuera_Plan_Original.md` como ARC-113.
+**Estado: DIAGNÓSTICO HISTÓRICO NO CONCLUYENTE (2026-08-14, ARC-137) — no enviar.** Este texto conserva la observación de ARC-113/115 con el controlador 595.45.04, pero no debe leerse como prueba vigente de que `-lgc` estuviera averiado: el bloqueo de frecuencia ya era funcional y una verificación directa posterior sostuvo exactamente dos objetivos bajo carga. La versión 610.57.04/CUDA 13.3 de esa prueba es contexto de reproducibilidad, no explicación causal.
 
 **Contexto:** tras la confirmación del permiso P4 (bloqueo de reloj de GPU vía sudo delegado sobre `nvidia-smi`), el smoke test de la campaña GPU DVFS expuso que el candado de reloj no tiene efecto real sobre el hardware bajo carga de cómputo activa. Se agotaron todas las verificaciones posibles del lado del proyecto (3 rondas) antes de escribir esto.
 
@@ -50,3 +50,15 @@ Driver Version: 595.45.04, CUDA Version: 13.2 -- notamos que es una versión rel
 Quedamos atentos.
 
 Saludos
+
+---
+
+## Cierre verificado en hardware real (2026-08-14)
+
+La verificación positiva se ejecutó cuando la plataforma exponía NVIDIA Driver 610.57.04, KMD 610.57.04 y CUDA 13.3. Se realizó dentro de una asignación Slurm exclusiva (`--exclusive --gres=gpu:1`), usando `ert_probe_gpu fp64` como carga sostenida y una restauración de reloj registrada mediante `trap` al finalizar.
+
+- Objetivo 600 MHz: 305 lecturas tomadas mientras `gpu_util_pct > 0`; mínimo observado 600 MHz y máximo observado 600 MHz.
+- Objetivo 1200 MHz: 174 lecturas tomadas mientras `gpu_util_pct > 0`; mínimo observado 1200 MHz y máximo observado 1200 MHz.
+- Ambos `sudo nvidia-smi -lgc <objetivo>,<objetivo>` finalizaron correctamente y `-rgc` se ejecutó al salir.
+
+Conclusión acotada: el actuador `-lgc` funciona y retiene el reloj solicitado bajo carga real en los dos niveles probados. No hay base para afirmar que comenzara a funcionar por un cambio de controlador ni para reconciliar retrospectivamente la observación anterior de 765 MHz; por ello esta última queda como diagnóstico no concluyente, no como avería demostrada. La prueba puntual tampoco equivale a haber ejecutado ni aceptado la campaña GPU multi-frecuencia completa.

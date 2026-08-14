@@ -28,6 +28,11 @@ namespace telemetry
           perf_reader_(cfg_.target_pid, -1),
           perf_cgroup_reader_(cfg_.perf_cgroup_path, cfg_.perf_cpus),
           rapl_reader_(cfg_.rapl_pkg_path, cfg_.rapl_dram_path),
+          // ARC-118: UncoreReader's own floor (10ms) applies if this comes
+          // out below it -- see uncore_reader.hpp for why perf stat -I
+          // cannot reliably match the 1ms per-PID sampling cadence.
+          uncore_reader_(cfg_.interval_ns / 1'000'000, cfg_.uncore_pin_cpu),
+          cpu_freq_reader_(cfg_.cpu_freq_sysfs_path),
           nvml_reader_(0) {}
 
     Collector::~Collector(){
@@ -54,6 +59,8 @@ namespace telemetry
                 }
             }
             if(!cfg_.rapl_pkg_path.empty()) rapl_reader_.open();
+            if(cfg_.enable_uncore) uncore_reader_.open();
+            if(!cfg_.cpu_freq_sysfs_path.empty()) cpu_freq_reader_.open();
             if(cfg_.enable_gpu) nvml_reader_.open();
         } catch (...) {
             close_readers();
@@ -127,11 +134,19 @@ namespace telemetry
             if(perf_cgroup_reader_.is_open()){
                 s.tag = SampleTag::CPU;
                 if(perf_cgroup_reader_.read(s.cpu)){
+                    // ARC-135: sampled on the SAME tick as the counters above,
+                    // not a post-hoc snapshot after the workload exits. 0 =
+                    // "not sampled" (reader disabled/read failed), never a
+                    // fabricated reading -- neither reader sets this field.
+                    s.cpu.scaling_cur_freq_khz = 0;
+                    if(cpu_freq_reader_.is_open()) cpu_freq_reader_.read(s.cpu.scaling_cur_freq_khz);
                     push_sample(s);
                 }
             } else if(perf_reader_.is_open()){
                 s.tag = SampleTag::CPU;
                 if(perf_reader_.read(s.cpu)){
+                    s.cpu.scaling_cur_freq_khz = 0;
+                    if(cpu_freq_reader_.is_open()) cpu_freq_reader_.read(s.cpu.scaling_cur_freq_khz);
                     push_sample(s);
                 }
             }
@@ -141,6 +156,16 @@ namespace telemetry
             if(rapl_reader_.is_open()){
                 s.tag = SampleTag::ENERGY;
                 if(rapl_reader_.read(s.energy)){
+                    push_sample(s);
+                }
+            }
+
+            // Uncore rows are raw cumulative snapshots, same producer-side
+            // shape as ENERGY -- deltas and the bytes conversion are
+            // computed downstream (postprocess.py), not here.
+            if(uncore_reader_.is_open()){
+                s.tag = SampleTag::UNCORE;
+                if(uncore_reader_.read(s.uncore)){
                     push_sample(s);
                 }
             }
@@ -198,6 +223,8 @@ namespace telemetry
         perf_reader_.close();
         perf_cgroup_reader_.close();
         rapl_reader_.close();
+        uncore_reader_.close();
+        cpu_freq_reader_.close();
         nvml_reader_.close();
     }
 

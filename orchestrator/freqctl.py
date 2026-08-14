@@ -77,7 +77,10 @@ def _setspeed_path(env: Any, cpu: int) -> Path | None:
     return governor_path.parent / _SETSPEED_ATTR if governor_path else None
 
 
-def _cur_freq_path(env: Any, cpu: int) -> Path | None:
+def cur_freq_path(env: Any, cpu: int) -> Path | None:
+    """Path to one CPU's scaling_cur_freq. Public (ARC-135): runner.py also
+    uses this to build --cpu-freq-sysfs-path for the C++ collector's own
+    per-window sampling, not just this module's own post-hoc reads."""
     governor_path = _attr_path(env, cpu, _GOVERNOR_ATTR)
     return governor_path.parent / _CUR_FREQ_ATTR if governor_path else None
 
@@ -228,7 +231,7 @@ def _apply_native_governor(cpus: tuple[int, ...], env: Any, level: Any, original
         if strategy == STRATEGY_DISCRETE and governor_path is not None:
             ok = _write_and_verify(governor_path, state.governor, attr=_GOVERNOR_ATTR, cpu=cpu)
             governor_ok = governor_ok and ok
-        per_cpu_applied[cpu] = _read_int(_cur_freq_path(env, cpu))
+        per_cpu_applied[cpu] = _read_int(cur_freq_path(env, cpu))
     if not governor_ok:
         raise FrequencyControlError(f"freqctl: no se pudo restaurar el governor nativo para el nivel {level.id!r}")
     return AppliedFrequency(
@@ -440,4 +443,4 @@ def install_emergency_handlers(restore: Callable[[], bool | None]) -> None:
 def read_observed_frequency_khz(env: Any, cpu: int) -> int | None:
     """FRQ-10 support: scaling_cur_freq for one CPU, for postprocess.py to
     attach per-window. Read-only; safe under any frequency_write_capable."""
-    return _read_int(_cur_freq_path(env, cpu))
+    return _read_int(cur_freq_path(env, cpu))

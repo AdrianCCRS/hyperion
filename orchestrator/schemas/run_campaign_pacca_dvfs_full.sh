@@ -3,12 +3,21 @@
 # kernels x 6 niveles (REF+F0-F4) x 3 repeticiones = 126 corridas, tras
 # validar el mecanismo con campaign_pacca_dvfs_smoke.yaml (18/18
 # aceptadas, frequency_restored_verified=true, ARC-108).
-set -uo pipefail
+set -o pipefail
+# ARC-126: sin "-u" a proposito -- rompe "module load" en este cluster
+# (Lmod referencia LD_PRELOAD sin definir).
 
 export PYTHONPATH="/home/latorresn/hyperion:${PYTHONPATH:-}"
 
 srun -p GPU -w paccaA100 --nodes=1 --ntasks=1 --gres=gpu:1 --exclusive --time=03:00:00 bash -c '
-module load openblas/0.3.21 2>/dev/null
+# ARC-127: "module load openblas/0.3.21" solo, sin el padre gnu12, siempre
+# fallo (RC=1, "Or load any one of these options: module load gnu12/12.4.0
+# openblas/0.3.21" -- dependencia jerarquica no satisfecha) -- el "2>/dev/null"
+# original se tragaba el error en silencio. Confirmado con ldd sobre
+# dgemm_bench en una shell limpia: "libopenblas.so.0 => not found" sin este
+# fix. dgemm_n2048 (bin/dgemm_bench) lo necesita en tiempo de ejecucion.
+module load gnu12/12.4.0 openblas/0.3.21 2>&1 || true
+export LD_LIBRARY_PATH="/opt/ohpc/pub/libs/gnu12/openblas/0.3.21/lib:${LD_LIBRARY_PATH:-}"
 source ~/hyperion-venv/bin/activate
 cd ~/hyperion-kernels
 python3 -m orchestrator.cli run-campaign \

@@ -1,5 +1,14 @@
 # Reporte de metodología de `warmup_seconds` -- revisión 4
 
+> **Nota de vigencia (2026-08-14):** este reporte conserva la evolución
+> histórica del análisis de warmup. Las explicaciones que atribuyen señales
+> planas a un P4 todavía bloqueado o a un reloj inevitable de 765 MHz quedaron
+> invalidadas como explicación vigente por ARC-137: el mecanismo ya era
+> funcional y `-lgc` sostuvo 600 y 1200 MHz bajo carga en la prueba registrada
+> con el controlador actual, sin atribuirle causalidad. Los valores de warmup ya incorporados al catálogo no se
+> cambian por ese hecho, pero cualquier nueva inferencia sobre transitorios GPU
+> debe repetirse por nivel durante la prueba de humo/campaña vigente.
+
 **Revisión 4 (ARC-86)**: a pedido explícito del usuario ("Re caractericemos,
 hagamos pruebas, no quiero dejar absolutamente nada al azar"), se
 re-caracterizaron de verdad los 6 kernels GPU que las revisiones 2/3 habían

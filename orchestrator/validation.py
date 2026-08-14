@@ -4,7 +4,7 @@ import csv
 from dataclasses import dataclass
 import json
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from .catalog import KernelEntry, verify_binary
 
@@ -102,6 +102,14 @@ def validate_run(
     return Verdict(True, None, "ok")
 
 
+# ARC-129: mismo piso de ruido ya establecido y justificado en
+# scripts/pacca/measure_warmup.py (ARC-86, min_mean_floor=5.0 para GPU) --
+# reusado aquí, no un umbral nuevo inventado, aunque viva en un módulo
+# distinto (measure_warmup.py es una herramienta de calibración de catálogo
+# offline, no algo que validation.py pueda importar directamente).
+_GPU_UTIL_NOISE_FLOOR_PCT = 5.0
+
+
 def validate_windows(
     windows_path: str | Path,
     *,
@@ -119,11 +127,30 @@ def validate_windows(
     el manifiesto pero nunca se usaba para decidir nada después (hallazgo
     de auditoría externa, ver docs/orchestator/agents/
     Registro_Cambios_Fuera_Plan_Original.md ARC-94).
+
+    ARC-129: para GPU, quality_status=="gpu_telemetry" por sí solo no
+    distingue una ventana con señal real de una en el piso de ruido del
+    sensor -- antes de este cambio, una corrida donde nvidia-smi/NVML
+    reportaba 0-2% de utilización en cada muestra (GPU esencialmente ociosa,
+    p.ej. un kernel demasiado corto para el intervalo de muestreo) podía
+    contar como "usable" igual que una con actividad de cómputo real, ambas
+    con el mismo quality_status. Se exige gpu_util_pct >=
+    _GPU_UTIL_NOISE_FLOOR_PCT (mismo piso ya establecido y justificado en
+    measure_warmup.py, ARC-86 -- no un umbral nuevo). Filas con
+    gpu_util_pct vacío/no numérico se tratan como sin señal (no cuentan),
+    nunca se asume "0" en silencio ni se descarta el chequeo.
     """
     with open(windows_path, newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
     usable_status = "gpu_telemetry" if device == "gpu" else "ok"
     usable_rows = [row for row in rows if row.get("quality_status") == usable_status]
+    if device == "gpu":
+        def _has_gpu_signal(row: Mapping[str, Any]) -> bool:
+            try:
+                return float(row.get("gpu_util_pct") or "nan") >= _GPU_UTIL_NOISE_FLOOR_PCT
+            except ValueError:
+                return False
+        usable_rows = [row for row in usable_rows if _has_gpu_signal(row)]
     if len(usable_rows) < target_windows_per_repetition:
         return Verdict(
             False, "I10",

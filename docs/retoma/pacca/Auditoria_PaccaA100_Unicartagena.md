@@ -1,5 +1,15 @@
 # Auditoría de solo lectura: paccaA100 (HPC Universidad de Cartagena)
 
+> **Documento histórico (fotografía del 2026-08-05).** No usar sus permisos,
+> versiones ni bloqueadores como estado actual. Al 2026-08-14, P1 y el acceso
+> `uncore` mediante `perf`+`CAP_PERFMON` fueron concedidos; CPU todavía requiere
+> control administrativo del turbo global para sostener los niveles bajo carga.
+> La plataforma expone NVIDIA 610.57.04/CUDA 13.3 y `-lgc`, mecanismo que ya
+> era operativo, sostuvo 600 y 1200 MHz bajo carga en la verificación ARC-137;
+> la versión del driver es contexto, no causa. La campaña GPU multi-frecuencia sigue pendiente.
+> El cuerpo se conserva sin reescritura porque documenta lo observado en la
+> fecha indicada.
+
 **Fecha:** 2026-08-05
 **Metodología:** idéntica a la auditoría de felix/SC3 (`docs/orchestator/agents/Registro_Cambios_Fuera_Plan_Original.md`, ARC-29) — inspección de sysfs/procfs sin escritura, más una prueba empírica mínima del mecanismo real de medición (no solo del CLI `perf`).
 **Acceso:** `ssh latorresn@hpc.unicartagena.edu.co` (alias `hpc-unicartagena`, resuelve internamente como `toctoc.unicartagena.edu.co`) → `ssh pacca` (resuelve como `pacca.unicartagena.edu.co`, ya autenticado por confianza desde el gateway) → `srun -p GPU -w paccaA100 --nodes=1 --ntasks=1 --gres=gpu:1 --exclusive --pty bash -i`. `$HOME` es NFS compartido entre gateway y `pacca`. Autenticación por llave dedicada (`~/.ssh/id_ed25519_pacca`), la contraseña entregada por el usuario se usó una sola vez para `ssh-copy-id` y no quedó persistida en ningún artefacto.

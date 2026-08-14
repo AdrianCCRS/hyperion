@@ -142,6 +142,7 @@ def test_pre_t13_preflight_completo_correcto(tmp_path, env):
         "smt_policy": "all_threads",
         "rapl": {"enabled": False},
         "gpu": {"enabled": False},
+        "uncore": {"enabled": True},
         "output_dir": output,
         "overwrite": False,
             "calibration": ["cal"],
@@ -370,6 +371,57 @@ def test_e10_dominio_cubierto_por_completo_pasa():
 def test_e10_sin_datos_de_dominio_no_bloquea():
     result = preflight.check_frequency_domain([2, 3], None)
     assert (result.factor_id, result.passed) == ("E10", True)
+
+
+def test_e11_uncore_deshabilitado_no_bloquea():
+    result = preflight.check_exclusive_node_allocation(False, [0, 1], 32)
+    assert (result.factor_id, result.passed, result.blocking) == ("E11", True, False)
+
+
+def test_e11_uncore_habilitado_con_nodo_completo_pasa():
+    result = preflight.check_exclusive_node_allocation(True, range(32), 32)
+    assert (result.factor_id, result.passed, result.blocking) == ("E11", True, True)
+
+
+def test_e11_uncore_habilitado_sin_nodo_completo_bloquea():
+    # ARC-116: uncore_imc mide todo el nodo (pid=-1) -- si el job solo tiene
+    # afinidad a una parte de las CPUs logicas, el nodo no esta reservado en
+    # exclusiva y la lectura puede estar contaminada por otro job.
+    result = preflight.check_exclusive_node_allocation(True, [0, 1, 2, 3, 4, 5], 32)
+    assert (result.factor_id, result.passed, result.blocking) == ("E11", False, True)
+    assert result.observed["total_cpu_count"] == 32
+
+
+def test_e12_campana_de_cpu_sin_uncore_bloquea():
+    # ARC-123: sin uncore habilitado, ninguna ventana de CPU puede llegar a
+    # quality_status="ok" -- validate_windows (VAL-09/I10) rechazaria el
+    # 100% de las corridas de CPU, descubierto solo al terminar la primera.
+    entries = [SimpleNamespace(device="cpu")]
+    result = preflight.check_uncore_required_for_cpu_dataset(entries, False)
+    assert (result.factor_id, result.passed, result.blocking) == ("E12", False, True)
+
+
+def test_e12_campana_de_cpu_con_uncore_pasa():
+    entries = [SimpleNamespace(device="cpu")]
+    result = preflight.check_uncore_required_for_cpu_dataset(entries, True)
+    assert (result.factor_id, result.passed) == ("E12", True)
+
+
+def test_e12_campana_puramente_gpu_no_requiere_uncore():
+    # Las filas GPU nunca dependen de uncore -- usable_status="gpu_telemetry"
+    # en validate_windows, asi que un catalogo sin ningun kernel de CPU
+    # nunca dispara este chequeo.
+    entries = [SimpleNamespace(device="gpu")]
+    result = preflight.check_uncore_required_for_cpu_dataset(entries, False)
+    assert (result.factor_id, result.passed) == ("E12", True)
+
+
+def test_e12_entrada_sin_device_declarado_se_asume_cpu():
+    # El catalogo declara "cpu" implicitamente cuando el campo no esta
+    # presente (mismo default que runner.py usa en otras partes).
+    entries = [SimpleNamespace()]
+    result = preflight.check_uncore_required_for_cpu_dataset(entries, False)
+    assert (result.factor_id, result.passed) == ("E12", False)
 
 
 def test_c05_memoria_declarada_no_cabe():

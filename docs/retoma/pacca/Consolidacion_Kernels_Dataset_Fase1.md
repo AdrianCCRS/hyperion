@@ -1,5 +1,16 @@
 # Consolidación de kernels para el dataset de Fase 1 (CPU + GPU)
 
+> **Documento histórico, superado como inventario operativo.** La composición
+> vigente se consulta en `orchestrator/schemas/kernels/catalog.yaml`: 9 entradas
+> CPU (7 dataset + 2 calibración) y 12 GPU (8 dataset + 4 calibración). La
+> auditoría dinámica posterior de ambas precisiones retiró `rodinia_hotspot`,
+> incorporó `rodinia_gaussian` y corrigió la precisión declarada de otros
+> kernels (ARC-110). Los valores obtenidos a 765 MHz y las afirmaciones de P4
+> bloqueado que aparecen abajo describen un diagnóstico histórico no concluyente
+> bajo 595.45.04; el mecanismo ya era funcional y ARC-137 verificó `-lgc` a 600
+> y 1200 MHz bajo carga, sin atribuirlo al driver. No usar
+> este cuerpo para generar una campaña actual.
+
 Este documento junta, en un solo lugar, la lista de kernels con la que se
 va a construir el dataset de entrenamiento de Fase 1 (caracterización
 Roofline, ver `docs/general/plan_trabajo_grado.md`), combinando lo ya

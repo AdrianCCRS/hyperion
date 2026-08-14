@@ -17,7 +17,7 @@ from . import node_profile as node_profile_module
 
 REQUIRED_OUTPUT_COLUMNS: tuple[str, ...] = (
     "run_id", "repetition", "kernel_ref", "node_id", "phase_label_hint", "phase_label_train",
-    "freq_level_id", "freq_khz_requested", "freq_khz_applied", "freq_khz_observed",
+    "freq_level_id", "gpu_freq_level_id", "freq_khz_requested", "freq_khz_applied", "freq_khz_observed",
     "window_index", "t_start_ns", "t_end_ns", "delta_t_ns",
     "delta_instructions", "delta_cycles", "delta_cache_references", "delta_cache_misses",
     "delta_stalled_cycles_backend", "stall_backend_ratio",
@@ -27,10 +27,26 @@ REQUIRED_OUTPUT_COLUMNS: tuple[str, ...] = (
     "delta_running_ns", "delta_enabled_ns", "running_ratio",
     "pkg_delta_uj", "dram_delta_uj", "power_w", "energy_valid",
     # ARC-97/100: FLOPs measured directly by hardware (FP_ARITH_INST_RETIRED,
-    # Ice Lake-SP only), sole source of operational_intensity -- no
+    # Ice Lake-SP only), sole source of flops_measured_window -- no
     # instruction-prorated fallback (see build_windows()).
     "flops_measured_window",
     "bytes_moved_window", "operational_intensity",
+    # ARC-119/123: uncore_imc CAS_COUNT_READ/WRITE (bytes reales de DRAM,
+    # ámbito sistema/socket -- ver telemetry/src/uncore_reader.cpp). A
+    # diferencia de bytes_moved_window, cada lectura de uncore ya es un
+    # delta de un intervalo de `perf stat -I` (~10ms o más), más ancho que
+    # una ventana de CPU (~1ms) -- NO se puede atribuir a una sola ventana
+    # sin agregar. Estas tres columnas se calculan a la granularidad real
+    # del intervalo de perf (sumando flops_measured_window de todas las
+    # ventanas de CPU cubiertas) y se difunden sin cambios a cada una de
+    # esas ventanas. ARC-123: operational_intensity/phase_label_train
+    # arriba se deciden EXCLUSIVAMENTE con esto -- bytes_moved_window (el
+    # proxy) nunca las alimenta, ni siquiera como respaldo: una ventana sin
+    # cobertura real de uncore queda quality_status="intensity_undefined"
+    # en vez de mezclar una medición real con una sesgada por no ver
+    # tráfico de prefetch. Ver _finalize_operational_intensity().
+    "uncore_cas_count_read_interval", "uncore_cas_count_write_interval",
+    "bytes_moved_uncore_real", "operational_intensity_uncore_real", "phase_label_uncore_real",
     "i_ridge_used", "roofline_calibration_ref", "node_profile_ref", "calibration_ref",
     "binary_checksum", "quality_status",
     # ARC-70: filas GPU (tag=GPU en samples.csv) -- ver build_windows() y el
@@ -92,6 +108,14 @@ _FP_ARITH_DOUBLES_PER_EVENT: dict[str, int] = {
     "fp_512b_packed_double": 8,
 }
 
+# ARC-116: one CAS_COUNT_READ/WRITE transaction is one DDR column-address-
+# strobe burst, the standard Intel iMC convention -- one 64-byte cache line
+# per count, same physical unit as context.llc_line_size_bytes on every
+# node this project has measured, but this is a memory-controller
+# architectural constant (documented by Intel's own uncore performance
+# monitoring reference manuals), not derived from node_profile.
+_UNCORE_CAS_LINE_BYTES = 64
+
 
 @dataclass(frozen=True)
 class WindowContext:
@@ -130,6 +154,10 @@ class WindowContext:
     # CPU) aunque su phase_label_train se calculó con gpu_i_ridge_flops_per_byte
     # -- la columna de trazabilidad apuntaba al archivo equivocado.
     gpu_roofline_calibration_ref: str | None = None
+    # ARC-129: nivel de GPU real de esta corrida (producto cartesiano CPU x
+    # GPU) -- None para kernels de CPU, o de GPU sin gpu_frequency_levels
+    # declarado (acoplado a freq_level_id, como siempre).
+    gpu_freq_level_id: str | None = None
 
 
 def _read_rows(samples_csv_path: str | Path) -> list[dict[str, str]]:
@@ -169,12 +197,14 @@ _LAUNCHER_INTERNAL_REPETITION = 1
 
 def _split_by_repetition_and_tag(
     rows: Sequence[dict[str, str]], repetition: int = _LAUNCHER_INTERNAL_REPETITION
-) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+) -> tuple[list[dict[str, str]], list[dict[str, str]], list[dict[str, str]]]:
     cpu_rows = [r for r in rows if r.get("tag") == "CPU" and _to_int(r.get("repetition")) == repetition]
     energy_rows = [r for r in rows if r.get("tag") == "ENERGY" and _to_int(r.get("repetition")) == repetition]
+    uncore_rows = [r for r in rows if r.get("tag") == "UNCORE" and _to_int(r.get("repetition")) == repetition]
     cpu_rows.sort(key=lambda r: int(r["timestamp_ns"]))
     energy_rows.sort(key=lambda r: int(r["timestamp_ns"]))
-    return cpu_rows, energy_rows
+    uncore_rows.sort(key=lambda r: int(r["timestamp_ns"]))
+    return cpu_rows, energy_rows, uncore_rows
 
 
 def _match_energy_windows(
@@ -218,6 +248,113 @@ def _match_energy_windows(
     return matches
 
 
+def _apply_uncore_intervals(
+    windows: list[dict[str, Any]],
+    cpu_rows: Sequence[dict[str, str]],
+    uncore_rows: Sequence[dict[str, str]],
+    run_start_ns: int,
+    i_ridge_flops_per_byte: float,
+) -> None:
+    """ARC-119: broadcast each `perf stat -I` interval's already-computed
+    delta (see UncoreSnapshot in metrics.hpp -- these are NOT cumulative,
+    never differenced against each other) onto every CPU window it
+    overlaps, mutating `windows` in place.
+
+    Each UNCORE row stands alone as the traffic for
+    (previous UNCORE row's timestamp, this row's timestamp], or
+    (run_start_ns, this row's timestamp] for the first one -- unlike
+    CPU/ENERGY rows there is no "first sample has no predecessor" case.
+    Because perf's own interval (~10ms floor) is coarser than a CPU window
+    (~1ms), a single interval's bytes cannot be assigned to just one CPU
+    window: doing so would divide a wide-interval byte count by one
+    window's narrow flops_measured_window, systematically and silently
+    biasing operational_intensity_uncore_real toward memory_bound. Instead,
+    flops_measured_window is summed across every CPU window whose t_end
+    falls inside the interval, and the resulting intensity/label is
+    broadcast unchanged to all of them -- correct at the interval's own
+    granularity, never claimed at the finer per-window one.
+    """
+    if not uncore_rows:
+        return
+
+    interval_start_ns = run_start_ns
+    # windows[0] is the first_row placeholder (no t_end); windows[i]
+    # corresponds to cpu_rows[i] for i in 1..len(cpu_rows)-1.
+    for uncore_row in uncore_rows:
+        interval_end_ns = int(uncore_row["timestamp_ns"])
+        cas_read = _to_int(uncore_row.get("uncore_cas_count_read_interval"))
+        cas_write = _to_int(uncore_row.get("uncore_cas_count_write_interval"))
+        bytes_this_interval = (
+            (cas_read + cas_write) * _UNCORE_CAS_LINE_BYTES
+            if cas_read is not None and cas_read >= 0 and cas_write is not None and cas_write >= 0
+            else None
+        )
+
+        covered_indices = [
+            i for i in range(1, len(cpu_rows))
+            if interval_start_ns < int(cpu_rows[i]["timestamp_ns"]) <= interval_end_ns
+        ]
+
+        operational_intensity_uncore: float | None = None
+        phase_label_uncore: str | None = None
+        if covered_indices and bytes_this_interval is not None and bytes_this_interval > 0:
+            flops_values = [windows[i].get("flops_measured_window") for i in covered_indices]
+            if all(value is not None for value in flops_values):
+                flops_in_interval = sum(flops_values)
+                operational_intensity_uncore = flops_in_interval / bytes_this_interval
+                phase_label_uncore = (
+                    "memory_bound" if operational_intensity_uncore < i_ridge_flops_per_byte else "compute_bound"
+                )
+
+        for i in covered_indices:
+            windows[i]["uncore_cas_count_read_interval"] = cas_read
+            windows[i]["uncore_cas_count_write_interval"] = cas_write
+            windows[i]["bytes_moved_uncore_real"] = bytes_this_interval
+            windows[i]["operational_intensity_uncore_real"] = operational_intensity_uncore
+            windows[i]["phase_label_uncore_real"] = phase_label_uncore
+
+        interval_start_ns = interval_end_ns
+
+
+# Statuses that must never be overridden by the intensity finalization
+# below -- each already outranks "intensity_undefined" in _QUALITY_PRIORITY,
+# so if one of these is already set, whatever caused it is a more
+# fundamental problem than the classification being undefined.
+_STATUSES_ABOVE_INTENSITY = frozenset({"first_sample_no_delta", "pmu_degraded", "warmup_excluded"})
+
+
+def _finalize_operational_intensity(
+    windows: list[dict[str, Any]],
+    cpu_rows: Sequence[dict[str, str]],
+) -> None:
+    """ARC-123: the single place that decides operational_intensity/
+    phase_label_train, exclusively from real uncore_imc data -- never from
+    bytes_moved_window (the cache-misses proxy), which structurally cannot
+    see hardware prefetch traffic (sec:intensidad) and was found to
+    silently mix inconsistent measurement quality into the same label
+    column when used as a fallback (ARC-122 superseded).
+
+    Every window entering this function already has operational_intensity
+    set to a NaN placeholder and phase_label_train to None (build_windows()
+    no longer computes them from the proxy at all). Where
+    _apply_uncore_intervals() found real coverage, that value becomes
+    final. Where it did not (run start before the first interval closes,
+    gaps if uncore degrades mid-run, or this run never opened uncore),
+    the window stays undefined -- quality_status becomes
+    "intensity_undefined" unless a higher-priority problem
+    (_STATUSES_ABOVE_INTENSITY) already explains the row.
+
+    Mutates `windows` in place.
+    """
+    for i in range(1, len(cpu_rows)):
+        row = windows[i]
+        if row.get("operational_intensity_uncore_real") is not None:
+            row["operational_intensity"] = row["operational_intensity_uncore_real"]
+            row["phase_label_train"] = row["phase_label_uncore_real"]
+        elif row["quality_status"] not in _STATUSES_ABOVE_INTENSITY:
+            row["quality_status"] = "intensity_undefined"
+
+
 def _resolve_quality_status(flags: dict[str, bool]) -> str:
     for status in _QUALITY_PRIORITY:
         if flags.get(status):
@@ -241,7 +378,7 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
     # _split_by_repetition_and_tag. context.repetition es la repetición a
     # nivel de campaña (para etiquetar windows.csv), no la numeración
     # interna del launcher dentro de ESTE samples.csv.
-    cpu_rows, energy_rows = _split_by_repetition_and_tag(rows)
+    cpu_rows, energy_rows, uncore_rows = _split_by_repetition_and_tag(rows)
     if not cpu_rows:
         return []
 
@@ -297,6 +434,17 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
         row["t_start_ns"] = t_start_ns
         row["t_end_ns"] = t_end_ns
         row["delta_t_ns"] = delta_t_ns
+
+        # ARC-135: real per-window reading (sampled by the C++ collector on
+        # the SAME tick as the PMU counters, telemetry/src/cpu_freq_reader.cpp)
+        # overrides the single run-wide broadcast from WindowContext when
+        # present -- frequency is instantaneous, not cumulative, so this uses
+        # cur directly, never a delta. Falls back to the old context-level
+        # value only for samples.csv predating this column (backward compat,
+        # never fabricated).
+        scaling_cur_freq_khz = _to_int(cur.get("scaling_cur_freq_khz"))
+        if scaling_cur_freq_khz is not None:
+            row["freq_khz_observed"] = scaling_cur_freq_khz
 
         delta_instructions = _delta(_to_int(cur.get("instructions")), _to_int(prev.get("instructions")))
         delta_cycles = _delta(_to_int(cur.get("cycles")), _to_int(prev.get("cycles")))
@@ -478,40 +626,50 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
         # ARC-63: independent cross-check for bytes_moved_window's bias
         # (F3.4/ARC-33, ARC-60) -- same line-size multiplier convention, so
         # it is directly comparable to bytes_moved_window per window. Still
-        # a core-level (L2) proxy, not real DRAM bytes (uncore stays
-        # blocked, ARC-59); never used in operational_intensity/
-        # phase_label_train, purely a reported cross-check column.
+        # a core-level (L2) proxy, not real DRAM bytes; never used in
+        # operational_intensity/phase_label_train (uncore_imc is, when
+        # available -- see ARC-119/ARC-123), purely a reported cross-check
+        # column.
         row["bytes_moved_l2_proxy"] = (
             delta_l2_lines_in_all * context.llc_line_size_bytes
             if l2_lines_in_all_supported and delta_l2_lines_in_all is not None
             else None
         )
 
-        intensity_undefined = (
-            bytes_moved_window is None or bytes_moved_window == 0 or flops_measured_window is None
-        )
-        if intensity_undefined:
-            row["operational_intensity"] = float("nan")
-            row["phase_label_train"] = None
-        else:
-            operational_intensity = flops_measured_window / bytes_moved_window
-            row["operational_intensity"] = operational_intensity
-            # POST-11: always derived from Roofline, never copied from
-            # phase_label_hint.
-            row["phase_label_train"] = (
-                "memory_bound" if operational_intensity < context.i_ridge_flops_per_byte else "compute_bound"
-            )
+        # ARC-123: operational_intensity/phase_label_train are decided
+        # EXCLUSIVELY from real uncore_imc data, in _finalize_operational_intensity()
+        # after this loop -- bytes_moved_window (the cache-misses proxy) is
+        # reported above for comparison only and never classifies a window.
+        # The proxy structurally misses hardware prefetch traffic
+        # (sec:intensidad); mixing it into the same label column as the
+        # real measurement, even only for the windows uncore didn't cover,
+        # would make windows.csv's classification quality silently
+        # inconsistent row to row. A window with no real uncore coverage is
+        # therefore left undefined (quality_status="intensity_undefined"),
+        # the same outcome already used for a missing FLOPs/bytes reading
+        # of any other kind -- kept in windows.csv, never dropped, but
+        # never guessed either.
+        row["operational_intensity"] = float("nan")
+        row["phase_label_train"] = None
 
         no_freq_reading = context.freq_khz_observed is None
 
         row["quality_status"] = _resolve_quality_status({
             "pmu_degraded": pmu_degraded,
             "warmup_excluded": warmup_excluded,
-            "intensity_undefined": intensity_undefined,
             "energy_invalid": energy_invalid,
             "no_freq_reading": no_freq_reading,
         })
         windows.append(row)
+
+    # ARC-119: broadcasts uncore_imc's own real bytes onto the CPU windows
+    # each perf interval overlaps -- see _apply_uncore_intervals()
+    # docstring. Mutates `windows` in place; a no-op when this run never
+    # opened uncore (uncore_rows empty).
+    _apply_uncore_intervals(windows, cpu_rows, uncore_rows, run_start_ns, context.i_ridge_flops_per_byte)
+    # ARC-123: operational_intensity/phase_label_train get their final
+    # value here -- see _finalize_operational_intensity() docstring.
+    _finalize_operational_intensity(windows, cpu_rows)
 
     # ARC-70: filas GPU (tag=GPU, muestras NVML crudas) -- deliberadamente
     # NO se ventanean contra los límites de las ventanas de CPU de arriba.
@@ -609,6 +767,7 @@ def _base_row(context: WindowContext, *, window_index: int) -> dict[str, Any]:
         "phase_label_hint": context.phase_label_hint,
         "phase_label_train": None,
         "freq_level_id": context.freq_level_id,
+        "gpu_freq_level_id": context.gpu_freq_level_id,
         "freq_khz_requested": context.freq_khz_requested,
         "freq_khz_applied": context.freq_khz_applied,
         "freq_khz_observed": context.freq_khz_observed,
@@ -638,6 +797,11 @@ def _base_row(context: WindowContext, *, window_index: int) -> dict[str, Any]:
         "flops_measured_window": None,
         "bytes_moved_window": None,
         "operational_intensity": None,
+        "uncore_cas_count_read_interval": None,
+        "uncore_cas_count_write_interval": None,
+        "bytes_moved_uncore_real": None,
+        "operational_intensity_uncore_real": None,
+        "phase_label_uncore_real": None,
         "i_ridge_used": context.i_ridge_flops_per_byte,
         "roofline_calibration_ref": context.roofline_calibration_ref,
         "node_profile_ref": context.node_profile_ref,
@@ -697,6 +861,7 @@ def run_postprocess(
     running_ratio_min: float = 0.9,
     rapl_enabled: bool = False,
     calibration_references: Any = None,
+    gpu_freq_level_id: str | None = None,
 ) -> Path:
     """Orchestrates one run's samples.csv -> windows.csv.
 
@@ -719,21 +884,29 @@ def run_postprocess(
     "calibration" declared) degrades to gpu_i_ridge=None, never a hard
     failure -- the CPU dataset's classification must not depend on whether
     a GPU calibration happens to exist.
+
+    ARC-129: `gpu_freq_level_id`, when given, is the id the GPU ridge is
+    looked up under -- the GPU's own clock, independent of `freq_level_id`
+    (CPU axis) for a cartesian CPU x GPU combination. None (the default)
+    falls back to `freq_level_id`, exactly as before this parameter existed
+    -- the GPU ridge was always calibrated per the (shared) freq_level_id.
     """
     roofline = calibration_module.load_calibration(calibration_dir, freq_level_id)
     profile = node_profile_module.load_node_profile(calibration_dir)
 
+    effective_gpu_freq_level_id = gpu_freq_level_id if gpu_freq_level_id is not None else freq_level_id
     gpu_operational_intensity = getattr(kernel_entry, "operational_intensity_flops_per_byte", None)
     gpu_precision = getattr(kernel_entry, "gpu_precision", None)
     gpu_i_ridge = None
     gpu_roofline_calibration_ref = None
     if getattr(kernel_entry, "device", "cpu") == "gpu" and gpu_precision:
         gpu_roofline_calibration_ref = str(
-            Path(calibration_dir) / calibration_module.calibration_filename(freq_level_id, gpu_precision=gpu_precision)
+            Path(calibration_dir)
+            / calibration_module.calibration_filename(effective_gpu_freq_level_id, gpu_precision=gpu_precision)
         )
         try:
             gpu_i_ridge = calibration_module.load_calibration(
-                calibration_dir, freq_level_id, gpu_precision=gpu_precision
+                calibration_dir, effective_gpu_freq_level_id, gpu_precision=gpu_precision
             ).i_ridge_flops_per_byte
         except (FileNotFoundError, calibration_module.CalibrationError):
             gpu_i_ridge = None
@@ -765,6 +938,7 @@ def run_postprocess(
         gpu_operational_intensity=gpu_operational_intensity,
         gpu_i_ridge_flops_per_byte=gpu_i_ridge,
         gpu_roofline_calibration_ref=gpu_roofline_calibration_ref,
+        gpu_freq_level_id=gpu_freq_level_id,
     )
     windows = build_windows(run_dir / "samples.csv", context)
     return write_windows_csv(windows, run_dir / "windows.csv")

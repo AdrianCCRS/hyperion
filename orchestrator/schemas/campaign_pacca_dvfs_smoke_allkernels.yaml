@@ -1,0 +1,88 @@
+# ARC-133 (2026-08-12): segunda prueba de humo pre-vuelo, pedida
+# explícitamente por el usuario ("Asugurate al 100% que todo este probado")
+# tras confirmar 18/18 en campaign_pacca_dvfs_smoke.yaml -- esa prueba solo
+# cubrió npb_mg (1 de los 7 kernels reales de campaign_pacca_dvfs.yaml).
+# Este manifiesto corre los 7 kernels reales una vez cada uno a REF
+# (repetitions_per_combination=3, el mínimo de MAN-02), sin barrer
+# frecuencia -- eso ya quedó probado con npb_mg en ARC-131/132 (F0-F4
+# completo), y la actuación de frecuencia no depende de CUÁL kernel corre,
+# solo de freqctl.py/apply_frequency, ya verificado. Objetivo específico de
+# esta prueba: (1) los 5 binarios NPB restantes (bt/cg/sp/ft/lu),
+# recompilados en ARC-126 pero nunca ejecutados con telemetría real en esta
+# sesión; (2) dgemm_n2048, cuyo fix de LD_LIBRARY_PATH para OpenBLAS
+# (ARC-127) nunca se probó de verdad -- si falla, debe fallar aquí, en
+# minutos, no a mitad de la campaña real de 3h.
+#
+# Duración estimada: bt~30s + mg~4s + cg~26s + sp~20s + ft~14s + lu~40s +
+# dgemm_n2048~5s = ~139s x 3 repeticiones ~= 7 min + calibración + overhead.
+#
+# Resto de la configuración idéntica a campaign_pacca_dvfs.yaml/
+# campaign_pacca_dvfs_smoke.yaml, ya validada en hardware real.
+
+campaign_id: pacca_dvfs_smoke_allkernels_20260812
+environment_tier: hpc_sc3
+seed: 20260806
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_dvfs_smoke_allkernels_20260812
+overwrite: true
+
+catalog_path: kernels/catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: npb_bt
+  - kernel_ref: npb_mg
+  - kernel_ref: npb_cg
+  - kernel_ref: npb_sp
+  - kernel_ref: npb_ft
+  - kernel_ref: npb_lu
+  - kernel_ref: dgemm_n2048
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+
+repetitions_per_combination: 3
+target_windows_per_repetition: 50
+interval_ns: 1000000  # 1 ms
+
+running_ratio_min: 0.90
+
+# I09/OPS-01: mismo criterio que campaign_pacca_dvfs_smoke.yaml -- valores
+# generosos solo para satisfacer el preflight, no un límite real (confirmado
+# por el usuario, "uso ilimitado, no te preocupes por eso").
+projected_campaign_bytes: 314572800
+remaining_core_hours: 100000
+projected_core_hours: 10
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+rapl:
+  enabled: true
+
+uncore:
+  enabled: true
+
+gpu:
+  enabled: false
+
+timeouts_seconds:
+  ready: 15
+  run: 120
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 480000000000

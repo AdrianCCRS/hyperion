@@ -10,6 +10,16 @@ se releyó el plan con cuidado. Este documento parte del plan como **verdad
 absoluta, no negociable**, y solo diseña lo que el plan no especifica al
 detalle (implementación concreta del harness).
 
+**Actualización operativa 2026-08-14 (ARC-137):** las descripciones de P4
+como permiso pendiente o de `-lgc` como actuador aparentemente bloqueado que
+aparecen más abajo son historia del desarrollo, no el estado vigente. `-lgc`
+ya era el mecanismo operativo y sostuvo exactamente 600 MHz durante 305
+lecturas activas y 1200 MHz durante 174, bajo carga FP64 real y con
+restauración posterior. NVIDIA 610.57.04/CUDA 13.3 describe el estado de esa
+prueba, no la causa ni el inicio de la funcionalidad. Siguen pendientes la
+prueba de humo del pipeline completo, la medición de latencia de transición y
+la campaña GPU multi-frecuencia.
+
 Si en algún punto de aquí en adelante algo parece contradecir el plan, es un
 error de este documento, no una corrección al plan.
 
@@ -54,7 +64,7 @@ sigue:
 
 ---
 
-## 1. Hallazgos empíricos en el A100 real (2026-08-06)
+## 1. Hallazgos empíricos históricos en el A100 real (2026-08-06)
 
 Estos hallazgos siguen siendo válidos sin importar el rediseño de arriba —
 son hechos del hardware, no decisiones de arquitectura. Verificados en
@@ -67,18 +77,14 @@ son hechos del hardware, no decisiones de arquitectura. Verificados en
 | **`ncu` funciona sin root** | Kernel CUDA propio trivial perfilado con `ncu --metrics dram__bytes.sum`: 388.80 MB medidos vs ≈402 MB analíticos | `ncu` es viable como herramienta de **etiquetado offline** (ver sección 2) — no está bloqueado por permisos. |
 | **DCGM no instalado** | `which dcgmi nv-hostengine` → ausentes | No diseñar asumiendo métricas de profiling continuas de DCGM. |
 | **Persistence mode deshabilitado**, reposo a 765 MHz, límite de potencia 250 W | `nvidia-smi --query-gpu=...` | Afecta reproducibilidad de mediciones de energía/latencia; considerar pedir `-pm 1` como mejora opcional (ya incluido en la solicitud de permisos, P4). |
-| **765 MHz no es solo el reloj de reposo -- persiste bajo carga real** (ARC-77) | `nvidia-smi --query-gpu=clocks.sm` muestreado *mientras* `ert_probe_gpu` corría (no en reposo): 765 MHz de 1410 MHz máximos (54.3%), con solo 62 W de 250 W usados y 26°C -- sin límite térmico ni de potencia que lo justifique | La GPU no hace *boost* aunque haya trabajo de sobra para justificarlo y margen térmico/energético amplio. Sin `P4` no hay manera de pedirle que suba. Explica por qué toda calibración de cómputo medida hoy (`gpu_ert_probe_fp32/fp64`, `gpu_dgemm_calibration`) ronda 48-54% de los picos teóricos de NVIDIA -- no es un límite del código de calibración, es el reloj real bajo el que corre *todo* en este nodo hoy. |
+| **Un diagnóstico anterior observó 765 MHz bajo carga** (ARC-77/113) | Con el controlador 595.45.04, `nvidia-smi --query-gpu=clocks.sm` muestreado mientras `ert_probe_gpu` corría permanecía en 765 MHz pese a distintos objetivos `-lgc`. | Observación histórica no reconciliada; no constituye prueba de que el actuador estuviera averiado ni debe extrapolarse a una campaña actual. |
+| **`-lgc` retiene el reloj bajo carga** (ARC-137) | En la prueba registrada con el controlador 610.57.04: objetivo 600 MHz, 305/305 lecturas activas a 600 MHz; objetivo 1200 MHz, 174/174 lecturas activas a 1200 MHz. | Verificación positiva del mecanismo ya operativo. La versión de driver es contexto, no causa. Deben repetirse calibraciones por nivel y ejecutar primero una prueba de humo completa. |
 
-**Consecuencia estratégica:** el control de reloj de GPU está bloqueado por
-permisos igual que el de CPU — la GPU no es un plan B si el permiso de CPU
-tarda, cae en el mismo bloqueador. Ver `Solicitud_Permisos_Pacca_Unicartagena.md`
-P4 (ya redactado). **Consecuencia metodológica (ARC-77):** como ningún
-kernel del catálogo tiene tampoco el permiso para forzar el reloj máximo,
-el `i_ridge` de GPU debe derivarse de picos *medidos bajo esta misma
-limitación* (`gpu_ert_probe_fp32/fp64`), no de picos teóricos ni de
-literatura con reloj desbloqueado -- de lo contrario se compararía a los
-kernels reales contra una velocidad que ninguno puede alcanzar hoy, el
-mismo tipo de error ya corregido para Tensor Cores.
+**Consecuencia estratégica vigente:** GPU no comparte el bloqueo de actuación
+de CPU. Cada ridge GPU debe recalibrarse empíricamente bajo el mismo
+nivel `-lgc` que la combinación correspondiente; los picos obtenidos a 765 MHz
+antes de ARC-137 son evidencia histórica y no deben reutilizarse como techo de
+una campaña con los nuevos niveles controlados.
 
 ---
 
@@ -200,10 +206,9 @@ esto, el dataset de GPU que se viene recolectando desde ARC-72 tenía
 -- ya corregido y verificado con una campaña real en `paccaA100`**
 (`gpu_ert_probe_fp32`/`fp64` calibrados a REF, `rodinia_lavamd` etiquetado
 `compute_bound`, `rodinia_backprop`/`rodinia_lud` etiquetados
-`memory_bound`, cada uno contra el ridge de su propia precisión). Lo que
-sigue bloqueado por `P4` es únicamente *recalibrar* por más de un nivel de
-frecuencia real (hoy solo existe el nivel `REF`) -- el mecanismo en sí ya
-está listo para eso, no falta código, falta el permiso.
+`memory_bound`, cada uno contra el ridge de su propia precisión). El permiso
+y el actuador ya están disponibles (ARC-137); falta ejecutar la recalibración
+por nivel y la campaña multi-frecuencia, no implementar el mecanismo.
 
 ---
 
@@ -508,18 +513,18 @@ rediseño de la sección 0-4): inyección CUPTI, detección de límites de
 kernel, tabla estática de intensidad por kernel como mecanismo de
 producción.
 
-**No implementado, pendiente de permiso P4 (bloqueado, no es cuestión de
-tiempo):** el wrapper real a `nvmlDeviceSetGpuLockedClocks`/`nvidia-smi
--lgc` — no se puede probar contra hardware real sin el permiso. Todo lo
-demás de Fase 1 ya no depende de este permiso.
+**Implementado y verificado bajo carga (ARC-87/104/129/137):** control mediante
+`nvidia-smi -lgc/-rgc`, resolución del dispositivo desde
+`CUDA_VISIBLE_DEVICES`, restauración y eje GPU independiente. La actuación se
+confirmó a 600 y 1200 MHz; la campaña completa sigue pendiente.
 
 ---
 
 ## 9. Plan concreto, en orden
 
-1. **Enviar el correo de permisos** (P1-P4 ya redactados en
-   `Solicitud_Permisos_Pacca_Unicartagena.md`) — bloquea DVFS de CPU y de GPU.
-   Único punto de esta lista que sigue sin resolverse.
+1. ~~Obtener y verificar P4 bajo carga~~ — **hecho (ARC-137)**. P1 permite
+   escribir los límites CPU; la actuación GPU está verificada y el pendiente
+   de actuación efectiva por turbo global corresponde exclusivamente a CPU.
 2. ~~Refactorizar `GpuClockController`~~ — **hecho (ARC-66)**.
 3. ~~Preparar el manifiesto de la campaña de caracterización GPU~~ — **hecho
    (ARC-72/73)**: `campaign_pacca_gpu_ref.yaml`, corrido en hardware real.
@@ -533,17 +538,18 @@ demás de Fase 1 ya no depende de este permiso.
 7. ~~Correr la campaña de caracterización~~ — **hecho (ARC-72/73/74)**: 6/6
    aceptadas en `paccaA100`, `windows.csv` con datos NVML reales. No hizo
    falta esperar P4 — corrió íntegramente a frecuencia REF.
-8. Medir `T_transición` real de GPU el día que llegue el permiso, para fijar
+8. Medir `T_transición` real de GPU con el actuador ya funcional, para fijar
    el tiempo mínimo de permanencia con datos reales, no con el valor de
-   literatura citado en el plan (~10 ms). **Único paso que sigue bloqueado
-   por P4** — todo lo demás de Fase 1 está listo.
+   literatura citado en el plan (~10 ms). Ya no está bloqueado por P4.
+9. Ejecutar una prueba de humo que incluya niveles GPU reales y, si pasa,
+   lanzar la campaña GPU multi-frecuencia completa.
 
 ---
 
 ## 10. Qué queda explícitamente sin resolver
 
-- `T_transición` real del cambio de reloj de GPU — no medible sin el permiso
-  (único punto de Fase 1 realmente bloqueado por P4).
+- `T_transición` real del cambio de reloj de GPU — pendiente de medir con el
+  permiso y el actuador ya verificados.
 - ~~El etiquetado `ncu` de GPU (sección 3) no recalcula la etiqueta por
   nivel de frecuencia~~ — **corregido en diseño (ARC-79) y en código
   (ARC-80)**: `calibration.run_gpu_calibration()` calibra `P_pico_gpu`
@@ -551,11 +557,9 @@ demás de Fase 1 ya no depende de este permiso.
   `manifest.frequency_levels`, y `postprocess.py` deriva `phase_label_train`
   por combinación (kernel, freq_level_id, precisión) -- mismo principio que
   `calibration.py` ya implementa del lado CPU (ARC-78), verificado con una
-  campaña real en `paccaA100`. **Sigue sin poder *recalibrar por más de un
-  nivel real* hasta que llegue `P4`** (no hay manera de fijar el reloj de
-  SM a distintos niveles hoy, así que solo existe el nivel `REF`) — pero
-  el código ya soporta más niveles sin cambios, solo falta el permiso para
-  que `manifest.frequency_levels` declare más de uno de verdad.
+  campaña real en `paccaA100`. El actuador ya permite recalibrar por varios
+  niveles reales (ARC-137); esa recalibración y la campaña que la consume son
+  ahora trabajo experimental pendiente, no un bloqueo de permisos.
 - ~~Qué techo FP64 corresponde a reportar como `P_pico`~~ — **resuelto
   (ARC-76)**: se dejó de usar `cuBLAS` (elige Tensor Cores por su cuenta)
   y se mide con un microbenchmark propio en aritmética CUDA corriente

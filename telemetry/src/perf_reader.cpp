@@ -233,7 +233,35 @@ namespace telemetry {
         opened.reserve(kEventCount);
         for(size_t i = 0; i < kEventCount; ++i) {
             int fd = -1;
-            if(i == kL2LinesInAll || i == kFpScalarDouble || i == kFp128bPackedDouble ||
+            if(i == kL2LinesInAll) {
+                // ARC-132: deliberately never opened -- freed to bring the
+                // simultaneous PMC request down from 10 to 9. Found on
+                // paccaA100 (ARC-130/131) that nmi_watchdog=1 permanently
+                // reserves one hardware counter per core for the kernel's
+                // hang-detection NMI, which the pmc_count=10 budget (ARC-53)
+                // apparently never accounted for -- requesting exactly 10
+                // forced the kernel to rotate one event's physical register
+                // between reads, producing non-monotonic (negative-delta)
+                // raw counts for FP_ARITH_INST_RETIRED.SCALAR_DOUBLE
+                // specifically (57.8% of windows in a real run), silently
+                // discarding flops_measured_window via the same
+                // valid_counters gate as any other degraded window --
+                // confirmed independent of --enable-uncore (same rate with
+                // or without it). l2_lines_in_all itself is expendable: it
+                // fed bytes_moved_l2_proxy, an informational cross-check
+                // never used for operational_intensity/phase_label_train
+                // since uncore (real DRAM bytes) became the only source
+                // (ARC-119/123) -- dropping it protects flops_measured_window,
+                // the one FLOPs sub-counter set that is actually
+                // load-bearing for the Roofline classification. Degrades via
+                // the exact same has_l2_lines_in_all()==false path already
+                // exercised on hardware that never supported this event at
+                // all (ARC-63), never a new code path.
+                fds_.push_back(-1);
+                opened.push_back(-1);
+                continue;
+            }
+            if(i == kFpScalarDouble || i == kFp128bPackedDouble ||
                i == kFp256bPackedDouble || i == kFp512bPackedDouble) {
                 // ARC-63/ARC-97: no generic PERF_TYPE_HARDWARE mapping exists
                 // for these events at all, so skip straight to the

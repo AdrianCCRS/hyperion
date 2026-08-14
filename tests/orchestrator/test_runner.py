@@ -114,6 +114,66 @@ def test_arc70_build_command_agrega_gpu_interval_ns_si_esta_en_el_manifiesto(tmp
     assert command[command.index("--gpu-interval-ns") + 1] == "50000000"
 
 
+def test_arc116_build_command_agrega_enable_uncore_si_esta_habilitado(tmp_path):
+    entry = _make_entry(tmp_path)
+    manifest = _make_manifest(tmp_path)
+    manifest.uncore = {"enabled": True}
+    command = runner.build_command(entry, manifest, "run_x", _harness())
+    assert "--enable-uncore" in command
+
+
+def test_arc116_build_command_sin_uncore_por_defecto(tmp_path):
+    entry = _make_entry(tmp_path)
+    manifest = _make_manifest(tmp_path)
+    command = runner.build_command(entry, manifest, "run_x", _harness())
+    assert "--enable-uncore" not in command
+
+
+def test_arc131_build_command_agrega_uncore_pin_cpu_fuera_de_los_reservados(tmp_path):
+    # ARC-131: delegated_cpus=(2,3,4,5), collector_cpu=0, consumer_cpu=1 en
+    # _make_manifest() -- max(reservados)=5, el pin debe caer en 6, el
+    # primer CPU logico libre despues de todos los reservados.
+    entry = _make_entry(tmp_path)
+    manifest = _make_manifest(tmp_path)
+    manifest.uncore = {"enabled": True}
+    command = runner.build_command(entry, manifest, "run_x", _harness())
+    assert command[command.index("--uncore-pin-cpu") + 1] == "6"
+
+
+def test_arc131_build_command_sin_uncore_no_agrega_pin_cpu(tmp_path):
+    entry = _make_entry(tmp_path)
+    manifest = _make_manifest(tmp_path)
+    command = runner.build_command(entry, manifest, "run_x", _harness())
+    assert "--uncore-pin-cpu" not in command
+
+
+def test_arc135_build_command_agrega_cpu_freq_sysfs_path(tmp_path):
+    # ARC-135: reemplaza el viejo read_observed_frequency_khz() post-hoc
+    # (una sola lectura de Python DESPUES de que el proceso ya termino,
+    # encontrado sin correlacion real con el nivel solicitado en datos de
+    # campana real) por muestreo real del colector C++, en el mismo tick
+    # que los contadores de PMU. delegated_cpus=(2,3,4,5) en _make_manifest()
+    # -- debe resolver la ruta para el CPU 2 (el primero de la lista).
+    entry = _make_entry(tmp_path)
+    manifest = _make_manifest(tmp_path)
+    cpufreq = tmp_path / "cpu2" / "cpufreq"
+    cpufreq.mkdir(parents=True)
+    governor_path = cpufreq / "scaling_governor"
+    governor_path.write_text("performance")
+    env_profile = SimpleNamespace(
+        frequency_control_paths={2: {"scaling_governor": str(governor_path)}},
+    )
+    command = runner.build_command(entry, manifest, "run_x", _harness(), environment_profile=env_profile)
+    assert command[command.index("--cpu-freq-sysfs-path") + 1] == str(cpufreq / "scaling_cur_freq")
+
+
+def test_arc135_build_command_sin_environment_profile_no_agrega_freq_path(tmp_path):
+    entry = _make_entry(tmp_path)
+    manifest = _make_manifest(tmp_path)
+    command = runner.build_command(entry, manifest, "run_x", _harness())
+    assert "--cpu-freq-sysfs-path" not in command
+
+
 def test_arc70_run_single_setea_ld_preload_y_library_path_para_gpu(tmp_path, monkeypatch):
     monkeypatch.delenv("FAKE_LAUNCHER_BEHAVIOR", raising=False)
     fake_shim = tmp_path / "fake_shim.so"
@@ -478,6 +538,58 @@ def test_arc87_invoca_apply_gpu_frequency_para_kernel_gpu_con_permiso(tmp_path, 
     assert level.id == "F0"
     assert level.mode == "fixed"
     assert env is env_profile
+
+
+def test_arc129_gpu_freq_level_id_resuelve_contra_gpu_frequency_levels_no_frequency_levels(tmp_path, monkeypatch):
+    # ARC-129: con gpu_freq_level_id explícito, el eje de GPU debe resolver
+    # contra manifest.gpu_frequency_levels (una lista de ids totalmente
+    # distinta de frequency_levels, para que la prueba no pueda pasar "por
+    # coincidencia" si ambos ejes compartieran el mismo id de string).
+    monkeypatch.delenv("FAKE_LAUNCHER_BEHAVIOR", raising=False)
+    entry = _make_entry(tmp_path, device="gpu")
+    manifest = _make_manifest(tmp_path)
+    manifest.gpu_frequency_levels = (
+        SimpleNamespace(id="GREF", mode="native_governor", fraction=None),
+        SimpleNamespace(id="GF0", mode="fixed", fraction=0.25),
+    )
+    env_profile = SimpleNamespace(frequency_write_capable=False, gpu_frequency_write_capable=True)
+    calls = []
+
+    runner.run_single(
+        entry, manifest, "npb_ep", "F0", 1,
+        harness=_harness(), environment_profile=env_profile,
+        apply_gpu_frequency=lambda level, env: calls.append((level, env)),
+        gpu_freq_level_id="GF0",
+    )
+
+    assert len(calls) == 1
+    level, _env = calls[0]
+    # El nivel de GPU aplicado es "GF0" (0.25), no "F0" (0.5, del eje de
+    # CPU) -- confirma que los dos ejes están genuinamente desacoplados.
+    assert level.id == "GF0"
+    assert level.fraction == 0.25
+
+
+def test_arc129_gpu_freq_level_id_ausente_reusa_frequency_levels_como_siempre(tmp_path, monkeypatch):
+    # ARC-129: sin gpu_freq_level_id (None, el default -- toda llamada
+    # anterior a este cambio), el eje de GPU sigue acoplado a freq_level_id
+    # contra manifest.frequency_levels, exactamente como antes.
+    monkeypatch.delenv("FAKE_LAUNCHER_BEHAVIOR", raising=False)
+    entry = _make_entry(tmp_path, device="gpu")
+    manifest = _make_manifest(tmp_path)
+    env_profile = SimpleNamespace(frequency_write_capable=False, gpu_frequency_write_capable=True)
+    calls = []
+
+    runner.run_single(
+        entry, manifest, "npb_ep", "F0", 1,
+        harness=_harness(), environment_profile=env_profile,
+        apply_gpu_frequency=lambda level, env: calls.append((level, env)),
+    )
+
+    assert len(calls) == 1
+    level, _env = calls[0]
+    assert level.id == "F0"
+    assert level.fraction == 0.5
 
 
 def test_arc87_frecuencia_de_gpu_llega_a_la_metadata_de_la_corrida(tmp_path, monkeypatch):

@@ -50,6 +50,16 @@ namespace telemetry {
         uint64_t fp_512b_packed_double;   /**< Raw FP_ARITH_INST_RETIRED.512B_PACKED_DOUBLE (0xC7, umask=0x40). 8 flops/count. */
         uint64_t time_enabled_ns;   /**< Perf enabled time for multiplexing diagnostics. */
         uint64_t time_running_ns;   /**< Perf running time for multiplexing diagnostics. */
+        /* ARC-135: cpufreq scaling_cur_freq for one representative delegated
+         * CPU, read from the SAME producer tick as the counters above --
+         * previously this was a single post-hoc Python read taken AFTER the
+         * workload process had already exited (orchestrator/campaign.py),
+         * which does not confirm the clock actually held during execution
+         * (found not to correlate with the requested level at all, e.g. F4
+         * -- 0.8GHz floor -- reading above F0's 3.6GHz ceiling in real
+         * campaign data). 0 means "not sampled" (reader disabled/unavailable
+         * for this run), never a real 0kHz reading. */
+        uint64_t scaling_cur_freq_khz;
     };
 
     /**
@@ -62,6 +72,42 @@ namespace telemetry {
         ns_t     timestamp_ns;
         uint64_t pkg_uj;   /**< Package domain, read from sysfs energy_uj. */
         uint64_t dram_uj;  /**< Optional DRAM domain, read from sysfs energy_uj. */
+    };
+
+    /**
+     * @brief Uncore memory-controller (iMC) sample, ALREADY a per-interval delta.
+     *
+     * ARC-119: unlike EnergySnapshot (a raw cumulative register that needs
+     * differencing downstream), these fields are the counts summed across
+     * every uncore_imc PMU box (system-wide/socket-scope events, pid=-1 --
+     * see UncoreReader) DURING the `perf stat -I` interval ending at
+     * timestamp_ns -- `perf stat -I` documents its own output as "count
+     * deltas", not a running total. Never subtract two consecutive
+     * UncoreSnapshot readings from each other: each one already stands
+     * alone as the traffic for its own interval (including the first one,
+     * which covers [run start, first timestamp] -- there is no
+     * "first sample has no predecessor" case here, unlike CpuSample/
+     * EnergySnapshot). Each count represents one DRAM column-address-strobe
+     * transaction (one 64-byte cache line, the standard Intel iMC
+     * convention); the bytes conversion itself still happens downstream.
+     */
+    struct UncoreSnapshot {
+        ns_t     timestamp_ns;
+        uint64_t cas_count_read_interval;   /**< Sum of CAS_COUNT_READ across all uncore_imc boxes, this interval only. */
+        uint64_t cas_count_write_interval;  /**< Sum of CAS_COUNT_WRITE across all uncore_imc boxes, this interval only. */
+        /**
+         * ARC-120: `perf stat` never exits just because every event it
+         * asked for came back "<not counted>"/"<not supported>" (confirmed
+         * on pacca: the CAP_PERFMON gap of ARC-117/118 makes every single
+         * line invalid, yet the process stays alive indefinitely) -- so
+         * is_open() alone cannot tell "genuinely zero traffic this
+         * interval" apart from "could not count anything at all". False
+         * here means at least one of the terms in this interval failed;
+         * the two counts above are the sum of whatever DID parse (0 if
+         * none did), never a sentinel -- consumers must check this flag
+         * before trusting a 0 as a real zero.
+         */
+        bool interval_valid;
     };
 
     /**
@@ -92,7 +138,7 @@ namespace telemetry {
     };
 
     /** @brief Type tag for the active member of Sample. */
-    enum class SampleTag : uint8_t { CPU, ENERGY, GPU };
+    enum class SampleTag : uint8_t { CPU, ENERGY, GPU, UNCORE };
 
     /**
      * @brief Fixed-size tagged union transported through the telemetry ring.
@@ -107,6 +153,7 @@ namespace telemetry {
             CpuSample cpu;
             EnergySnapshot energy;
             GpuSample gpu;
+            UncoreSnapshot uncore;
         };
     };
     

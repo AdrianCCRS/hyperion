@@ -205,6 +205,72 @@ def check_frequency_domain(delegated_cpus: Iterable[int], frequency_domain_cpus:
     )
 
 
+def check_exclusive_node_allocation(
+    uncore_enabled: bool, cpus_allowed: Iterable[int], total_cpu_count: int
+) -> CheckResult:
+    """E11: uncore_imc (CAS_COUNT_READ/WRITE) son contadores de ámbito
+    sistema/socket (pid=-1, ver telemetry/include/telemetry/uncore_reader.hpp)
+    -- miden TODO el tráfico de memoria del nodo, no solo el de los cores
+    delegados. Si el job no reserva el nodo completo (`--exclusive`), otro
+    job ajeno corriendo en el resto del nodo contamina esa lectura sin
+    ninguna forma de separarla, exactamente el mismo riesgo de fuga entre
+    usuarios que E10 ya vigila para el dominio de frecuencia. Requisito
+    explícito del usuario: bloquea SIEMPRE que uncore esté habilitado, no es
+    opcional.
+
+    Mismo mecanismo ya validado empíricamente en pacca
+    (memoria de proyecto, `pacca-cluster-unicartagena-facts`): con
+    `--exclusive --ntasks=1`, `/proc/self/status` reporta
+    `Cpus_allowed_list` cubriendo TODAS las CPUs lógicas del nodo (el
+    aislamiento real lo da `--exclusive` a nivel Slurm, no un cpuset fino) --
+    así que "el job tiene acceso a todas las CPUs lógicas" es la señal
+    disponible de que el nodo es exclusivo, no una prueba directa contra
+    Slurm.
+    """
+    if not uncore_enabled:
+        return _result(
+            "E11", "Reserva exclusiva de nodo (uncore)", True, False,
+            {"uncore_enabled": False},
+            "uncore no está habilitado en este manifiesto, no aplica",
+        )
+    allowed = set(cpus_allowed)
+    expected = set(range(total_cpu_count))
+    passed = total_cpu_count > 0 and allowed == expected
+    return _result(
+        "E11", "Reserva exclusiva de nodo (uncore)", passed, True,
+        {"cpus_allowed": sorted(allowed), "total_cpu_count": total_cpu_count},
+        "uncore_imc mide tráfico de memoria de TODO el nodo -- se requiere reserva exclusiva "
+        "(#SBATCH --exclusive) cuando está habilitado, y el job no parece tener el nodo completo",
+    )
+
+
+def check_uncore_required_for_cpu_dataset(entries: Iterable[Any], uncore_enabled: bool) -> CheckResult:
+    """E12 (ARC-123): sin `manifest.uncore.enabled=True`, ninguna ventana de
+    CPU puede llegar a `quality_status="ok"` -- `_finalize_operational_intensity()`
+    (`postprocess.py`) deja `operational_intensity`/`phase_label_train`
+    indefinidos en toda ventana que ningún intervalo real de `uncore_imc`
+    cubrió, y sin uncore habilitado eso es SIEMPRE. `validate_windows()`
+    (VAL-09/I10) exige al menos `target_windows_per_repetition` ventanas
+    `"ok"` para aceptar una corrida -- sin este chequeo, una campaña de CPU
+    completa correría durante horas antes de descubrir, recién al terminar
+    la primera corrida, que el 100% de las corridas de CPU van a rechazarse.
+    Bloquea temprano en cambio, mismo principio que E08/E09/I09.
+
+    No aplica a una campaña puramente de GPU: las filas GPU nunca dependen
+    de esta señal (`usable_status="gpu_telemetry"` en `validate_windows()`),
+    así que un catálogo sin ningún kernel de CPU nunca dispara este chequeo.
+    """
+    has_cpu_kernel = any(_value(entry, "device", "cpu") != "gpu" for entry in entries)
+    passed = not has_cpu_kernel or uncore_enabled
+    return _result(
+        "E12", "uncore requerido para clasificar CPU", passed, True,
+        {"has_cpu_kernel": has_cpu_kernel, "uncore_enabled": uncore_enabled},
+        "La campaña incluye kernels de CPU pero manifest.uncore.enabled no está activo -- "
+        "ninguna ventana de CPU podría llegar a quality_status=\"ok\" (ARC-123), "
+        "toda corrida de CPU sería rechazada por VAL-09/I10",
+    )
+
+
 def check_external_load(threshold: float, load_reader: Callable[[], tuple[float, float, float]] = os.getloadavg, cpu_count: int = 1) -> CheckResult:
     """E08.
 
@@ -412,17 +478,30 @@ def check_core_hour_budget(remaining: float | None, projected: float | None) -> 
     return _result("OPS-01", "Presupuesto hora-núcleo", remaining >= projected, True, {"remaining": remaining, "projected": projected}, "El presupuesto restante es insuficiente")
 
 
+def check_gpu_foreign_activity(inspector: GpuInspector | None) -> CheckResult:
+    """G01, factorizado de check_gpu() (ARC-129) para poder correrlo TAMBIÉN
+    por combinación, no solo una vez al inicio de la campaña -- a diferencia
+    de G02/G03 (persistence mode, configuración MIG: administrativos,
+    estáticos, poco probable que cambien a mitad de una campaña de horas en
+    un nodo exclusivo), otro job del clúster compartido puede empezar a usar
+    la GPU en cualquier momento, exactamente el mismo riesgo que
+    check_foreign_processes() (E06) ya vigila para CPU."""
+    if inspector is None:
+        return _result("G01", "GPU sin actividad ajena", False, True, {}, "Se requiere un inspector NVML")
+    pids = inspector.active_processes()
+    return _result("G01", "GPU sin actividad ajena", not pids, True, {"pids": pids}, "Hay procesos CUDA ajenos")
+
+
 def check_gpu(inspector: GpuInspector | None) -> list[CheckResult]:
     if inspector is None:
         return [
-            _result("G01", "GPU sin actividad ajena", False, True, {}, "Se requiere un inspector NVML"),
+            check_gpu_foreign_activity(inspector),
             _result("G02", "Persistence mode", False, True, {}, "Se requiere un inspector NVML"),
             _result("G03", "Configuración MIG", False, True, {}, "Se requiere un inspector NVML"),
         ]
-    pids = inspector.active_processes()
     persistence, mig = inspector.persistence_mode(), inspector.mig_configuration()
     return [
-        _result("G01", "GPU sin actividad ajena", not pids, True, {"pids": pids}, "Hay procesos CUDA ajenos"),
+        check_gpu_foreign_activity(inspector),
         _result("G02", "Persistence mode", persistence is not None, True, {"persistence_mode": persistence}, "No se pudo leer persistence mode"),
         _result("G03", "Configuración MIG", mig is not None, True, {"mig": mig}, "No se pudo leer la configuración MIG"),
     ]
@@ -508,6 +587,16 @@ def run_campaign_preflight(
         results.append(check_governor(cores, expected_governor, sysfs.cpu_root, control_paths))
         results.append(check_frequency_domain(cores, _value(env, "frequency_domain_cpus", None)))
     results.append(check_rapl_domains(_value(rapl, "domains", []), _value(env, "rapl_domains_available", []), bool(_value(rapl, "enabled", False))))
+    uncore = _value(manifest, "uncore", {})
+    uncore_enabled = bool(_value(uncore, "enabled", False))
+    results.append(check_exclusive_node_allocation(
+        uncore_enabled,
+        os.sched_getaffinity(0),
+        os.cpu_count() or 0,
+    ))
+    refs = tuple(_value(manifest, "calibration", ())) + tuple(_value(manifest, "kernels", ()))
+    entries = [catalog[reference] for reference in refs]
+    results.append(check_uncore_required_for_cpu_dataset(entries, uncore_enabled))
     output_dir, overwrite = _value(manifest, "output_dir"), bool(_value(manifest, "overwrite", False))
     results.append(_result("I07", "Directorio de campaña", overwrite or not Path(output_dir).exists(), True, {"output_dir": str(output_dir)}, "output_dir ya existe"))
     projected = _value(manifest, "projected_campaign_bytes")
@@ -517,9 +606,7 @@ def run_campaign_preflight(
         results.append(_result("I09", "Espacio libre", False, True, {"projected_bytes": "not_declared"}, "Debe declararse projected_campaign_bytes"))
     if _value(gpu, "enabled", False):
         results.extend(check_gpu(gpu_inspector))
-    refs = tuple(_value(manifest, "calibration", ())) + tuple(_value(manifest, "kernels", ()))
-    for reference in refs:
-        entry = catalog[reference]
+    for entry in entries:
         results.extend([check_binary_exists(entry), check_binary_checksum(entry, node_id), check_success_check(entry), check_memory_size(entry)])
     results.append(check_toolchain(bool(_value(manifest, "rebuild", False))))
     results.append(check_perf_counter_capacity(_HARNESS_PERF_EVENTS, _value(node_profile, "pmc_count", _value(env, "pmc_count"))))

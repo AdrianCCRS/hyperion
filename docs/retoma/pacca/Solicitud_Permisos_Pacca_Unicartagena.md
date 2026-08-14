@@ -1,5 +1,13 @@
 # Solicitud de permisos a administración HPC Unicartagena — justificación técnica
 
+> **Solicitud histórica; no reenviar como lista de pendientes.** Estado al
+> 2026-08-14: P1 permite escribir/restaurar los límites CPU, pero hace falta una
+> autorización separada sobre `intel_pstate/no_turbo` o `max_perf_pct` porque el
+> turbo global impide que esos límites se sostengan bajo carga (ARC-136); P3
+> funciona mediante `perf` con `CAP_PERFMON`; P4 está concedido y `-lgc` fue
+> verificado a 600 y 1200 MHz bajo carga (ARC-137). El cuerpo se conserva como
+> justificación y trazabilidad de la petición original.
+
 Este documento resume, para uso directo en el correo a administración del
 clúster HPC de la Universidad de Cartagena, todos los permisos que el
 proyecto necesita sobre el nodo `paccaA100` para completar la medición DVFS

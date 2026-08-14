@@ -1,13 +1,15 @@
-# Campaña multi-frecuencia real contra paccaA100 -- PREPARADA POR ADELANTADO
-# (2026-08-06), NO CORRIDA TODAVÍA: sigue bloqueada por el mismo permiso
-# de siempre (escritura de scaling_min_freq/scaling_max_freq, ver
-# docs/retoma/pacca/Solicitud_Permisos_Pacca_Unicartagena.md, sección P1).
-# environment.detect_environment() reportará frequency_write_capable=False
-# hasta que ese permiso llegue -- si se intenta correr esto antes, el nivel
-# REF sigue funcionando pero los niveles F0-F4 fallarán en RUN-08 (nunca
-# se aplica frecuencia sin frequency_write_capable=True). El objetivo de
-# tener esto listo de antemano es no perder tiempo armando el manifiesto
-# el día que el permiso llegue.
+# Campaña multi-frecuencia real contra paccaA100.
+#
+# ARC-127 (2026-08-12): el permiso P1 (escritura de scaling_min_freq/
+# scaling_max_freq) YA fue concedido y verificado (ARC-105/107) -- el
+# comentario original de este archivo, que decía que seguía bloqueado, ya
+# no aplica y se corrige aquí. El dataset de 126/126 combinaciones que se
+# recolectó bajo ese primer permiso quedó descartado por dos motivos
+# acumulados desde entonces (ARC-119/123 uncore real, ARC-125/126 AVX-512
+# en ert_probe -- ver docs/retoma/pacca/Reporte_Comparacion_Intel_Advisor_
+# Ppico_BWpico.md) y esta es la re-ejecución con ambos corregidos. Antes de
+# lanzar: fijar `campaign_id`/`output_dir` con la fecha real (siguen con el
+# placeholder PENDIENTE_FECHA).
 #
 # Niveles F0-F4 tal como los define Guia_Maestra_Fase1_DVFS.md sección 8.1
 # (F0=f_max, F1=75%, F2=50%, F3=25%, F4=f_min del rango [scaling_min_freq,
@@ -39,11 +41,11 @@
 # validada en hardware real -- ver ese archivo para el historial completo
 # de cada decisión.
 
-campaign_id: pacca_dvfs_full_PENDIENTE_FECHA
+campaign_id: pacca_dvfs_full_20260813_clean
 environment_tier: hpc_sc3
 seed: 20260806
 
-output_dir: /home/latorresn/hyperion-results/campaigns/pacca_dvfs_full_PENDIENTE_FECHA
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_dvfs_full_20260813_clean
 overwrite: true
 
 catalog_path: kernels/catalog.yaml
@@ -100,6 +102,14 @@ perf_enabled: true
 rapl:
   enabled: true
 
+# ARC-127: obligatorio para esta campaña -- todos los kernels de esta lista
+# son de CPU, y sin esto ninguna ventana llega a quality_status="ok"
+# (E12/validate_windows, ARC-123). Requiere reserva exclusiva del nodo
+# (E11) -- ya cubierto por --exclusive --ntasks=1 en
+# run_campaign_pacca_dvfs_full.sh.
+uncore:
+  enabled: true
+
 gpu:
   enabled: false
 
@@ -108,6 +118,14 @@ timeouts_seconds:
   run: 180
   shutdown: 15
 
+# ARC-127: p_pico_flops_per_s actualizado -- el valor anterior (72.0
+# GFLOP/s) era el P_pico medido con el bug de vectorizacion de ert_probe
+# (ARC-125/126, ver Reporte_Comparacion_Intel_Advisor_Ppico_BWpico.md). Con
+# ert_probe corregido (-march=native -mprefer-vector-width=512) el rango
+# real observado es 417.8-555 GFLOP/s -- se deja 480 GFLOP/s como centro,
+# cubierto por el margen D03 (+-40%) en todo el rango. bw_pico_bytes_per_s
+# refrescado al valor mas reciente de stream_c (~59.5 GB/s), sin cambio
+# significativo respecto al anterior.
 hardware_datasheet:
-  bw_pico_bytes_per_s: 58353900000
-  p_pico_flops_per_s: 72004000000
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 480000000000

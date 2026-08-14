@@ -12,6 +12,7 @@ import subprocess
 import time
 from typing import Any, Callable, Iterable, Mapping
 
+from . import freqctl
 from .catalog import KernelEntry, resolve_exec_command, verify_binary
 from .config import HarnessConfig, load_config
 from .gpu_shim import compiled_blocking_sync_shim, cuda_lib_dirs
@@ -62,9 +63,19 @@ class RunResult:
     applied_gpu_frequency: Any = None
 
 
-def build_run_id(campaign_id: str, kernel_ref: str, freq_level_id: str, repetition_index: int) -> str:
-    """RUN-02: deterministic run_id, reproducible from the manifest alone."""
-    return f"{campaign_id}__{kernel_ref}__{freq_level_id}__rep{repetition_index:02d}"
+def build_run_id(
+    campaign_id: str, kernel_ref: str, freq_level_id: str, repetition_index: int,
+    gpu_freq_level_id: str | None = None,
+) -> str:
+    """RUN-02: deterministic run_id, reproducible from the manifest alone.
+
+    ARC-129: `gpu_freq_level_id`, when given, is folded into the id so a
+    cartesian CPU x GPU combination (same CPU freq_level_id, different GPU
+    level) never collides on run_id -- absent (None, the default) reproduces
+    the exact id format every existing manifest/test already depends on.
+    """
+    gpu_suffix = f"__gpu{gpu_freq_level_id}" if gpu_freq_level_id is not None else ""
+    return f"{campaign_id}__{kernel_ref}__{freq_level_id}{gpu_suffix}__rep{repetition_index:02d}"
 
 
 def _resolve_frequency_level(manifest: Any, freq_level_id: str) -> Any:
@@ -81,6 +92,20 @@ def _resolve_frequency_level(manifest: Any, freq_level_id: str) -> Any:
         f"RUN-08: freq_level_id={freq_level_id!r} no coincide con ningún "
         "manifest.frequency_levels[*].id -- apply_frequency no puede resolver "
         "el nivel completo"
+    )
+
+
+def _resolve_gpu_frequency_level(manifest: Any, gpu_freq_level_id: str) -> Any:
+    """ARC-129: espejo de _resolve_frequency_level() para el eje de GPU,
+    contra manifest.gpu_frequency_levels (nunca manifest.frequency_levels --
+    esa lista es del eje de CPU, aunque comparta forma/tipo)."""
+    for level in manifest.gpu_frequency_levels or ():
+        if level.id == gpu_freq_level_id:
+            return level
+    raise ValueError(
+        f"RUN-08: gpu_freq_level_id={gpu_freq_level_id!r} no coincide con ningún "
+        "manifest.gpu_frequency_levels[*].id -- apply_gpu_frequency no puede "
+        "resolver el nivel completo"
     )
 
 
@@ -116,6 +141,20 @@ def build_command(
         "--output-dir", str(manifest.output_dir),
         "--run-id", run_id,
     ]
+    # ARC-135: real per-window frequency sampling, sourced from the SAME
+    # producer tick as the PMU counters -- replaces the old post-hoc single
+    # Python read (campaign.py, taken after the workload process already
+    # exited) that turned out not to correlate with the requested level at
+    # all (confirmed on real campaign data: F4's 0.8GHz floor reading above
+    # F0's 3.6GHz ceiling in different runs). Read-only, so this is safe to
+    # request unconditionally -- never gated on frequency_write_capable,
+    # useful for REF-only runs too. Silently omitted when environment_profile
+    # is unavailable or the path can't be resolved (degrades to "not
+    # sampled", never a fabricated reading, same contract as UncoreReader).
+    if environment_profile is not None:
+        freq_path = freqctl.cur_freq_path(environment_profile, cores.delegated_cpus[0])
+        if freq_path is not None:
+            command += ["--cpu-freq-sysfs-path", str(freq_path)]
     # --cgroup-path is optional isolation only (CPP-05); it is never required
     # for perf to attach correctly.
     if manifest.cgroup_path:
@@ -142,6 +181,29 @@ def build_command(
             dram_path = domain_paths.get(f"dram-package-{numa_node}")
             if dram_path:
                 command += ["--rapl-dram", dram_path]
+    # ARC-116: manifest.uncore.enabled -> --enable-uncore. A diferencia de
+    # RAPL, uncore_imc no necesita una ruta resuelta aquí -- UncoreReader
+    # descubre sus propios boxes desde sysfs en open() (ver
+    # telemetry/src/uncore_reader.cpp). check_exclusive_node_allocation
+    # (E11, preflight.py) ya bloqueó la campaña si el nodo no está reservado
+    # por completo antes de que este comando se construya.
+    if getattr(manifest, "uncore", {}).get("enabled"):
+        command.append("--enable-uncore")
+        # ARC-131: sin esto, el subproceso `perf stat` de uncore hereda la
+        # afinidad del launcher (sin restringir) y el kernel puede
+        # planificarlo sobre los MISMOS delegated_cpus donde se miden los
+        # contadores por-PID del workload -- confirmado empíricamente en
+        # paccaA100 (smoke test, ARC-130) que esto degrada
+        # FP_ARITH_INST_RETIRED (66% de las ventanas perdían el contador
+        # por completo) por contención de scheduling, no de PMCs (uncore_imc
+        # es hardware físicamente separado). Se ancla al primer CPU lógico
+        # libre después de delegated_cpus/collector_cpu/consumer_cpu --
+        # asume numeración contigua (0..N-1 reservados, N+ libre), cierto
+        # para todo manifiesto real de este proyecto a la fecha; si algún
+        # manifiesto futuro no sigue ese patrón, revisar aquí antes de
+        # asumir que sigue siendo seguro.
+        reserved_cpus = set(cores.delegated_cpus) | {cores.collector_cpu, cores.consumer_cpu}
+        command += ["--uncore-pin-cpu", str(max(reserved_cpus) + 1)]
     # ARC-70: kernels GPU (Rodinia u otros del catálogo con device="gpu")
     # necesitan que el Collector muestree NVML -- el launcher ya soporta
     # --enable-gpu/--gpu-interval-ns (ARC-68), solo faltaba conectarlo desde
@@ -225,6 +287,7 @@ def _merge_metadata(
     calibration_refs: Mapping[str, Any] | None,
     applied_frequency: Any = None,
     applied_gpu_frequency: Any = None,
+    gpu_freq_level_id: str | None = None,
 ) -> dict[str, Any]:
     """RUN-06: merge launcher metadata (samples_collected, push_retries,
     perf_attach_mode, measured_pids, ...) with orchestrator-level metadata,
@@ -235,6 +298,11 @@ def _merge_metadata(
         "kernel_suite": entry.suite,
         "kernel_role": entry.role,
         "freq_level_id": freq_level_id,
+        # ARC-129: None para toda corrida de CPU, o de GPU sin producto
+        # cartesiano declarado (manifest.gpu_frequency_levels ausente) --
+        # el eje de GPU en ese caso sigue acoplado a freq_level_id, como
+        # siempre.
+        "gpu_freq_level_id": gpu_freq_level_id,
         "repetition_index": repetition_index,
         "node_id": node_id,
         "binary_checksum": entry.binary_checksum,
@@ -276,6 +344,7 @@ def run_single(
     apply_frequency: Callable[[Any, Any, Any], Any] | None = None,
     apply_gpu_frequency: Callable[[Any, Any], Any] | None = None,
     run_id: str | None = None,
+    gpu_freq_level_id: str | None = None,
 ) -> RunResult:
     """Run one telemetry_kernel_launcher invocation and collect its result.
 
@@ -305,6 +374,13 @@ def run_single(
     kernel never touches the GPU clock, regardless of write capability --
     the two axes are gated independently, exactly like the two independent
     control domains (CPU/GPU) described in the DVFS policy design.
+
+    `gpu_freq_level_id` (ARC-129): when given, the GPU axis resolves against
+    `manifest.gpu_frequency_levels` using THIS id, independent of
+    `freq_level_id` (which always drives the CPU axis) -- enables a real
+    cartesian CPU x GPU sweep (campaign.build_matrix). None (the default)
+    preserves the old coupled behavior: the GPU axis reuses `freq_level_id`
+    against `manifest.frequency_levels`, exactly as before this existed.
     """
     harness = harness or load_config().harness
 
@@ -340,26 +416,35 @@ def run_single(
 
     applied_gpu_frequency = None
     if apply_gpu_frequency is not None and getattr(entry, "device", "cpu") == "gpu":
-        frequency_level = _resolve_frequency_level(manifest, freq_level_id)
+        # ARC-129: eje de GPU desacoplado del de CPU cuando el caller pasa
+        # gpu_freq_level_id (campaign.build_matrix ya lo resuelve así para
+        # un producto cartesiano real); sin él, mismo comportamiento
+        # acoplado de siempre (reusa freq_level_id contra frequency_levels).
+        gpu_frequency_level = (
+            _resolve_gpu_frequency_level(manifest, gpu_freq_level_id)
+            if gpu_freq_level_id is not None
+            else _resolve_frequency_level(manifest, freq_level_id)
+        )
         if environment_profile is not None and getattr(environment_profile, "gpu_frequency_write_capable", False):
-            applied_gpu_frequency = apply_gpu_frequency(frequency_level, environment_profile)
-        elif frequency_level.mode != "native_governor":
+            applied_gpu_frequency = apply_gpu_frequency(gpu_frequency_level, environment_profile)
+        elif gpu_frequency_level.mode != "native_governor":
             # RUN-09 (ARC-101): same principle as the CPU branch above, for
             # the GPU clock axis (ARC-87).
+            effective_gpu_level_id = gpu_freq_level_id if gpu_freq_level_id is not None else freq_level_id
             raise RuntimeError(
-                f"RUN-09: freq_level_id={freq_level_id!r} (mode={frequency_level.mode!r}) "
-                f"para {kernel_ref!r} requiere escritura real de frecuencia GPU, pero "
-                "gpu_frequency_write_capable=False -- no se aplica silenciosamente al "
-                "reloj nativo."
+                f"RUN-09: gpu_freq_level_id={effective_gpu_level_id!r} "
+                f"(mode={gpu_frequency_level.mode!r}) para {kernel_ref!r} requiere escritura real de "
+                "frecuencia GPU, pero gpu_frequency_write_capable=False -- no se aplica silenciosamente "
+                "al reloj nativo."
             )
         else:
             logger.debug(
                 "ARC-87: gpu_frequency_write_capable=False, nivel %s es native_governor y no requiere escritura",
-                freq_level_id,
+                gpu_frequency_level.id,
             )
 
     run_id = run_id if run_id is not None else build_run_id(
-        manifest.campaign_id, kernel_ref, freq_level_id, repetition_index
+        manifest.campaign_id, kernel_ref, freq_level_id, repetition_index, gpu_freq_level_id
     )
     run_dir = Path(manifest.output_dir) / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -448,6 +533,7 @@ def run_single(
         calibration_refs,
         applied_frequency,
         applied_gpu_frequency,
+        gpu_freq_level_id,
     )
     # ARC-94 (segunda ronda): el diccionario fusionado (RUN-06) solo vivía
     # en memoria, en RunResult.metadata -- metadata.json en disco se

@@ -64,6 +64,38 @@ def test_man_t01_manifest_valido(tmp_path, monkeypatch, catalogo, campaign):
     assert resultado.campaign_id == "prueba"
     assert resultado.cores.delegated_cpus == (2, 3, 4, 5)
     assert resultado.timeouts_seconds.run == 300
+    # ARC-129: ausente en el YAML (campaign fixture no lo declara) -> None,
+    # nunca se infiere -- preserva el comportamiento acoplado de siempre.
+    assert resultado.gpu_frequency_levels is None
+
+
+def test_arc129_gpu_frequency_levels_ausente_es_none(tmp_path, monkeypatch, catalogo, campaign):
+    resultado = cargar(tmp_path, monkeypatch, catalogo, campaign)
+    assert resultado.gpu_frequency_levels is None
+
+
+def test_arc129_gpu_frequency_levels_se_parsea_igual_que_frequency_levels(tmp_path, monkeypatch, catalogo, campaign):
+    campaign["gpu_frequency_levels"] = [
+        {"id": "GREF", "mode": "native_governor"},
+        {"id": "GF0", "mode": "fixed", "fraction": 1.0},
+    ]
+    resultado = cargar(tmp_path, monkeypatch, catalogo, campaign)
+    assert [level.id for level in resultado.gpu_frequency_levels] == ["GREF", "GF0"]
+    assert resultado.gpu_frequency_levels[1].fraction == 1.0
+
+
+def test_arc129_gpu_frequency_levels_exige_exactamente_un_native_governor(tmp_path, monkeypatch, catalogo, campaign):
+    campaign["gpu_frequency_levels"] = [{"id": "GF0", "mode": "fixed", "fraction": 1.0}]
+    with pytest.raises(manifest.ManifestValidationError) as excinfo:
+        cargar(tmp_path, monkeypatch, catalogo, campaign)
+    assert excinfo.value.rule_id == "MAN-10"
+
+
+def test_arc129_gpu_frequency_levels_vacia_falla(tmp_path, monkeypatch, catalogo, campaign):
+    campaign["gpu_frequency_levels"] = []
+    with pytest.raises(manifest.ManifestValidationError) as excinfo:
+        cargar(tmp_path, monkeypatch, catalogo, campaign)
+    assert excinfo.value.rule_id == "MAN-10"
 
 
 def test_man12_kernel_calibration_en_kernels_falla(tmp_path, monkeypatch, catalogo, campaign):
@@ -265,4 +297,21 @@ def test_arc88_gpu_interval_ns_se_lee_del_manifiesto(tmp_path, monkeypatch, cata
 def test_arc88_gpu_interval_ns_invalido_falla(tmp_path, monkeypatch, catalogo, campaign, value):
     campaign["gpu_interval_ns"] = value
     with pytest.raises(manifest.ManifestValidationError, match="gpu_interval_ns"):
+        cargar(tmp_path, monkeypatch, catalogo, campaign)
+
+
+def test_arc116_uncore_ausente_por_defecto(tmp_path, monkeypatch, catalogo, campaign):
+    resultado = cargar(tmp_path, monkeypatch, catalogo, campaign)
+    assert resultado.uncore == {}
+
+
+def test_arc116_uncore_se_lee_del_manifiesto(tmp_path, monkeypatch, catalogo, campaign):
+    campaign["uncore"] = {"enabled": True}
+    resultado = cargar(tmp_path, monkeypatch, catalogo, campaign)
+    assert resultado.uncore == {"enabled": True}
+
+
+def test_arc116_uncore_invalido_falla(tmp_path, monkeypatch, catalogo, campaign):
+    campaign["uncore"] = "not-an-object"
+    with pytest.raises(manifest.ManifestValidationError, match="uncore"):
         cargar(tmp_path, monkeypatch, catalogo, campaign)

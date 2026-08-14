@@ -4,7 +4,9 @@
 #include "perf_reader.hpp"
 #include "perf_cgroup_reader.hpp"
 #include "rapl_reader.hpp"
+#include "uncore_reader.hpp"
 #include "nvml_reader.hpp"
+#include "cpu_freq_reader.hpp"
 #include <pthread.h>
 #include <atomic>
 #include <cstdint>
@@ -77,6 +79,40 @@ namespace telemetry {
 
         /** Optional RAPL DRAM domain directory containing energy_uj. */
         std::string rapl_dram_path;
+
+        /**
+         * Enables node-wide uncore_imc CAS_COUNT sampling (real DRAM bytes,
+         * replacing the cache-misses proxy in operational_intensity when
+         * available). Unlike RAPL/perf, there is no path to gate this on --
+         * boxes are auto-discovered from sysfs -- so it is an explicit flag,
+         * requiring the caller (orchestrator preflight) to have already
+         * confirmed an exclusive node allocation: these are system-scope
+         * counters, not scoped to target_pid.
+         */
+        bool enable_uncore = false;
+
+        /**
+         * ARC-131: logical CPU to pin the uncore `perf stat` child process
+         * to, or -1 (default) for no pinning -- see UncoreReader's
+         * constructor doc. Should be set to a CPU outside the run's
+         * delegated/collector/consumer CPUs when enable_uncore is true, to
+         * avoid scheduling contention with the workload's own
+         * FP_ARITH_INST_RETIRED counters (found empirically on paccaA100,
+         * ARC-130).
+         */
+        int uncore_pin_cpu = -1;
+
+        /**
+         * ARC-135: full sysfs path to one representative delegated CPU's
+         * cpufreq/scaling_cur_freq (e.g.
+         * "/sys/devices/system/cpu/cpu2/cpufreq/scaling_cur_freq"). Empty
+         * (default) disables this signal -- CpuSample::scaling_cur_freq_khz
+         * stays 0 ("not sampled"), never a fabricated reading. Sampled on
+         * the SAME producer tick as the PMU counters, replacing the single
+         * post-hoc Python read (taken after the workload process already
+         * exited) that campaign.py used before this existed.
+         */
+        std::string cpu_freq_sysfs_path;
     };
 
     /**
@@ -151,6 +187,19 @@ namespace telemetry {
             }
 
             /**
+             * @brief Whether this run's node could open every uncore_imc box.
+             *
+             * A per-node/per-permission capability fact, same semantics as
+             * has_l2_lines_in_all() -- only true when CAP_PERFMON (or
+             * equivalent) and the sysfs event definitions are both present.
+             * Valid only after start(); false before start() or when
+             * enable_uncore is false.
+             */
+            bool has_uncore() const noexcept {
+                return uncore_reader_.is_open();
+            }
+
+            /**
              * @brief Number of failed try_push attempts.
              *
              * A nonzero value indicates that the ring was full at least once.
@@ -170,6 +219,8 @@ namespace telemetry {
             PerfReader perf_reader_;
             PerfCgroupReader perf_cgroup_reader_;
             RaplReader rapl_reader_;
+            UncoreReader uncore_reader_;
+            CpuFreqReader cpu_freq_reader_;
             NvmlReader nvml_reader_;
 
             /**

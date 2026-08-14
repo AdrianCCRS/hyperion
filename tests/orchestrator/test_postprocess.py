@@ -19,6 +19,8 @@ SAMPLES_HEADER = [
     "time_enabled_ns", "time_running_ns",
     "pkg_uj", "dram_uj", "pkg_delta_uj", "dram_delta_uj", "energy_delta_valid",
     "gpu_power_mw", "gpu_util_pct", "gpu_mem_util_pct", "gpu_sm_clock_mhz", "gpu_energy_mj", "gpu_temperature_c",
+    "uncore_cas_count_read_interval", "uncore_cas_count_write_interval",
+    "scaling_cur_freq_khz",
 ]
 
 
@@ -33,7 +35,11 @@ def _cpu_row(*, repetition, ts, instructions, cycles, cache_references, cache_mi
              # dedicated l2_lines_in_all/stalled_cycles_backend "no soportado"
              # tests below.
              fp_scalar_double=0, fp_128b_packed_double=0,
-             fp_256b_packed_double=0, fp_512b_packed_double=0):
+             fp_256b_packed_double=0, fp_512b_packed_double=0,
+             # ARC-135: "" (not sampled) by default, same convention as the
+             # other optional counters above -- tests exercising the real
+             # per-window override pass an explicit value.
+             scaling_cur_freq_khz=""):
     return {
         "run_id": "r", "repetition": repetition, "kernel": "k", "label": "k",
         "timestamp_ns": ts, "tag": "CPU",
@@ -46,6 +52,7 @@ def _cpu_row(*, repetition, ts, instructions, cycles, cache_references, cache_mi
         "fp_256b_packed_double": fp_256b_packed_double,
         "fp_512b_packed_double": fp_512b_packed_double,
         "time_enabled_ns": time_enabled, "time_running_ns": time_running,
+        "scaling_cur_freq_khz": scaling_cur_freq_khz,
     }
 
 
@@ -67,6 +74,18 @@ def _gpu_row(*, repetition, ts, gpu_power_mw, gpu_util_pct, gpu_mem_util_pct="",
         "gpu_mem_util_pct": gpu_mem_util_pct,
         "gpu_sm_clock_mhz": gpu_sm_clock_mhz, "gpu_energy_mj": gpu_energy_mj,
         "gpu_temperature_c": gpu_temperature_c,
+    }
+
+
+def _uncore_row(*, repetition, ts, cas_count_read_interval, cas_count_write_interval):
+    # ARC-119: these are ALREADY per-interval deltas (perf stat -I
+    # semantics), not cumulative counters -- never differenced against a
+    # previous UNCORE row.
+    return {
+        "run_id": "r", "repetition": repetition, "kernel": "k", "label": "k",
+        "timestamp_ns": ts, "tag": "UNCORE",
+        "uncore_cas_count_read_interval": cas_count_read_interval,
+        "uncore_cas_count_write_interval": cas_count_write_interval,
     }
 
 
@@ -115,6 +134,44 @@ def test_arc48_repeticion_de_campana_2_no_deja_windows_csv_vacio(tmp_path):
     assert windows[1]["quality_status"] != "first_sample_no_delta"  # la segunda fila si tuvo delta
 
 
+def test_arc135_freq_khz_observed_real_por_ventana_sobreescribe_el_de_contexto(tmp_path):
+    # ARC-135: scaling_cur_freq_khz llega ahora por ventana desde samples.csv
+    # (muestreado por el colector C++ en el mismo tick que los contadores de
+    # PMU) -- reemplaza al viejo freq_khz_observed de WindowContext, una
+    # unica lectura de Python tomada DESPUES de que el proceso ya termino,
+    # que en datos de campana real no se correlacionaba con el nivel
+    # solicitado en absoluto.
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0,
+                 scaling_cur_freq_khz=2200000),
+        _cpu_row(repetition=1, ts=1_001_000_000, instructions=2_000_000, cycles=1_000_000,
+                 cache_references=100_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000,
+                 scaling_cur_freq_khz=2199500),
+    ])
+    # WindowContext trae un valor de contexto deliberadamente distinto
+    # (2261000, el default de _context()) para confirmar que el real gana.
+    windows = postprocess.build_windows(samples, _context())
+
+    assert windows[1]["freq_khz_observed"] == 2199500
+
+
+def test_arc135_freq_khz_observed_sin_columna_real_usa_el_de_contexto(tmp_path):
+    # Compatibilidad hacia atras: samples.csv de antes de ARC-135 (columna
+    # ausente/vacia) sigue usando el valor de contexto, nunca se inventa uno.
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0),
+        _cpu_row(repetition=1, ts=1_001_000_000, instructions=2_000_000, cycles=1_000_000,
+                 cache_references=100_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000),
+    ])
+    windows = postprocess.build_windows(samples, _context(freq_khz_observed=2261000))
+
+    assert windows[1]["freq_khz_observed"] == 2261000
+
+
 def test_post01_primera_muestra_sin_delta_imputado(tmp_path):
     samples = tmp_path / "samples.csv"
     _write_samples(samples, [
@@ -151,7 +208,10 @@ def test_post04_ventana_normal_usa_delta_t_real(tmp_path):
     assert window["mpki"] == pytest.approx(0.5)
     assert window["ips"] == pytest.approx(2_000_000 / (1_500_000 / 1e9))
     assert window["running_ratio"] == pytest.approx(1.0)
-    assert window["quality_status"] == "ok"
+    # ARC-123: sin cobertura real de uncore, la ventana queda
+    # intensity_undefined -- ok solo se alcanza con datos reales de uncore
+    # (ver test_arc122_*), nunca con el proxy de cache_misses.
+    assert window["quality_status"] == "intensity_undefined"
 
 
 def test_post02_delta_negativo_marca_pmu_degraded_y_conserva_la_fila(tmp_path):
@@ -185,7 +245,8 @@ def test_stalled_cycles_backend_delta_y_ratio_se_calculan(tmp_path):
     window = windows[1]
     assert window["delta_stalled_cycles_backend"] == 400_000
     assert window["stall_backend_ratio"] == pytest.approx(0.4)
-    assert window["quality_status"] == "ok"
+    # ARC-123: sin uncore, intensity_undefined -- no relacionado con stall_backend_ratio.
+    assert window["quality_status"] == "intensity_undefined"
 
 
 def test_l2_lines_in_all_delta_y_bytes_moved_l2_proxy_se_calculan(tmp_path):
@@ -207,7 +268,8 @@ def test_l2_lines_in_all_delta_y_bytes_moved_l2_proxy_se_calculan(tmp_path):
     window = windows[1]
     assert window["delta_l2_lines_in_all"] == 2_000
     assert window["bytes_moved_l2_proxy"] == 2_000 * 64
-    assert window["quality_status"] == "ok"
+    # ARC-123: sin uncore, intensity_undefined -- no relacionado con bytes_moved_l2_proxy.
+    assert window["quality_status"] == "intensity_undefined"
 
 
 def test_l2_lines_in_all_no_soportado_no_afecta_bytes_moved_window(tmp_path):
@@ -232,8 +294,160 @@ def test_l2_lines_in_all_no_soportado_no_afecta_bytes_moved_window(tmp_path):
     window = windows[1]
     assert window["delta_l2_lines_in_all"] is None
     assert window["bytes_moved_l2_proxy"] is None
-    assert window["quality_status"] == "ok"
-    assert window["bytes_moved_window"] == 1_000 * 64  # sigue basado en cache_misses, sin cambios
+    # ARC-123: sin uncore, intensity_undefined -- no relacionado con l2_lines_in_all.
+    assert window["quality_status"] == "intensity_undefined"
+    assert window["bytes_moved_window"] == 1_000 * 64  # sigue basado en cache_misses, sin cambios (solo reportado)
+
+
+def test_arc122_uncore_se_agrega_por_intervalo_y_reemplaza_al_proxy(tmp_path):
+    # ARC-119: perf stat -I ya reporta un delta por intervalo (no un
+    # acumulado -- nunca se resta contra otra fila UNCORE). Un intervalo de
+    # perf mas ancho que una ventana de CPU se agrega sumando el
+    # flops_measured_window de TODAS las ventanas que cubre, y esa
+    # intensidad se difunde igual a cada una -- nunca se asigna el byte
+    # count completo del intervalo a una sola ventana angosta.
+    # ARC-122/123: con uncore ya verificado funcionando, operational_intensity/
+    # phase_label_train (las columnas que entrenan) SOLO usan el valor real
+    # de uncore -- bytes_moved_window (el proxy) se sigue reportando
+    # intacto, pero nunca alimenta la clasificacion (ni siquiera de respaldo).
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0,
+                 fp_scalar_double=0, fp_128b_packed_double=0,
+                 fp_256b_packed_double=0, fp_512b_packed_double=0),
+        # window1: [1_000_000_000, 1_001_000_000], 150 flops
+        _cpu_row(repetition=1, ts=1_001_000_000, instructions=4_000_000, cycles=2_000_000,
+                 cache_references=200_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000,
+                 fp_scalar_double=10, fp_128b_packed_double=10,
+                 fp_256b_packed_double=10, fp_512b_packed_double=10),
+        # window2: [1_001_000_000, 1_002_000_000], another 150 flops
+        _cpu_row(repetition=1, ts=1_002_000_000, instructions=8_000_000, cycles=4_000_000,
+                 cache_references=400_000, cache_misses=2_000, time_enabled=2_000_000, time_running=2_000_000,
+                 fp_scalar_double=20, fp_128b_packed_double=20,
+                 fp_256b_packed_double=20, fp_512b_packed_double=20),
+        # One perf interval spanning [run_start=1_000_000_000, 1_010_000_000]
+        # (~10ms, perf's own floor) -- covers BOTH CPU windows above.
+        _uncore_row(repetition=1, ts=1_010_000_000, cas_count_read_interval=1_000, cas_count_write_interval=600),
+    ])
+    windows = postprocess.build_windows(samples, _context(llc_line_size_bytes=128, i_ridge_flops_per_byte=1.0))
+
+    window1, window2 = windows[1], windows[2]
+    expected_bytes = 1_600 * 64
+    expected_intensity_uncore = (150.0 + 150.0) / expected_bytes
+
+    for window in (window1, window2):
+        assert window["uncore_cas_count_read_interval"] == 1_000
+        assert window["uncore_cas_count_write_interval"] == 600
+        assert window["bytes_moved_uncore_real"] == expected_bytes
+        assert window["operational_intensity_uncore_real"] == pytest.approx(expected_intensity_uncore)
+        assert window["phase_label_uncore_real"] == "memory_bound"
+        # ARC-122: the training-facing columns now equal the real uncore
+        # value, not the proxy-derived one computed earlier in the loop.
+        assert window["operational_intensity"] == pytest.approx(expected_intensity_uncore)
+        assert window["phase_label_train"] == "memory_bound"
+        assert window["quality_status"] == "ok"
+
+    # bytes_moved_window (the proxy) is still reported, untouched, for
+    # comparison -- it just no longer drives the classification.
+    assert window1["bytes_moved_window"] == 1_000 * 128
+    assert window2["bytes_moved_window"] == (2_000 - 1_000) * 128
+    proxy_intensity_window1 = 150.0 / (1_000 * 128)
+    assert window1["operational_intensity"] != pytest.approx(proxy_intensity_window1)
+
+
+def test_arc123_ventana_sin_cobertura_de_uncore_queda_indefinida(tmp_path):
+    # ARC-123: una ventana que ningun intervalo de perf llega a cubrir (la
+    # corrida termina antes de que el primer intervalo cierre) queda
+    # intensity_undefined -- ya NO cae al proxy de cache_misses (decision
+    # revertida de ARC-122: mezclar una medicion real con una sesgada por
+    # no ver prefetch, aunque sea solo en algunas filas, ensuciaba la
+    # calidad de la columna de clasificacion de forma inconsistente).
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0,
+                 fp_scalar_double=0, fp_128b_packed_double=0,
+                 fp_256b_packed_double=0, fp_512b_packed_double=0),
+        _cpu_row(repetition=1, ts=1_001_000_000, instructions=4_000_000, cycles=2_000_000,
+                 cache_references=200_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000,
+                 fp_scalar_double=10, fp_128b_packed_double=10,
+                 fp_256b_packed_double=10, fp_512b_packed_double=10),
+        # The perf interval closes BEFORE this window's own t_end -- the
+        # window's t_end falls outside (interval_start, interval_end], so
+        # no interval covers it.
+        _uncore_row(repetition=1, ts=1_000_500_000, cas_count_read_interval=1_000, cas_count_write_interval=600),
+    ])
+    windows = postprocess.build_windows(samples, _context(llc_line_size_bytes=128))
+
+    window1 = windows[1]
+    assert window1["bytes_moved_uncore_real"] is None
+    assert math.isnan(window1["operational_intensity"])
+    assert window1["phase_label_train"] is None
+    assert window1["quality_status"] == "intensity_undefined"
+    # bytes_moved_window (el proxy) se sigue reportando, solo no clasifica.
+    assert window1["bytes_moved_window"] == 1_000 * 128
+
+
+def test_arc123_sin_uncore_en_absoluto_toda_ventana_queda_indefinida(tmp_path):
+    # ARC-123: sin ninguna fila UNCORE (nodo/corrida sin ese permiso,
+    # manifest.uncore.enabled=False, o un dataset generado antes de que
+    # esto existiera): TODA ventana queda intensity_undefined -- ya no hay
+    # ningun camino en el que el proxy de cache_misses alimente
+    # operational_intensity/phase_label_train.
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0,
+                 fp_scalar_double=0, fp_128b_packed_double=0,
+                 fp_256b_packed_double=0, fp_512b_packed_double=0),
+        _cpu_row(repetition=1, ts=1_001_000_000, instructions=4_000_000, cycles=2_000_000,
+                 cache_references=200_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000,
+                 fp_scalar_double=10, fp_128b_packed_double=10,
+                 fp_256b_packed_double=10, fp_512b_packed_double=10),
+    ])
+    windows = postprocess.build_windows(samples, _context(llc_line_size_bytes=128))
+
+    window1 = windows[1]
+    assert window1["uncore_cas_count_read_interval"] is None
+    assert window1["bytes_moved_uncore_real"] is None
+    assert window1["operational_intensity_uncore_real"] is None
+    assert window1["phase_label_uncore_real"] is None
+    assert math.isnan(window1["operational_intensity"])
+    assert window1["phase_label_train"] is None
+    assert window1["quality_status"] == "intensity_undefined"
+    # bytes_moved_window (el proxy) se sigue reportando, solo no clasifica.
+    assert window1["bytes_moved_window"] == 1_000 * 128
+
+
+def test_arc119_cas_count_negativo_no_produce_bytes_moved_uncore_real(tmp_path):
+    # Una lectura corrupta (no debería pasar -- perf reporta cuentas sin
+    # signo -- pero tratada con la misma disciplina que cualquier otro
+    # contador crudo de este archivo: nunca alimenta una cifra negativa a
+    # una columna de bytes).
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0,
+                 fp_scalar_double=0, fp_128b_packed_double=0,
+                 fp_256b_packed_double=0, fp_512b_packed_double=0),
+        _cpu_row(repetition=1, ts=1_001_000_000, instructions=4_000_000, cycles=2_000_000,
+                 cache_references=200_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000,
+                 fp_scalar_double=10, fp_128b_packed_double=10,
+                 fp_256b_packed_double=10, fp_512b_packed_double=10),
+        _uncore_row(repetition=1, ts=1_001_500_000, cas_count_read_interval=-5, cas_count_write_interval=100),
+    ])
+    windows = postprocess.build_windows(samples, _context(llc_line_size_bytes=128))
+
+    window1 = windows[1]
+    assert window1["uncore_cas_count_read_interval"] == -5
+    assert window1["bytes_moved_uncore_real"] is None
+    assert window1["operational_intensity_uncore_real"] is None
+    assert window1["phase_label_uncore_real"] is None
+    # ARC-123: sin una lectura real valida, la ventana queda indefinida --
+    # nunca cae al proxy, ni siquiera cuando bytes_moved_window si es valido.
+    assert math.isnan(window1["operational_intensity"])
+    assert window1["quality_status"] == "intensity_undefined"
 
 
 def test_stalled_cycles_backend_no_soportado_en_el_nodo_no_marca_pmu_degraded(tmp_path):
@@ -264,7 +478,8 @@ def test_stalled_cycles_backend_no_soportado_en_el_nodo_no_marca_pmu_degraded(tm
     window = windows[1]
     assert window["delta_stalled_cycles_backend"] is None
     assert window["stall_backend_ratio"] is None
-    assert window["quality_status"] == "ok"
+    # ARC-123: sin uncore, intensity_undefined -- no relacionado con stalled_cycles_backend.
+    assert window["quality_status"] == "intensity_undefined"
     assert window["ipc"] is not None  # el resto de metricas core no se contamina
 
 
@@ -300,7 +515,10 @@ def test_post05_post06_energia_invalida_nunca_se_reporta_como_consumo_real(tmp_p
     assert window["energy_valid"] is False
     assert window["pkg_delta_uj"] is None  # nunca el 500000 "crudo" invalido
     assert window["power_w"] is None
-    assert window["quality_status"] == "energy_invalid"
+    # ARC-123: intensity_undefined (sin uncore) tiene prioridad sobre
+    # energy_invalid en _QUALITY_PRIORITY -- la invalidez de energia sigue
+    # reflejada en energy_valid/pkg_delta_uj/power_w arriba.
+    assert window["quality_status"] == "intensity_undefined"
 
 
 def test_post05_energia_valida_calcula_power_w(tmp_path):
@@ -319,7 +537,8 @@ def test_post05_energia_valida_calcula_power_w(tmp_path):
     assert window["energy_valid"] is True
     assert window["pkg_delta_uj"] == 2_000_000
     assert window["power_w"] == pytest.approx(2.0 / 0.001)
-    assert window["quality_status"] == "ok"
+    # ARC-123: sin uncore, intensity_undefined -- no relacionado con energia.
+    assert window["quality_status"] == "intensity_undefined"
 
 
 def test_arc56_power_w_usa_el_intervalo_real_de_rapl_no_el_de_la_ventana_cpu(tmp_path):
@@ -399,10 +618,12 @@ def test_post10_bytes_moved_usa_line_size_del_node_profile(tmp_path):
 
 def test_arc100_flops_medidos_alimentan_operational_intensity(tmp_path):
     # ARC-100: FLOPs por ventana ya no se estiman por prorrateo -- se miden
-    # directamente por hardware (ARC-97/98/99) y esa es la unica fuente de
-    # operational_intensity. Este test verifica el camino completo: los 4
-    # contadores crudos ponderados 1/2/4/8 -> flops_measured_window ->
-    # operational_intensity = flops_measured_window / bytes_moved_window.
+    # directamente por hardware (ARC-97/98/99). Este test verifica el
+    # camino completo: los 4 contadores crudos ponderados 1/2/4/8 ->
+    # flops_measured_window -> operational_intensity = flops_measured_window
+    # / bytes reales de uncore (ARC-123 -- ya no del proxy de cache_misses,
+    # cubierto aqui con un intervalo real para que la ventana no quede
+    # indefinida).
     samples = tmp_path / "samples.csv"
     _write_samples(samples, [
         _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
@@ -414,12 +635,15 @@ def test_arc100_flops_medidos_alimentan_operational_intensity(tmp_path):
                  # 10 scalar*1 + 10 128B*2 + 10 256B*4 + 10 512B*8 = 10+20+40+80 = 150 flops
                  fp_scalar_double=10, fp_128b_packed_double=10,
                  fp_256b_packed_double=10, fp_512b_packed_double=10),
+        _uncore_row(repetition=1, ts=1_001_000_000, cas_count_read_interval=500, cas_count_write_interval=300),
     ])
     windows = postprocess.build_windows(samples, _context(llc_line_size_bytes=128))
 
     window1 = windows[1]
     assert window1["flops_measured_window"] == 150.0
-    assert window1["operational_intensity"] == pytest.approx(150.0 / (1_000 * 128))
+    assert window1["bytes_moved_window"] == 1_000 * 128  # el proxy se sigue reportando, sin usarse
+    assert window1["operational_intensity"] == pytest.approx(150.0 / (800 * 64))
+    assert window1["quality_status"] == "ok"
 
 
 def test_arc100_sin_fp_arith_operational_intensity_queda_indefinida(tmp_path):
@@ -481,6 +705,10 @@ def test_post11_phase_label_train_por_roofline_no_por_hint(tmp_path):
         _cpu_row(repetition=1, ts=1_001_000_000, instructions=1_000_000, cycles=500_000,
                  cache_references=10_000, cache_misses=1_000,  # muchos bytes movidos
                  time_enabled=1_000_000, time_running=1_000_000),
+        # ARC-123: cobertura real de uncore para que la ventana no quede
+        # indefinida -- flops_measured_window=0 (fp_* por defecto), asi que
+        # cualquier byte count positivo real da I=0 -> memory_bound.
+        _uncore_row(repetition=1, ts=1_001_000_000, cas_count_read_interval=1_000, cas_count_write_interval=1_000),
     ])
     # phase_label_hint dice compute_bound, pero I = flops/bytes sera bajo -> memory_bound.
     windows = postprocess.build_windows(
@@ -852,8 +1080,10 @@ FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
 def test_fixture_fake_samples_cubre_wrap_running_ratio_bajo_bytes_cero_y_warmup():
     """Ejercita tests/orchestrator/fixtures/fake_samples.csv de punta a punta:
-    primera muestra, warmup, ventana ok, wrap/reset de contador, running_ratio
-    bajo, y bytes_moved_window == 0 -- los cuatro casos que F2.5 pide cubrir."""
+    primera muestra, warmup, wrap/reset de contador, running_ratio bajo, y
+    bytes_moved_window == 0 -- los casos que F2.5 pide cubrir. El fixture no
+    tiene filas UNCORE, asi que (ARC-123) ninguna ventana llega a "ok" --
+    toda ventana sin un problema de mayor prioridad queda intensity_undefined."""
     windows = postprocess.build_windows(
         FIXTURES_DIR / "fake_samples.csv",
         _context(
@@ -866,8 +1096,7 @@ def test_fixture_fake_samples_cubre_wrap_running_ratio_bajo_bytes_cero_y_warmup(
     assert statuses[0] == "first_sample_no_delta"
     assert "warmup_excluded" in statuses
     assert "pmu_degraded" in statuses  # cubre tanto el wrap como el running_ratio bajo
-    assert "intensity_undefined" in statuses  # cache_misses=0 en la ultima ventana
-    assert "ok" in statuses
+    assert "intensity_undefined" in statuses  # cache_misses=0 en la ultima ventana, y sin uncore en el resto
 
     # POST-02: el wrap se conserva crudo, no se enmascara con un delta positivo falso.
     wrap_window = next(w for w in windows if w["delta_instructions"] == -200_000)

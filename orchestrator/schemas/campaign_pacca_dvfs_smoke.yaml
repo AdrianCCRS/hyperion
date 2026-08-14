@@ -15,11 +15,22 @@
 # hardware_datasheet) idéntica a campaign_pacca_dvfs.yaml/
 # campaign_pacca_ref.yaml, ya validada en hardware real.
 
-campaign_id: pacca_dvfs_smoke_20260810
+# ARC-130 (2026-08-12): reactivado como smoke test PRE-VUELO de la campaña
+# completa (campaign_pacca_dvfs.yaml, ARC-127/128) -- verifica de punta a
+# punta (preflight, uncore, checksums, calibración, escritura de
+# frecuencia, postprocess, validate_windows) en ~5-10 min reales antes de
+# comprometer las 3h de la campaña completa. Mismos 2 fixes que ARC-127 ya
+# aplicó ahí: uncore.enabled agregado (E12 lo exige, todo kernel es CPU) y
+# hardware_datasheet.p_pico_flops_per_s actualizado (72 GFLOP/s era el
+# valor con el bug de ert_probe ya corregido en ARC-125/126, D03 lo
+# hubiera rechazado). campaign_id/output_dir con fecha nueva para no
+# reanudar contra el smoke test viejo de ARC-104/108 (protocolo distinto,
+# CAM-09 lo rechazaría de todas formas, pero mejor no reusar el directorio).
+campaign_id: pacca_dvfs_smoke_20260812d
 environment_tier: hpc_sc3
 seed: 20260806
 
-output_dir: /home/latorresn/hyperion-results/campaigns/pacca_dvfs_smoke_20260810
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_dvfs_smoke_20260812d
 overwrite: true
 
 catalog_path: kernels/catalog.yaml
@@ -71,6 +82,9 @@ perf_enabled: true
 rapl:
   enabled: true
 
+uncore:
+  enabled: true
+
 gpu:
   enabled: false
 
@@ -80,5 +94,5 @@ timeouts_seconds:
   shutdown: 15
 
 hardware_datasheet:
-  bw_pico_bytes_per_s: 58353900000
-  p_pico_flops_per_s: 72004000000
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 480000000000

@@ -71,7 +71,8 @@ def _write_matching_fingerprint(manifest, catalog):
 def _fake_run_single(calls):
     def run_single(entry, manifest, kernel_ref, freq_level_id, repetition_index, *,
                     environment_profile=None, node_id=None, apply_frequency=None,
-                    apply_gpu_frequency=None, calibration_refs=None, run_id=None):
+                    apply_gpu_frequency=None, calibration_refs=None, run_id=None,
+                    gpu_freq_level_id=None):
         # ARC-94: usa el run_id que el llamador pasa (como hace runner.py
         # real ahora) en vez de reconstruirlo aquí -- antes, este fake
         # reimplementaba por su cuenta el sufijo __baseline correcto,
@@ -119,10 +120,16 @@ def _fake_calibration_deps():
         status = "gpu_telemetry" if device == "gpu" else "ok"
         with open(windows_path, "w", newline="") as handle:
             import csv as _csv
-            writer = _csv.DictWriter(handle, fieldnames=["quality_status", "phase_label_train"])
+            writer = _csv.DictWriter(handle, fieldnames=["quality_status", "phase_label_train", "gpu_util_pct"])
             writer.writeheader()
             for _ in range(10):
-                writer.writerow({"quality_status": status, "phase_label_train": "compute_bound"})
+                # ARC-129: sobre el piso de ruido (_GPU_UTIL_NOISE_FLOOR_PCT
+                # = 5.0) para que las filas GPU sigan contando como usables
+                # -- vacío para filas de CPU, donde no aplica.
+                writer.writerow({
+                    "quality_status": status, "phase_label_train": "compute_bound",
+                    "gpu_util_pct": "50" if device == "gpu" else "",
+                })
         return windows_path
 
     return dict(
@@ -207,6 +214,66 @@ def test_cam01_build_matrix_es_un_shuffle_plano(tmp_path):
     assert list(range(len(combinations))) != ordered_by_kernel or len({c.kernel_ref for c in combinations}) == 1
 
 
+def test_arc129_build_matrix_sin_catalog_preserva_comportamiento_anterior(tmp_path):
+    # ARC-129: catalog=None (default) -- ni siquiera un kernel_ref de GPU en
+    # manifest.kernels puede activar el producto cartesiano sin catálogo
+    # para distinguir device=="gpu". Toda combinación queda con
+    # gpu_frequency_level=None, tamaño = kernels x frequency_levels x reps,
+    # exactamente como antes de este cambio.
+    manifest = _manifest(
+        tmp_path, kernels=("npb_ep",),
+        frequency_levels=(FrequencyLevel("REF", "native_governor"), FrequencyLevel("F0", "fixed", 1.0)),
+        gpu_frequency_levels=(FrequencyLevel("GREF", "native_governor"), FrequencyLevel("GF0", "fixed", 1.0)),
+        repetitions_per_combination=1,
+    )
+    combinations = campaign.build_matrix(manifest, seed=1)
+    assert len(combinations) == 2
+    assert all(c.gpu_frequency_level is None for c in combinations)
+
+
+def test_arc129_build_matrix_producto_cartesiano_para_kernel_gpu(tmp_path):
+    catalog = {
+        "npb_ep": _kernel_entry(tmp_path, "npb_ep"),
+        "gpu_kernel": _kernel_entry(tmp_path, "gpu_kernel", device="gpu", operational_intensity_flops_per_byte=2.0, gpu_precision="fp32"),
+    }
+    manifest = _manifest(
+        tmp_path, kernels=("npb_ep", "gpu_kernel"),
+        frequency_levels=(FrequencyLevel("REF", "native_governor"), FrequencyLevel("F0", "fixed", 1.0)),
+        gpu_frequency_levels=(FrequencyLevel("GREF", "native_governor"), FrequencyLevel("GF0", "fixed", 1.0)),
+        repetitions_per_combination=1,
+    )
+    combinations = campaign.build_matrix(manifest, catalog, seed=1)
+
+    npb_ep_combos = [c for c in combinations if c.kernel_ref == "npb_ep"]
+    gpu_combos = [c for c in combinations if c.kernel_ref == "gpu_kernel"]
+    # npb_ep es CPU -- sin cambios, 2 niveles x 1 rep = 2, gpu_frequency_level=None.
+    assert len(npb_ep_combos) == 2
+    assert all(c.gpu_frequency_level is None for c in npb_ep_combos)
+    # gpu_kernel es GPU con gpu_frequency_levels declarado -- producto
+    # cartesiano completo: 2 niveles CPU x 2 niveles GPU x 1 rep = 4.
+    assert len(gpu_combos) == 4
+    pairs = {(c.frequency_level.id, c.gpu_frequency_level.id) for c in gpu_combos}
+    assert pairs == {
+        ("REF", "GREF"), ("REF", "GF0"), ("F0", "GREF"), ("F0", "GF0"),
+    }
+
+
+def test_arc129_build_matrix_kernel_gpu_sin_gpu_frequency_levels_no_cambia(tmp_path):
+    # ARC-129: catálogo presente, kernel es device=="gpu", pero el
+    # manifiesto no declaró gpu_frequency_levels -- debe seguir acoplado al
+    # eje de CPU (comportamiento anterior a este cambio), no fallar ni
+    # inventar un producto cartesiano de la nada.
+    catalog = {"gpu_kernel": _kernel_entry(tmp_path, "gpu_kernel", device="gpu", operational_intensity_flops_per_byte=2.0, gpu_precision="fp32")}
+    manifest = _manifest(
+        tmp_path, kernels=("gpu_kernel",),
+        frequency_levels=(FrequencyLevel("REF", "native_governor"), FrequencyLevel("F0", "fixed", 1.0)),
+        repetitions_per_combination=1,
+    )
+    combinations = campaign.build_matrix(manifest, catalog, seed=1)
+    assert len(combinations) == 2
+    assert all(c.gpu_frequency_level is None for c in combinations)
+
+
 def test_cam04_schedule_runs_empareja_baseline_y_telemetry(tmp_path):
     manifest = _manifest(tmp_path)
     combinations = campaign.build_matrix(manifest, seed=1)
@@ -266,7 +333,8 @@ def test_campana_completa_corre_baseline_telemetry_y_postprocesa(tmp_path):
 def _fake_run_single_con_elapsed_distinto(calls, *, baseline_elapsed, telemetry_elapsed):
     def run_single(entry, manifest, kernel_ref, freq_level_id, repetition_index, *,
                     environment_profile=None, node_id=None, apply_frequency=None,
-                    apply_gpu_frequency=None, calibration_refs=None, run_id=None):
+                    apply_gpu_frequency=None, calibration_refs=None, run_id=None,
+                    gpu_freq_level_id=None):
         if run_id is None:
             base_run_id = runner_module.build_run_id(manifest.campaign_id, kernel_ref, freq_level_id, repetition_index)
             run_id = base_run_id if manifest.perf_enabled else f"{base_run_id}__baseline"
@@ -393,6 +461,73 @@ def test_e06_procesos_ajenos_saltan_la_combinacion_sin_medir(tmp_path):
     assert "9999" in verdict.message
 
 
+def test_arc129_g01_procesos_cuda_ajenos_saltan_la_combinacion_sin_medir(tmp_path):
+    # ARC-129: mismo patron que test_e06_..., pero para el eje de GPU --
+    # G01 (procesos CUDA ajenos) ahora se corre por combinacion, no solo
+    # una vez al inicio de la campana.
+    catalog = dict(_catalog(tmp_path))
+    catalog["gpu_kernel"] = _kernel_entry(
+        tmp_path, "gpu_kernel", device="gpu",
+        operational_intensity_flops_per_byte=2.0, gpu_precision="fp32",
+    )
+    manifest = _manifest(tmp_path, kernels=("gpu_kernel",))
+    calibration_deps, postprocess_calls = _fake_calibration_deps()
+    freqctl_deps, _, _ = _freqctl_fakes()
+    calls: list[tuple[str, bool]] = []
+
+    gpu_inspector = SimpleNamespace(
+        active_processes=lambda: [1234],
+        persistence_mode=lambda: True,
+        mig_configuration=lambda: "disabled",
+    )
+
+    result = campaign.run_campaign(
+        manifest, catalog, SimpleNamespace(frequency_write_capable=False, gpu_frequency_write_capable=False),
+        node_id="felix-sc3", reference_kernel_ref="gpu_kernel",
+        run_single=_fake_run_single(calls), **calibration_deps, **freqctl_deps,
+        gpu_inspector=gpu_inspector,
+    )
+
+    # No se ejecuta ni el baseline ni el telemetry -- se salta ANTES de medir.
+    assert calls == []
+    assert len(postprocess_calls) == 0
+    run_id = "camp01__gpu_kernel__REF__rep01"
+    assert result.progress.rejected_run_ids == [run_id]
+    assert result.progress.accepted_run_ids == []
+
+    verdict = validation_module.load_verdict(manifest.output_dir / run_id)
+    assert verdict.accepted is False
+    assert verdict.factor_id == "G01"
+    assert "1234" in verdict.message
+
+
+def test_arc129_g01_sin_gpu_inspector_no_bloquea_kernel_gpu(tmp_path):
+    # ARC-129: gpu_inspector=None (el default) desactiva el check por
+    # completo -- una campana con kernels de GPU pero sin inspector NVML
+    # disponible no debe rechazar TODO por G01 (eso ya es lo que hacía
+    # check_gpu_foreign_activity(None) para la campaña completa, un
+    # comportamiento intencional distinto al de por-combinación).
+    catalog = dict(_catalog(tmp_path))
+    catalog["gpu_kernel"] = _kernel_entry(
+        tmp_path, "gpu_kernel", device="gpu",
+        operational_intensity_flops_per_byte=2.0, gpu_precision="fp32",
+    )
+    manifest = _manifest(tmp_path, kernels=("gpu_kernel",))
+    calibration_deps, _ = _fake_calibration_deps()
+    freqctl_deps, _, _ = _freqctl_fakes()
+    calls: list[tuple[str, bool]] = []
+
+    result = campaign.run_campaign(
+        manifest, catalog, SimpleNamespace(frequency_write_capable=False, gpu_frequency_write_capable=False),
+        node_id="felix-sc3", reference_kernel_ref="gpu_kernel",
+        run_single=_fake_run_single(calls), **calibration_deps, **freqctl_deps,
+    )
+
+    run_id = "camp01__gpu_kernel__REF__rep01"
+    assert result.progress.rejected_run_ids == []
+    assert run_id in result.progress.accepted_run_ids
+
+
 def test_arc102_e08_carga_externa_salta_la_combinacion_sin_medir(tmp_path):
     # ARC-102: mismo patron que test_e06_procesos_ajenos_saltan_la_
     # combinacion_sin_medir, pero para carga externa -- el revisor senalo
@@ -494,7 +629,8 @@ def test_frq03_frq10_frecuencia_solicitada_aplicada_y_observada_llegan_a_postpro
 
     def run_single(entry, manifest, kernel_ref, freq_level_id, repetition_index, *,
                     environment_profile=None, node_id=None, apply_frequency=None,
-                    apply_gpu_frequency=None, calibration_refs=None, run_id=None):
+                    apply_gpu_frequency=None, calibration_refs=None, run_id=None,
+                    gpu_freq_level_id=None):
         if run_id is None:
             base_run_id = runner_module.build_run_id(manifest.campaign_id, kernel_ref, freq_level_id, repetition_index)
             run_id = base_run_id if manifest.perf_enabled else f"{base_run_id}__baseline"
@@ -835,7 +971,8 @@ def test_arc87_run_single_recibe_apply_gpu_frequency_en_la_matriz(tmp_path):
 
     def fake_run_single(entry, manifest, kernel_ref, freq_level_id, repetition_index, *,
                          environment_profile=None, node_id=None, apply_frequency=None,
-                         apply_gpu_frequency=None, calibration_refs=None, run_id=None):
+                         apply_gpu_frequency=None, calibration_refs=None, run_id=None,
+                         gpu_freq_level_id=None):
         received_kwargs.append(apply_gpu_frequency)
         if run_id is None:
             base_run_id = runner_module.build_run_id(manifest.campaign_id, kernel_ref, freq_level_id, repetition_index)

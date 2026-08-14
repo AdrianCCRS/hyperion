@@ -200,7 +200,8 @@ def test_val09_windows_suficientes_y_etiquetadas_acepta(tmp_path):
 
 def test_val09_windows_gpu_usa_gpu_telemetry_como_estado_usable(tmp_path):
     windows_path = _write_windows_csv(tmp_path / "windows.csv", [
-        {"quality_status": "gpu_telemetry", "phase_label_train": "compute_bound"} for _ in range(5)
+        {"quality_status": "gpu_telemetry", "phase_label_train": "compute_bound", "gpu_util_pct": "50"}
+        for _ in range(5)
     ])
     verdict = validation.validate_windows(windows_path, target_windows_per_repetition=5, device="gpu")
     assert verdict.accepted is True
@@ -210,3 +211,46 @@ def test_val09_windows_gpu_usa_gpu_telemetry_como_estado_usable(tmp_path):
     ])
     rechazo = validation.validate_windows(windows_path_mixed, target_windows_per_repetition=5, device="gpu")
     assert rechazo.accepted is False
+
+
+def test_arc129_windows_gpu_bajo_el_piso_de_ruido_no_cuentan_como_usables(tmp_path):
+    # ARC-129: quality_status=="gpu_telemetry" solo no distingue actividad
+    # real de una GPU esencialmente ociosa -- se exige gpu_util_pct sobre el
+    # mismo piso de measure_warmup.py (5.0%).
+    windows_path = _write_windows_csv(tmp_path / "windows.csv", [
+        {"quality_status": "gpu_telemetry", "phase_label_train": "compute_bound", "gpu_util_pct": "2"}
+        for _ in range(5)
+    ])
+    verdict = validation.validate_windows(windows_path, target_windows_per_repetition=5, device="gpu")
+    assert verdict.accepted is False
+    assert verdict.factor_id == "I10"
+
+
+def test_arc129_windows_gpu_util_vacio_no_cuenta_como_usable(tmp_path):
+    # ARC-129: gpu_util_pct ausente/no numérico se trata como sin señal,
+    # nunca se asume "0 pasa" ni se ignora el filtro.
+    windows_path = _write_windows_csv(tmp_path / "windows.csv", [
+        {"quality_status": "gpu_telemetry", "phase_label_train": "compute_bound", "gpu_util_pct": ""}
+        for _ in range(5)
+    ])
+    verdict = validation.validate_windows(windows_path, target_windows_per_repetition=5, device="gpu")
+    assert verdict.accepted is False
+    assert verdict.factor_id == "I10"
+
+
+def test_arc129_windows_gpu_mezcla_sobre_y_bajo_el_piso_solo_cuenta_las_reales(tmp_path):
+    rows = [
+        {"quality_status": "gpu_telemetry", "phase_label_train": "compute_bound", "gpu_util_pct": "50"}
+        for _ in range(3)
+    ] + [
+        {"quality_status": "gpu_telemetry", "phase_label_train": "compute_bound", "gpu_util_pct": "1"}
+        for _ in range(3)
+    ]
+    windows_path = _write_windows_csv(tmp_path / "windows.csv", rows)
+    # Solo 3 de las 6 filas superan el piso -- por debajo de un objetivo de 4.
+    verdict = validation.validate_windows(windows_path, target_windows_per_repetition=4, device="gpu")
+    assert verdict.accepted is False
+    assert "3 ventanas" in verdict.message
+    # Pero sí alcanzan un objetivo de 3.
+    verdict_ok = validation.validate_windows(windows_path, target_windows_per_repetition=3, device="gpu")
+    assert verdict_ok.accepted is True

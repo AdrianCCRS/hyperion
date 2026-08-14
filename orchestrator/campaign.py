@@ -226,18 +226,39 @@ class CampaignResult:
     gpu_roofline_calibration: Any = None
 
 
-def build_matrix(manifest: Any, *, seed: int | None = None) -> list[Combination]:
+def build_matrix(
+    manifest: Any, catalog: Mapping[str, Any] | None = None, *, seed: int | None = None
+) -> list[Combination]:
     """CAM-01: a single flat shuffle across kernel x freq_level x repetition.
     Never randomized in blocks per kernel or per frequency -- that would
     reintroduce exactly the confound (thermal/adjacent-run drift) this
     randomization exists to break.
+
+    ARC-129: `catalog`, if given, enables a real cartesian CPU x GPU
+    frequency sweep for kernels with `device=="gpu"` when
+    `manifest.gpu_frequency_levels` is declared -- every (cpu_level,
+    gpu_level) pair, not just a shared id walked once. `catalog=None` (the
+    default, and every existing call site before this change) preserves the
+    exact old behavior: `frequency_levels` alone, `gpu_frequency_level=None`
+    on every Combination -- decoupling never activates without a catalog to
+    tell a GPU kernel_ref apart from a CPU one.
     """
-    combinations = [
-        Combination(kernel_ref, freq_level, repetition)
-        for kernel_ref in manifest.kernels
-        for freq_level in manifest.frequency_levels
-        for repetition in range(1, manifest.repetitions_per_combination + 1)
-    ]
+    combinations: list[Combination] = []
+    for kernel_ref in manifest.kernels:
+        device = "cpu"
+        if catalog is not None and kernel_ref in catalog:
+            device = getattr(catalog[kernel_ref], "device", "cpu")
+        if device == "gpu" and manifest.gpu_frequency_levels:
+            level_pairs = [
+                (cpu_level, gpu_level)
+                for cpu_level in manifest.frequency_levels
+                for gpu_level in manifest.gpu_frequency_levels
+            ]
+        else:
+            level_pairs = [(cpu_level, None) for cpu_level in manifest.frequency_levels]
+        for cpu_level, gpu_level in level_pairs:
+            for repetition in range(1, manifest.repetitions_per_combination + 1):
+                combinations.append(Combination(kernel_ref, cpu_level, repetition, gpu_frequency_level=gpu_level))
     rng = random.Random(seed if seed is not None else manifest.seed)
     rng.shuffle(combinations)
     return combinations
@@ -359,6 +380,13 @@ def run_campaign(
     # pacca es mas riesgoso que dejarla pendiente explicitamente.
     load_reader: Callable[[], tuple[float, float, float]] = os.getloadavg,
     load_threshold: float = 1.0,
+    # ARC-129: G01 (GPU sin actividad ajena), por combinación, mismo
+    # criterio que E06 arriba pero para el eje de GPU -- None (el default,
+    # y todo caller anterior a este cambio) desactiva el check por completo,
+    # nunca falla "cerrado" por falta de un inspector NVML en una campaña
+    # de solo CPU. Solo se consulta para combinaciones cuyo kernel es
+    # device=="gpu".
+    gpu_inspector: Any = None,
 ) -> CampaignResult:
     """Orchestrates one full campaign, in order: snapshot original frequency
     state -> Roofline calibration -> node_profile -> calibration_references
@@ -478,10 +506,11 @@ def run_campaign(
             "calibration_ref": str(Path(manifest.output_dir) / "calibration_references.json"),
         }
 
-        combinations = build_matrix(manifest, seed=manifest.seed)
+        combinations = build_matrix(manifest, catalog, seed=manifest.seed)
         progress.run_ids_in_order = [
             runner_module.build_run_id(
-                manifest.campaign_id, c.kernel_ref, c.frequency_level.id, c.repetition_index
+                manifest.campaign_id, c.kernel_ref, c.frequency_level.id, c.repetition_index,
+                c.gpu_frequency_level.id if c.gpu_frequency_level is not None else None,
             )
             for c in combinations
         ]
@@ -499,9 +528,13 @@ def run_campaign(
                 )
 
             entry = catalog[combination.kernel_ref]
+            combination_gpu_freq_level_id = (
+                combination.gpu_frequency_level.id if combination.gpu_frequency_level is not None else None
+            )
             telemetry_run_id = runner_module.build_run_id(
                 manifest.campaign_id, combination.kernel_ref,
                 combination.frequency_level.id, combination.repetition_index,
+                combination_gpu_freq_level_id,
             )
 
             # CAM-03: accepted -> skip the whole pair (already done, baseline
@@ -554,6 +587,35 @@ def run_campaign(
                 seen_run_ids.add(telemetry_run_id)
                 write_campaign_metadata(progress, manifest, manifest.output_dir)  # CAM-02
                 continue
+
+            # G01 (ARC-129): mismo principio que E06 arriba, pero para el eje
+            # de GPU -- otro job del clúster compartido puede empezar a usar
+            # la GPU a mitad de una campaña de horas, y G01 antes de este
+            # cambio solo se corría una vez al inicio (run_campaign_preflight,
+            # nunca conectado por combinación). Solo aplica a combinaciones
+            # cuyo kernel es device=="gpu"; gpu_inspector=None desactiva el
+            # check por completo (nunca falla "cerrado" en una campaña de
+            # solo CPU sin inspector NVML disponible).
+            if getattr(entry, "device", "cpu") == "gpu" and gpu_inspector is not None:
+                gpu_foreign_check = preflight_module.check_gpu_foreign_activity(gpu_inspector)
+                if not gpu_foreign_check.passed:
+                    logger.warning(
+                        "G01: procesos CUDA ajenos en la GPU, se salta la combinación (run_id=%s, pids=%s)",
+                        telemetry_run_id, gpu_foreign_check.observed.get("pids"),
+                    )
+                    run_dir = Path(manifest.output_dir) / telemetry_run_id
+                    run_dir.mkdir(parents=True, exist_ok=True)
+                    validation_module.write_verdict(
+                        validation_module.Verdict(
+                            accepted=False, factor_id="G01",
+                            message=f"Procesos CUDA ajenos en la GPU: {gpu_foreign_check.observed.get('pids')}",
+                        ),
+                        run_dir,
+                    )
+                    progress.rejected_run_ids.append(telemetry_run_id)
+                    seen_run_ids.add(telemetry_run_id)
+                    write_campaign_metadata(progress, manifest, manifest.output_dir)  # CAM-02
+                    continue
 
             # E08 (ARC-101): carga externa, verificada CADA VEZ igual que E06
             # justo arriba -- una corrida que arranca durante un pico de
@@ -616,6 +678,12 @@ def run_campaign(
                     # del mismo combo escribían en el MISMO run_dir, y el
                     # segundo pisaba los artefactos del primero.
                     run_id=run_id,
+                    # ARC-129: eje de GPU desacoplado del de CPU cuando la
+                    # combinación trae su propio nivel (producto cartesiano);
+                    # None para toda combinación de CPU o de GPU sin
+                    # gpu_frequency_levels declarado (mismo acoplamiento de
+                    # siempre).
+                    gpu_freq_level_id=combination_gpu_freq_level_id,
                 )
                 progress.total_core_hours += result.elapsed_seconds * len(delegated_cpus) / 3600.0  # CAM-05/OPS-01
 
@@ -666,6 +734,15 @@ def run_campaign(
                         freq_khz_observed=freq_khz_observed,
                         warmup_seconds=entry.warmup_seconds or 0.0, running_ratio_min=manifest.running_ratio_min,
                         rapl_enabled=bool(manifest.rapl.get("enabled", False)), calibration_references=references,
+                        # ARC-129: ridge de GPU calibrado por SU PROPIO nivel
+                        # de reloj cuando la combinación trae uno independiente
+                        # (producto cartesiano); None reusa freq_level_id como
+                        # siempre (kernels de CPU, o de GPU sin
+                        # gpu_frequency_levels declarado).
+                        gpu_freq_level_id=(
+                            item.combination.gpu_frequency_level.id
+                            if item.combination.gpu_frequency_level is not None else None
+                        ),
                     )
                     verdict = validation_module.validate_windows(
                         windows_path,

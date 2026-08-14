@@ -36,6 +36,8 @@ add_library(telemetry STATIC
   src/perf_reader.cpp
   src/perf_cgroup_reader.cpp
   src/rapl_reader.cpp
+  src/uncore_reader.cpp
+  src/cpu_freq_reader.cpp
   src/nvml_reader.cpp
   src/collector.cpp
   src/experiment_utils.cpp
@@ -126,6 +128,18 @@ add_executable(rapl_reader_test
 )
 target_link_libraries(rapl_reader_test PRIVATE telemetry pthread)
 add_test(NAME rapl_reader_test COMMAND rapl_reader_test)
+
+add_executable(uncore_reader_test
+  tests/test_uncore_reader.cpp
+)
+target_link_libraries(uncore_reader_test PRIVATE telemetry pthread)
+add_test(NAME uncore_reader_test COMMAND uncore_reader_test)
+
+add_executable(cpu_freq_reader_test
+  tests/test_cpu_freq_reader.cpp
+)
+target_link_libraries(cpu_freq_reader_test PRIVATE telemetry pthread)
+add_test(NAME cpu_freq_reader_test COMMAND cpu_freq_reader_test)
 
 add_executable(experiment_utils_test
   tests/test_experiment_utils.cpp

@@ -65,6 +65,15 @@ namespace {
         // there is no separate GPU thread). Requires TELEMETRY_WITH_GPU.
         bool enable_gpu = false;
         long gpu_interval_ns = 100'000'000;
+        // Node-wide uncore_imc CAS_COUNT sampling (real DRAM bytes). Callers
+        // are responsible for having confirmed an exclusive node allocation
+        // before setting this -- these are system-scope counters, they
+        // cover the whole node regardless of --perf-cpus/--pin-workload-cpus.
+        bool enable_uncore = false;
+        // ARC-131: -1 = no pinning (default, preserves old behavior).
+        int uncore_pin_cpu = -1;
+        // ARC-135: empty = disabled (default) -- see CollectorConfig::cpu_freq_sysfs_path.
+        std::string cpu_freq_sysfs_path;
         fs::path output_dir = "runs";
         std::string run_id;
         fs::path workload_bin;
@@ -201,6 +210,12 @@ namespace {
                 opt.enable_gpu = true;
             } else if(arg == "--gpu-interval-ns") {
                 opt.gpu_interval_ns = std::stol(need_value());
+            } else if(arg == "--enable-uncore") {
+                opt.enable_uncore = true;
+            } else if(arg == "--uncore-pin-cpu") {
+                opt.uncore_pin_cpu = std::stoi(need_value());
+            } else if(arg == "--cpu-freq-sysfs-path") {
+                opt.cpu_freq_sysfs_path = need_value();
             } else if(arg == "--output-dir") {
                 opt.output_dir = need_value();
             } else if(arg == "--run-id") {
@@ -520,6 +535,9 @@ namespace {
         cfg.rapl_dram_path = opt.rapl_dram_path;
         cfg.enable_gpu = opt.enable_gpu;
         cfg.gpu_interval_ns = opt.gpu_interval_ns;
+        cfg.enable_uncore = opt.enable_uncore;
+        cfg.uncore_pin_cpu = opt.uncore_pin_cpu;
+        cfg.cpu_freq_sysfs_path = opt.cpu_freq_sysfs_path;
         telemetry::Collector collector(cfg, ring);
 
         std::atomic<bool> stop_consumer{false};
@@ -675,6 +693,7 @@ namespace {
             case telemetry::SampleTag::CPU: return "CPU";
             case telemetry::SampleTag::ENERGY: return "ENERGY";
             case telemetry::SampleTag::GPU: return "GPU";
+            case telemetry::SampleTag::UNCORE: return "UNCORE";
         }
         return "UNKNOWN";
     }
@@ -706,7 +725,9 @@ namespace {
                "fp_scalar_double,fp_128b_packed_double,fp_256b_packed_double,fp_512b_packed_double,"
                "time_enabled_ns,time_running_ns,"
                "pkg_uj,dram_uj,pkg_delta_uj,dram_delta_uj,energy_delta_valid,"
-               "gpu_power_mw,gpu_util_pct,gpu_mem_util_pct,gpu_sm_clock_mhz,gpu_energy_mj,gpu_temperature_c\n";
+               "gpu_power_mw,gpu_util_pct,gpu_mem_util_pct,gpu_sm_clock_mhz,gpu_energy_mj,gpu_temperature_c,"
+               "uncore_cas_count_read_interval,uncore_cas_count_write_interval,"
+               "scaling_cur_freq_khz\n";
         const std::string label = dataset_label(opt.kernel);
 
         auto write_prefix = [&](const RecordedSample& record,
@@ -771,6 +792,15 @@ namespace {
                 empty_field();
                 empty_field();
                 empty_field();
+                empty_field(); // uncore_cas_count_read_interval
+                empty_field(); // uncore_cas_count_write_interval
+                // ARC-135: empty (not "0"), same convention as stalled_cycles_backend
+                // above -- 0kHz is not a real reading, "not sampled" is.
+                if(sample.cpu.scaling_cur_freq_khz != 0) {
+                    value_field(sample.cpu.scaling_cur_freq_khz);
+                } else {
+                    empty_field();
+                }
                 out << '\n';
             } else if(sample.tag == telemetry::SampleTag::ENERGY) {
                 const telemetry::experiment::RaplDelta delta =
@@ -806,8 +836,11 @@ namespace {
                 empty_field();
                 empty_field();
                 empty_field();
+                empty_field(); // uncore_cas_count_read_interval
+                empty_field(); // uncore_cas_count_write_interval
+                empty_field(); // scaling_cur_freq_khz
                 out << '\n';
-            } else {
+            } else if(sample.tag == telemetry::SampleTag::GPU) {
                 write_prefix(record, sample.gpu.timestamp_ns, tag_name(sample.tag));
                 empty_field();
                 empty_field();
@@ -832,6 +865,50 @@ namespace {
                 value_field(sample.gpu.sm_clock_mhz);
                 value_field(sample.gpu.energy_mj);
                 value_field(sample.gpu.temperature_c);
+                empty_field(); // uncore_cas_count_read_interval
+                empty_field(); // uncore_cas_count_write_interval
+                empty_field(); // scaling_cur_freq_khz
+                out << '\n';
+            } else {
+                // UNCORE rows keep raw cumulative counters, same convention
+                // as ENERGY -- deltas are computed downstream (postprocess.py),
+                // there is no wrap risk to correct here (64-bit free-running
+                // hardware counters, unlike RAPL's ~32-bit energy_uj).
+                write_prefix(record, sample.uncore.timestamp_ns, tag_name(sample.tag));
+                empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
+                empty_field(); // fp_scalar_double
+                empty_field(); // fp_128b_packed_double
+                empty_field(); // fp_256b_packed_double
+                empty_field(); // fp_512b_packed_double
+                empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
+                empty_field();
+                // ARC-120: empty (not "0") when no term in this interval
+                // parsed as valid -- same "not measured, not a real zero"
+                // convention as stalled_cycles_backend/l2_lines_in_all.
+                if(sample.uncore.interval_valid) {
+                    value_field(sample.uncore.cas_count_read_interval);
+                    value_field(sample.uncore.cas_count_write_interval);
+                } else {
+                    empty_field();
+                    empty_field();
+                }
+                empty_field(); // scaling_cur_freq_khz
                 out << '\n';
             }
         }

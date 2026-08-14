@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import logging
 from pathlib import Path
 from typing import Any, Mapping
@@ -48,6 +48,12 @@ class Combination:
     kernel_ref: str
     frequency_level: FrequencyLevel
     repetition_index: int
+    # ARC-129: nivel de GPU de esta combinación cuando manifest.gpu_frequency_levels
+    # existe y el kernel es device=="gpu" (producto cartesiano CPU x GPU real,
+    # ver campaign.build_matrix). None en todo otro caso -- kernels de CPU, o
+    # kernels de GPU en una campaña que no declaró gpu_frequency_levels
+    # (acoplado al eje de CPU, comportamiento anterior sin cambios).
+    gpu_frequency_level: FrequencyLevel | None = None
 
 
 @dataclass(frozen=True)
@@ -100,6 +106,22 @@ class Manifest:
     # insuficiente para varios kernels GPU cortos. None = usar el default
     # del launcher (nunca se infiere ni se fuerza un valor aquí).
     gpu_interval_ns: int | None = None
+    # ARC-116: contadores uncore_imc (CAS_COUNT_READ/WRITE, DRAM real en vez
+    # del proxy cache_misses*line_size). Opcional, {} = deshabilitado --
+    # ausente en todo manifiesto de campañas anteriores, nunca se infiere
+    # habilitado. Cuando enabled=True, preflight.py (E11) exige que el job
+    # tenga el nodo completo (--exclusive): son contadores de ámbito
+    # sistema/socket, no por-PID.
+    uncore: Mapping[str, Any] = field(default_factory=dict)
+    # ARC-129: eje de frecuencia de GPU independiente del de CPU. None (el
+    # default, y el único valor de todo manifiesto anterior a este cambio)
+    # preserva el comportamiento acoplado de siempre -- runner.py reusa
+    # frequency_levels para el eje GPU cuando esto está ausente. Cuando SÍ
+    # se declara, campaign.build_matrix() arma el producto cartesiano
+    # completo frequency_levels x gpu_frequency_levels para cada kernel
+    # device=="gpu" (decisión explícita del usuario, no la opción acotada
+    # que se había recomendado -- multiplica el tamaño de la matriz GPU).
+    gpu_frequency_levels: tuple[FrequencyLevel, ...] | None = None
 
 
 def _error(rule_id: str, field: str, message: str) -> None:
@@ -139,13 +161,13 @@ def _parse_references(value: Any, field: str) -> tuple[str, ...]:
     return tuple(refs)
 
 
-def _parse_frequency_levels(value: Any) -> tuple[FrequencyLevel, ...]:
+def _parse_frequency_levels(value: Any, *, field_name: str = "frequency_levels") -> tuple[FrequencyLevel, ...]:
     if not isinstance(value, list) or not value:
-        _error("MAN-10", "frequency_levels", "debe ser una lista no vacía")
+        _error("MAN-10", field_name, "debe ser una lista no vacía")
     levels: list[FrequencyLevel] = []
     native_levels = 0
     for index, item in enumerate(value):
-        field = f"frequency_levels[{index}]"
+        field = f"{field_name}[{index}]"
         if not isinstance(item, Mapping):
             _error("MAN-10", field, "debe ser un objeto")
         level_id, mode = item.get("id"), item.get("mode")
@@ -164,8 +186,21 @@ def _parse_frequency_levels(value: Any) -> tuple[FrequencyLevel, ...]:
             _error("MAN-10", f"{field}.fraction", "debe estar en [0.0, 1.0]")
         levels.append(FrequencyLevel(level_id, mode, float(fraction)))
     if native_levels != 1:
-        _error("MAN-10", "frequency_levels", "debe contener exactamente un nivel native_governor")
+        _error("MAN-10", field_name, "debe contener exactamente un nivel native_governor")
     return tuple(levels)
+
+
+def _parse_gpu_frequency_levels(value: Any) -> tuple[FrequencyLevel, ...] | None:
+    # ARC-129: eje de GPU independiente del de CPU -- ausente (None) es el
+    # caso normal (toda campaña sin producto cartesiano CPU x GPU, incluida
+    # cualquier campaña sin kernels de GPU) y preserva el comportamiento
+    # acoplado anterior (runner.py reusa frequency_levels para el eje GPU
+    # cuando esto es None). Mismas reglas de validación que frequency_levels
+    # (MAN-10: lista no vacía, exactamente un nivel native_governor) cuando
+    # SÍ se declara -- no tiene sentido barrer GPU sin un REF propio.
+    if value is None:
+        return None
+    return _parse_frequency_levels(value, field_name="gpu_frequency_levels")
 
 
 _DATASHEET_KEYS = ("bw_pico_bytes_per_s", "p_pico_flops_per_s")
@@ -307,6 +342,7 @@ def load(path: str | Path) -> Manifest:
         _error("MAN-00", "smt_policy", "debe ser all_threads o one_thread_per_physical_core")
 
     frequency_levels = _parse_frequency_levels(_required(document, "frequency_levels"))
+    gpu_frequency_levels = _parse_gpu_frequency_levels(document.get("gpu_frequency_levels"))
     interval_ns = _required(document, "interval_ns")
     if isinstance(interval_ns, bool) or not isinstance(interval_ns, int) or interval_ns <= 0:
         _error("MAN-11", "interval_ns", "debe ser un entero mayor que cero")
@@ -363,12 +399,18 @@ def load(path: str | Path) -> Manifest:
     ):
         _error("MAN-11", "gpu_interval_ns", "debe ser un entero mayor que cero, o estar ausente")
 
+    # ARC-116: ausente = {} (deshabilitado), mismo criterio que rapl/gpu --
+    # nunca se infiere habilitado.
+    uncore_raw = document.get("uncore", {})
+    if not isinstance(uncore_raw, Mapping):
+        _error("MAN-00", "uncore", "debe ser un objeto")
+
     manifest = Manifest(
         campaign_id, tier, seed, output_dir, overwrite, catalog_path, calibration, kernels,
         frequency_levels, repetitions, target_windows, interval_ns, float(running_ratio),
         cores, smt_policy, cgroup_path, perf_enabled, dict(rapl), dict(gpu), timeouts,
         hardware_datasheet, projected_campaign_bytes, remaining_core_hours, projected_core_hours,
-        load_threshold, gpu_interval_ns_raw,
+        load_threshold, gpu_interval_ns_raw, dict(uncore_raw), gpu_frequency_levels,
     )
     matrix_size = compute_matrix_size(manifest)
     # MAN-03: cada combinación tiene baseline y telemetry, por eso se duplica.

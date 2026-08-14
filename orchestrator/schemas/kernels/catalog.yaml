@@ -54,7 +54,9 @@ kernels:
     success_check: {type: stdout_regex, pattern: "Solution Validates"}
     binary_checksum:
       felix-sc3: "sha256:357ef034acf95ede768bf8788a7cdabf92f9afeadbaf79321730659b3cd9199c"
-      pacca-a100: "sha256:2d473205b0d3f1cc0ac562c2bd486f7f634741b39f81eb621e18631a05636723"
+      # ARC-125: recompilado con -march=native (Intel Advisor confirmo que
+      # sin esa flag GCC nunca generaba AVX-512, ver Registro_Cambios ARC-125).
+      pacca-a100: "sha256:aa85c916a9e39063c927d978b74c10cc30287521a672bc6c600ea04b9567b4fc"
     # 3 arreglos x 8 bytes x STREAM_ARRAY_SIZE (64_000_000) = 1_536_000_000 B;
     # 1.5 GiB con margen para el allocator. F4.2, C05 no distingue role, asi
     # que las entradas de calibracion tambien necesitan este campo.
@@ -72,7 +74,14 @@ kernels:
     estimated_memory_bytes: 67108864
     binary_checksum:
       felix-sc3: "sha256:aafd773346eb05a51a77720e08f45e7bd4cfc5aae31bc25d9f1273c49ed0e0d9"
-      pacca-a100: "sha256:c3480c9221f8da217254308ef6fa6c85ddcd04176f3c91ba9a0adec59e14f9b1"
+      # ARC-125: recompilado con -march=native -- el binario anterior nunca
+      # generaba AVX-512 (Vector ISA: SSE2, confirmado con Intel Advisor),
+      # midiendo un P_pico ~8x por debajo del real (71.8 -> 404.6 GFLOP/s
+      # en el smoke test de 8 hilos). Ver Registro_Cambios ARC-125.
+      # ARC-126: -march=native solo dejaba a GCC eligiendo AVX2, no AVX-512
+      # -- agregado tambien -mprefer-vector-width=512 (417.8-555 GFLOP/s).
+      # Este es el checksum FINAL, con ambas flags.
+      pacca-a100: "sha256:12b3310aaaf3f80e0fa18a54872c94621c5557f58c1f3f5b238a57df10cd200f"
 
   # npb_ep se quitó del catálogo (2026-08-06): su "Mop/s total" reporta
   # "Operation type = Random numbers generated" en su propio stdout, no

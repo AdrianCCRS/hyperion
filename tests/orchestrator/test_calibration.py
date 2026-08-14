@@ -527,6 +527,61 @@ def test_arc87_run_gpu_calibration_fija_el_reloj_de_gpu_por_nivel(tmp_path):
     assert apply_calls == [("REF", env_profile), ("FG_1", env_profile)]
 
 
+def test_arc129_run_gpu_calibration_usa_gpu_frequency_levels_no_frequency_levels(tmp_path):
+    # ARC-129: cuando manifest.gpu_frequency_levels existe, es EL eje que
+    # importa para el ridge de GPU -- frequency_levels (CPU) debe ignorarse
+    # por completo aquí (ids deliberadamente distintos, para que la prueba
+    # no pueda pasar "por coincidencia").
+    stream = _gpu_kernel_entry(id="gpu_stream_bw", reports_bandwidth_stdout=True,
+                                bandwidth_stdout_pattern=r"BW=([0-9.]+)")
+    ert32 = _gpu_kernel_entry(id="gpu_ert_probe_fp32", reports_flops_stdout=True,
+                               flops_stdout_pattern=r"FLOPS=([0-9.]+)", gpu_precision="fp32")
+    ert64 = _gpu_kernel_entry(id="gpu_ert_probe_fp64", reports_flops_stdout=True,
+                               flops_stdout_pattern=r"FLOPS=([0-9.]+)", gpu_precision="fp64")
+    catalog_map = {"gpu_stream_bw": stream, "gpu_ert_probe_fp32": ert32, "gpu_ert_probe_fp64": ert64}
+
+    manifest = _manifest(tmp_path)
+    manifest.gpu = {"calibration": ["gpu_stream_bw", "gpu_ert_probe_fp32", "gpu_ert_probe_fp64"]}
+    manifest.frequency_levels = (
+        SimpleNamespace(id="CPU_REF", mode="native_governor", fraction=None),
+        SimpleNamespace(id="CPU_F0", mode="fixed", fraction=0.5),
+    )
+    manifest.gpu_frequency_levels = (
+        SimpleNamespace(id="GREF", mode="native_governor", fraction=None),
+        SimpleNamespace(id="GF0", mode="fixed", fraction=0.25),
+    )
+
+    def fake_run_single(entry, manifest, kernel_ref, freq_level_id, repetition, **kwargs):
+        run_dir = tmp_path / f"{kernel_ref}_{freq_level_id}"
+        run_dir.mkdir(exist_ok=True)
+        if entry is stream:
+            (run_dir / "stdout.txt").write_text("BW=10000000000\n")
+        else:
+            (run_dir / "stdout.txt").write_text("FLOPS=20000000000\n")
+        return _fake_run_result(run_dir)
+
+    apply_gpu_calls = []
+    apply_cpu_calls = []
+    env_profile = SimpleNamespace(gpu_frequency_write_capable=True, frequency_write_capable=True)
+
+    result = calibration.run_gpu_calibration(
+        manifest, catalog_map, run_single=fake_run_single, environment_profile=env_profile,
+        apply_gpu_frequency=lambda level, env: apply_gpu_calls.append(level.id),
+        apply_frequency=lambda cpus, level, env: apply_cpu_calls.append(level.id),
+    )
+
+    # El bucle recorrió gpu_frequency_levels (GREF/GF0), nunca
+    # frequency_levels (CPU_REF/CPU_F0).
+    assert apply_gpu_calls == ["GREF", "GF0"]
+    # apply_frequency (eje de CPU) nunca se invoca -- incidental cuando el
+    # ridge de GPU se calibra por su propio eje independiente.
+    assert apply_cpu_calls == []
+    # La referencia devuelta (nivel native_governor) queda etiquetada con el
+    # id del eje de GPU (GREF), nunca con uno del eje de CPU.
+    assert set(result.keys()) == {"fp32", "fp64"}
+    assert result["fp32"].freq_level_id == "GREF"
+
+
 def test_arc87_run_gpu_calibration_no_fija_reloj_si_no_hay_permiso(tmp_path):
     stream = _gpu_kernel_entry(id="gpu_stream_bw", reports_bandwidth_stdout=True,
                                 bandwidth_stdout_pattern=r"BW=([0-9.]+)")
