@@ -175,6 +175,43 @@ Riesgos de dominancia que deben revisarse tras el pre-vuelo:
   partición de Fase 2 debe agrupar por corrida y evaluar generalización por
   carga.
 
+## Verificaciones cerradas antes del permiso de Turbo
+
+La prueba de caos H3/FRQ-08 se ejecutó contra la ruta real de campaña bajo
+Slurm exclusivo. El supervisor observó los seis CPU pasar del snapshot
+`performance, 800000--3600000 kHz` al nivel fijo
+`performance, 2200000--2200000 kHz`, interrumpió el proceso y comparó el
+estado posterior atributo por atributo.
+
+La primera prueba con `SIGINT` encontró un bug real: al ejecutar Python en
+background desde una shell no interactiva, la señal podía heredarse como
+`SIG_IGN`. El manejador restauraba sysfs, pero reinstalaba esa disposición
+antes de reenviar la señal; la campaña la ignoraba y continuaba hasta salir
+con cero. `install_emergency_handlers()` rearma ahora siempre `SIG_DFL` antes
+de reenviar. Tras la corrección, `SIGINT` terminó con 130 (job 5186) y
+`SIGTERM` con 143 (job 5187); en ambos casos los seis CPU volvieron exactamente
+al snapshot original. El intento fallido (job 5185) y los dos resultados
+positivos se conservan en `docs/justifications/data/freqctl_chaos_20260814/`.
+
+También se ejecutó una integración REF del pipeline vigente, independiente de
+la actuación fixed: NPB MG, LavaMD y 3MM por tres repeticiones. Las 9 corridas
+fueron aceptadas, con 57.048 ventanas `ok`; ninguna careció de frecuencia por
+ventana, FLOPs medidos, bytes uncore reales, etiqueta o energía válida.
+Temperatura y carga quedaron persistidas antes de calibrar y por combinación
+(37--51 °C y exceso normalizado de carga igual a cero), `push_retries=0`,
+stderr vacío y restauración final verificada. Una fila terminal de 3MM con
+`delta_instructions=0` quedó correctamente excluida como `pmu_degraded`.
+Los datos crudos viven en
+`~/hyperion-results/validation/pacca_pre_turbo_ref_20260814/` y el resumen en
+`docs/justifications/data/pre_turbo_ref_20260814/`.
+
+Esta integración cierra la composición del pipeline actual en REF, pero no se
+usa como evidencia de DVFS ni se mezcla con el dataset final.
+
+Después de la corrección quedaron en verde 430/430 pruebas Python locales,
+411/411 pruebas del orquestador en pacca y 13/13 pruebas C++ contra NVML real
+dentro de `paccaA100`.
+
 ## Estado del permiso Turbo y bloqueos restantes
 
 El helper `/usr/local/bin/set_turbo_state` existe y escribe
@@ -188,16 +225,14 @@ helper ya esté instalado.
 Antes de la campaña final faltan, en este orden:
 
 1. que `sudo -n set_turbo_state 1` funcione dentro de la asignación exclusiva;
-2. sincronizar el commit final de código y scripts a pacca y ejecutar allí la
-   suite;
-3. ejecutar el pre-vuelo de 90 combinaciones, no la campaña completa;
-4. confirmar en sus artefactos Turbo deshabilitado, los nueve objetivos
+2. ejecutar el pre-vuelo de 90 combinaciones, no la campaña completa;
+3. confirmar en sus artefactos Turbo deshabilitado, los nueve objetivos
    nominales 3,2/2,9/2,6/2,3/2,0/1,7/1,4/1,1/0,8 GHz, traza por ventana
    dentro de ±5 %, temperatura y carga registradas, calibraciones válidas y
    distribución de ambos candidatos por frecuencia/repetición;
-5. comparar la curva de nueve puntos con F0--F4 y cerrar explícitamente el
+4. comparar la curva de nueve puntos con F0--F4 y cerrar explícitamente el
    número de niveles del manifiesto final;
-6. solo entonces lanzar el manifiesto final (hoy dimensionado en 540
+5. solo entonces lanzar el manifiesto final (hoy dimensionado en 540
    combinaciones si se conservan los cinco puntos fijos más REF).
 
 El rango térmico E02 de 0–90 °C sigue siendo un guardarraíl operativo del

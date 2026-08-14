@@ -10,6 +10,8 @@ Trabajo de grado: un agente en espacio de usuario que ajusta dinámicamente la f
 
 Estado de actuación al 2026-08-14: en CPU, los límites por núcleo se escriben y restauran, y el administrador instaló `set_turbo_state`; sin embargo, `sudo -n set_turbo_state 1` todavía solicita contraseña para `latorresn`, incluso dentro de una asignación Slurm exclusiva. Por tanto, Turbo sigue activo y la campaña CPU final permanece bloqueada hasta corregir la regla sudoers. La divergencia de reloj se mide ahora por ventana y el protocolo preparado exige `no_turbo=1`. En GPU, `nvidia-smi -lgc` ya era el mecanismo operativo de bloqueo de reloj y quedó verificado directamente bajo carga: 600 y 1200 MHz se sostuvieron exactamente. El controlador 610.57.04 es contexto de la verificación, no evidencia de que el mecanismo empezara a funcionar con esa versión. La campaña GPU multi-frecuencia completa sigue pendiente. No confundir permiso de escritura o código de retorno exitoso con actuación física: siempre verificar durante la carga.
 
+La restauración CPU ante señales ya no está pendiente: ARC-140 ejecutó la prueba de caos real sobre los seis CPU delegados y confirmó restauración exacta de governor/min/max tanto con `SIGINT` (salida 130) como con `SIGTERM` (salida 143). La misma prueba encontró y corrigió el caso en que una shell no interactiva heredaba `SIGINT=SIG_IGN`. El pipeline vigente también pasó una integración REF de 9/9 corridas con temperatura, carga, PMU, uncore, RAPL y frecuencia por ventana presentes; esto no sustituye la prueba multifrecuencia sin Turbo.
+
 ## 2. Arquitectura en una imagen
 
 ```

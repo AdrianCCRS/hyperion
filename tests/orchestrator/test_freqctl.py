@@ -1,7 +1,9 @@
 from pathlib import Path
 import os
 import signal
+import subprocess
 import sys
+import textwrap
 from types import SimpleNamespace
 
 import pytest
@@ -338,6 +340,50 @@ def test_frq05_install_emergency_handlers_registra_las_tres_rutas(monkeypatch):
     finally:
         signal.signal(signal.SIGINT, original_sigint)
         signal.signal(signal.SIGTERM, original_sigterm)
+
+
+def test_frq05_sigint_heredada_como_ignorada_restaura_y_termina(tmp_path):
+    """Regresión de la prueba de caos real en paccaA100.
+
+    Una shell no interactiva inicia procesos en background con SIGINT
+    ignorada. El manejador anterior restauraba esa disposición antes de
+    reenviar la señal: la restauración ocurría, pero SIGINT se tragaba y la
+    campaña seguía hasta terminar con rc=0. El proceso debe restaurar y morir
+    por SIGINT incluso bajo esa herencia exacta.
+    """
+    marker = tmp_path / "restored"
+    code = textwrap.dedent(
+        f"""
+        from pathlib import Path
+        import signal
+        import time
+        from orchestrator import freqctl
+
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        marker = Path({str(marker)!r})
+        freqctl.install_emergency_handlers(lambda: marker.write_text("restored") or True)
+        print("READY", flush=True)
+        while True:
+            time.sleep(0.1)
+        """
+    )
+    process = subprocess.Popen(
+        [sys.executable, "-c", code],
+        cwd=Path(__file__).resolve().parents[2],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert process.stdout is not None
+        assert process.stdout.readline().strip() == "READY"
+        process.send_signal(signal.SIGINT)
+        assert process.wait(timeout=5) == -signal.SIGINT
+        assert marker.read_text() == "restored"
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
 
 
 def test_frq10_read_observed_frequency_khz(tmp_path):

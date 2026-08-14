@@ -423,20 +423,21 @@ def install_emergency_handlers(restore: Callable[[], bool | None]) -> None:
     """
     atexit.register(restore)
 
-    previous_handlers: dict[int, Any] = {}
-
     def _handler(signum: int, frame: Any) -> None:
         try:
             restore()
         finally:
-            # Re-arm the default disposition and re-raise so the process
-            # actually terminates with the expected signal semantics instead
-            # of silently swallowing SIGINT/SIGTERM.
-            signal.signal(signum, previous_handlers.get(signum, signal.SIG_DFL))
+            # Rearmar SIEMPRE la disposición del sistema y reenviar la señal.
+            # No se restaura el handler heredado: un proceso iniciado en
+            # background por una shell no interactiva puede heredar SIGINT
+            # como SIG_IGN. Rearmar ese valor haría que os.kill() se ignorara
+            # y que la campaña continuara después de restaurar sysfs, hallazgo
+            # reproducido en hardware real por la prueba de caos FRQ-05
+            # (paccaA100, 2026-08-14).
+            signal.signal(signum, signal.SIG_DFL)
             os.kill(os.getpid(), signum)
 
     for sig in (signal.SIGINT, signal.SIGTERM):
-        previous_handlers[sig] = signal.getsignal(sig)
         signal.signal(sig, _handler)
 
 

@@ -1,0 +1,4 @@
+kernel_ref,repetitions,duration_s_values,duration_cv_pct,ok_windows,compute_bound_ok,memory_bound_ok
+npb_mg,3,"1.266930;1.265399;1.262139",0.1935,1694,0,1694
+rajaperf_polybench_3mm_omp,3,"12.716650;12.870233;12.751859",0.6296,35646,33525,2121
+rodinia_lavamd_omp,3,"7.452930;7.504726;7.452957",0.4002,19708,19708,0
