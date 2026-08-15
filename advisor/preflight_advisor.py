@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -306,6 +307,29 @@ def collect_cache_info(result: PreflightResult, cpus: list[int]) -> None:
 # --------------------------------------------------------------------------
 
 
+def check_affinity(result: PreflightResult, expected_cores: list[int]) -> None:
+    """Confirma que la afinidad REAL del proceso (heredada de Slurm/srun,
+    antes de que taskset entre a fijarla explicitamente por comando) ya
+    cubre el dominio D6 pedido -- mismo check que preflight_uarch.py de
+    raperezp/ (VTune) ya hacia y que este preflight no tenia. Sin esto,
+    "taskset -c 0-5" podria estar fijando una afinidad sobre un dominio que
+    Slurm nunca delego, sin que nada lo avisara."""
+    try:
+        allowed = sorted(os.sched_getaffinity(0))
+    except (AttributeError, OSError) as exc:
+        result.warn(f"No se pudo leer sched_getaffinity: {exc}")
+        return
+    result.summary["cpus_afinidad_real"] = ",".join(str(c) for c in allowed)
+    missing = [c for c in expected_cores if c not in allowed]
+    if missing:
+        result.error(
+            f"La afinidad real del proceso ({allowed}) no cubre el dominio D6 pedido "
+            f"({expected_cores}). Faltan: {missing}. Slurm no asigno los cores esperados "
+            "-- revisar la reserva (--exclusive/--cpus-per-task) antes de correr Advisor, "
+            "taskset no puede fijar afinidad sobre cores que el cgroup del job no delego."
+        )
+
+
 def run_preflight(core_range: str, work_dir: Path, skip_smoke: bool) -> PreflightResult:
     result = PreflightResult()
     advisor_path = check_advisor_in_path(result)
@@ -316,6 +340,7 @@ def run_preflight(core_range: str, work_dir: Path, skip_smoke: bool) -> Prefligh
     cpus = list(range(lo, hi + 1))
     collect_cache_info(result, cpus)
     collect_frequency_info(result, cpus)
+    check_affinity(result, cpus)
 
     taskset_path = shutil.which("taskset")
     pin_prefix = [taskset_path, "-c", core_range] if taskset_path else []

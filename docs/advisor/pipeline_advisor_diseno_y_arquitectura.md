@@ -237,24 +237,42 @@ sobre-afirmar precisión que el propio mecanismo de medición no tiene.
 
 ---
 
-## 2.7 Frecuencia de CPU — se registra, no se fija (agregado 2026-08-11)
+## 2.7 Frecuencia de CPU — se registra, no se fija (agregado 2026-08-11, revisado 2026-08-12)
 
-Cada corrida ahora lee `scaling_cur_freq`/`scaling_governor`/`scaling_driver`
+Cada corrida lee `scaling_cur_freq`/`scaling_governor`/`scaling_driver`
 (mismo archivo exacto que `orchestrator/freqctl.py::read_observed_frequency_khz`
-ya usa, FRQ-10) **antes y después** de la pasada `tripcounts+cache-sim` — la
-que realmente alimenta la clasificación — y lo deja en `metadata.json` y en
+ya usa, FRQ-10) y lo deja en `metadata.json` y en
 `consolidated_characterization.csv` (`governor`, `scaling_driver`,
-`freq_mhz_mean_before_cachesim`, `freq_mhz_mean_after_cachesim`,
-`freq_drift_mhz`).
+`freq_mhz_during_run`).
+
+**Esquema anterior (2026-08-11 → 2026-08-12, job 5114 y antes): una lectura
+antes + una después** de la pasada `tripcounts+cache-sim` — la que realmente
+alimenta la clasificación — con un `freq_drift_mhz` calculado como la
+diferencia absoluta entre ambas. **Reemplazado** porque en una corrida corta
+(`ert`, job 5114, pasada de ~20s) dio `freq_mhz_mean_before=1457`,
+`freq_mhz_mean_after=849` (`drift=608 MHz`) — un antes/después no dice nada
+de a qué frecuencia corrió el *grueso* de la ejecución, solo dos instantes
+en sus bordes, que en una corrida corta con turbo/HWP moviéndose pueden
+quedar lejos de cualquier valor sostenido real.
+
+**Esquema actual: muestreo continuo durante la ejecución.** Mientras la
+pasada `tripcounts+cache-sim` sigue viva, se lee `scaling_cur_freq` real
+cada `FREQ_SAMPLE_INTERVAL_S=1.0` segundos (`run_characterization.py::_run()`,
+mismo mecanismo de solo lectura, nunca escribe frecuencia) y se promedian
+todas las muestras tomadas — una sola columna, `freq_mhz_during_run`, que
+responde directamente "¿a qué frecuencia corrió esto?" en vez de "¿varió?".
+Las muestras crudas quedan en `metadata.json`
+(`freq_mhz_samples_during_tripcounts_cachesim`) para quien necesite ver la
+serie completa, no solo el promedio.
 
 **Por qué importa:** tanto los roofs (`P_peak`/`BW_peak`, medidos por los
 micro-benchmarks propios de Advisor) como el `GFLOPS`/`AI` de cada loop
-dependen de la frecuencia real a la que corrió la CPU en ese instante. Si el
-nodo tiene turbo/HWP activo (comportamiento por defecto, gobernado por
-`intel_pstate`), dos repeticiones del mismo kernel pueden dar techos o
-intensidades distintas por variación de reloj, no por ruido de medición de
-Advisor — sin este registro, esa diferencia sería indistinguible de un error
-real del pipeline.
+dependen de la frecuencia real a la que corrió la CPU. Si el nodo tiene
+turbo/HWP activo (comportamiento por defecto, gobernado por `intel_pstate`),
+dos repeticiones del mismo kernel pueden dar techos o intensidades
+distintas por variación de reloj, no por ruido de medición de Advisor — sin
+este registro, esa diferencia sería indistinguible de un error real del
+pipeline.
 
 **Decisión explícita: este pipeline NO fija la frecuencia.** Dos razones:
 (1) no hay permiso de escritura de `cpufreq` confirmado para esta campaña
@@ -263,9 +281,15 @@ sin resolverse al momento de escribir esto); (2) aunque lo hubiera, fijar
 frecuencia es responsabilidad de una campaña de *entrenamiento* controlada
 (`campaign_pacca_ref.yaml` + `freqctl.py`), no de esta campaña de
 *validación* — mezclar ambas responsabilidades introduciría acoplamiento
-donde no hace falta. Si el `freq_drift_mhz` de una corrida resulta grande,
-el pipeline lo deja como advertencia en el log y en el CSV — no aborta la
-corrida ni intenta corregir nada.
+donde no hace falta. Si `freq_mhz_during_run` resulta `None` (0 muestras,
+pasada demasiado corta o error de lectura), el pipeline lo deja como
+advertencia en el log — no aborta la corrida ni inventa un valor.
+
+**Filas anteriores a este cambio** (con `freq_mhz_mean_before_cachesim`/
+`freq_mhz_mean_after_cachesim`/`freq_drift_mhz` en vez de
+`freq_mhz_during_run`) quedan tal cual en los CSV ya escritos — no se
+recalculan retroactivamente porque no existen las muestras intermedias para
+esas corridas ya cerradas; simplemente no tienen la columna nueva.
 
 ---
 

@@ -50,6 +50,11 @@ D_CORE_RANGE = "0-5"
 D_OMP_PLACES = "cores"
 D_OMP_PROC_BIND = "close"
 DEFAULT_REPETITIONS = 2
+# Intervalo de muestreo de frecuencia MIENTRAS corre la pasada que clasifica
+# (tripcounts+cache-sim) -- ver _run()/characterize_one() y README.md seccion
+# de afinidad/frecuencia para por que se reemplazo el esquema anterior
+# (una lectura antes + una despues) por muestreo continuo.
+FREQ_SAMPLE_INTERVAL_S = 1.0
 
 KERNEL_CSV_COLUMNS = [
     "campaign_id", "timestamp", "hostname", "cpu_model",
@@ -60,8 +65,7 @@ KERNEL_CSV_COLUMNS = [
     "dominant_loop_i_ridge_advisor",
     "survey_elapsed_time_nosim_s", "tripcounts_elapsed_time_nosim_s",
     "survey_elapsed_time_cachesim_s", "tripcounts_elapsed_time_cachesim_s",
-    "governor", "scaling_driver",
-    "freq_mhz_mean_before_cachesim", "freq_mhz_mean_after_cachesim", "freq_drift_mhz",
+    "governor", "scaling_driver", "freq_mhz_during_run",
     "binary_checksum", "fflags", "has_optimization", "has_debug_symbols", "precision_source_hint",
     "project_dir_nosim", "project_dir_cachesim",
 ]
@@ -81,40 +85,73 @@ LOOP_CSV_COLUMNS = [
 # --------------------------------------------------------------------------
 
 
-def _run(cmd: list[str], cwd: Path | None, env: dict, timeout: int) -> tuple[bool, int | None, str, str, float]:
+def _run(cmd: list[str], cwd: Path | None, env: dict, timeout: int,
+         freq_sample_cpus: list[int] | None = None
+         ) -> tuple[bool, int | None, str, str, float, list[float]]:
+    """Si freq_sample_cpus se da, en vez de bloquear en un solo
+    communicate(timeout=...), se sondea scaling_cur_freq real cada
+    FREQ_SAMPLE_INTERVAL_S mientras el proceso sigue vivo -- reemplaza el
+    esquema anterior (una lectura justo antes + una justo despues del
+    proceso), que en corridas cortas (ej. ert, ~20s) daba una diferencia de
+    cientos de MHz sin decir nada de a que frecuencia corrio el grueso de
+    la ejecucion. Devuelve las muestras crudas (MHz, promedio entre cores
+    del rango en cada instante); el promedio final se calcula en el
+    llamador, nunca aqui, para que quede trazable cuantas muestras hubo."""
     t0 = time.time()
     try:
         proc = subprocess.Popen(cmd, cwd=str(cwd) if cwd else None, env=env,
                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                                  start_new_session=True)
     except Exception as exc:  # noqa: BLE001
-        return False, None, "", str(exc), time.time() - t0
-    try:
-        stdout, stderr = proc.communicate(timeout=timeout)
-        return proc.returncode == 0, proc.returncode, stdout, stderr, time.time() - t0
-    except subprocess.TimeoutExpired:
+        return False, None, "", str(exc), time.time() - t0, []
+
+    if not freq_sample_cpus:
         try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        stdout, stderr = proc.communicate()
-        return False, None, stdout, f"timeout tras {timeout}s\n{stderr}", time.time() - t0
+            stdout, stderr = proc.communicate(timeout=timeout)
+            return proc.returncode == 0, proc.returncode, stdout, stderr, time.time() - t0, []
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            stdout, stderr = proc.communicate()
+            return False, None, stdout, f"timeout tras {timeout}s\n{stderr}", time.time() - t0, []
+
+    freq_samples: list[float] = []
+    while True:
+        if proc.poll() is not None:
+            break
+        if time.time() - t0 > timeout:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            stdout, stderr = proc.communicate()
+            return False, None, stdout, f"timeout tras {timeout}s\n{stderr}", time.time() - t0, freq_samples
+        snap = preflight_advisor.read_cpu_frequency_snapshot(freq_sample_cpus)
+        if snap.get("freq_mhz_mean") is not None:
+            freq_samples.append(snap["freq_mhz_mean"])
+        time.sleep(FREQ_SAMPLE_INTERVAL_S)
+    stdout, stderr = proc.communicate()
+    return proc.returncode == 0, proc.returncode, stdout, stderr, time.time() - t0, freq_samples
 
 
 def _collect_pass(advisor: str, project_dir: Path, extra_collect_args: list[str], binary: Path,
-                   pin_prefix: list[str], env: dict, timeout: int) -> dict:
+                   pin_prefix: list[str], env: dict, timeout: int,
+                   binary_args: list[str] | None = None,
+                   freq_sample_cpus: list[int] | None = None) -> dict:
     cmd = [advisor, *extra_collect_args, "--project-dir", str(project_dir), "--",
-           *pin_prefix, str(binary)]
-    ok, code, stdout, stderr, elapsed = _run(cmd, binary.parent, env, timeout)
+           *pin_prefix, str(binary), *(binary_args or [])]
+    ok, code, stdout, stderr, elapsed, freq_samples = _run(cmd, binary.parent, env, timeout, freq_sample_cpus)
     return {"ok": ok, "returncode": code, "elapsed_s": elapsed, "command": " ".join(cmd),
-            "stderr_tail": stderr[-2000:] if stderr else ""}
+            "stderr_tail": stderr[-2000:] if stderr else "", "freq_mhz_samples": freq_samples}
 
 
 def _report(advisor: str, report_name: str, project_dir: Path, out_path: Path,
             extra_report_args: list[str], env: dict, timeout: int) -> dict:
     cmd = [advisor, f"--report={report_name}", "--project-dir", str(project_dir),
            "--report-output", str(out_path), *extra_report_args]
-    ok, code, stdout, stderr, elapsed = _run(cmd, None, env, timeout)
+    ok, code, stdout, stderr, elapsed, _freq_samples = _run(cmd, None, env, timeout)
     return {"ok": ok and out_path.exists(), "returncode": code, "elapsed_s": elapsed,
             "command": " ".join(cmd), "stderr_tail": stderr[-1000:] if stderr else ""}
 
@@ -134,8 +171,9 @@ def build_env(threads: int) -> dict:
 
 def characterize_one(kernel: str, klass: str, binary: Path, rep: int, out_root: Path,
                       advisor: str, env: dict, pin_prefix: list[str], timeout: int,
-                      config_dir: Path, host_info: dict, campaign_id: str,
-                      cpus: list[int]) -> tuple[dict, list[dict]]:
+                      config_dir: Path | None, host_info: dict, campaign_id: str,
+                      cpus: list[int], extra_args: list[str] | None = None) -> tuple[dict, list[dict]]:
+    extra_args = extra_args or []
     label = f"{kernel}.{klass}"
     kernel_dir = out_root / f"{label}_rep{rep:02d}"
     reports_dir = kernel_dir / "reports"
@@ -161,9 +199,10 @@ def characterize_one(kernel: str, klass: str, binary: Path, rep: int, out_root: 
     # --- project_nosim: referencia, nunca se usa para clasificar --------
     proj_nosim = kernel_dir / "project_nosim"
     shutil.rmtree(proj_nosim, ignore_errors=True)
-    survey_nosim = _collect_pass(advisor, proj_nosim, ["--collect=survey"], binary, pin_prefix, env, timeout)
+    survey_nosim = _collect_pass(advisor, proj_nosim, ["--collect=survey"], binary, pin_prefix, env, timeout,
+                                  extra_args)
     trip_nosim = _collect_pass(advisor, proj_nosim, ["--collect=tripcounts", "-flop"], binary,
-                                pin_prefix, env, timeout)
+                                pin_prefix, env, timeout, extra_args)
     run_meta["passes"]["survey_nosim"] = survey_nosim
     run_meta["passes"]["tripcounts_nosim"] = trip_nosim
     kernel_row["survey_elapsed_time_nosim_s"] = round(survey_nosim["elapsed_s"], 3)
@@ -180,39 +219,42 @@ def characterize_one(kernel: str, klass: str, binary: Path, rep: int, out_root: 
     proj_cachesim = kernel_dir / "project_cachesim"
     shutil.rmtree(proj_cachesim, ignore_errors=True)
     survey_cachesim = _collect_pass(advisor, proj_cachesim, ["--collect=survey"], binary,
-                                     pin_prefix, env, timeout)
+                                     pin_prefix, env, timeout, extra_args)
 
-    # Frecuencia leida ANTES/DESPUES de la pasada que realmente alimenta la
-    # clasificacion (tripcounts+cache-sim, no la de survey) -- solo lectura,
-    # nunca se fija (ver docstring de read_cpu_frequency_snapshot). Un
-    # ridge point o un GFLOPS que no se puede reproducir entre repeticiones
-    # es indistinguible de "Advisor midio mal" si no queda esto registrado.
-    freq_before = preflight_advisor.read_cpu_frequency_snapshot(cpus)
+    # governor/scaling_driver: no fluctuan durante la corrida (a diferencia
+    # de la frecuencia) -- una lectura alcanza, no hace falta muestrearlos.
+    freq_static = preflight_advisor.read_cpu_frequency_snapshot(cpus)
+
+    # Frecuencia MUESTREADA EN VIVO mientras corre la pasada que realmente
+    # alimenta la clasificacion (tripcounts+cache-sim, no la de survey) --
+    # solo lectura, nunca se fija (ver docstring de
+    # read_cpu_frequency_snapshot). Reemplaza el esquema anterior de una
+    # lectura antes + una despues: en una corrida corta (ert, job 5114,
+    # ~20s) ese esquema daba 1457/849 MHz (diferencia de 608 MHz) sin decir
+    # nada de a que frecuencia corrio realmente el grueso de la ejecucion --
+    # un solo promedio de muestras tomadas DURANTE la pasada es la cifra que
+    # de verdad importa para interpretar GFLOPS/techos, no cuanto vario.
     trip_cachesim = _collect_pass(advisor, proj_cachesim,
                                    ["--collect=tripcounts", "-flop", "--enable-cache-simulation"],
-                                   binary, pin_prefix, env, timeout)
-    freq_after = preflight_advisor.read_cpu_frequency_snapshot(cpus)
+                                   binary, pin_prefix, env, timeout, extra_args,
+                                   freq_sample_cpus=cpus)
+    freq_samples = trip_cachesim.get("freq_mhz_samples") or []
+    freq_mhz_during_run = round(sum(freq_samples) / len(freq_samples), 1) if freq_samples else None
+
     run_meta["passes"]["survey_cachesim"] = survey_cachesim
     run_meta["passes"]["tripcounts_cachesim"] = trip_cachesim
-    run_meta["frequency_before_tripcounts_cachesim"] = freq_before
-    run_meta["frequency_after_tripcounts_cachesim"] = freq_after
+    run_meta["freq_mhz_samples_during_tripcounts_cachesim"] = freq_samples
     kernel_row["survey_elapsed_time_cachesim_s"] = round(survey_cachesim["elapsed_s"], 3)
     kernel_row["tripcounts_elapsed_time_cachesim_s"] = round(trip_cachesim["elapsed_s"], 3)
     kernel_row["project_dir_nosim"] = str(proj_nosim)
     kernel_row["project_dir_cachesim"] = str(proj_cachesim)
-    kernel_row["governor"] = freq_before.get("governor")
-    kernel_row["scaling_driver"] = freq_before.get("scaling_driver")
-    kernel_row["freq_mhz_mean_before_cachesim"] = freq_before.get("freq_mhz_mean")
-    kernel_row["freq_mhz_mean_after_cachesim"] = freq_after.get("freq_mhz_mean")
-    if freq_before.get("freq_mhz_mean") is not None and freq_after.get("freq_mhz_mean") is not None:
-        drift = abs(freq_after["freq_mhz_mean"] - freq_before["freq_mhz_mean"])
-        kernel_row["freq_drift_mhz"] = round(drift, 1)
-        if drift > 200:
-            log.warning("[%s.%s rep %02d] frecuencia media cambio %.0f MHz entre antes/despues de "
-                        "tripcounts+cache-sim (%.0f -> %.0f) -- turbo/HWP se movio durante la corrida.",
-                        kernel, klass, rep, drift, freq_before["freq_mhz_mean"], freq_after["freq_mhz_mean"])
-    else:
-        kernel_row["freq_drift_mhz"] = None
+    kernel_row["governor"] = freq_static.get("governor")
+    kernel_row["scaling_driver"] = freq_static.get("scaling_driver")
+    kernel_row["freq_mhz_during_run"] = freq_mhz_during_run
+    if freq_mhz_during_run is None:
+        log.warning("[%s.%s rep %02d] no se pudo muestrear frecuencia durante tripcounts+cache-sim "
+                    "(0 muestras) -- revisar permisos de lectura de scaling_cur_freq.",
+                    kernel, klass, rep)
 
     loop_rows: list[dict] = []
 
@@ -299,6 +341,21 @@ def write_csv(rows: list[dict], columns: list[str], out_path: Path) -> None:
             writer.writerow(row)
 
 
+def load_existing_csv_rows(path: Path) -> list[dict]:
+    """Si el CSV consolidado de una campana anterior ya existe en
+    --output-dir, se precarga para que esta corrida AGREGUE filas en vez de
+    pisarlo -- pensado para poder sumar anclas STREAM/DGEMM (u otro kernel
+    suelto despues) al consolidado de una campana ya corrida, sin tener que
+    fusionar CSVs a mano. No deduplica por kernel/clase/repeticion -- si se
+    vuelve a correr exactamente la misma combinacion, queda una fila
+    repetida a proposito (mejor eso que borrar silenciosamente una corrida
+    anterior)."""
+    if not path.exists():
+        return []
+    with path.open(newline="") as f:
+        return list(csv.DictReader(f))
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -306,6 +363,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--bin-dir", type=Path, required=True)
     p.add_argument("--config-dir", type=Path, required=True,
                    help="Directorio NPB3.4-OMP/config con make.def real, para verificar flags.")
+    p.add_argument("--anchor-dir", type=Path, default=None,
+                   help="Directorio con los binarios STREAM/DGEMM ya compilados (busqueda recursiva por "
+                        "nombre real, ver kernel_registry.ANCHOR_NAME_HINTS). Opcional -- si no se pasa, "
+                        "no se procesa ninguna ancla.")
+    p.add_argument("--skip-anchors", action="store_true")
     p.add_argument("--output-dir", type=Path, required=True)
     p.add_argument("--kernels", type=str, default="")
     p.add_argument("--classes", type=str, default="")
@@ -344,10 +406,19 @@ def main(argv: list[str] | None = None) -> int:
         host_info = {"hostname": socket.gethostname()}
 
     found = kernel_registry.discover_kernels(args.bin_dir, kernels, classes)
-    if not found:
-        log.error("No se encontro ningun binario <kernel>.<clase>.x en %s.", args.bin_dir)
+    anchors: dict[str, Path | None] = {}
+    if args.anchor_dir and not args.skip_anchors:
+        anchors = kernel_registry.discover_anchors(args.anchor_dir)
+        for name, path in anchors.items():
+            if path is None:
+                log.warning("Ancla '%s' no encontrada en %s -- se omite.", name, args.anchor_dir)
+    if not found and not any(anchors.values()):
+        log.error("No se encontro ningun binario <kernel>.<clase>.x en %s ni ninguna ancla en %s.",
+                  args.bin_dir, args.anchor_dir)
         return 1
     log.info("Kernels descubiertos: %s", [(k, c) for k, c, _ in found])
+    if anchors:
+        log.info("Anclas descubiertas: %s", {k: str(v) for k, v in anchors.items() if v})
 
     taskset_path = shutil.which("taskset")
     pin_prefix = [taskset_path, "-c", args.core_range] if taskset_path else []
@@ -356,10 +427,13 @@ def main(argv: list[str] | None = None) -> int:
     env = build_env(args.threads)
     campaign_id = f"advisor_roofline_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}_{uuid.uuid4().hex[:8]}"
 
-    kernel_rows: list[dict] = []
-    loop_rows: list[dict] = []
     kernel_csv = args.output_dir / "consolidated_characterization.csv"
     loop_csv = args.output_dir / "consolidated_loops.csv"
+    kernel_rows: list[dict] = load_existing_csv_rows(kernel_csv)
+    loop_rows: list[dict] = load_existing_csv_rows(loop_csv)
+    if kernel_rows:
+        log.info("%d filas existentes precargadas de %s -- esta corrida AGREGA, no reemplaza.",
+                 len(kernel_rows), kernel_csv)
 
     for kernel, klass, binary in found:
         for rep in range(1, args.repetitions + 1):
@@ -367,6 +441,33 @@ def main(argv: list[str] | None = None) -> int:
             k_row, l_rows = characterize_one(kernel, klass, binary, rep, args.output_dir, advisor, env,
                                               pin_prefix, args.timeout, args.config_dir, host_info, campaign_id,
                                               cpus)
+            kernel_rows.append(k_row)
+            loop_rows.extend(l_rows)
+            write_csv(kernel_rows, KERNEL_CSV_COLUMNS, kernel_csv)
+            write_csv(loop_rows, LOOP_CSV_COLUMNS, loop_csv)
+
+    # Anclas STREAM/DGEMM: klass="anchor" (nunca A/B/C, no son parte de NPB),
+    # medidas con el MISMO pipeline completo de Advisor (survey+tripcounts,
+    # sin simular y con --enable-cache-simulation) -- nunca se usa el GB/s o
+    # GFLOP/s que ellas mismas reportan por su cuenta.
+    for name, binary in anchors.items():
+        if binary is None:
+            continue
+        extra_args = kernel_registry.ANCHOR_EXTRA_ARGS.get(name, [])
+        anchor_env = dict(env)
+        if name == "dgemm":
+            # dgemm_bench enlaza OpenBLAS dinamico -- mismo patron ya usado
+            # en pipelinevtune/run_vtune_pipeline.py y la campana de VTune:
+            # LD_LIBRARY_PATH apuntando a openBLAS-dgme/lib, hermano del
+            # binario, y OPENBLAS_NUM_THREADS alineado con el resto (D6, 6).
+            lib_dir = binary.parent.parent / "lib"
+            anchor_env["LD_LIBRARY_PATH"] = f"{lib_dir}:{anchor_env.get('LD_LIBRARY_PATH', '')}"
+            anchor_env["OPENBLAS_NUM_THREADS"] = str(args.threads)
+        for rep in range(1, args.repetitions + 1):
+            log.info("=== ancla %s (anchor) rep %02d ===", name, rep)
+            k_row, l_rows = characterize_one(name, "anchor", binary, rep, args.output_dir, advisor, anchor_env,
+                                              pin_prefix, args.timeout, None, host_info, campaign_id,
+                                              cpus, extra_args)
             kernel_rows.append(k_row)
             loop_rows.extend(l_rows)
             write_csv(kernel_rows, KERNEL_CSV_COLUMNS, kernel_csv)

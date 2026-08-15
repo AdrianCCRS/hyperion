@@ -71,6 +71,11 @@ advisor --version || true
 NPB_ROOT="${ADVISOR_NPB_ROOT:-$HOME/raperezp/NPB3.4-OMP}"
 BIN_DIR="${ADVISOR_BIN_DIR:-$NPB_ROOT/bin}"
 CONFIG_DIR="${ADVISOR_CONFIG_DIR:-$NPB_ROOT/config}"
+# Directorio con binarios de anclas (STREAM/DGEMM/ERT, ver
+# kernel_registry.ANCHOR_NAME_HINTS) -- vacio por default = no se procesa
+# ninguna ancla en esta corrida (mismo comportamiento que ya tenia
+# run_characterization.py sin --anchor-dir).
+ANCHOR_DIR="${ADVISOR_ANCHOR_DIR:-}"
 OUTPUT_DIR="${ADVISOR_OUTPUT_DIR:-$HOME/raperezp/results/job_${SLURM_JOB_ID}}"
 REPETITIONS="${ADVISOR_REPETITIONS:-2}"
 KERNELS="${ADVISOR_KERNELS:-ep,cg,mg,ft,lu,bt}"
@@ -87,6 +92,7 @@ TIMEOUT="${ADVISOR_TIMEOUT:-3600}"
 
 echo "BIN_DIR=$BIN_DIR"
 echo "CONFIG_DIR=$CONFIG_DIR"
+echo "ANCHOR_DIR=${ANCHOR_DIR:-<ninguno>}"
 echo "OUTPUT_DIR=$OUTPUT_DIR"
 echo "KERNELS=$KERNELS CLASSES=$CLASSES REPETITIONS=$REPETITIONS TIMEOUT=$TIMEOUT"
 
@@ -99,6 +105,11 @@ mkdir -p "$OUTPUT_DIR"
 # la variable correcta para volver al directorio real de envio.
 cd "$SLURM_SUBMIT_DIR"
 
+anchor_args=()
+if [ -n "$ANCHOR_DIR" ]; then
+  anchor_args=(--anchor-dir "$ANCHOR_DIR")
+fi
+
 python3 run_characterization.py \
   --bin-dir "$BIN_DIR" \
   --config-dir "$CONFIG_DIR" \
@@ -108,7 +119,8 @@ python3 run_characterization.py \
   --repetitions "$REPETITIONS" \
   --core-range 0-5 \
   --threads 6 \
-  --timeout "$TIMEOUT"
+  --timeout "$TIMEOUT" \
+  "${anchor_args[@]}"
 
 status=$?
 echo "=== run_characterization.py termino con codigo $status ==="
