@@ -20,6 +20,21 @@ namespace telemetry
         std::runtime_error pthread_error(const char* context, int error_code) {
             return std::runtime_error(std::string(context) + ": " + std::strerror(error_code));
         }
+
+        // ARC-142: slot 0 of CpuSample::scaling_cur_freq_khz_per_cpu is the
+        // representative CPU (cpu_freq_reader_), so at most kMaxScalingCurFreqCpus-1
+        // extra readers fit; further paths are silently ignored (not an error --
+        // see CollectorConfig::cpu_freq_sysfs_paths_extra doc).
+        std::vector<CpuFreqReader> make_extra_cpu_freq_readers(const std::vector<std::string>& paths) {
+            std::vector<CpuFreqReader> readers;
+            size_t limit = paths.size();
+            if(limit > kMaxScalingCurFreqCpus - 1) limit = kMaxScalingCurFreqCpus - 1;
+            readers.reserve(limit);
+            for(size_t i = 0; i < limit; ++i) {
+                readers.emplace_back(paths[i]);
+            }
+            return readers;
+        }
     }
 
     Collector::Collector(CollectorConfig cfg, Ring& ring)
@@ -33,6 +48,7 @@ namespace telemetry
           // cannot reliably match the 1ms per-PID sampling cadence.
           uncore_reader_(cfg_.interval_ns / 1'000'000, cfg_.uncore_pin_cpu),
           cpu_freq_reader_(cfg_.cpu_freq_sysfs_path),
+          cpu_freq_readers_extra_(make_extra_cpu_freq_readers(cfg_.cpu_freq_sysfs_paths_extra)),
           nvml_reader_(0) {}
 
     Collector::~Collector(){
@@ -61,6 +77,7 @@ namespace telemetry
             if(!cfg_.rapl_pkg_path.empty()) rapl_reader_.open();
             if(cfg_.enable_uncore) uncore_reader_.open();
             if(!cfg_.cpu_freq_sysfs_path.empty()) cpu_freq_reader_.open();
+            for(auto& reader : cpu_freq_readers_extra_) reader.open();
             if(cfg_.enable_gpu) nvml_reader_.open();
         } catch (...) {
             close_readers();
@@ -134,19 +151,17 @@ namespace telemetry
             if(perf_cgroup_reader_.is_open()){
                 s.tag = SampleTag::CPU;
                 if(perf_cgroup_reader_.read(s.cpu)){
-                    // ARC-135: sampled on the SAME tick as the counters above,
-                    // not a post-hoc snapshot after the workload exits. 0 =
-                    // "not sampled" (reader disabled/read failed), never a
-                    // fabricated reading -- neither reader sets this field.
-                    s.cpu.scaling_cur_freq_khz = 0;
-                    if(cpu_freq_reader_.is_open()) cpu_freq_reader_.read(s.cpu.scaling_cur_freq_khz);
+                    // ARC-135/142: sampled on the SAME tick as the counters
+                    // above, not a post-hoc snapshot after the workload
+                    // exits -- see sample_cpu_freq() for the 0="not sampled"
+                    // contract and the multi-CPU array it also fills.
+                    sample_cpu_freq(s.cpu);
                     push_sample(s);
                 }
             } else if(perf_reader_.is_open()){
                 s.tag = SampleTag::CPU;
                 if(perf_reader_.read(s.cpu)){
-                    s.cpu.scaling_cur_freq_khz = 0;
-                    if(cpu_freq_reader_.is_open()) cpu_freq_reader_.read(s.cpu.scaling_cur_freq_khz);
+                    sample_cpu_freq(s.cpu);
                     push_sample(s);
                 }
             }
@@ -225,7 +240,41 @@ namespace telemetry
         rapl_reader_.close();
         uncore_reader_.close();
         cpu_freq_reader_.close();
+        for(auto& reader : cpu_freq_readers_extra_) reader.close();
         nvml_reader_.close();
+    }
+
+    void Collector::sample_cpu_freq(CpuSample& cpu) noexcept {
+        // ARC-135/142: 0 = "not sampled"/"read failed", never a fabricated
+        // reading -- matches every other optional backend's degrade-to-absent
+        // contract. Every configured slot is always written (even on a
+        // failed individual read, as 0) so scaling_cur_freq_khz_per_cpu[i]
+        // keeps a fixed, positional correspondence to CPU i's sysfs path
+        // (cpu_freq_reader_ at slot 0, then cpu_freq_readers_extra_ in
+        // order) regardless of which individual reads succeed -- the
+        // consumer (postprocess.py) zips this array against
+        // manifest.cores.delegated_cpus by position and must never see that
+        // correspondence shift because one read happened to fail.
+        cpu.scaling_cur_freq_khz = 0;
+        cpu.scaling_cur_freq_khz_count = 0;
+        for(auto& slot : cpu.scaling_cur_freq_khz_per_cpu) slot = 0;
+
+        if(!cpu_freq_reader_.is_open()) return;
+        cpu.scaling_cur_freq_khz_count = 1;
+        uint64_t primary = 0;
+        if(cpu_freq_reader_.read(primary)) {
+            cpu.scaling_cur_freq_khz = primary;
+            cpu.scaling_cur_freq_khz_per_cpu[0] = primary;
+        }
+
+        for(auto& reader : cpu_freq_readers_extra_) {
+            if(cpu.scaling_cur_freq_khz_count >= kMaxScalingCurFreqCpus) break;
+            size_t slot = cpu.scaling_cur_freq_khz_count;
+            ++cpu.scaling_cur_freq_khz_count;
+            if(!reader.is_open()) continue;
+            uint64_t khz = 0;
+            if(reader.read(khz)) cpu.scaling_cur_freq_khz_per_cpu[slot] = khz;
+        }
     }
 
     void Collector::sleep_ns(long ns) const noexcept {

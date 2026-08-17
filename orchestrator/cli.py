@@ -110,14 +110,31 @@ def cmd_run_campaign(args: argparse.Namespace) -> int:
         hostname=args.hostname or "", campaign_timeout_seconds=args.campaign_timeout_seconds,
     )
 
+    # ARC-142: run_campaign() no lanza excepción cuando una combinación es
+    # rechazada (E06/E08/G01/D-checks) -- eso es un veredicto normal, no un
+    # fallo del proceso. Sin este chequeo, un CI/script que solo mira el
+    # exit code no puede distinguir "126/126 aceptadas" de "0/126
+    # aceptadas, 126 rechazadas" -- ambos salían con 0. Tampoco distingue
+    # una matriz recortada a mitad de camino (p. ej. interrumpida antes de
+    # llegar a CampaignTimeoutError) de una matriz completa.
+    processed = (
+        len(result.progress.accepted_run_ids)
+        + len(result.progress.rejected_run_ids)
+        + len(result.progress.skipped_run_ids)
+    )
+    matrix_incomplete = processed < len(result.progress.run_ids_in_order)
+    has_rejected = len(result.progress.rejected_run_ids) > 0
+    restoration_failed = not result.progress.frequency_restored_verified
+
     print(json.dumps({
         "accepted": len(result.progress.accepted_run_ids),
         "rejected": len(result.progress.rejected_run_ids),
         "skipped": len(result.progress.skipped_run_ids),
         "total_core_hours": result.progress.total_core_hours,
         "frequency_restored_verified": result.progress.frequency_restored_verified,
+        "matrix_incomplete": matrix_incomplete,
     }, indent=2))
-    return 0
+    return 1 if (has_rejected or matrix_incomplete or restoration_failed) else 0
 
 
 def cmd_postprocess(args: argparse.Namespace) -> int:
@@ -139,8 +156,19 @@ def cmd_report(args: argparse.Namespace) -> int:
     campaign_dir = Path(args.campaign_dir)
     campaign_metadata = json.loads((campaign_dir / "campaign_metadata.json").read_text(encoding="utf-8"))
 
+    # ARC-142: skipped_run_ids (MET-06) son corridas aceptadas en una sesión
+    # ANTERIOR a la última invocación de run_campaign() en este output_dir
+    # -- accepted_run_ids/rejected_run_ids de campaign_metadata.json solo
+    # reflejan lo medido en la última sesión. Sin sumar skipped_run_ids
+    # aquí, el reporte de una campaña reanudada subcuenta total_runs/
+    # factor_table (silenciosamente, no falla ni avisa).
+    all_run_ids = (
+        campaign_metadata["accepted_run_ids"]
+        + campaign_metadata["rejected_run_ids"]
+        + campaign_metadata.get("skipped_run_ids", [])
+    )
     verdicts = []
-    for run_id in campaign_metadata["accepted_run_ids"] + campaign_metadata["rejected_run_ids"]:
+    for run_id in all_run_ids:
         verdict_path = campaign_dir / run_id / "verdict.json"
         if verdict_path.exists():
             verdicts.append(validation_module.load_verdict(campaign_dir / run_id))

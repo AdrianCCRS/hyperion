@@ -31,14 +31,75 @@ def _manifest(tmp_path: Path, *, calibration_refs=("stream", "ert"), datasheet=N
     )
 
 
-def _fake_run_result(run_dir: Path, *, success=True, elapsed_seconds=1.0) -> RunResult:
+def _fake_run_result(
+    run_dir: Path, *, success=True, elapsed_seconds=1.0, metadata=None,
+) -> RunResult:
     run_dir.mkdir(parents=True, exist_ok=True)
     return RunResult(
         run_id=run_dir.name, kernel_ref="k", freq_level_id="F0_calibration", repetition_index=0,
         command=(), exit_code=0 if success else 1, timed_out=False, success=success,
         elapsed_seconds=elapsed_seconds, run_dir=run_dir, stdout_path=run_dir / "stdout.txt",
-        stderr_path=run_dir / "stderr.txt", metadata={},
+        stderr_path=run_dir / "stderr.txt", metadata=metadata or {},
     )
+
+
+@pytest.mark.parametrize("frequency_trace", [
+    None,
+    {"accepted": False, "factor_id": "E01", "message": "fuera de objetivo"},
+])
+def test_cal07_calibracion_falla_cerrado_sin_traza_aceptada(tmp_path, frequency_trace):
+    stream_entry = _kernel_entry(
+        id="stream", reports_bandwidth_stdout=True, bandwidth_stdout_pattern=r"BW=([0-9.]+)",
+    )
+    ert_entry = _kernel_entry(
+        id="ert", reports_flops_stdout=True, flops_stdout_pattern=r"FLOPS=([0-9.]+)",
+    )
+    manifest = _manifest(
+        tmp_path,
+        datasheet={"bw_pico_bytes_per_s": 1.0e10, "p_pico_flops_per_s": 1.0e10},
+    )
+    manifest.frequency_validation = {"require_per_window": True, "tolerance_fraction": 0.03}
+    catalog = {"stream": stream_entry, "ert": ert_entry}
+
+    def fake_run_single(entry, manifest, kernel_ref, freq_level_id, repetition, **kwargs):
+        run_dir = tmp_path / kernel_ref
+        run_dir.mkdir(exist_ok=True)
+        (run_dir / "stdout.txt").write_text("BW=10000000000\nFLOPS=10000000000\n")
+        metadata = {} if frequency_trace is None else {"frequency_trace_validation": frequency_trace}
+        return _fake_run_result(run_dir, metadata=metadata)
+
+    with pytest.raises(calibration.CalibrationError, match="CAL-07"):
+        calibration.run_calibration(manifest, catalog, run_single=fake_run_single)
+
+
+def test_cal07_referencias_fallan_si_su_traza_de_frecuencia_no_fue_aceptada(tmp_path):
+    entry = _kernel_entry(
+        id="npb_ep", role="dataset", phase_label_hint="compute_bound",
+        size_variant="S", expected_runtime_seconds=1, warmup_seconds=0.0,
+        estimated_memory_bytes=1,
+    )
+    manifest = _manifest(tmp_path)
+    manifest.frequency_validation = {"require_per_window": True, "tolerance_fraction": 0.03}
+
+    def fake_run_single(entry, manifest, kernel_ref, freq_level_id, repetition, **kwargs):
+        run_dir = tmp_path / f"rep{repetition}"
+        _write_samples_csv(
+            run_dir, instructions=2_000_000_000, cycles=1_000_000_000,
+            cache_references=10_000_000, cache_misses=100_000,
+        )
+        return _fake_run_result(run_dir, metadata={
+            "frequency_trace_validation": {
+                "accepted": repetition != 3,
+                "factor_id": "E01",
+                "message": "fuera de objetivo",
+            },
+        })
+
+    with pytest.raises(calibration.CalibrationError, match="CAL-07"):
+        calibration.run_calibration_references(
+            entry, manifest, "npb_ep", node_id="pacca-a100", run_single=fake_run_single,
+        )
+    assert not (tmp_path / "calibration_references.json").exists()
 
 
 def test_cal01_cal02_cal03_run_calibration_extrae_del_stdout_no_de_pmu(tmp_path):

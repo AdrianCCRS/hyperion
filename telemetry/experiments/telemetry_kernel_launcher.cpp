@@ -74,6 +74,10 @@ namespace {
         int uncore_pin_cpu = -1;
         // ARC-135: empty = disabled (default) -- see CollectorConfig::cpu_freq_sysfs_path.
         std::string cpu_freq_sysfs_path;
+        // ARC-142: comma-separated sysfs paths for the delegated CPUs
+        // beyond the representative one above -- see
+        // CollectorConfig::cpu_freq_sysfs_paths_extra.
+        std::vector<std::string> cpu_freq_sysfs_paths_extra;
         fs::path output_dir = "runs";
         std::string run_id;
         fs::path workload_bin;
@@ -156,6 +160,24 @@ namespace {
         return result;
     }
 
+    // ARC-142: comma-separated tokenizer for --cpu-freq-sysfs-path-extra.
+    // Sysfs paths never contain commas, so no quoting/escaping is needed --
+    // same rationale as split_whitespace() above for --exec-args.
+    std::vector<std::string> split_comma(const std::string& text) {
+        std::vector<std::string> result;
+        size_t start = 0;
+        while(start <= text.size()) {
+            size_t comma = text.find(',', start);
+            if(comma == std::string::npos) {
+                result.push_back(text.substr(start));
+                break;
+            }
+            result.push_back(text.substr(start, comma - start));
+            start = comma + 1;
+        }
+        return result;
+    }
+
     Options parse_args(int argc, char** argv) {
         Options opt;
         opt.workload_bin = default_workload_path(argv[0]);
@@ -216,6 +238,8 @@ namespace {
                 opt.uncore_pin_cpu = std::stoi(need_value());
             } else if(arg == "--cpu-freq-sysfs-path") {
                 opt.cpu_freq_sysfs_path = need_value();
+            } else if(arg == "--cpu-freq-sysfs-path-extra") {
+                opt.cpu_freq_sysfs_paths_extra = split_comma(need_value());
             } else if(arg == "--output-dir") {
                 opt.output_dir = need_value();
             } else if(arg == "--run-id") {
@@ -538,6 +562,7 @@ namespace {
         cfg.enable_uncore = opt.enable_uncore;
         cfg.uncore_pin_cpu = opt.uncore_pin_cpu;
         cfg.cpu_freq_sysfs_path = opt.cpu_freq_sysfs_path;
+        cfg.cpu_freq_sysfs_paths_extra = opt.cpu_freq_sysfs_paths_extra;
         telemetry::Collector collector(cfg, ring);
 
         std::atomic<bool> stop_consumer{false};
@@ -727,7 +752,13 @@ namespace {
                "pkg_uj,dram_uj,pkg_delta_uj,dram_delta_uj,energy_delta_valid,"
                "gpu_power_mw,gpu_util_pct,gpu_mem_util_pct,gpu_sm_clock_mhz,gpu_energy_mj,gpu_temperature_c,"
                "uncore_cas_count_read_interval,uncore_cas_count_write_interval,"
-               "scaling_cur_freq_khz\n";
+               // ARC-142: scaling_cur_freq_khz_all is ';'-separated, one value
+               // per delegated CPU in the SAME order runner.py passed to
+               // --cpu-freq-sysfs-path/--cpu-freq-sysfs-path-extra (index 0 =
+               // the representative CPU, same reading as scaling_cur_freq_khz).
+               // 0 in a given position means that CPU's read failed this tick,
+               // same "not sampled" convention as the scalar column.
+               "scaling_cur_freq_khz,scaling_cur_freq_khz_all\n";
         const std::string label = dataset_label(opt.kernel);
 
         auto write_prefix = [&](const RecordedSample& record,
@@ -742,6 +773,21 @@ namespace {
         };
         auto empty_field = [&]() { out << ','; };
         auto value_field = [&](auto value) { out << ',' << value; };
+        // ARC-142: joins scaling_cur_freq_khz_per_cpu[0..count) with ';' --
+        // empty string (not "0") when count==0, same "not sampled" contract
+        // used everywhere else in this file.
+        auto cpu_freq_all_field = [&](const telemetry::CpuSample& cpu) {
+            if(cpu.scaling_cur_freq_khz_count == 0) {
+                empty_field();
+                return;
+            }
+            std::string joined;
+            for(uint32_t i = 0; i < cpu.scaling_cur_freq_khz_count; ++i) {
+                if(i > 0) joined += ';';
+                joined += std::to_string(cpu.scaling_cur_freq_khz_per_cpu[i]);
+            }
+            value_field(joined);
+        };
 
         for(const auto& record : samples) {
             const auto& sample = record.sample;
@@ -801,6 +847,7 @@ namespace {
                 } else {
                     empty_field();
                 }
+                cpu_freq_all_field(sample.cpu);
                 out << '\n';
             } else if(sample.tag == telemetry::SampleTag::ENERGY) {
                 const telemetry::experiment::RaplDelta delta =
@@ -839,6 +886,7 @@ namespace {
                 empty_field(); // uncore_cas_count_read_interval
                 empty_field(); // uncore_cas_count_write_interval
                 empty_field(); // scaling_cur_freq_khz
+                empty_field(); // scaling_cur_freq_khz_all
                 out << '\n';
             } else if(sample.tag == telemetry::SampleTag::GPU) {
                 write_prefix(record, sample.gpu.timestamp_ns, tag_name(sample.tag));
@@ -868,6 +916,7 @@ namespace {
                 empty_field(); // uncore_cas_count_read_interval
                 empty_field(); // uncore_cas_count_write_interval
                 empty_field(); // scaling_cur_freq_khz
+                empty_field(); // scaling_cur_freq_khz_all
                 out << '\n';
             } else {
                 // UNCORE rows keep raw cumulative counters, same convention
@@ -909,6 +958,7 @@ namespace {
                     empty_field();
                 }
                 empty_field(); // scaling_cur_freq_khz
+                empty_field(); // scaling_cur_freq_khz_all
                 out << '\n';
             }
         }

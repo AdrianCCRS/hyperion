@@ -167,6 +167,46 @@ def test_arc135_build_command_agrega_cpu_freq_sysfs_path(tmp_path):
     assert command[command.index("--cpu-freq-sysfs-path") + 1] == str(cpufreq / "scaling_cur_freq")
 
 
+def test_arc142_build_command_agrega_cpu_freq_sysfs_path_extra_para_los_demas_delegados(tmp_path):
+    """ARC-142: pacca tiene dominio cpufreq POR CORE (no por-socket como
+    felix) -- muestrear solo CPU0 no detecta si los otros nucleos delegados
+    divergen bajo Turbo/HWP. delegated_cpus=(2,3,4,5) en _make_manifest();
+    los 4 deben terminar en la lista, CPU2 en --cpu-freq-sysfs-path y
+    3/4/5 (en ese orden) en --cpu-freq-sysfs-path-extra."""
+    entry = _make_entry(tmp_path)
+    manifest = _make_manifest(tmp_path)
+    paths = {}
+    control_paths = {}
+    for cpu in (2, 3, 4, 5):
+        cpufreq = tmp_path / f"cpu{cpu}" / "cpufreq"
+        cpufreq.mkdir(parents=True)
+        governor_path = cpufreq / "scaling_governor"
+        governor_path.write_text("performance")
+        paths[cpu] = cpufreq / "scaling_cur_freq"
+        control_paths[cpu] = {"scaling_governor": str(governor_path)}
+    env_profile = SimpleNamespace(frequency_control_paths=control_paths)
+
+    command = runner.build_command(entry, manifest, "run_x", _harness(), environment_profile=env_profile)
+
+    assert command[command.index("--cpu-freq-sysfs-path") + 1] == str(paths[2])
+    extra = command[command.index("--cpu-freq-sysfs-path-extra") + 1]
+    assert extra == f"{paths[3]},{paths[4]},{paths[5]}"
+
+
+def test_arc142_build_command_omite_extra_si_solo_cpu0_resuelve(tmp_path):
+    entry = _make_entry(tmp_path)
+    manifest = _make_manifest(tmp_path)
+    cpufreq = tmp_path / "cpu2" / "cpufreq"
+    cpufreq.mkdir(parents=True)
+    governor_path = cpufreq / "scaling_governor"
+    governor_path.write_text("performance")
+    env_profile = SimpleNamespace(
+        frequency_control_paths={2: {"scaling_governor": str(governor_path)}},
+    )
+    command = runner.build_command(entry, manifest, "run_x", _harness(), environment_profile=env_profile)
+    assert "--cpu-freq-sysfs-path-extra" not in command
+
+
 def test_arc135_build_command_sin_environment_profile_no_agrega_freq_path(tmp_path):
     entry = _make_entry(tmp_path)
     manifest = _make_manifest(tmp_path)
@@ -198,7 +238,36 @@ def test_arc138_run_single_persiste_veredicto_de_traza_de_frecuencia(tmp_path, m
     assert trace["mismatched_samples"] == 1
     assert observed["expected_khz"] is None
     assert observed["tolerance_fraction"] == 0.05
+    assert observed["expected_cpu_count"] == 4
     assert "frequency_trace_validation" in (result.run_dir / "metadata.json").read_text()
+
+
+def test_arc141_timeout_usa_piso_del_manifiesto_y_factor_dvfs(tmp_path):
+    entry = _make_entry(tmp_path)
+    entry.expected_runtime_seconds = 10
+    manifest = _make_manifest(tmp_path)
+    manifest.timeouts_seconds = SimpleNamespace(ready=5, run=20, shutdown=5)
+    # F0=0.5 interpola a 2.0 GHz dentro de 0.8..3.2 GHz: slowdown=1.6.
+    env_profile = SimpleNamespace(available_frequencies_khz=(800_000, 3_200_000))
+
+    timeout = runner._resolve_timeout_seconds(
+        entry, manifest, freq_level_id="F0", environment_profile=env_profile,
+    )
+
+    assert timeout == pytest.approx(10 * runner.SAFETY_MARGIN * 1.6)
+
+
+def test_arc141_timeout_nunca_baja_del_override_del_manifiesto(tmp_path):
+    entry = _make_entry(tmp_path)
+    entry.expected_runtime_seconds = 1
+    manifest = _make_manifest(tmp_path)
+    manifest.timeouts_seconds = SimpleNamespace(ready=5, run=30, shutdown=5)
+
+    timeout = runner._resolve_timeout_seconds(
+        entry, manifest, freq_level_id="REF", environment_profile=SimpleNamespace(),
+    )
+
+    assert timeout == 30
 
 
 def test_arc70_run_single_setea_ld_preload_y_library_path_para_gpu(tmp_path, monkeypatch):

@@ -31,38 +31,90 @@ def validate_cpu_frequency_trace(
     require_per_window: bool,
     expected_khz: int | None,
     tolerance_fraction: float | None,
+    expected_cpu_count: int | None = None,
 ) -> tuple[Verdict, dict[str, Any]]:
     """E01/FRQ-10: valida el reloj medido en los ticks reales del PMU.
 
     Para REF no existe un objetivo numérico: solo se exige que la lectura
-    por ventana esté presente. Para un nivel fixed, todas las lecturas CPU
-    deben caer dentro de la tolerancia declarada respecto al valor aplicado.
+    por ventana esté presente. Para un nivel fixed, todas las lecturas de
+    todos los CPUs delegados deben caer dentro de la tolerancia declarada
+    respecto al valor aplicado. ``expected_cpu_count=None`` conserva el
+    contrato legado de validar solo ``scaling_cur_freq_khz``; producción
+    pasa siempre la cantidad de CPUs delegados y exige la columna multi-CPU
+    de ARC-145.
     """
     with open(samples_path, newline="", encoding="utf-8") as handle:
         rows = [row for row in csv.DictReader(handle) if row.get("tag") == "CPU"]
 
     observed: list[int] = []
     missing = 0
+    count_mismatches = 0
+    primary_mismatches = 0
+    spreads: list[int] = []
     for row in rows:
-        raw = row.get("scaling_cur_freq_khz")
-        try:
-            observed.append(int(raw))
-        except (TypeError, ValueError):
-            missing += 1
+        if expected_cpu_count is None:
+            raw = row.get("scaling_cur_freq_khz")
+            try:
+                value = int(raw)
+                if value <= 0:
+                    raise ValueError
+                observed.append(value)
+            except (TypeError, ValueError):
+                missing += 1
+            continue
+
+        raw_all = row.get("scaling_cur_freq_khz_all")
+        parts = raw_all.split(";") if raw_all else []
+        if len(parts) != expected_cpu_count:
+            count_mismatches += 1
+
+        row_observed: list[int] = []
+        for cpu_index in range(expected_cpu_count):
+            raw = parts[cpu_index] if cpu_index < len(parts) else None
+            try:
+                value = int(raw)
+                if value <= 0:
+                    raise ValueError
+                row_observed.append(value)
+                observed.append(value)
+            except (TypeError, ValueError):
+                missing += 1
+
+        if len(row_observed) >= 2:
+            spreads.append(max(row_observed) - min(row_observed))
+
+        # El launcher escribe el mismo valor en la columna escalar y en el
+        # slot 0. Si difieren, el archivo no conserva una traza internamente
+        # coherente y no se puede elegir silenciosamente una de las dos.
+        if parts:
+            try:
+                primary = int(row.get("scaling_cur_freq_khz"))
+                first = int(parts[0])
+                if primary <= 0 or first <= 0 or primary != first:
+                    primary_mismatches += 1
+            except (TypeError, ValueError):
+                primary_mismatches += 1
 
     summary = {
         "cpu_samples": len(rows),
         "observed_samples": len(observed),
         "missing_samples": missing,
+        "expected_cpu_count": expected_cpu_count,
+        "cpu_count_mismatch_samples": count_mismatches,
+        "primary_mismatch_samples": primary_mismatches,
         "expected_khz": expected_khz,
         "tolerance_fraction": tolerance_fraction,
         "observed_min_khz": min(observed) if observed else None,
         "observed_max_khz": max(observed) if observed else None,
+        "observed_spread_max_khz": max(spreads) if spreads else None,
     }
-    if require_per_window and (not rows or missing > 0):
+    if require_per_window and (not rows or missing > 0 or count_mismatches > 0 or primary_mismatches > 0):
         return Verdict(
             False, "E01",
-            f"traza de frecuencia incompleta: {missing} de {len(rows)} muestras CPU sin scaling_cur_freq_khz",
+            "traza de frecuencia incompleta/incoherente: "
+            f"{missing} lecturas ausentes, {count_mismatches} ventanas con cantidad de CPUs distinta de "
+            f"{expected_cpu_count}, {primary_mismatches} ventanas con CPU representativo inconsistente "
+            f"({len(rows)} ventanas CPU)",
         ), summary
 
     if expected_khz is not None:

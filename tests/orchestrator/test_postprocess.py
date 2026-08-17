@@ -20,7 +20,7 @@ SAMPLES_HEADER = [
     "pkg_uj", "dram_uj", "pkg_delta_uj", "dram_delta_uj", "energy_delta_valid",
     "gpu_power_mw", "gpu_util_pct", "gpu_mem_util_pct", "gpu_sm_clock_mhz", "gpu_energy_mj", "gpu_temperature_c",
     "uncore_cas_count_read_interval", "uncore_cas_count_write_interval",
-    "scaling_cur_freq_khz",
+    "scaling_cur_freq_khz", "scaling_cur_freq_khz_all",
 ]
 
 
@@ -39,7 +39,11 @@ def _cpu_row(*, repetition, ts, instructions, cycles, cache_references, cache_mi
              # ARC-135: "" (not sampled) by default, same convention as the
              # other optional counters above -- tests exercising the real
              # per-window override pass an explicit value.
-             scaling_cur_freq_khz=""):
+             scaling_cur_freq_khz="",
+             # ARC-142: "" (not sampled) by default, same convention as
+             # scaling_cur_freq_khz above -- tests exercising the multi-CPU
+             # spread pass an explicit ';'-separated value.
+             scaling_cur_freq_khz_all=""):
     return {
         "run_id": "r", "repetition": repetition, "kernel": "k", "label": "k",
         "timestamp_ns": ts, "tag": "CPU",
@@ -53,6 +57,7 @@ def _cpu_row(*, repetition, ts, instructions, cycles, cache_references, cache_mi
         "fp_512b_packed_double": fp_512b_packed_double,
         "time_enabled_ns": time_enabled, "time_running_ns": time_running,
         "scaling_cur_freq_khz": scaling_cur_freq_khz,
+        "scaling_cur_freq_khz_all": scaling_cur_freq_khz_all,
     }
 
 
@@ -170,6 +175,41 @@ def test_arc135_freq_khz_observed_sin_columna_real_usa_el_de_contexto(tmp_path):
     windows = postprocess.build_windows(samples, _context(freq_khz_observed=2261000))
 
     assert windows[1]["freq_khz_observed"] == 2261000
+
+
+@pytest.mark.parametrize("raw,expected", [
+    (None, None),
+    ("", None),
+    ("2200000", None),  # una sola lectura: no hay con que comparar
+    ("2200000;2200000;2200000", 0),
+    ("2200000;3600000;2200000", 1400000),
+    # ARC-142: 0 en una posicion = esa lectura individual fallo -- se excluye
+    # del spread, no se cuenta como "0 kHz real".
+    ("2200000;0;2200000", 0),
+    ("0;0", None),
+])
+def test_arc142_observed_freq_spread(raw, expected):
+    assert postprocess._observed_freq_spread(raw) == expected
+
+
+def test_arc142_freq_khz_observed_spread_por_ventana(tmp_path):
+    """ARC-142: scaling_cur_freq_khz_all trae una lectura por CPU delegado
+    (no solo CPU0) -- pacca tiene dominio cpufreq por-core, asi que los
+    demas nucleos pueden divergir del representativo bajo Turbo/HWP sin que
+    freq_khz_observed (el escalar) lo revele."""
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0,
+                 scaling_cur_freq_khz=2200000, scaling_cur_freq_khz_all="2200000;2200000;2200000"),
+        _cpu_row(repetition=1, ts=1_001_000_000, instructions=2_000_000, cycles=1_000_000,
+                 cache_references=100_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000,
+                 scaling_cur_freq_khz=2200000, scaling_cur_freq_khz_all="2200000;3600000;2200000"),
+    ])
+    windows = postprocess.build_windows(samples, _context())
+
+    assert windows[1]["freq_khz_observed_spread"] == 1400000
+    assert windows[1]["freq_khz_observed"] == 2200000  # el escalar no cambia
 
 
 def test_post01_primera_muestra_sin_delta_imputado(tmp_path):

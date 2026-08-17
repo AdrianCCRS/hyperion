@@ -18,6 +18,10 @@ from . import node_profile as node_profile_module
 REQUIRED_OUTPUT_COLUMNS: tuple[str, ...] = (
     "run_id", "repetition", "kernel_ref", "node_id", "phase_label_hint", "phase_label_train",
     "freq_level_id", "gpu_freq_level_id", "freq_khz_requested", "freq_khz_applied", "freq_khz_observed",
+    # ARC-142: max-min entre los CPUs delegados que reportaron lectura --
+    # ver _observed_freq_spread(). None cuando hay menos de 2 lecturas
+    # válidas esa ventana, nunca un 0 fabricado.
+    "freq_khz_observed_spread",
     "window_index", "t_start_ns", "t_end_ns", "delta_t_ns",
     "delta_instructions", "delta_cycles", "delta_cache_references", "delta_cache_misses",
     "delta_stalled_cycles_backend", "stall_backend_ratio",
@@ -178,6 +182,23 @@ def _delta(cur: int | None, prev: int | None) -> int | None:
     if cur is None or prev is None:
         return None
     return cur - prev
+
+
+def _observed_freq_spread(raw: str | None) -> int | None:
+    """ARC-142: parses telemetry_kernel_launcher.cpp's ';'-separated
+    scaling_cur_freq_khz_all column (one reading per delegated CPU, 0 for a
+    CPU whose individual read failed that tick, same "not sampled"
+    convention as every other optional column) and returns max-min across
+    the CPUs that DID report a nonzero reading. None (never 0) when fewer
+    than 2 CPUs reported -- a spread needs at least 2 points to mean
+    anything, and 0 would be indistinguishable from "confirmed identical."
+    """
+    if not raw:
+        return None
+    values = [int(part) for part in raw.split(";") if part.isdigit() and int(part) != 0]
+    if len(values) < 2:
+        return None
+    return max(values) - min(values)
 
 
 # ARC-48: runner.py nunca pasa --repetitions al launcher, así que
@@ -445,6 +466,18 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
         scaling_cur_freq_khz = _to_int(cur.get("scaling_cur_freq_khz"))
         if scaling_cur_freq_khz is not None:
             row["freq_khz_observed"] = scaling_cur_freq_khz
+
+        # ARC-142: scaling_cur_freq_khz_all carries the SAME reading for
+        # every delegated CPU, not just CPU0/freq_khz_observed above --
+        # pacca's cpufreq domain is per-core (not per-socket like felix's),
+        # so the other delegated CPUs can genuinely run at a different clock
+        # under Turbo/HWP without this. freq_khz_observed_spread is
+        # max-min across whichever CPUs actually reported a nonzero reading
+        # this tick -- None (never 0) when fewer than 2 CPUs reported, same
+        # "not enough data" convention as everywhere else in this file. A
+        # positive spread means the delegated CPUs did NOT all run at the
+        # same clock during this window.
+        row["freq_khz_observed_spread"] = _observed_freq_spread(cur.get("scaling_cur_freq_khz_all"))
 
         delta_instructions = _delta(_to_int(cur.get("instructions")), _to_int(prev.get("instructions")))
         delta_cycles = _delta(_to_int(cur.get("cycles")), _to_int(prev.get("cycles")))
@@ -771,6 +804,7 @@ def _base_row(context: WindowContext, *, window_index: int) -> dict[str, Any]:
         "freq_khz_requested": context.freq_khz_requested,
         "freq_khz_applied": context.freq_khz_applied,
         "freq_khz_observed": context.freq_khz_observed,
+        "freq_khz_observed_spread": None,
         "window_index": window_index,
         "delta_instructions": None,
         "delta_cycles": None,

@@ -156,6 +156,23 @@ def build_command(
         freq_path = freqctl.cur_freq_path(environment_profile, cores.delegated_cpus[0])
         if freq_path is not None:
             command += ["--cpu-freq-sysfs-path", str(freq_path)]
+            # ARC-142: sample the REST of the delegated CPUs too, not just
+            # CPU0 -- pacca's cpufreq domain is per-core (not per-socket
+            # like felix's), so the other cores can diverge from CPU0 under
+            # Turbo/HWP without this, which the single scalar column could
+            # never reveal. Only attempted when CPU0's own path resolved
+            # (freqctl.cur_freq_path returning None for CPU0 already means
+            # this environment can't read cpufreq at all); any individual
+            # extra CPU whose path fails to resolve is simply omitted from
+            # the list, degrading that one CPU to "not sampled" instead of
+            # dropping the whole feature.
+            extra_paths = [
+                str(path)
+                for cpu in cores.delegated_cpus[1:]
+                if (path := freqctl.cur_freq_path(environment_profile, cpu)) is not None
+            ]
+            if extra_paths:
+                command += ["--cpu-freq-sysfs-path-extra", ",".join(extra_paths)]
     # --cgroup-path is optional isolation only (CPP-05); it is never required
     # for perf to attach correctly.
     if manifest.cgroup_path:
@@ -218,13 +235,52 @@ def build_command(
     return command
 
 
-def _resolve_timeout_seconds(entry: KernelEntry, manifest: Any) -> float:
-    """RUN-03: expected_runtime_seconds x SAFETY_MARGIN, or the manifest's
-    generic run timeout for entries that do not declare a runtime (e.g. some
-    calibration kernels)."""
-    if entry.expected_runtime_seconds is not None:
-        return float(entry.expected_runtime_seconds) * SAFETY_MARGIN
-    return float(manifest.timeouts_seconds.run)
+def _frequency_slowdown_ratio(manifest: Any, freq_level_id: str, environment_profile: Any) -> float:
+    """ARC-141: how much slower a CPU-bound kernel can legitimately run at
+    `freq_level_id` relative to the node's fastest available frequency --
+    1.0 (no adjustment) for native_governor, or when the frequency range
+    cannot be resolved (preserves the old behavior exactly, never raises).
+    A fixed level near the bottom of the range (e.g. F4, ARC-136/140: base
+    ~3.2GHz down to 0.8GHz once Turbo is disabled) can legitimately take
+    ~4x longer than the same kernel at the top of the range -- a flat
+    SAFETY_MARGIN calibrated against ordinary run-to-run variance was never
+    meant to also absorb a systematic DVFS slowdown of that magnitude."""
+    try:
+        level = _resolve_frequency_level(manifest, freq_level_id)
+    except ValueError:
+        return 1.0
+    if level.mode != "fixed" or level.fraction is None:
+        return 1.0
+    available = getattr(environment_profile, "available_frequencies_khz", None) or []
+    if not available:
+        return 1.0
+    max_khz, min_khz = max(available), min(available)
+    if max_khz <= 0 or min_khz < 0 or max_khz <= min_khz:
+        return 1.0
+    target_khz = min_khz + level.fraction * (max_khz - min_khz)
+    if target_khz <= 0:
+        return 1.0
+    return max(1.0, max_khz / target_khz)
+
+
+def _resolve_timeout_seconds(
+    entry: KernelEntry, manifest: Any, *, freq_level_id: str | None = None, environment_profile: Any = None,
+) -> float:
+    """RUN-03: expected_runtime_seconds x SAFETY_MARGIN, scaled by the
+    expected DVFS slowdown of `freq_level_id` (ARC-141) when both are
+    known -- never smaller than the manifest's own generic run timeout,
+    which used to be silently ignored whenever the catalog declared
+    expected_runtime_seconds (i.e. always). Entries without a declared
+    runtime (e.g. some calibration kernels) fall back to the manifest
+    timeout alone, as before."""
+    manifest_timeout = float(manifest.timeouts_seconds.run)
+    if entry.expected_runtime_seconds is None:
+        return manifest_timeout
+    ratio = (
+        _frequency_slowdown_ratio(manifest, freq_level_id, environment_profile)
+        if freq_level_id is not None else 1.0
+    )
+    return max(float(entry.expected_runtime_seconds) * ratio * SAFETY_MARGIN, manifest_timeout)
 
 
 def _terminate_process_group(pgid: int) -> None:
@@ -451,7 +507,9 @@ def run_single(
     run_dir.mkdir(parents=True, exist_ok=True)
 
     command = build_command(entry, manifest, run_id, harness, environment_profile)
-    timeout_seconds = _resolve_timeout_seconds(entry, manifest)
+    timeout_seconds = _resolve_timeout_seconds(
+        entry, manifest, freq_level_id=freq_level_id, environment_profile=environment_profile,
+    )
 
     stdout_path = run_dir / "stdout.txt"
     stderr_path = run_dir / "stderr.txt"
@@ -547,6 +605,7 @@ def run_single(
             require_per_window=True,
             expected_khz=expected_khz,
             tolerance_fraction=frequency_tolerance_fraction,
+            expected_cpu_count=len(manifest.cores.delegated_cpus),
         )
         frequency_summary.update({
             "accepted": frequency_verdict.accepted,

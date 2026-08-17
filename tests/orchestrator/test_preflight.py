@@ -152,23 +152,27 @@ def test_pre_t13_preflight_completo_correcto(tmp_path, env):
             "projected_core_hours": 0.5,
         }
     results = preflight.run_campaign_preflight(
-        # ARC-101: D05 ahora compara contra los 10 eventos reales que el
+        # ARC-101: D05 ahora compara contra los eventos reales que el
         # harness pide (antes comparaba contra manifest.perf_events, que
         # nunca existio y siempre daba una lista vacia) -- este test quiere
-        # que TODO pase, asi que pmc_count debe alcanzar el presupuesto real.
+        # que TODO pase, asi que pmc_count debe alcanzar el presupuesto real
+        # (9 desde ARC-132, este pmc_count=10 sigue siendo suficiente).
         manifest, env, {"cal": entry, "dataset": entry}, sysfs=SysfsPaths.from_base(tmp_path / "sys"), node_profile=SimpleNamespace(pmc_count=10)
     )
     assert results and all(result.passed for result in results)
 
 
-def test_arc101_d05_bloquea_con_presupuesto_insuficiente_para_los_10_eventos_reales(tmp_path, env):
+def test_arc101_d05_bloquea_con_presupuesto_insuficiente_para_los_9_eventos_reales(tmp_path, env):
     # ARC-101: antes de este fix, D05 comparaba contra manifest.perf_events
     # (nunca existio como atributo real de Manifest, siempre caia en su
     # default ()), asi que "0 <= pmc_count" pasaba sin importar el
-    # presupuesto real del nodo. Con el fix, compara contra los 10 eventos
+    # presupuesto real del nodo. Con el fix, compara contra los eventos
     # reales que el harness siempre pide -- un nodo con menos contadores
     # simultaneos que eso debe bloquear la campana completa antes de
     # arrancar, no descubrirse a mitad de una corrida real.
+    # ARC-132: el presupuesto real bajo de 10 a 9 -- l2_lines_in_all ya no
+    # se abre (nmi_watchdog reserva un PMC físico que el presupuesto nunca
+    # descontó).
     binary = tmp_path / "kernel"
     binary.write_text("#!/bin/sh\nexit 0\n")
     binary.chmod(0o755)
@@ -193,7 +197,7 @@ def test_arc101_d05_bloquea_con_presupuesto_insuficiente_para_los_10_eventos_rea
     d05 = next(r for r in results if r.factor_id == "D05")
     assert d05.passed is False
     assert d05.blocking is True
-    assert d05.observed["requested"] == 10
+    assert d05.observed["requested"] == 9
 
 
 def test_preflight_no_corta_despues_de_la_primera_falla(tmp_path, env):

@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include <cstdint>
 #include <ctime>
 
@@ -12,7 +13,20 @@
  * energy deltas should be computed by the consumer/export path, not here.
  */
 namespace telemetry {
-     
+
+    /**
+     * @brief Upper bound on how many delegated CPUs CpuSample can carry a
+     * per-CPU cpufreq reading for.
+     *
+     * ARC-142: every real manifest in this project delegates 4-8 CPUs; 16
+     * leaves comfortable headroom without making CpuSample's fixed layout
+     * (see file-level comment: no dynamic allocation across the SPSC ring)
+     * unreasonably large. A campaign that delegates more CPUs than this
+     * simply stops filling additional slots (collector.cpp caps the loop),
+     * it does not corrupt memory or crash.
+     */
+    constexpr size_t kMaxScalingCurFreqCpus = 16;
+
     /**
      * @brief Nanoseconds from CLOCK_MONOTONIC.
      *
@@ -60,6 +74,24 @@ namespace telemetry {
          * campaign data). 0 means "not sampled" (reader disabled/unavailable
          * for this run), never a real 0kHz reading. */
         uint64_t scaling_cur_freq_khz;
+        /* ARC-142: same reading as scaling_cur_freq_khz above, but for
+         * EVERY delegated CPU, not just the representative one -- pacca's
+         * cpufreq domain is per-core (unlike felix's per-socket domain), so
+         * the other delegated CPUs can diverge from CPU0 under Turbo/HWP
+         * without this array, which the scalar field alone could never
+         * reveal (confirmed a real risk after ARC-136 found Turbo ignoring
+         * a frequency lock at all). scaling_cur_freq_khz_per_cpu[0] always
+         * equals scaling_cur_freq_khz -- same reading, not a second sample.
+         * count==0 means "not sampled" for every slot (reader disabled),
+         * same convention as the scalar field's 0.
+         *
+         * No in-class initializers here (unlike a normal struct) -- CpuSample
+         * is a member of the Sample union below, which requires every member
+         * to stay a trivial type; sample_cpu_freq() in collector.cpp always
+         * sets these explicitly before a sample is pushed, never relying on
+         * a default. */
+        uint32_t scaling_cur_freq_khz_count;
+        uint64_t scaling_cur_freq_khz_per_cpu[kMaxScalingCurFreqCpus];
     };
 
     /**

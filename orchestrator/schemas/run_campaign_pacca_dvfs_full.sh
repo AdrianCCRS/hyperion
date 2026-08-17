@@ -8,7 +8,11 @@ set -e -o pipefail
 
 export PYTHONPATH="/home/latorresn/hyperion:${PYTHONPATH:-}"
 
-srun -p GPU -w paccaA100 --nodes=1 --ntasks=1 --gres=gpu:1 --exclusive --time=05:00:00 \
+# Margen operativo: la matriz final tiene 540 combinaciones y los niveles
+# bajos pueden alargar cada kernel de forma sistemática. El timeout interno
+# vence 30 min antes que Slurm para permitir el finally de restauración y
+# dejar campaign_metadata.json consistente.
+srun -p GPU -w paccaA100 --nodes=1 --ntasks=1 --gres=gpu:1 --exclusive --time=12:00:00 \
   ~/hyperion/scripts/pacca/with_cpu_turbo_disabled.sh bash -c '
 # ARC-127: "module load openblas/0.3.21" solo, sin el padre gnu12, siempre
 # fallo (RC=1, "Or load any one of these options: module load gnu12/12.4.0
@@ -25,6 +29,6 @@ python3 -m orchestrator.cli run-campaign \
   --node-id pacca-a100 \
   --hostname "$(hostname)" \
   --reference-kernel-ref npb_mg \
-  --campaign-timeout-seconds 16200
+  --campaign-timeout-seconds 41400
 '
 echo CAMPAIGN_SCRIPT_DONE

@@ -113,6 +113,21 @@ namespace telemetry {
          * exited) that campaign.py used before this existed.
          */
         std::string cpu_freq_sysfs_path;
+
+        /**
+         * ARC-142: full sysfs paths for the REMAINING delegated CPUs (every
+         * one after the representative CPU above), same file shape
+         * ("cpufreq/scaling_cur_freq"). Empty (default) samples only the
+         * representative CPU, exactly like before this field existed --
+         * CpuSample::scaling_cur_freq_khz_count stays at 1 (or 0 if the
+         * representative path is also empty). Pacca's cpufreq domain is
+         * per-core (not per-socket like felix's), so the other delegated
+         * CPUs can run at a different clock than the representative one
+         * under Turbo/HWP without this signal. Capped at
+         * kMaxScalingCurFreqCpus - 1 entries (the representative CPU takes
+         * slot 0); extra paths beyond that are ignored, not an error.
+         */
+        std::vector<std::string> cpu_freq_sysfs_paths_extra;
     };
 
     /**
@@ -221,6 +236,9 @@ namespace telemetry {
             RaplReader rapl_reader_;
             UncoreReader uncore_reader_;
             CpuFreqReader cpu_freq_reader_;
+            // ARC-142: one reader per entry in cfg_.cpu_freq_sysfs_paths_extra,
+            // same open/close/read lifecycle as cpu_freq_reader_ above.
+            std::vector<CpuFreqReader> cpu_freq_readers_extra_;
             NvmlReader nvml_reader_;
 
             /**
@@ -234,6 +252,14 @@ namespace telemetry {
 
             /** Main sampling loop executed by the producer pthread. */
             void run();
+
+            /**
+             * @brief Fills sample.scaling_cur_freq_khz(_per_cpu/_count) from
+             * cpu_freq_reader_ and cpu_freq_readers_extra_. Shared by both
+             * the cgroup and simple-PID CPU sampling branches of run() so
+             * the multi-CPU logic exists in exactly one place.
+             */
+            void sample_cpu_freq(CpuSample& cpu) noexcept;
 
             /** Legacy relative sleep helper kept for compatibility with tests/debugging. */
             void sleep_ns(long ns) const noexcept;

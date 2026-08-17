@@ -208,6 +208,47 @@ def load_calibration(
     return calibration
 
 
+def _require_valid_frequency_trace(
+    result: Any,
+    ref: str,
+    freq_level_id: str,
+    *,
+    label: str,
+    require_per_window: bool,
+) -> None:
+    """ARC-141: `run_single()` ya calcula `frequency_trace_validation` (E01,
+    ARC-138) contra las lecturas reales del colector cuando el manifiesto
+    declara `frequency_validation.require_per_window` -- pero antes de este
+    cambio, ninguna calibración lo consultaba: `_measure_bw_and_flops_peak()`
+    solo revisaba `result.success` (CAL-02/CAL-03), así que STREAM/ERT podían
+    correr a una frecuencia física distinta de la solicitada (el mismo
+    hallazgo de ARC-136/140 -- turbo ignorando el candado) y la calibración
+    igual se aceptaba y se guardaba como válida, contaminando en silencio el
+    ridge point (P_pico/BW_pico) de ese nivel. Ausente (manifiesto sin
+    `frequency_validation` declarado, o kernel de GPU) nunca bloquea --
+    mismo criterio que `validation.validate_run()` ya aplica a las corridas
+    de conjunto de datos. Cuando el manifiesto sí la exige, que el resumen
+    falte también bloquea: aceptar ausencia no sería un cierre fail-closed."""
+    frequency_trace = (result.metadata or {}).get("frequency_trace_validation")
+    if require_per_window and frequency_trace is None:
+        raise CalibrationError(
+            f"{label}: la calibración ({ref}) en {freq_level_id!r} no guardó "
+            "frequency_trace_validation aunque el manifiesto exige validación por ventana"
+        )
+    if frequency_trace is not None and (
+        not isinstance(frequency_trace, Mapping)
+        or not frequency_trace.get("accepted", False)
+    ):
+        message = (
+            frequency_trace.get("message")
+            if isinstance(frequency_trace, Mapping) else "resumen de traza malformado"
+        )
+        raise CalibrationError(
+            f"{label}: la traza de frecuencia de la calibración ({ref}) en {freq_level_id!r} "
+            f"no fue válida: {message or 'traza de frecuencia inválida'}"
+        )
+
+
 def _measure_bw_and_flops_peak(
     manifest: Any,
     stream_ref: str,
@@ -224,6 +265,9 @@ def _measure_bw_and_flops_peak(
     """Runs STREAM (bandwidth) and ERT (FLOPs) once each at `freq_level_id`
     and returns (bw_pico, p_pico, stream_raw, ert_raw) already converted to
     SI base units (ARC-43)."""
+    require_frequency_trace = bool(
+        (getattr(manifest, "frequency_validation", None) or {}).get("require_per_window", False)
+    )
     stream_result = run_single(
         stream_kernel, manifest, stream_ref, freq_level_id, 0,
         environment_profile=environment_profile, node_id=node_id,
@@ -233,6 +277,10 @@ def _measure_bw_and_flops_peak(
         raise CalibrationError(
             f"CAL-02: la calibración de ancho de banda ({stream_ref}) no tuvo éxito en {freq_level_id!r}"
         )
+    _require_valid_frequency_trace(
+        stream_result, stream_ref, freq_level_id,
+        label="CAL-07", require_per_window=require_frequency_trace,
+    )
 
     ert_result = run_single(
         ert_kernel, manifest, ert_ref, freq_level_id, 0,
@@ -243,6 +291,10 @@ def _measure_bw_and_flops_peak(
         raise CalibrationError(
             f"CAL-03: la calibración de FLOPs ({ert_ref}) no tuvo éxito en {freq_level_id!r}"
         )
+    _require_valid_frequency_trace(
+        ert_result, ert_ref, freq_level_id,
+        label="CAL-07", require_per_window=require_frequency_trace,
+    )
 
     stream_raw = stream_result.stdout_path.read_text(errors="replace")
     ert_raw = ert_result.stdout_path.read_text(errors="replace")
@@ -742,6 +794,14 @@ def run_calibration_references(
         )
         for repetition in range(1, repetitions + 1)
     ]
+    require_frequency_trace = bool(
+        (getattr(manifest, "frequency_validation", None) or {}).get("require_per_window", False)
+    )
+    for result in runs:
+        _require_valid_frequency_trace(
+            result, kernel_ref, _CALIBRATION_FREQ_LEVEL_ID,
+            label="CAL-07", require_per_window=require_frequency_trace,
+        )
     references = build_calibration_references(runs, node_id, cv_threshold_pct=cv_threshold_pct)
     write_calibration_references(references, manifest.output_dir)
     if not references.accepted:

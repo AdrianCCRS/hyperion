@@ -22,9 +22,19 @@ from .catalog import verify_binary
 # comparar nada contra el presupuesto real de contadores del nodo. Si
 # perf_reader.hpp cambia su conjunto de eventos, esta tupla debe
 # actualizarse a mano junto con él.
+#
+# ARC-132: "l2_lines_in_all" retirado de este conteo -- perf_reader.cpp ya
+# no intenta abrirlo en absoluto (índice kL2LinesInAll saltado antes de
+# perf_event_open, mismo camino de degradación elegante que ya existía para
+# hardware sin soporte, ARC-63) desde que se confirmó que nmi_watchdog=1
+# reserva un PMC físico por núcleo que el presupuesto pmc_count=10 (ARC-53)
+# nunca descontó -- pedir el décimo contador forzaba multiplexación real
+# (deltas negativos en FP_ARITH_INST_RETIRED). El presupuesto real que el
+# harness consume hoy es 9, no 10; D05 seguía comparando contra 10 y podía
+# bloquear una campaña innecesariamente en un nodo con pmc_count=9.
 _HARNESS_PERF_EVENTS = (
     "instructions", "cycles", "cache_references", "cache_misses",
-    "stalled_cycles_backend", "l2_lines_in_all",
+    "stalled_cycles_backend",
     "fp_scalar_double", "fp_128b_packed_double", "fp_256b_packed_double", "fp_512b_packed_double",
 )
 

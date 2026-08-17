@@ -19,6 +19,7 @@ from . import postprocess as postprocess_module
 from . import preflight as preflight_module
 from . import runner as runner_module
 from . import validation as validation_module
+from .config import load_config
 from .manifest import Combination
 
 logger = logging.getLogger(__name__)
@@ -48,13 +49,49 @@ class CampaignPreflightError(RuntimeError):
     reject yet at this point -- the whole campaign must not start."""
 
 
-def compute_protocol_fingerprint(manifest: Any, catalog: Mapping[str, Any]) -> str:
+class CampaignCalibrationMissingError(RuntimeError):
+    """CAM-11 (ARC-142): output_dir already has accepted runs (a resume,
+    per _has_existing_runs) but is missing a calibration/profile/references
+    artifact this resume needs to load. Re-measuring instead of raising
+    would silently overwrite roofline_calibration_<id>.json and
+    calibration_references.json -- shared files that already-accepted runs
+    reference by path -- swapping the i_ridge/reference data out from under
+    them, and classifying any remaining combination against a different
+    calibration than the ones already accepted, with no record of the
+    split. A resume with missing calibration artifacts must fail closed and
+    be resolved by hand, never silently re-measure."""
+
+
+def _launcher_checksum(harness: Any) -> str | None:
+    """ARC-141: sha256 del binario del launcher C++ (harness.binary_path),
+    mismo patrón que catalog.verify_binary() usa para los binarios de los
+    kernels. None (nunca "" ni un valor inventado) cuando el archivo no
+    existe o no es legible -- una campaña sin este dato disponible no debe
+    fallar por eso, pero tampoco debe fingir un checksum que no verificó."""
+    binary_path = getattr(harness, "binary_path", None)
+    if not binary_path:
+        return None
+    try:
+        with open(binary_path, "rb") as binary_file:
+            return f"sha256:{hashlib.file_digest(binary_file, 'sha256').hexdigest()}"
+    except OSError:
+        return None
+
+
+def compute_protocol_fingerprint(manifest: Any, catalog: Mapping[str, Any], harness: Any = None) -> str:
     """CAM-09 (ARC-94): a hash of every manifest/catalog field that affects
     what a run actually measures -- sampling cadence, frequency levels,
     core pinning, SMT policy, and per-kernel exec args/checksum/warmup for
     every kernel_ref this manifest references (calibration + kernels).
     Two manifests that would produce different samples.csv/windows.csv for
     the same run_id must never share this fingerprint.
+
+    `harness` (ARC-141): when given, its binary's sha256 enters the
+    fingerprint too -- a resumed campaign that runs against a rebuilt
+    launcher (different C++ instrument, same manifest) previously went
+    completely undetected, since nothing here ever looked past the Python
+    orchestrator's own inputs. None (the default, and every call site
+    before this change) omits it, exactly as before.
     """
     gpu = getattr(manifest, "gpu", {}) or {}
     rapl = getattr(manifest, "rapl", {}) or {}
@@ -96,6 +133,23 @@ def compute_protocol_fingerprint(manifest: Any, catalog: Mapping[str, Any]) -> s
         # mismo output_dir queden marcados como protocolos distintos, en
         # vez de indistinguibles.
         "campaign_id": manifest.campaign_id,
+        # ARC-141: la revisión pre-vuelo del dataset final encontró que la
+        # huella no cambiaba al editar la semilla, uncore, los timeouts, el
+        # umbral de carga externa o la ficha técnica de calibración -- los
+        # cinco pueden alterar qué se mide o cómo se clasifica sin que
+        # ninguna corrida quedara marcada como de protocolo distinto:
+        # `seed` decide el orden de la matriz (CAM-01), no reproducible si
+        # cambia entre una reanudación y la siguiente sin que se note;
+        # `uncore.enabled` decide si `operational_intensity`/
+        # `phase_label_train` se calculan con bytes reales o quedan
+        # indefinidos (E12/ARC-123) -- el caso más grave de los cinco, dos
+        # corridas bajo el mismo run_id podrían tener criterios de
+        # clasificación incompatibles; `timeouts_seconds`/`load_threshold`
+        # afectan qué combinaciones se rechazan (RUN-03/E08) sin afectar el
+        # contenido de una corrida aceptada, pero igual identifican un
+        # protocolo distinto; `hardware_datasheet` decide si D03 acepta o
+        # rechaza la calibración (plausibilidad de BW_pico/P_pico).
+        "seed": manifest.seed,
         "interval_ns": manifest.interval_ns,
         "gpu_interval_ns": getattr(manifest, "gpu_interval_ns", None),
         "running_ratio_min": manifest.running_ratio_min,
@@ -104,13 +158,27 @@ def compute_protocol_fingerprint(manifest: Any, catalog: Mapping[str, Any]) -> s
         "turbo": dict(getattr(manifest, "turbo", None) or {}),
         "frequency_validation": dict(getattr(manifest, "frequency_validation", None) or {}),
         "temperature": dict(getattr(manifest, "temperature", None) or {}),
+        "uncore": dict(getattr(manifest, "uncore", None) or {}),
+        "load_threshold": getattr(manifest, "load_threshold", None),
+        "timeouts_seconds": {
+            "ready": manifest.timeouts_seconds.ready,
+            "run": manifest.timeouts_seconds.run,
+            "shutdown": manifest.timeouts_seconds.shutdown,
+        },
+        "hardware_datasheet": dict(getattr(manifest, "hardware_datasheet", None) or {}),
+        "launcher_checksum": _launcher_checksum(harness),
         "smt_policy": manifest.smt_policy,
         "perf_enabled": manifest.perf_enabled,
         "rapl": {"enabled": rapl.get("enabled"), "domains": sorted(rapl.get("domains", ()) or ())},
         "gpu": {
             "enabled": gpu.get("enabled"),
-            "calibration": sorted(gpu.get("calibration", ()) or ()),
+            "calibration": list(gpu.get("calibration", ()) or ()),
         },
+        # El orden también es parte del protocolo: con la misma semilla,
+        # reordenar kernels cambia la permutación final y por tanto su
+        # posición respecto a deriva térmica/temporal.
+        "kernel_refs": list(manifest.kernels),
+        "calibration_refs": list(manifest.calibration),
         "cores": {
             "delegated_cpus": list(cores.delegated_cpus),
             "collector_cpu": cores.collector_cpu,
@@ -120,6 +188,10 @@ def compute_protocol_fingerprint(manifest: Any, catalog: Mapping[str, Any]) -> s
         "frequency_levels": [
             {"id": level.id, "mode": level.mode, "fraction": getattr(level, "fraction", None)}
             for level in manifest.frequency_levels
+        ],
+        "gpu_frequency_levels": [
+            {"id": level.id, "mode": level.mode, "fraction": getattr(level, "fraction", None)}
+            for level in (getattr(manifest, "gpu_frequency_levels", None) or ())
         ],
         "kernels": kernel_fingerprint,
     }
@@ -140,7 +212,37 @@ def _has_existing_runs(output_dir: Path) -> bool:
     return any((entry / "verdict.json").exists() for entry in output_dir.iterdir() if entry.is_dir())
 
 
-def _check_protocol_fingerprint(manifest: Any, catalog: Mapping[str, Any]) -> None:
+def _has_existing_setup_artifacts(output_dir: Path) -> bool:
+    """CAM-11: detecta una calibración iniciada aunque la campaña se haya
+    interrumpido antes de escribir el primer verdict.json.
+
+    Esos archivos tampoco se pueden adoptar bajo una huella nueva ni
+    sobrescribir parcialmente: ya son evidencia medida del protocolo.
+    """
+    if not output_dir.is_dir():
+        return False
+    if any(output_dir.glob("roofline_calibration*.json")):
+        return True
+    if any(
+        (output_dir / filename).exists()
+        for filename in ("node_profile.json", "calibration_references.json")
+    ):
+        return True
+    # Una interrupción puede ocurrir dentro de STREAM/ERT o de la primera
+    # combinación, antes de que exista un ridge o verdict.json. Sus crudos
+    # dentro de un subdirectorio también son evidencia: no se adoptan ni se
+    # pisan como si el output_dir estuviera vacío.
+    return any(
+        entry.is_dir() and any(entry.iterdir())
+        for entry in output_dir.iterdir()
+    )
+
+
+def _has_existing_campaign_artifacts(output_dir: Path) -> bool:
+    return _has_existing_runs(output_dir) or _has_existing_setup_artifacts(output_dir)
+
+
+def _check_protocol_fingerprint(manifest: Any, catalog: Mapping[str, Any], harness: Any = None) -> None:
     """CAM-09: writes protocol_fingerprint.json on the first run in a fresh
     output_dir; on any later invocation (a resume, by definition, since
     accepted verdicts can only exist after a first successful pass),
@@ -162,7 +264,7 @@ def _check_protocol_fingerprint(manifest: Any, catalog: Mapping[str, Any]) -> No
     """
     output_dir = Path(manifest.output_dir)
     fingerprint_path = output_dir / "protocol_fingerprint.json"
-    current = compute_protocol_fingerprint(manifest, catalog)
+    current = compute_protocol_fingerprint(manifest, catalog, harness)
     if fingerprint_path.exists():
         previous = json.loads(fingerprint_path.read_text()).get("sha256")
         if previous != current:
@@ -174,9 +276,9 @@ def _check_protocol_fingerprint(manifest: Any, catalog: Mapping[str, Any]) -> No
                 "protocolo nuevo, o revierte el cambio de manifiesto/catálogo."
             )
         return
-    if _has_existing_runs(output_dir):
+    if _has_existing_campaign_artifacts(output_dir):
         raise CampaignProtocolMismatchError(
-            f"CAM-09: {output_dir} ya contiene corridas (verdict.json) pero nunca tuvo "
+            f"CAM-09: {output_dir} ya contiene corridas o artefactos de calibración pero nunca tuvo "
             "protocol_fingerprint.json -- es una carpeta de campaña anterior a este "
             "mecanismo (o de un origen no controlado). No se adopta en silencio: "
             "confirma a mano el protocolo real de las corridas existentes y escribe "
@@ -293,6 +395,19 @@ def _run_id_for(manifest: Any, scheduled: ScheduledRun) -> str:
     return f"{base}__baseline" if scheduled.mode == "baseline" else base
 
 
+def _archive_run(output_dir: Path, run_id: str, *, archive_kind: str) -> None:
+    """Mueve una corrida existente al siguiente sufijo de auditoría libre."""
+    run_dir = output_dir / run_id
+    if not run_dir.exists():
+        return
+    index = 1
+    while (output_dir / f"{run_id}__{archive_kind}{index}").exists():
+        index += 1
+    archived = output_dir / f"{run_id}__{archive_kind}{index}"
+    run_dir.rename(archived)
+    logger.info("CAM-10: corrida %s archivada antes de reintentar: %s -> %s", archive_kind, run_dir, archived)
+
+
 def _archive_rejected_run(output_dir: Path, run_id: str) -> None:
     """CAM-10 (ARC-94): retrying a rejected combination reuses the same
     deterministic run_id (CAM-03: "rejected or never run -> (re)try both").
@@ -303,15 +418,13 @@ def _archive_rejected_run(output_dir: Path, run_id: str) -> None:
     directory aside (suffixed with the next free ``__rejectedN``) so the
     retry always starts in a clean, previously-unused directory.
     """
-    run_dir = output_dir / run_id
-    if not run_dir.exists():
-        return
-    index = 1
-    while (output_dir / f"{run_id}__rejected{index}").exists():
-        index += 1
-    archived = output_dir / f"{run_id}__rejected{index}"
-    run_dir.rename(archived)
-    logger.info("CAM-10: corrida rechazada archivada antes de reintentar: %s -> %s", run_dir, archived)
+    _archive_run(output_dir, run_id, archive_kind="rejected")
+
+
+def _archive_incomplete_run(output_dir: Path, run_id: str) -> None:
+    """CAM-10: conserva crudos de una invocación interrumpida antes de que
+    pudiera escribir verdict.json, en vez de sobrescribirlos al reintentar."""
+    _archive_run(output_dir, run_id, archive_kind="incomplete")
 
 
 def _previous_verdict(output_dir: str | Path, run_id: str) -> validation_module.Verdict | None:
@@ -347,6 +460,24 @@ def write_campaign_metadata(progress: CampaignProgress, manifest: Any, output_di
     return path
 
 
+def _seed_progress_from_previous_metadata(progress: CampaignProgress, output_dir: str | Path) -> None:
+    """ARC-142: carries `total_core_hours`/`overhead_pct_values` forward
+    from a previous campaign_metadata.json in this output_dir, if one
+    exists -- see the call site's comment for why. Silently does nothing
+    (fresh progress, matching behavior before this change) when the file is
+    absent or unreadable; a resume with a corrupt/missing metadata file
+    should still be able to proceed, it just starts the accumulation over,
+    same as a genuinely fresh output_dir always did.
+    """
+    path = Path(output_dir) / "campaign_metadata.json"
+    try:
+        previous = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    progress.total_core_hours = float(previous.get("total_core_hours", 0.0) or 0.0)
+    progress.overhead_pct_values = list(previous.get("overhead_pct_values", ()) or ())
+
+
 def run_campaign(
     manifest: Any,
     catalog: Mapping[str, Any],
@@ -356,6 +487,12 @@ def run_campaign(
     reference_kernel_ref: str,
     hostname: str = "",
     campaign_timeout_seconds: float | None = None,
+    # ARC-141: sha256 del launcher C++ entra a la huella de protocolo
+    # (CAM-09) para que un instrumento reconstruido durante una reanudación
+    # no pase desapercibido. None (default) resuelve harness.binary_path
+    # desde orchestrator.toml, mismo criterio que runner.run_single() ya
+    # usa para el mismo dato.
+    harness: Any = None,
     run_single: Callable[..., Any] = runner_module.run_single,
     apply_frequency: Callable[..., Any] = freqctl_module.apply_frequency,
     read_observed_frequency_khz: Callable[..., Any] = freqctl_module.read_observed_frequency_khz,
@@ -375,6 +512,13 @@ def run_campaign(
     build_node_profile: Callable[..., Any] = node_profile_module.build_node_profile,
     write_node_profile: Callable[..., Any] = node_profile_module.write_node_profile,
     run_calibration_references: Callable[..., Any] = calibration_module.run_calibration_references,
+    # CAM-11 (ARC-142): a resume (_has_existing_runs) loads the calibration
+    # already on disk through these instead of calling the run_*
+    # equivalents above, which would re-measure and overwrite the shared
+    # files that already-accepted runs reference by path.
+    load_calibration: Callable[..., Any] = calibration_module.load_calibration,
+    load_node_profile: Callable[..., Any] = node_profile_module.load_node_profile,
+    load_calibration_references: Callable[..., Any] = calibration_module.load_calibration_references,
     run_postprocess: Callable[..., Any] = postprocess_module.run_postprocess,
     detect_foreign_affinity_pids: Callable[..., Any] = preflight_module.detect_foreign_affinity_pids,
     # ARC-101: preflight.run_reduced_preflight() ya implementaba este check
@@ -409,11 +553,12 @@ def run_campaign(
     inject fakes instead of monkeypatching module internals.
     """
     delegated_cpus = manifest.cores.delegated_cpus
+    resolved_harness = harness or load_config().harness
 
     # CAM-09 (ARC-94): fail closed, before touching any hardware state, if
     # this output_dir already has accepted verdicts from a different
     # measurement protocol (see CampaignProtocolMismatchError).
-    _check_protocol_fingerprint(manifest, catalog)
+    _check_protocol_fingerprint(manifest, catalog, resolved_harness)
 
     # FRQ-01/CAM-07: exactly one snapshot for the whole campaign, and both
     # the emergency handlers (crash/SIGINT/SIGTERM) and the normal-exit path
@@ -445,6 +590,15 @@ def run_campaign(
 
     start_time = time.monotonic()
     progress = CampaignProgress()
+    # ARC-142: CampaignProgress() siempre arranca en cero -- sin esto, una
+    # reanudación sobrescribe campaign_metadata.json con total_core_hours/
+    # overhead_pct_values que solo cuentan lo medido EN ESTA invocación,
+    # descartando en silencio las horas-núcleo y los pares overhead de
+    # cualquier sesión anterior (accepted_run_ids/rejected_run_ids no tienen
+    # este problema: MET-06 ya los distingue de skipped_run_ids, que
+    # preserva las corridas aceptadas antes). Carga el metadata previo, si
+    # existe, y usa sus valores como punto de partida.
+    _seed_progress_from_previous_metadata(progress, manifest.output_dir)
 
     # ARC-102: manifest.load_threshold (opcional) tiene prioridad sobre el
     # default de este parámetro -- así un manifiesto YAML real puede
@@ -514,38 +668,98 @@ def run_campaign(
                 f"E01: estado Turbo/HWP cambió antes de calibrar, observado={pre_calibration_turbo.observed}"
             )
 
-        roofline = run_calibration(
-            manifest, catalog, environment_profile=environment_profile, node_id=node_id, run_single=run_single,
-            apply_frequency=bound_apply_frequency,
-        )
-        # VAL-05: in practice run_calibration() above already raised
-        # CalibrationError before returning anything when D03 failed
-        # (CAL-04); this call is the explicit, single-place gate so the
-        # invariant is asserted, not just assumed.
-        calibration_verdict = validation_module.validate_campaign_calibration(roofline)
-        assert calibration_verdict.accepted, "unreachable: run_calibration() must have raised on D03 failure"
+        # CAM-11 (ARC-142): una reanudación también puede ocurrir después
+        # de calibrar pero antes del primer verdict.json. Cualquier artefacto
+        # de setup existente activa la carga/fallo cerrado: nunca se
+        # sobrescribe una calibración parcial o completa en silencio.
+        is_resume = _has_existing_campaign_artifacts(Path(manifest.output_dir))
 
-        # ARC-80: infraestructura separada de la de CPU -- devuelve {} sin
-        # tocar nada cuando manifest.gpu no declara "calibration" (campañas
-        # sin kernels de GPU), así que no hace falta gatear esta llamada por
-        # si el manifiesto tiene GPU o no.
-        gpu_roofline = run_gpu_calibration(
-            manifest, catalog, environment_profile=environment_profile, node_id=node_id, run_single=run_single,
-            apply_frequency=bound_apply_frequency, apply_gpu_frequency=apply_gpu_frequency,
-        )
+        if is_resume:
+            cpu_levels = tuple(getattr(manifest, "frequency_levels", ()) or ())
+            native_level_id = next(
+                (lvl.id for lvl in cpu_levels if getattr(lvl, "mode", None) == "native_governor"),
+                cpu_levels[0].id if cpu_levels else "",
+            )
+            try:
+                # No basta cargar REF: postprocess abre el ridge de la
+                # frecuencia de cada combinación. Comprobarlos todos ahora
+                # evita ejecutar nuevas cargas antes de descubrir que F2,
+                # F3, etc. faltaban o no eran plausibles.
+                cpu_calibrations = {
+                    level.id: load_calibration(manifest.output_dir, level.id)
+                    for level in cpu_levels
+                }
+                roofline = (
+                    cpu_calibrations[native_level_id]
+                    if cpu_calibrations else load_calibration(manifest.output_dir, "")
+                )
+                profile = load_node_profile(manifest.output_dir)
+                references = load_calibration_references(manifest.output_dir)
+            except (OSError, ValueError, TypeError, calibration_module.CalibrationError) as exc:
+                raise CampaignCalibrationMissingError(
+                    f"CAM-11: {manifest.output_dir} ya tiene corridas o calibración previa pero falta "
+                    f"un artefacto de calibración/perfil/referencias esperado ({exc}). No se "
+                    "vuelve a medir en silencio -- resuelve a mano antes de reanudar."
+                ) from exc
 
-        profile = build_node_profile(environment_profile, delegated_cpus, node_id=node_id, hostname=hostname)
-        write_node_profile(profile, manifest.output_dir)
+            gpu_roofline = {}
+            gpu_config = getattr(manifest, "gpu", None) or {}
+            gpu_calibration_refs = gpu_config.get("calibration") if isinstance(gpu_config, Mapping) else None
+            if gpu_calibration_refs:
+                gpu_levels = tuple(getattr(manifest, "gpu_frequency_levels", None) or cpu_levels)
+                gpu_native_level_id = next(
+                    (lvl.id for lvl in gpu_levels if getattr(lvl, "mode", None) == "native_governor"),
+                    gpu_levels[0].id if gpu_levels else "",
+                )
+                try:
+                    for precision in ("fp32", "fp64"):
+                        calibrations = {
+                            level.id: load_calibration(manifest.output_dir, level.id, precision)
+                            for level in gpu_levels
+                        }
+                        gpu_roofline[precision] = (
+                            calibrations[gpu_native_level_id]
+                            if calibrations else load_calibration(manifest.output_dir, "", precision)
+                        )
+                except (OSError, ValueError, TypeError, calibration_module.CalibrationError) as exc:
+                    raise CampaignCalibrationMissingError(
+                        f"CAM-11: {manifest.output_dir} ya tiene corridas o calibración previa pero falta "
+                        f"una calibración de GPU esperada ({exc}). No se vuelve a medir en silencio -- "
+                        "resuelve a mano antes de reanudar."
+                    ) from exc
+        else:
+            roofline = run_calibration(
+                manifest, catalog, environment_profile=environment_profile, node_id=node_id, run_single=run_single,
+                apply_frequency=bound_apply_frequency,
+            )
+            # VAL-05: in practice run_calibration() above already raised
+            # CalibrationError before returning anything when D03 failed
+            # (CAL-04); this call is the explicit, single-place gate so the
+            # invariant is asserted, not just assumed.
+            calibration_verdict = validation_module.validate_campaign_calibration(roofline)
+            assert calibration_verdict.accepted, "unreachable: run_calibration() must have raised on D03 failure"
 
-        reference_entry = catalog[reference_kernel_ref]
-        references = run_calibration_references(
-            reference_entry, manifest, reference_kernel_ref, node_id=node_id,
-            environment_profile=environment_profile, run_single=run_single,
-            # ARC-94: sin esto, las referencias se medían bajo el último
-            # nivel fixed que run_calibration()/run_gpu_calibration() dejó
-            # aplicado (típicamente F4), no a frecuencia nativa.
-            apply_frequency=bound_apply_frequency,
-        )
+            # ARC-80: infraestructura separada de la de CPU -- devuelve {} sin
+            # tocar nada cuando manifest.gpu no declara "calibration" (campañas
+            # sin kernels de GPU), así que no hace falta gatear esta llamada por
+            # si el manifiesto tiene GPU o no.
+            gpu_roofline = run_gpu_calibration(
+                manifest, catalog, environment_profile=environment_profile, node_id=node_id, run_single=run_single,
+                apply_frequency=bound_apply_frequency, apply_gpu_frequency=apply_gpu_frequency,
+            )
+
+            profile = build_node_profile(environment_profile, delegated_cpus, node_id=node_id, hostname=hostname)
+            write_node_profile(profile, manifest.output_dir)
+
+            reference_entry = catalog[reference_kernel_ref]
+            references = run_calibration_references(
+                reference_entry, manifest, reference_kernel_ref, node_id=node_id,
+                environment_profile=environment_profile, run_single=run_single,
+                # ARC-94: sin esto, las referencias se medían bajo el último
+                # nivel fixed que run_calibration()/run_gpu_calibration() dejó
+                # aplicado (típicamente F4), no a frecuencia nativa.
+                apply_frequency=bound_apply_frequency,
+            )
 
         # MET-07: every run's own metadata.json carries the same calibration
         # references windows.csv rows do, not just the windows themselves.
@@ -604,6 +818,13 @@ def run_campaign(
                 # sibling, if any) before writing into the same run_id again.
                 _archive_rejected_run(Path(manifest.output_dir), telemetry_run_id)
                 _archive_rejected_run(Path(manifest.output_dir), f"{telemetry_run_id}__baseline")
+            elif previous is None:
+                # Un directorio sin verdict.json no equivale a "nunca
+                # ejecutado": puede ser una interrupción entre el launcher
+                # y write_verdict(). Preservar ambos miembros del par antes
+                # de usar otra vez los run_id deterministas.
+                _archive_incomplete_run(Path(manifest.output_dir), telemetry_run_id)
+                _archive_incomplete_run(Path(manifest.output_dir), f"{telemetry_run_id}__baseline")
 
             # PRE-E06: verificar CADA VEZ, justo antes de medir, que no haya
             # procesos ajenos CORRIENDO AHORA MISMO en delegated_cpus -- por
@@ -786,7 +1007,16 @@ def run_campaign(
                 progress.total_core_hours += result.elapsed_seconds * len(delegated_cpus) / 3600.0  # CAM-05/OPS-01
 
                 if item.mode == "baseline":
-                    baseline_elapsed_seconds = result.elapsed_seconds
+                    # ARC-142: un baseline que no terminó bien (crash, kernel
+                    # que salió con código de error) puede tener
+                    # elapsed_seconds > 0 sin haber corrido el workload
+                    # completo -- usarlo como referencia infla o distorsiona
+                    # overhead_pct sin ninguna señal de que el número no
+                    # significa lo que dice. None (igual que un baseline que
+                    # nunca corrió) hace que el bloque de abajo se salte el
+                    # cálculo para este par en vez de comparar contra un
+                    # tiempo que no representa una corrida real.
+                    baseline_elapsed_seconds = result.elapsed_seconds if result.success else None
                     continue  # solo mide overhead; no se valida ni se postprocesa
 
                 # CAM-08: overhead de instrumentacion = cuanto mas lenta corre

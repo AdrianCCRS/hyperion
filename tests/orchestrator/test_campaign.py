@@ -58,7 +58,16 @@ def _catalog(tmp_path: Path) -> dict[str, KernelEntry]:
     }
 
 
-def _write_matching_fingerprint(manifest, catalog):
+# ARC-141: harness sin binario real (binary_path="") -- compute_protocol_
+# fingerprint() ya trata eso como "sin checksum de launcher disponible"
+# (None, nunca un valor inventado), así que usar la misma instancia aquí y
+# en cada llamada a run_campaign() de los tests de reanudación/fingerprint
+# mantiene ambos lados consistentes sin depender de dónde esté compilado
+# telemetry_kernel_launcher en la máquina que corre la suite.
+_FAKE_HARNESS = SimpleNamespace(binary_path="")
+
+
+def _write_matching_fingerprint(manifest, catalog, harness=_FAKE_HARNESS):
     """ARC-94: simula un output_dir legitimamente rastreado por CAM-09 --
     sin esto, cualquier test que cree un run_dir con verdict.json a mano
     (para simular una reanudacion) dispara el chequeo de "carpeta legacy
@@ -66,7 +75,9 @@ def _write_matching_fingerprint(manifest, catalog):
     quiere ejercitar."""
     fingerprint_path = Path(manifest.output_dir) / "protocol_fingerprint.json"
     fingerprint_path.parent.mkdir(parents=True, exist_ok=True)
-    fingerprint_path.write_text(json.dumps({"sha256": campaign.compute_protocol_fingerprint(manifest, catalog)}))
+    fingerprint_path.write_text(
+        json.dumps({"sha256": campaign.compute_protocol_fingerprint(manifest, catalog, harness)})
+    )
 
 
 def _fake_run_single(calls):
@@ -110,6 +121,19 @@ def _fake_calibration_deps():
     def run_calibration_references(entry, manifest, kernel_ref, *, node_id, environment_profile, run_single, apply_frequency=None):
         return SimpleNamespace(node_id=node_id, ipc_p95=1.0, accepted=True)
 
+    # CAM-11 (ARC-142): fakes for the resume path -- a resumed campaign
+    # loads calibration/profile/references from disk instead of measuring,
+    # mirroring the run_* fakes above so tests exercising CAM-03/CAM-08/
+    # CAM-09 resumes don't hit the real (file-backed) loaders.
+    def load_calibration(output_dir, freq_level_id="", gpu_precision=""):
+        return SimpleNamespace(plausibility_check_passed=True, plausibility_message="")
+
+    def load_node_profile(output_dir):
+        return SimpleNamespace(node_id="fake", cache_line_size_bytes=64)
+
+    def load_calibration_references(output_dir):
+        return SimpleNamespace(node_id="fake", ipc_p95=1.0, accepted=True)
+
     def run_postprocess(run_dir, **kwargs):
         postprocess_calls.append((Path(run_dir), kwargs))
         # ARC-94: validate_windows() ahora LEE este archivo de verdad para
@@ -136,6 +160,8 @@ def _fake_calibration_deps():
     return dict(
         run_calibration=run_calibration, build_node_profile=build_node_profile,
         write_node_profile=write_node_profile, run_calibration_references=run_calibration_references,
+        load_calibration=load_calibration, load_node_profile=load_node_profile,
+        load_calibration_references=load_calibration_references,
         run_postprocess=run_postprocess,
     ), postprocess_calls
 
@@ -373,6 +399,54 @@ def test_cam08_overhead_de_instrumentacion_se_calcula_por_par(tmp_path):
     assert metadata["overhead_pct_values"] == [50.0]
 
 
+def _fake_run_single_baseline_falla(calls, *, baseline_elapsed, telemetry_elapsed):
+    def run_single(entry, manifest, kernel_ref, freq_level_id, repetition_index, *,
+                    environment_profile=None, node_id=None, apply_frequency=None,
+                    apply_gpu_frequency=None, calibration_refs=None, run_id=None,
+                    gpu_freq_level_id=None):
+        if run_id is None:
+            base_run_id = runner_module.build_run_id(manifest.campaign_id, kernel_ref, freq_level_id, repetition_index)
+            run_id = base_run_id if manifest.perf_enabled else f"{base_run_id}__baseline"
+        run_dir = Path(manifest.output_dir) / run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+        calls.append((run_id, manifest.perf_enabled))
+        is_baseline = not manifest.perf_enabled
+        elapsed = baseline_elapsed if is_baseline else telemetry_elapsed
+        return SimpleNamespace(
+            run_id=run_id, kernel_ref=kernel_ref, freq_level_id=freq_level_id, repetition_index=repetition_index,
+            # El baseline "corre" (elapsed_seconds > 0, un crash temprano
+            # sigue tomando algo de tiempo) pero termina en error -- exit_code
+            # distinto de 0, success=False.
+            exit_code=1 if is_baseline else 0, timed_out=False, success=not is_baseline,
+            elapsed_seconds=elapsed, run_dir=run_dir,
+            stdout_path=run_dir / "stdout.txt", stderr_path=run_dir / "stderr.txt",
+            metadata={"samples_collected": 10, "push_retries": 0}, applied_frequency=None,
+        )
+    return run_single
+
+
+def test_arc142_baseline_fallido_no_se_usa_para_calcular_overhead_pct(tmp_path):
+    """ARC-142: un baseline con success=False (crash, kernel que salió con
+    error) puede tener elapsed_seconds > 0 sin haber corrido el workload
+    completo -- no debe usarse como referencia de overhead_pct, que
+    quedaría inflado/sin sentido comparado contra un tiempo que no
+    representa una corrida real."""
+    manifest = _manifest(tmp_path)
+    catalog = _catalog(tmp_path)
+    calls: list[tuple[str, bool]] = []
+    calibration_deps, _ = _fake_calibration_deps()
+    freqctl_deps, _, _ = _freqctl_fakes()
+
+    result = campaign.run_campaign(
+        manifest, catalog, SimpleNamespace(frequency_write_capable=False),
+        node_id="felix-sc3", reference_kernel_ref="npb_ep",
+        run_single=_fake_run_single_baseline_falla(calls, baseline_elapsed=0.1, telemetry_elapsed=3.0),
+        **calibration_deps, **freqctl_deps,
+    )
+
+    assert result.progress.overhead_pct_values == []
+
+
 def test_cam08_reanudacion_no_agrega_overhead_para_combinacion_saltada(tmp_path):
     manifest = _manifest(tmp_path)
     catalog = _catalog(tmp_path)
@@ -389,12 +463,50 @@ def test_cam08_reanudacion_no_agrega_overhead_para_combinacion_saltada(tmp_path)
 
     result = campaign.run_campaign(
         manifest, catalog, SimpleNamespace(frequency_write_capable=False),
-        node_id="felix-sc3", reference_kernel_ref="npb_ep",
+        node_id="felix-sc3", reference_kernel_ref="npb_ep", harness=_FAKE_HARNESS,
         run_single=_fake_run_single(calls), **calibration_deps, **freqctl_deps,
     )
 
     assert calls == []  # CAM-03: combinacion ya aceptada, no vuelve a correr el par
     assert result.progress.overhead_pct_values == []
+
+
+def test_arc142_reanudacion_no_resetea_horas_nucleo_ni_overhead_previos(tmp_path):
+    """ARC-142: CampaignProgress() arranca en cero en cada invocación de
+    run_campaign() -- sin cargar el campaign_metadata.json previo, una
+    reanudación sobrescribía total_core_hours/overhead_pct_values con solo
+    lo medido en la sesión actual, descartando en silencio lo acumulado
+    antes."""
+    manifest = _manifest(tmp_path)
+    catalog = _catalog(tmp_path)
+    _write_matching_fingerprint(manifest, catalog)
+    run_id = "camp01__npb_ep__REF__rep01"
+    run_dir = manifest.output_dir / run_id
+    run_dir.mkdir(parents=True)
+    validation_module.write_verdict(
+        validation_module.Verdict(accepted=True, factor_id=None, message=""), run_dir
+    )
+    # Simula el campaign_metadata.json que una sesión anterior ya dejó en
+    # disco, con horas-núcleo/overhead acumulados de corridas que ya no se
+    # vuelven a medir en esta reanudación (la combinación de arriba ya está
+    # aceptada, CAM-03).
+    (manifest.output_dir / "campaign_metadata.json").write_text(json.dumps({
+        "campaign_id": "camp01", "seed": 42, "run_ids_in_order": [run_id],
+        "accepted_run_ids": [run_id], "rejected_run_ids": [], "skipped_run_ids": [],
+        "total_core_hours": 2.5, "overhead_pct_values": [7.0],
+    }))
+
+    calibration_deps, _ = _fake_calibration_deps()
+    freqctl_deps, _, _ = _freqctl_fakes()
+
+    result = campaign.run_campaign(
+        manifest, catalog, SimpleNamespace(frequency_write_capable=False),
+        node_id="felix-sc3", reference_kernel_ref="npb_ep", harness=_FAKE_HARNESS,
+        run_single=_fake_run_single([]), **calibration_deps, **freqctl_deps,
+    )
+
+    assert result.progress.total_core_hours == 2.5
+    assert result.progress.overhead_pct_values == [7.0]
 
 
 def test_arc94_pocas_ventanas_utiles_rechaza_pese_a_success_check_ok(tmp_path):
@@ -693,14 +805,14 @@ def test_cam09_primera_corrida_escribe_el_fingerprint_de_protocolo(tmp_path):
 
     campaign.run_campaign(
         manifest, catalog, SimpleNamespace(frequency_write_capable=False),
-        node_id="felix-sc3", reference_kernel_ref="npb_ep",
+        node_id="felix-sc3", reference_kernel_ref="npb_ep", harness=_FAKE_HARNESS,
         run_single=_fake_run_single([]), **calibration_deps, **freqctl_deps,
     )
 
     fingerprint_path = manifest.output_dir / "protocol_fingerprint.json"
     assert fingerprint_path.exists()
     stored = json.loads(fingerprint_path.read_text())
-    assert stored["sha256"] == campaign.compute_protocol_fingerprint(manifest, catalog)
+    assert stored["sha256"] == campaign.compute_protocol_fingerprint(manifest, catalog, _FAKE_HARNESS)
 
 
 def test_cam09_reanudacion_con_mismo_protocolo_no_falla(tmp_path):
@@ -809,6 +921,37 @@ def test_cam09_fingerprint_cambia_con_gpu_enabled_rapl_y_perf_enabled(tmp_path):
         assert campaign.compute_protocol_fingerprint(variante, catalog) != base
 
 
+def test_arc141_fingerprint_cubre_campos_de_protocolo_omitidos(tmp_path):
+    manifest = _manifest(tmp_path)
+    catalog = _catalog(tmp_path)
+    base = campaign.compute_protocol_fingerprint(manifest, catalog, _FAKE_HARNESS)
+
+    variants = [
+        replace(manifest, seed=manifest.seed + 1),
+        replace(manifest, uncore={"enabled": True}),
+        replace(manifest, timeouts_seconds=Timeouts(7, 11, 13)),
+        replace(manifest, load_threshold=0.25),
+        replace(manifest, hardware_datasheet={"bw_pico_bytes_per_s": 1.0}),
+        replace(manifest, gpu_frequency_levels=(FrequencyLevel("GREF", "native_governor"),)),
+    ]
+
+    for variant in variants:
+        assert campaign.compute_protocol_fingerprint(variant, catalog, _FAKE_HARNESS) != base
+
+
+def test_arc141_fingerprint_cambia_si_cambia_el_launcher(tmp_path):
+    manifest = _manifest(tmp_path)
+    catalog = _catalog(tmp_path)
+    launcher = tmp_path / "telemetry_kernel_launcher"
+    launcher.write_bytes(b"version-a")
+    harness = SimpleNamespace(binary_path=str(launcher))
+    before = campaign.compute_protocol_fingerprint(manifest, catalog, harness)
+
+    launcher.write_bytes(b"version-b")
+
+    assert campaign.compute_protocol_fingerprint(manifest, catalog, harness) != before
+
+
 def test_cam09_fingerprint_cambia_con_argumentos_de_kernel(tmp_path):
     """El fingerprint no solo depende del manifiesto -- exec_args/checksum/
     warmup_seconds del catálogo también definen el protocolo real medido."""
@@ -856,7 +999,7 @@ def test_cam03_reanudacion_salta_combinacion_ya_aceptada(tmp_path):
 
     result = campaign.run_campaign(
         manifest, catalog, SimpleNamespace(frequency_write_capable=False),
-        node_id="felix-sc3", reference_kernel_ref="npb_ep",
+        node_id="felix-sc3", reference_kernel_ref="npb_ep", harness=_FAKE_HARNESS,
         run_single=_fake_run_single(calls), **calibration_deps, **freqctl_deps,
     )
 
@@ -865,6 +1008,139 @@ def test_cam03_reanudacion_salta_combinacion_ya_aceptada(tmp_path):
     assert result.progress.accepted_run_ids == []
     assert result.progress.skipped_run_ids == ["camp01__npb_ep__REF__rep01"]  # MET-06
     assert postprocess_calls == []
+
+
+def test_cam11_reanudacion_carga_calibracion_en_vez_de_remedirla(tmp_path):
+    """CAM-11 (ARC-142): una reanudacion (ya hay verdict.json en output_dir)
+    no debe llamar run_calibration/run_gpu_calibration/run_calibration_
+    references/build_node_profile -- eso remediria y sobrescribiria los
+    archivos que las corridas ya aceptadas referencian por ruta. Debe cargar
+    con load_calibration/load_node_profile/load_calibration_references."""
+    manifest = _manifest(tmp_path)
+    catalog = _catalog(tmp_path)
+    _write_matching_fingerprint(manifest, catalog)
+    run_dir = manifest.output_dir / "camp01__npb_ep__REF__rep01"
+    run_dir.mkdir(parents=True)
+    validation_module.write_verdict(validation_module.Verdict(True, None, "ok"), run_dir)
+
+    calibration_deps, _ = _fake_calibration_deps()
+    measure_calls: list[str] = []
+
+    def run_calibration_debe_no_llamarse(*args, **kwargs):
+        measure_calls.append("run_calibration")
+        raise AssertionError("CAM-11: no debe remedirse calibracion en una reanudacion")
+
+    def load_calibration_marcada(output_dir, freq_level_id="", gpu_precision=""):
+        measure_calls.append("load_calibration")
+        return SimpleNamespace(plausibility_check_passed=True, plausibility_message="")
+
+    calibration_deps["run_calibration"] = run_calibration_debe_no_llamarse
+    calibration_deps["load_calibration"] = load_calibration_marcada
+    freqctl_deps, _, _ = _freqctl_fakes()
+
+    campaign.run_campaign(
+        manifest, catalog, SimpleNamespace(frequency_write_capable=False),
+        node_id="felix-sc3", reference_kernel_ref="npb_ep", harness=_FAKE_HARNESS,
+        run_single=_fake_run_single([]), **calibration_deps, **freqctl_deps,
+    )
+
+    assert measure_calls == ["load_calibration"]
+
+
+def test_cam11_reanudacion_sin_calibracion_en_disco_falla_cerrado(tmp_path):
+    """CAM-11 (ARC-142): si output_dir ya tiene corridas aceptadas pero al
+    cargador de calibracion le falta el archivo esperado, la reanudacion
+    debe fallar cerrado (CampaignCalibrationMissingError), nunca remedir en
+    silencio."""
+    manifest = _manifest(tmp_path)
+    catalog = _catalog(tmp_path)
+    _write_matching_fingerprint(manifest, catalog)
+    run_dir = manifest.output_dir / "camp01__npb_ep__REF__rep01"
+    run_dir.mkdir(parents=True)
+    validation_module.write_verdict(validation_module.Verdict(True, None, "ok"), run_dir)
+
+    calibration_deps, _ = _fake_calibration_deps()
+
+    def load_calibration_faltante(output_dir, freq_level_id="", gpu_precision=""):
+        raise FileNotFoundError("roofline_calibration_REF.json no existe")
+
+    calibration_deps["load_calibration"] = load_calibration_faltante
+    freqctl_deps, _, _ = _freqctl_fakes()
+
+    with pytest.raises(campaign.CampaignCalibrationMissingError, match="CAM-11"):
+        campaign.run_campaign(
+            manifest, catalog, SimpleNamespace(frequency_write_capable=False),
+            node_id="felix-sc3", reference_kernel_ref="npb_ep", harness=_FAKE_HARNESS,
+            run_single=_fake_run_single([]), **calibration_deps, **freqctl_deps,
+        )
+
+
+def test_cam11_reanudacion_comprueba_todos_los_ridges_cpu_antes_de_medir(tmp_path):
+    manifest = _manifest(
+        tmp_path,
+        frequency_levels=(
+            FrequencyLevel("REF", "native_governor"),
+            FrequencyLevel("F4", "fixed", 0.0),
+        ),
+    )
+    catalog = _catalog(tmp_path)
+    _write_matching_fingerprint(manifest, catalog)
+    run_dir = manifest.output_dir / "camp01__npb_ep__REF__rep01"
+    run_dir.mkdir(parents=True)
+    validation_module.write_verdict(validation_module.Verdict(True, None, "ok"), run_dir)
+
+    calibration_deps, _ = _fake_calibration_deps()
+    loaded: list[str] = []
+
+    def load_calibration_con_f4_faltante(output_dir, freq_level_id="", gpu_precision=""):
+        loaded.append(freq_level_id)
+        if freq_level_id == "F4":
+            raise FileNotFoundError("roofline_calibration_F4.json no existe")
+        return SimpleNamespace(plausibility_check_passed=True, plausibility_message="")
+
+    calibration_deps["load_calibration"] = load_calibration_con_f4_faltante
+    freqctl_deps, _, _ = _freqctl_fakes()
+
+    with pytest.raises(campaign.CampaignCalibrationMissingError, match="CAM-11"):
+        campaign.run_campaign(
+            manifest, catalog, SimpleNamespace(frequency_write_capable=False),
+            node_id="felix-sc3", reference_kernel_ref="npb_ep", harness=_FAKE_HARNESS,
+            run_single=_fake_run_single([]), **calibration_deps, **freqctl_deps,
+        )
+
+    assert loaded == ["REF", "F4"]
+
+
+def test_cam11_calibracion_sin_primer_veredicto_tambien_activa_reanudacion(tmp_path):
+    manifest = _manifest(tmp_path)
+    catalog = _catalog(tmp_path)
+    _write_matching_fingerprint(manifest, catalog)
+    # Simula interrupción después de escribir el ridge pero antes de la
+    # primera combinación/verdict.json.
+    (manifest.output_dir / "roofline_calibration_REF.json").write_text("{}")
+
+    calibration_deps, _ = _fake_calibration_deps()
+    calls: list[str] = []
+
+    def run_calibration_debe_no_llamarse(*args, **kwargs):
+        calls.append("run")
+        raise AssertionError("no debe sobrescribir la calibración existente")
+
+    def load_calibration_marcada(*args, **kwargs):
+        calls.append("load")
+        return SimpleNamespace(plausibility_check_passed=True, plausibility_message="")
+
+    calibration_deps["run_calibration"] = run_calibration_debe_no_llamarse
+    calibration_deps["load_calibration"] = load_calibration_marcada
+    freqctl_deps, _, _ = _freqctl_fakes()
+
+    campaign.run_campaign(
+        manifest, catalog, SimpleNamespace(frequency_write_capable=False),
+        node_id="felix-sc3", reference_kernel_ref="npb_ep", harness=_FAKE_HARNESS,
+        run_single=_fake_run_single([]), **calibration_deps, **freqctl_deps,
+    )
+
+    assert calls == ["load"]
 
 
 def test_cam03_reanudacion_reintenta_combinacion_rechazada(tmp_path):
@@ -881,7 +1157,7 @@ def test_cam03_reanudacion_reintenta_combinacion_rechazada(tmp_path):
 
     result = campaign.run_campaign(
         manifest, catalog, SimpleNamespace(frequency_write_capable=False),
-        node_id="felix-sc3", reference_kernel_ref="npb_ep",
+        node_id="felix-sc3", reference_kernel_ref="npb_ep", harness=_FAKE_HARNESS,
         run_single=_fake_run_single(calls), **calibration_deps, **freqctl_deps,
     )
 
@@ -898,6 +1174,33 @@ def test_cam03_reanudacion_reintenta_combinacion_rechazada(tmp_path):
     # El directorio activo ahora tiene el veredicto NUEVO (aceptado).
     nuevo_verdict = validation_module.load_verdict(manifest.output_dir / "camp01__npb_ep__REF__rep01")
     assert nuevo_verdict.accepted is True
+
+
+def test_cam10_reanudacion_archiva_corrida_incompleta_antes_de_reintentar(tmp_path):
+    manifest = _manifest(tmp_path)
+    catalog = _catalog(tmp_path)
+    _write_matching_fingerprint(manifest, catalog)
+    telemetry_id = "camp01__npb_ep__REF__rep01"
+    baseline_id = f"{telemetry_id}__baseline"
+    for run_id in (telemetry_id, baseline_id):
+        run_dir = manifest.output_dir / run_id
+        run_dir.mkdir(parents=True)
+        (run_dir / "samples.csv").write_text("crudo interrumpido")
+
+    calls: list[tuple[str, bool]] = []
+    calibration_deps, _ = _fake_calibration_deps()
+    freqctl_deps, _, _ = _freqctl_fakes()
+
+    result = campaign.run_campaign(
+        manifest, catalog, SimpleNamespace(frequency_write_capable=False),
+        node_id="felix-sc3", reference_kernel_ref="npb_ep", harness=_FAKE_HARNESS,
+        run_single=_fake_run_single(calls), **calibration_deps, **freqctl_deps,
+    )
+
+    assert result.progress.accepted_run_ids == [telemetry_id]
+    assert (manifest.output_dir / f"{telemetry_id}__incomplete1" / "samples.csv").read_text() == "crudo interrumpido"
+    assert (manifest.output_dir / f"{baseline_id}__incomplete1" / "samples.csv").read_text() == "crudo interrumpido"
+    assert validation_module.load_verdict(manifest.output_dir / telemetry_id).accepted is True
 
 
 def test_cam10_reintentos_multiples_archivan_cada_rechazo_por_separado(tmp_path):

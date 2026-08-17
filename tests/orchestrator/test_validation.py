@@ -19,6 +19,21 @@ def _write_frequency_samples(path: Path, values: list[str]) -> None:
             writer.writerow({"tag": "CPU", "scaling_cur_freq_khz": value})
 
 
+def _write_multi_cpu_frequency_samples(path: Path, rows: list[tuple[str, str]]) -> None:
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=["tag", "scaling_cur_freq_khz", "scaling_cur_freq_khz_all"],
+        )
+        writer.writeheader()
+        for primary, all_cpus in rows:
+            writer.writerow({
+                "tag": "CPU",
+                "scaling_cur_freq_khz": primary,
+                "scaling_cur_freq_khz_all": all_cpus,
+            })
+
+
 def test_arc138_traza_de_frecuencia_fixed_se_valida_por_muestra(tmp_path):
     path = tmp_path / "samples.csv"
     _write_frequency_samples(path, ["3200000", "3150000", "3099999"])
@@ -38,6 +53,67 @@ def test_arc138_traza_ref_exige_lecturas_pero_no_objetivo(tmp_path):
     )
     assert verdict.accepted is False
     assert summary["missing_samples"] == 1
+
+
+def test_arc145_traza_fixed_valida_todos_los_cpus_delegados(tmp_path):
+    path = tmp_path / "samples.csv"
+    _write_multi_cpu_frequency_samples(path, [
+        ("3200000", "3200000;3200000;3200000;3200000"),
+        # CPU0 coincide; CPU3 es el que diverge. La validación escalar
+        # anterior aceptaba esta ventana en silencio.
+        ("3200000", "3200000;3200000;3200000;2800000"),
+    ])
+
+    verdict, summary = validation.validate_cpu_frequency_trace(
+        path,
+        require_per_window=True,
+        expected_khz=3_200_000,
+        tolerance_fraction=0.03,
+        expected_cpu_count=4,
+    )
+
+    assert verdict == validation.Verdict(False, "E01", verdict.message)
+    assert summary["mismatched_samples"] == 1
+    assert summary["observed_spread_max_khz"] == 400_000
+
+
+def test_arc145_traza_multi_cpu_falla_cerrado_si_falta_un_cpu(tmp_path):
+    path = tmp_path / "samples.csv"
+    _write_multi_cpu_frequency_samples(path, [
+        ("3200000", "3200000;3200000;3200000"),
+    ])
+
+    verdict, summary = validation.validate_cpu_frequency_trace(
+        path,
+        require_per_window=True,
+        expected_khz=None,
+        tolerance_fraction=0.03,
+        expected_cpu_count=4,
+    )
+
+    assert verdict.accepted is False
+    assert verdict.factor_id == "E01"
+    assert summary["cpu_count_mismatch_samples"] == 1
+    assert summary["missing_samples"] == 1
+
+
+def test_arc145_traza_multi_cpu_completa_y_en_tolerancia_acepta(tmp_path):
+    path = tmp_path / "samples.csv"
+    _write_multi_cpu_frequency_samples(path, [
+        ("3200000", "3200000;3150000;3210000;3190000"),
+    ])
+
+    verdict, summary = validation.validate_cpu_frequency_trace(
+        path,
+        require_per_window=True,
+        expected_khz=3_200_000,
+        tolerance_fraction=0.03,
+        expected_cpu_count=4,
+    )
+
+    assert verdict.accepted is True
+    assert summary["observed_samples"] == 4
+    assert summary["missing_samples"] == 0
 
 
 def test_arc138_validate_run_rechaza_e01_y_conserva_el_resultado_en_metadata(tmp_path):
