@@ -145,15 +145,23 @@ def _fake_calibration_deps():
         status = "gpu_telemetry" if device == "gpu" else "ok"
         with open(windows_path, "w", newline="") as handle:
             import csv as _csv
-            writer = _csv.DictWriter(handle, fieldnames=["quality_status", "phase_label_train", "gpu_util_pct"])
+            writer = _csv.DictWriter(
+                handle,
+                fieldnames=["quality_status", "phase_label_train", "gpu_util_pct", "frequency_quality_status"],
+            )
             writer.writeheader()
             for _ in range(10):
                 # ARC-129: sobre el piso de ruido (_GPU_UTIL_NOISE_FLOOR_PCT
                 # = 5.0) para que las filas GPU sigan contando como usables
                 # -- vacío para filas de CPU, donde no aplica.
+                # ARC-174: frequency_quality_status="valid" para filas de
+                # CPU (validate_windows() ahora lo exige además de
+                # quality_status=="ok") -- vacío para GPU, donde nunca se
+                # calcula (ver build_windows()).
                 writer.writerow({
                     "quality_status": status, "phase_label_train": "compute_bound",
                     "gpu_util_pct": "50" if device == "gpu" else "",
+                    "frequency_quality_status": "" if device == "gpu" else "valid",
                 })
         return windows_path
 
@@ -832,6 +840,35 @@ def test_frq03_frq10_frecuencia_solicitada_aplicada_y_observada_llegan_a_postpro
     assert kwargs["freq_khz_requested"] == 2261000
     assert kwargs["freq_khz_applied"] == 2261000
     assert kwargs["freq_khz_observed"] == 2261000
+
+
+def test_arc174_run_postprocess_recibe_insumos_de_clasificacion_de_frecuencia(tmp_path):
+    # ARC-174: campaign.py debe pasar tolerancia/gracias/cantidad de CPU/
+    # modo del nivel a run_postprocess() -- sin este plumbing,
+    # build_windows() nunca podría clasificar ninguna ventana por
+    # frecuencia en la ruta en vivo.
+    manifest = _manifest(
+        tmp_path,
+        frequency_levels=(FrequencyLevel("F0", "fixed", 1.0),),
+        frequency_validation={"tolerance_fraction": 0.03, "grace_seconds": 1.5, "tail_grace_seconds": 2.5},
+    )
+    catalog = _catalog(tmp_path)
+    calibration_deps, postprocess_calls = _fake_calibration_deps()
+    freqctl_deps, _, _ = _freqctl_fakes()
+
+    campaign.run_campaign(
+        manifest, catalog, SimpleNamespace(frequency_write_capable=False),
+        node_id="felix-sc3", reference_kernel_ref="npb_ep",
+        run_single=_fake_run_single([]), **calibration_deps, **freqctl_deps,
+    )
+
+    assert len(postprocess_calls) == 1
+    _, kwargs = postprocess_calls[0]
+    assert kwargs["freq_tolerance_fraction"] == 0.03
+    assert kwargs["freq_grace_seconds"] == 1.5
+    assert kwargs["freq_tail_grace_seconds"] == 2.5
+    assert kwargs["freq_expected_cpu_count"] == len(manifest.cores.delegated_cpus)
+    assert kwargs["freq_is_native_governor"] is False
 
 
 def test_cam09_primera_corrida_escribe_el_fingerprint_de_protocolo(tmp_path):

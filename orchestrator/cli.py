@@ -17,6 +17,7 @@ from . import node_profile as node_profile_module
 from . import postprocess as postprocess_module
 from . import preflight as preflight_module
 from . import report as report_module
+from . import runner as runner_module
 from . import validation as validation_module
 from .config import load_config
 
@@ -155,12 +156,35 @@ def cmd_postprocess(args: argparse.Namespace) -> int:
     manifest, catalog = _load_manifest_and_catalog(args.manifest)
     entry = catalog[args.kernel_ref]
 
+    # ARC-174: mismos insumos de clasificación de frecuencia por ventana que
+    # campaign.py ya pasa en la ruta en vivo -- freq_khz_applied se lee de
+    # metadata.json (ya lo persiste runner.py, RUN-06) en vez de exigir un
+    # argumento nuevo: es la fuente de verdad real de lo que el actuador
+    # aplicó, no un valor nominal recalculado aquí. Ausente/no legible ->
+    # None (fail-closed, nunca fabricado).
+    freq_khz_applied = None
+    metadata_path = Path(args.run_dir) / "metadata.json"
+    if metadata_path.exists():
+        try:
+            freq_khz_applied = json.loads(metadata_path.read_text(encoding="utf-8")).get("freq_khz_applied")
+        except (json.JSONDecodeError, OSError):
+            freq_khz_applied = None
+
+    frequency_level = runner_module._resolve_frequency_level(manifest, args.freq_level_id)
+    frequency_validation = getattr(manifest, "frequency_validation", None) or {}
+
     path = postprocess_module.run_postprocess(
         args.run_dir, run_id=args.run_id, repetition=args.repetition, kernel_ref=args.kernel_ref,
         kernel_entry=entry, node_id=args.node_id, freq_level_id=args.freq_level_id,
         calibration_dir=args.calibration_dir or str(manifest.output_dir),
+        freq_khz_applied=freq_khz_applied,
         warmup_seconds=entry.warmup_seconds or 0.0, running_ratio_min=manifest.running_ratio_min,
         rapl_enabled=bool(manifest.rapl.get("enabled", False)),
+        freq_tolerance_fraction=frequency_validation.get("tolerance_fraction"),
+        freq_expected_cpu_count=len(manifest.cores.delegated_cpus),
+        freq_grace_seconds=float(frequency_validation.get("grace_seconds", 0.0)),
+        freq_tail_grace_seconds=float(frequency_validation.get("tail_grace_seconds", 0.0)),
+        freq_is_native_governor=frequency_level.mode == "native_governor",
     )
     print(path)
     return 0

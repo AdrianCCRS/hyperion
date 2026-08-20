@@ -311,6 +311,12 @@ def _fake_manifest(tmp_path: Path):
         cores=SimpleNamespace(delegated_cpus=(2, 3)),
         output_dir=output_dir, running_ratio_min=0.9, rapl={"enabled": False},
         catalog_path=tmp_path / "catalog.yaml",
+        # ARC-174: cmd_postprocess() resuelve el modo del nivel (REF/fixed)
+        # vía runner._resolve_frequency_level() para clasificar frecuencia
+        # por ventana -- necesita manifest.frequency_levels real, no solo
+        # los campos que cada test individual usaba antes.
+        frequency_levels=[SimpleNamespace(id="REF", mode="native_governor")],
+        frequency_validation={},
     )
 
 

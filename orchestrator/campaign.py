@@ -1067,6 +1067,14 @@ def run_campaign(
                     # between freqctl and windows.csv.
                     applied = result.applied_frequency
                     freq_khz_observed = read_observed_frequency_khz(environment_profile, delegated_cpus[0])
+                    # ARC-174: insumos para la clasificación de frecuencia
+                    # POR VENTANA (validation.classify_frequency_window(),
+                    # vía build_windows()) -- mismo dict que runner.py ya lee
+                    # para el chequeo estructural agregado, y el mismo modo
+                    # (frequency_level.mode) que MAN-10 ya exige que sea
+                    # "native_governor"/"fixed" -- nunca inferido de
+                    # freq_khz_applied is None (ver WindowContext).
+                    frequency_validation = getattr(manifest, "frequency_validation", None) or {}
                     windows_path = run_postprocess(
                         result.run_dir, run_id=run_id, repetition=item.combination.repetition_index,
                         kernel_ref=item.combination.kernel_ref, kernel_entry=entry, node_id=node_id,
@@ -1085,6 +1093,11 @@ def run_campaign(
                             item.combination.gpu_frequency_level.id
                             if item.combination.gpu_frequency_level is not None else None
                         ),
+                        freq_tolerance_fraction=frequency_validation.get("tolerance_fraction"),
+                        freq_expected_cpu_count=len(delegated_cpus),
+                        freq_grace_seconds=float(frequency_validation.get("grace_seconds", 0.0)),
+                        freq_tail_grace_seconds=float(frequency_validation.get("tail_grace_seconds", 0.0)),
+                        freq_is_native_governor=item.combination.frequency_level.mode == "native_governor",
                     )
                     verdict = validation_module.validate_windows(
                         windows_path,

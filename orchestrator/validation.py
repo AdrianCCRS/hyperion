@@ -70,6 +70,28 @@ def validate_cpu_frequency_trace(
     para `stream_official`, pero concentrado al final en vez de disperso
     entre fases. Default 0.0 preserva el comportamiento anterior byte a
     byte.
+
+    ARC-174: el ``Verdict`` devuelto por esta función ya NO falla por una
+    desviación de tolerancia -- una sola muestra fuera de rango invalidaba
+    hasta ahora TODA la corrida (miles de ventanas descartadas por una),
+    pese a que la causa física documentada en ARC-167/169 es dilución
+    APERF/MPERF localizada, no una falla real de actuación. El ``Verdict``
+    ahora solo puede fallar por integridad ESTRUCTURAL (traza vacía,
+    lecturas ausentes, cantidad de CPUs distinta de la esperada,
+    incoherencia entre la columna escalar y el primer CPU de la columna
+    multi-CPU) -- exactamente las cuatro causas ya cubiertas por el bloque
+    ``require_per_window`` de más abajo, sin cambios. El diagnóstico de
+    tolerancia (``mismatched_samples``, rango observado, cobertura) se
+    conserva íntegro en ``summary`` para quien todavía lo consulte (p.ej.
+    la advertencia CAL-07 de ``calibration.py``), pero ya no determina
+    ``accepted``. ``summary["structural_valid"]`` y
+    ``summary["tolerance_all_within"]`` separan explícitamente ambos ejes
+    para que ningún caller confunda uno con otro leyendo solo
+    ``accepted``. La clasificación POR VENTANA que reemplaza este gate de
+    tolerancia vive en ``classify_frequency_window()`` (usada por
+    ``postprocess.build_windows()``), no aquí -- esta función sigue siendo
+    el único gate de integridad estructural, evaluado sobre la corrida
+    completa antes de que exista windows.csv.
     """
     with open(samples_path, newline="", encoding="utf-8") as handle:
         rows = [row for row in csv.DictReader(handle) if row.get("tag") == "CPU"]
@@ -174,6 +196,8 @@ def validate_cpu_frequency_trace(
         "excluded_by_grace_samples": excluded_by_grace,
     }
     if require_per_window and (not rows or missing > 0 or count_mismatches > 0 or primary_mismatches > 0):
+        summary["structural_valid"] = False
+        summary["tolerance_all_within"] = None
         return Verdict(
             False, "E01",
             "traza de frecuencia incompleta/incoherente: "
@@ -182,8 +206,16 @@ def validate_cpu_frequency_trace(
             f"({len(rows)} ventanas CPU)",
         ), summary
 
+    summary["structural_valid"] = True
+
     if expected_khz is not None:
         if tolerance_fraction is None:
+            # ARC-174: config incompleta (nivel fixed sin tolerance_fraction
+            # declarada) no es lo mismo que integridad estructural de la
+            # traza -- pero sigue siendo un rechazo total legítimo, porque
+            # sin tolerance_fraction no hay forma de evaluar NADA (ni por
+            # corrida ni por ventana) contra este nivel.
+            summary["tolerance_all_within"] = None
             return Verdict(False, "E01", "nivel fixed sin tolerance_fraction declarada"), summary
         if rows and not observed:
             # ARC-166/ARC-169: toda la corrida cayó dentro de grace_seconds
@@ -191,9 +223,12 @@ def validate_cpu_frequency_trace(
             # ventanas que confirme el candado. Silenciar esto (mismatches=[]
             # sobre una lista vacía "pasa" por vacuidad) reintroduciría
             # exactamente el riesgo que E01 existe para prevenir: aceptar
-            # una corrida sin ninguna confirmación real de frecuencia.
-            # Fallar en voz alta en su lugar, mismo principio que RUN-09
-            # (ARC-101).
+            # una corrida sin ninguna confirmación real de frecuencia. Este
+            # caso degenerado (100% de la traza excluida por configuración
+            # de gracia) sigue rechazando la corrida entera -- a diferencia
+            # de la tolerancia por muestra (ARC-174), aquí no hay NINGÚN
+            # dato con el que construir una clasificación por ventana.
+            summary["tolerance_all_within"] = None
             return Verdict(
                 False, "E01",
                 f"toda la traza ({len(rows)} ventanas CPU) cae dentro de grace_seconds="
@@ -204,17 +239,101 @@ def validate_cpu_frequency_trace(
         summary["tolerance_khz_effective"] = tolerance_khz
         mismatches = [value for value in observed if abs(value - expected_khz) > tolerance_khz]
         summary["mismatched_samples"] = len(mismatches)
-        if mismatches:
-            return Verdict(
-                False, "E01",
-                f"frecuencia efectiva fuera de objetivo en {len(mismatches)}/{len(observed)} muestras "
-                f"(objetivo={expected_khz} kHz, tolerancia={tolerance_khz} kHz, "
-                f"rango={min(observed)}..{max(observed)} kHz)",
-            ), summary
+        # ARC-174: ya no se rechaza aquí -- ver docstring. El diagnóstico se
+        # conserva; classify_frequency_window() decide, por ventana, si cada
+        # una individualmente es utilizable.
+        summary["tolerance_all_within"] = len(mismatches) == 0
     else:
         summary["mismatched_samples"] = 0
+        summary["tolerance_all_within"] = None
 
     return Verdict(True, None, "ok"), summary
+
+
+@dataclass(frozen=True)
+class FrequencyWindowClassification:
+    """ARC-174: veredicto de frecuencia POR VENTANA -- el reemplazo de
+    tolerancia agregada de ``validate_cpu_frequency_trace()``. Ninguno de
+    estos estados puede, por sí solo, rechazar la corrida completa (eso
+    sigue siendo exclusivo del chequeo estructural de arriba)."""
+
+    status: str | None
+    outlier_cpu_count: int | None
+    min_khz: int | None
+    max_khz: int | None
+    max_relative_error: float | None
+
+
+def classify_frequency_window(
+    raw_scaling_cur_freq_khz_all: str | None,
+    *,
+    is_native_governor: bool,
+    expected_khz: int | None,
+    tolerance_fraction: float | None,
+    within_grace: bool,
+) -> FrequencyWindowClassification:
+    """ARC-174: clasifica UNA ventana (no la corrida) usando la misma
+    columna multi-CPU (``scaling_cur_freq_khz_all``) que ya se captura hoy
+    -- ningún dato nuevo, solo una decisión más fina sobre datos que ya
+    existían. Reemplaza el gate agregado de tolerancia de
+    ``validate_cpu_frequency_trace()`` (ARC-174).
+
+    El spread (max-min) NO es la señal usada aquí -- puede ser cero aunque
+    los 6 CPUs delegados estén igualmente lejos del objetivo (hallazgo
+    explícito antes de implementar esto). Cada CPU se evalúa individualmente
+    contra ``expected_khz``/``tolerance_fraction``.
+
+    Cuatro estados posibles:
+
+    - ``"not_applicable_native"``: SOLO para REF (``is_native_governor``
+      explícito, nunca inferido de ``expected_khz is None`` -- ese campo
+      también es None cuando la actuación de frecuencia está desactivada
+      por completo, un caso distinto que no debe leerse como REF).
+    - ``"observation_unverified_grace"``: la ventana cae dentro de
+      ``grace_seconds``/``tail_grace_seconds`` (decidido por el caller vía
+      ``within_grace``, quien conoce ``t_start_ns``/``t_end_ns`` del run) --
+      tiene precedencia sobre ``observation_unreliable`` incluso si además
+      hay desviación de tolerancia.
+    - ``"observation_unreliable"``: al menos un CPU delegado fuera de
+      ±tolerance_fraction del objetivo, fuera de cualquier ventana de
+      gracia.
+    - ``"valid"``: todos los CPUs delegados dentro de tolerancia.
+
+    Estado ``None`` (fail-closed, ARC-174): cuando falta ``expected_khz``/
+    ``tolerance_fraction`` (validación desactivada o config incompleta) o
+    no hay ninguna lectura de CPU utilizable en esta ventana -- nunca se
+    confunde con REF ni se asume "válida" por defecto.
+    """
+    values: list[int] = []
+    if raw_scaling_cur_freq_khz_all:
+        for part in raw_scaling_cur_freq_khz_all.split(";"):
+            try:
+                value = int(part)
+            except ValueError:
+                continue
+            if value > 0:
+                values.append(value)
+
+    min_khz = min(values) if values else None
+    max_khz = max(values) if values else None
+
+    if is_native_governor:
+        return FrequencyWindowClassification("not_applicable_native", None, min_khz, max_khz, None)
+
+    if expected_khz is None or tolerance_fraction is None or not values:
+        return FrequencyWindowClassification(None, None, min_khz, max_khz, None)
+
+    max_relative_error = max(abs(value - expected_khz) / expected_khz for value in values)
+    tolerance_khz = expected_khz * tolerance_fraction
+    outlier_cpu_count = sum(1 for value in values if abs(value - expected_khz) > tolerance_khz)
+
+    if within_grace:
+        return FrequencyWindowClassification(
+            "observation_unverified_grace", outlier_cpu_count, min_khz, max_khz, max_relative_error,
+        )
+
+    status = "valid" if outlier_cpu_count == 0 else "observation_unreliable"
+    return FrequencyWindowClassification(status, outlier_cpu_count, min_khz, max_khz, max_relative_error)
 
 
 def validate_run(
@@ -343,6 +462,17 @@ def validate_windows(
     measure_warmup.py, ARC-86 -- no un umbral nuevo). Filas con
     gpu_util_pct vacío/no numérico se tratan como sin señal (no cuentan),
     nunca se asume "0" en silencio ni se descarta el chequeo.
+
+    ARC-174: para CPU, una ventana además debe tener
+    ``frequency_quality_status`` en ``{"valid", "not_applicable_native"}``
+    para contar como usable -- ``"observation_unreliable"``,
+    ``"observation_unverified_grace"`` y el estado vacío (fail-closed) se
+    excluyen del conteo, sin rechazar la corrida completa por eso (esa es
+    justamente la diferencia con el gate agregado que existía antes,
+    ARC-138/166/169, reemplazado en ``validate_cpu_frequency_trace()``).
+    Las filas GPU no tienen esta columna poblada (permanecen sin cambios,
+    ver ``build_windows()``) -- esta condición nunca se aplica a
+    ``device=="gpu"``.
     """
     with open(windows_path, newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
@@ -355,6 +485,11 @@ def validate_windows(
             except ValueError:
                 return False
         usable_rows = [row for row in usable_rows if _has_gpu_signal(row)]
+    else:
+        usable_rows = [
+            row for row in usable_rows
+            if row.get("frequency_quality_status") in ("valid", "not_applicable_native")
+        ]
     if len(usable_rows) < target_windows_per_repetition:
         return Verdict(
             False, "I10",
@@ -365,6 +500,68 @@ def validate_windows(
     if not has_label:
         return Verdict(False, "I11", "ninguna ventana usable tiene phase_label_train calculado")
     return Verdict(True, None, "ok")
+
+
+_FREQUENCY_QUALITY_STATUSES: tuple[str, ...] = (
+    "valid", "observation_unreliable", "observation_unverified_grace", "not_applicable_native",
+)
+
+
+def summarize_frequency_quality(windows_path: str | Path) -> dict[str, Any]:
+    """ARC-174: artefacto concreto de cobertura/calidad de actuación de
+    frecuencia para UNA corrida -- separado a propósito de ``Verdict``
+    (inclusión en el dataset) porque una corrida puede incluirse
+    legítimamente (>=50 ventanas válidas) mientras conserva una fracción
+    grande de ventanas ``observation_unreliable`` que nadie debe perder de
+    vista solo porque la corrida "pasó". Pensado para escribirse como
+    ``frequency_quality_summary.json`` junto a ``windows.csv``.
+
+    Solo considera filas ``quality_status=="ok"`` (ventanas de CPU reales,
+    nunca las GPU passthrough ni las excluidas por otro motivo como
+    warmup/pmu_degraded) -- coherente con lo que ``validate_windows()``
+    ya cuenta como universo candidato antes del filtro de frecuencia.
+
+    ``longest_unreliable_streak`` cuenta la secuencia consecutiva más larga
+    (por ``window_index``) de ``"observation_unreliable"`` -- una dispersa
+    entre ventanas aisladas es mucho menos preocupante que una racha larga
+    concentrada, y esa distinción se pierde si solo se reporta el conteo
+    total.
+    """
+    with open(windows_path, newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+
+    candidate_rows = [row for row in rows if row.get("quality_status") == "ok"]
+    candidate_rows.sort(key=lambda row: int(row.get("window_index") or 0))
+
+    counts: dict[str, int] = {status: 0 for status in _FREQUENCY_QUALITY_STATUSES}
+    counts["unset"] = 0
+    for row in candidate_rows:
+        status = row.get("frequency_quality_status")
+        if status in counts:
+            counts[status] += 1
+        else:
+            counts["unset"] += 1
+
+    total_candidates = len(candidate_rows)
+    valid_count = counts["valid"] + counts["not_applicable_native"]
+    fraction_valid = (valid_count / total_candidates) if total_candidates else None
+
+    longest_unreliable_streak = 0
+    current_streak = 0
+    for row in candidate_rows:
+        if row.get("frequency_quality_status") == "observation_unreliable":
+            current_streak += 1
+            longest_unreliable_streak = max(longest_unreliable_streak, current_streak)
+        else:
+            current_streak = 0
+
+    return {
+        "total_candidate_windows": total_candidates,
+        "frequency_quality_counts": counts,
+        "valid_window_count": valid_count,
+        "fraction_valid": fraction_valid,
+        "longest_unreliable_streak": longest_unreliable_streak,
+    }
 
 
 def validate_campaign_calibration(calibration: Any) -> Verdict:

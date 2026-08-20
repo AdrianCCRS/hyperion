@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import csv
 from dataclasses import dataclass
+import json
 import math
 from pathlib import Path
 from typing import Any, Sequence
 
 from . import calibration as calibration_module
 from . import node_profile as node_profile_module
+from . import validation as validation_module
 
 # POST-XX ids below refer to docs/retoma/Guia_Maestra_Fase1_DVFS.md section
 # 12.9. samples.csv columns come from telemetry_kernel_launcher.cpp's
@@ -22,6 +24,12 @@ REQUIRED_OUTPUT_COLUMNS: tuple[str, ...] = (
     # ver _observed_freq_spread(). None cuando hay menos de 2 lecturas
     # válidas esa ventana, nunca un 0 fabricado.
     "freq_khz_observed_spread",
+    # ARC-174: clasificación de frecuencia POR VENTANA (reemplaza el gate
+    # agregado de tolerancia que existía en validate_cpu_frequency_trace()
+    # -- ver validation.classify_frequency_window()). Vacías para filas GPU
+    # (tag=GPU no tiene per-CPU scaling_cur_freq_khz_all que clasificar).
+    "frequency_quality_status", "frequency_outlier_cpu_count",
+    "frequency_min_khz", "frequency_max_khz", "frequency_max_relative_error",
     "window_index", "t_start_ns", "t_end_ns", "delta_t_ns",
     "delta_instructions", "delta_cycles", "delta_cache_references", "delta_cache_misses",
     "delta_stalled_cycles_backend", "stall_backend_ratio",
@@ -162,6 +170,19 @@ class WindowContext:
     # GPU) -- None para kernels de CPU, o de GPU sin gpu_frequency_levels
     # declarado (acoplado a freq_level_id, como siempre).
     gpu_freq_level_id: str | None = None
+    # ARC-174: insumos para validation.classify_frequency_window() por
+    # ventana de CPU -- freq_is_native_governor viene EXPLÍCITAMENTE del
+    # modo del nivel de frecuencia (manifest.frequency_levels[].mode), no
+    # se infiere de freq_khz_applied is None (ese campo también es None
+    # cuando la actuación de frecuencia está desactivada por completo,
+    # frequency_write_capable=False -- un caso distinto de REF que nunca
+    # debe clasificarse como "not_applicable_native"). Defaults preservan
+    # "sin clasificar" (fail-closed) para callers que no los pasan.
+    freq_tolerance_fraction: float | None = None
+    freq_expected_cpu_count: int | None = None
+    freq_grace_seconds: float = 0.0
+    freq_tail_grace_seconds: float = 0.0
+    freq_is_native_governor: bool = False
 
 
 def _read_rows(samples_csv_path: str | Path) -> list[dict[str, str]]:
@@ -430,7 +451,10 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
 
     run_total_instructions = _to_int(cpu_rows[-1].get("instructions"))
     run_start_ns = int(cpu_rows[0]["timestamp_ns"])
+    run_end_ns = int(cpu_rows[-1]["timestamp_ns"])
     warmup_end_ns = run_start_ns + int(context.warmup_seconds * 1_000_000_000)
+    freq_grace_ns = context.freq_grace_seconds * 1_000_000_000
+    freq_tail_grace_ns = context.freq_tail_grace_seconds * 1_000_000_000
     energy_matches = _match_energy_windows(cpu_rows, energy_rows)
 
     windows: list[dict[str, Any]] = []
@@ -478,6 +502,30 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
         # positive spread means the delegated CPUs did NOT all run at the
         # same clock during this window.
         row["freq_khz_observed_spread"] = _observed_freq_spread(cur.get("scaling_cur_freq_khz_all"))
+
+        # ARC-174: clasificación de frecuencia por ventana -- usa el mismo
+        # tick (cur) que ya alimenta freq_khz_observed_spread arriba, y el
+        # mismo criterio grace/tail_grace de validate_cpu_frequency_trace()
+        # (ARC-166/169), pero evaluado por ventana en vez de agregado sobre
+        # toda la corrida. expected_khz usa freq_khz_applied (nunca
+        # freq_khz_requested) -- cubre redondeos reales del actuador que un
+        # objetivo puramente nominal no vería.
+        within_freq_grace = (
+            (freq_grace_ns > 0 and (t_end_ns - run_start_ns) < freq_grace_ns)
+            or (freq_tail_grace_ns > 0 and (run_end_ns - t_end_ns) < freq_tail_grace_ns)
+        )
+        freq_classification = validation_module.classify_frequency_window(
+            cur.get("scaling_cur_freq_khz_all"),
+            is_native_governor=context.freq_is_native_governor,
+            expected_khz=context.freq_khz_applied,
+            tolerance_fraction=context.freq_tolerance_fraction,
+            within_grace=within_freq_grace,
+        )
+        row["frequency_quality_status"] = freq_classification.status
+        row["frequency_outlier_cpu_count"] = freq_classification.outlier_cpu_count
+        row["frequency_min_khz"] = freq_classification.min_khz
+        row["frequency_max_khz"] = freq_classification.max_khz
+        row["frequency_max_relative_error"] = freq_classification.max_relative_error
 
         delta_instructions = _delta(_to_int(cur.get("instructions")), _to_int(prev.get("instructions")))
         delta_cycles = _delta(_to_int(cur.get("cycles")), _to_int(prev.get("cycles")))
@@ -805,6 +853,11 @@ def _base_row(context: WindowContext, *, window_index: int) -> dict[str, Any]:
         "freq_khz_applied": context.freq_khz_applied,
         "freq_khz_observed": context.freq_khz_observed,
         "freq_khz_observed_spread": None,
+        "frequency_quality_status": None,
+        "frequency_outlier_cpu_count": None,
+        "frequency_min_khz": None,
+        "frequency_max_khz": None,
+        "frequency_max_relative_error": None,
         "window_index": window_index,
         "delta_instructions": None,
         "delta_cycles": None,
@@ -896,8 +949,33 @@ def run_postprocess(
     rapl_enabled: bool = False,
     calibration_references: Any = None,
     gpu_freq_level_id: str | None = None,
+    freq_tolerance_fraction: float | None = None,
+    freq_expected_cpu_count: int | None = None,
+    freq_grace_seconds: float = 0.0,
+    freq_tail_grace_seconds: float = 0.0,
+    freq_is_native_governor: bool = False,
+    output_dir: str | Path | None = None,
 ) -> Path:
     """Orchestrates one run's samples.csv -> windows.csv.
+
+    ARC-174: ``freq_tolerance_fraction``/``freq_expected_cpu_count``/
+    ``freq_grace_seconds``/``freq_tail_grace_seconds``/
+    ``freq_is_native_governor`` alimentan la clasificación de frecuencia
+    POR VENTANA (``validation.classify_frequency_window()``, ver
+    ``build_windows()``) -- todos con default que preserva "sin clasificar"
+    para callers que no los pasan (p.ej. kernels de GPU, donde esto nunca
+    aplica). Para un kernel de CPU, escribe además
+    ``frequency_quality_summary.json`` junto a ``windows.csv`` (cobertura y
+    secuencias anómalas, ver ``validation.summarize_frequency_quality()``).
+
+    ``output_dir`` (ARC-174): cuando se pasa, ``windows.csv``/
+    ``frequency_quality_summary.json`` se escriben AHÍ en vez de en
+    ``run_dir`` -- ``samples.csv`` se sigue leyendo de ``run_dir`` (los
+    crudos originales), pero la salida derivada nunca sobrescribe el
+    ``windows.csv``/``verdict.json`` de la corrida original. Pensado para
+    el reprocesamiento offline de corridas ya ejecutadas (ver
+    ``orchestrator/schemas/reprocess_frequency_quality_v2.py``); None (el
+    default) preserva el comportamiento anterior byte a byte.
 
     POST-15: calibration.load_calibration() refuses (raises) a calibration
     whose D03 plausibility check failed, so an unverified I_ridge can never
@@ -973,6 +1051,25 @@ def run_postprocess(
         gpu_i_ridge_flops_per_byte=gpu_i_ridge,
         gpu_roofline_calibration_ref=gpu_roofline_calibration_ref,
         gpu_freq_level_id=gpu_freq_level_id,
+        freq_tolerance_fraction=freq_tolerance_fraction,
+        freq_expected_cpu_count=freq_expected_cpu_count,
+        freq_grace_seconds=freq_grace_seconds,
+        freq_tail_grace_seconds=freq_tail_grace_seconds,
+        freq_is_native_governor=freq_is_native_governor,
     )
     windows = build_windows(run_dir / "samples.csv", context)
-    return write_windows_csv(windows, run_dir / "windows.csv")
+    destination_dir = Path(output_dir) if output_dir is not None else run_dir
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    windows_path = write_windows_csv(windows, destination_dir / "windows.csv")
+
+    # ARC-174: el resumen de cobertura/calidad de frecuencia solo tiene
+    # sentido para CPU -- GPU tiene otra cadencia/señal (gpu_sm_clock_mhz)
+    # y sus propios factores G, deliberadamente fuera de este cambio.
+    if getattr(kernel_entry, "device", "cpu") != "gpu":
+        summary = validation_module.summarize_frequency_quality(windows_path)
+        summary_path = destination_dir / "frequency_quality_summary.json"
+        with summary_path.open("w", encoding="utf-8") as summary_file:
+            json.dump(summary, summary_file, indent=2, sort_keys=True)
+            summary_file.write("\n")
+
+    return windows_path

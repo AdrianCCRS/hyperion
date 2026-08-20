@@ -822,6 +822,98 @@ def test_arc70_filas_gpu_se_incluyen_como_passthrough_no_ventaneado(tmp_path):
     assert all(w["gpu_power_mw"] is None for w in cpu_rows)
 
 
+def test_arc174_filas_gpu_no_reciben_clasificacion_de_frecuencia(tmp_path):
+    # Alcance limitado a CPU (aprobado explícitamente) -- GPU tiene otra
+    # cadencia/señal (gpu_sm_clock_mhz) y no debe tocarse por este cambio.
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0),
+        _cpu_row(repetition=1, ts=1_001_000_000, instructions=2_000_000, cycles=1_000_000,
+                 cache_references=100_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000,
+                 scaling_cur_freq_khz_all="2200000;2200000"),
+        _gpu_row(repetition=1, ts=1_000_500_000, gpu_power_mw=36324, gpu_util_pct=0),
+    ])
+    windows = postprocess.build_windows(
+        samples,
+        _context(freq_tolerance_fraction=0.03, freq_khz_applied=2_200_000, freq_expected_cpu_count=2),
+    )
+    gpu_rows = [w for w in windows if w["quality_status"] == "gpu_telemetry"]
+    assert len(gpu_rows) == 1
+    assert gpu_rows[0]["frequency_quality_status"] is None
+    assert gpu_rows[0]["frequency_outlier_cpu_count"] is None
+
+
+def test_arc174_ventana_cpu_valida_bajo_nivel_fijo(tmp_path):
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0),
+        _cpu_row(repetition=1, ts=1_001_000_000, instructions=2_000_000, cycles=1_000_000,
+                 cache_references=100_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000,
+                 scaling_cur_freq_khz_all="2200000;2199000"),
+    ])
+    windows = postprocess.build_windows(
+        samples,
+        _context(freq_tolerance_fraction=0.03, freq_khz_applied=2_200_000, freq_is_native_governor=False),
+    )
+    assert windows[1]["frequency_quality_status"] == "valid"
+    assert windows[1]["frequency_outlier_cpu_count"] == 0
+
+
+def test_arc174_ventana_cpu_no_confiable_bajo_nivel_fijo(tmp_path):
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0),
+        _cpu_row(repetition=1, ts=1_001_000_000, instructions=2_000_000, cycles=1_000_000,
+                 cache_references=100_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000,
+                 scaling_cur_freq_khz_all="2200000;1600000"),
+    ])
+    windows = postprocess.build_windows(
+        samples,
+        _context(freq_tolerance_fraction=0.03, freq_khz_applied=2_200_000, freq_is_native_governor=False),
+    )
+    assert windows[1]["frequency_quality_status"] == "observation_unreliable"
+    assert windows[1]["frequency_outlier_cpu_count"] == 1
+
+
+def test_arc174_ventana_dentro_de_grace_seconds_queda_unverified(tmp_path):
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=0, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0),
+        _cpu_row(repetition=1, ts=1_000_000, instructions=2_000_000, cycles=1_000_000,
+                 cache_references=100_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000,
+                 scaling_cur_freq_khz_all="1600000;1600000"),
+    ])
+    windows = postprocess.build_windows(
+        samples,
+        _context(
+            freq_tolerance_fraction=0.03, freq_khz_applied=2_200_000, freq_is_native_governor=False,
+            freq_grace_seconds=10.0,
+        ),
+    )
+    assert windows[1]["frequency_quality_status"] == "observation_unverified_grace"
+
+
+def test_arc174_ref_no_confundido_con_actuacion_desactivada(tmp_path):
+    # REF explícito (freq_is_native_governor=True) -- clasifica
+    # "not_applicable_native" pese a no tener expected_khz, a diferencia de
+    # un nivel fixed sin actuación (mismos None, pero is_native_governor=False
+    # -- cubierto por test_arc174_config_incompleta... en test_validation.py).
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0),
+        _cpu_row(repetition=1, ts=1_001_000_000, instructions=2_000_000, cycles=1_000_000,
+                 cache_references=100_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000,
+                 scaling_cur_freq_khz_all="3600000;3550000"),
+    ])
+    windows = postprocess.build_windows(samples, _context(freq_is_native_governor=True))
+    assert windows[1]["frequency_quality_status"] == "not_applicable_native"
+
+
 def test_arc94_filas_gpu_excluyen_calentamiento(tmp_path):
     """ARC-94: antes de este cambio, warmup_seconds del catalogo nunca se
     comparaba contra el timestamp de la muestra GPU -- todas las filas
@@ -1113,6 +1205,45 @@ def test_arc78_run_postprocess_pide_el_ridge_del_propio_freq_level_id(tmp_path, 
     )
 
     assert requested_freq_level_ids == ["FG_1"]
+
+
+def test_arc174_run_postprocess_output_dir_no_toca_el_run_dir_original(tmp_path, monkeypatch):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    _write_samples(run_dir / "samples.csv", [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0),
+        _cpu_row(repetition=1, ts=1_001_000_000, instructions=2_000_000, cycles=1_000_000,
+                 cache_references=100_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000),
+    ])
+    cal_dir = tmp_path / "cal"
+    cal_dir.mkdir()
+
+    monkeypatch.setattr(
+        postprocess.calibration_module, "load_calibration",
+        lambda calibration_dir, freq_level_id="": SimpleNamespace(i_ridge_flops_per_byte=1.0),
+    )
+    monkeypatch.setattr(
+        postprocess.node_profile_module, "load_node_profile",
+        lambda calibration_dir: SimpleNamespace(cache_line_size_bytes=64),
+    )
+    kernel_entry = SimpleNamespace(phase_label_hint="compute_bound", binary_checksum="sha256:x",
+                                    flops_total_stdout_pattern=None)
+
+    derived_dir = tmp_path / "derived" / "run"
+    windows_path = postprocess.run_postprocess(
+        run_dir, run_id="r", repetition=1, kernel_ref="npb_ep", kernel_entry=kernel_entry,
+        node_id="felix-sc3", freq_level_id="REF", calibration_dir=cal_dir,
+        output_dir=derived_dir,
+    )
+
+    assert windows_path == derived_dir / "windows.csv"
+    assert windows_path.exists()
+    assert (derived_dir / "frequency_quality_summary.json").exists()
+    # El run_dir original nunca recibe windows.csv/el resumen -- solo tenía
+    # samples.csv de entrada.
+    assert not (run_dir / "windows.csv").exists()
+    assert not (run_dir / "frequency_quality_summary.json").exists()
 
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
