@@ -13,6 +13,9 @@ build/
 venv/
 env/
 
+# CMake build directories (any node-specific build tree, e.g. telemetry/build-pacca/)
+build-*/
+
 # C/C++
 *.o
 *.a
