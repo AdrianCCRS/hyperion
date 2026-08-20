@@ -28,11 +28,18 @@
 # hubiera rechazado). campaign_id/output_dir con fecha nueva para no
 # reanudar contra el smoke test viejo de ARC-104/108 (protocolo distinto,
 # CAM-09 lo rechazaría de todas formas, pero mejor no reusar el directorio).
-campaign_id: pacca_cpu_final_preflight_20260814
+# ARC-150: campaign_id/output_dir renombrados a la fecha de re-lanzamiento
+# real (2026-08-19) -- el directorio "..._20260814" solo tenia el intento
+# fallido de ARC-149 (build viejo del launcher, sin datos reales), pero
+# CAM-09 (fail-closed, ARC-141) bloqueaba el relanzamiento porque el
+# fingerprint del protocolo cambio junto con los fixes de esa misma sesion.
+# Mismo criterio ya usado en ARC-127/130: no reusar un output_dir cuyo
+# protocolo ya no coincide, en vez de forzar el chequeo de seguridad.
+campaign_id: pacca_cpu_final_preflight_20260819
 environment_tier: hpc_sc3
 seed: 20260806
 
-output_dir: /home/latorresn/hyperion-results/campaigns/pacca_cpu_final_preflight_20260814
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_cpu_final_preflight_20260819
 overwrite: true
 
 catalog_path: kernels/catalog.yaml
@@ -67,6 +74,29 @@ running_ratio_min: 0.90
 frequency_validation:
   require_per_window: true
   tolerance_fraction: 0.05
+  # ARC-166 (corregido -- el valor original de 15.0 confundia nanosegundos
+  # con segundos): un CPU delegado especifico (confirmado reproducible 2/2
+  # en paccaA100, siempre el mismo) tarda ~10-11 MILISEGUNDOS en
+  # engancharse al candado justo tras arrancar el kernel real -- latencia
+  # de transicion P-state normal, no un decaimiento de segundos. 0.05s
+  # (50ms) da margen (~4-5x) sobre el peor caso medido sin diluir la
+  # validacion del resto de la corrida.
+  grace_seconds: 0.05
+
+# ARC-161: en paccaA100, energy_performance_preference=performance bajo HWP
+# hace que el hardware decaiga lentamente hacia un techo de frecuencia mas
+# bajo tras venir de un nivel mas alto -- confirmado con scaling_cur_freq
+# muestreado en vivo, en una escala de segundos. Un barrido real (0.5s a
+# 12s) mostro que el asentamiento NO es monotono con el tiempo esperado (8s
+# asento limpio, 12s inmediatamente despues fallo peor que 8s) -- por eso
+# apply_frequency() se sigue de una espera ACTIVA (relee scaling_cur_freq
+# hasta confirmar, no una pausa fija) con timeout_seconds=30 (mas del doble
+# del peor caso medido) como tope de seguridad, no como valor esperado.
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
 
 turbo:
   require_disabled: true

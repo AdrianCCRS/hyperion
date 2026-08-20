@@ -11,6 +11,7 @@ from . import campaign as campaign_module
 from . import catalog as catalog_module
 from . import diagnostics as diagnostics_module
 from . import environment as environment_module
+from . import gpu_inspector as gpu_inspector_module
 from . import manifest as manifest_module
 from . import node_profile as node_profile_module
 from . import postprocess as postprocess_module
@@ -93,7 +94,19 @@ def cmd_run_campaign(args: argparse.Namespace) -> int:
     profile = node_profile_module.build_node_profile(
         env, manifest.cores.delegated_cpus, node_id=args.node_id, hostname=args.hostname or "",
     )
-    preflight_results = preflight_module.run_campaign_preflight(manifest, env, catalog, node_profile=profile)
+    # ARC-171: sin esto, G01-G03 siempre bloqueaban con "se requiere un
+    # inspector NVML" en cualquier campaña con gpu.enabled=true -- nunca
+    # existió una implementación real de GpuInspector conectada al CLI
+    # (los smokes GPU previos, ARC-153/154, nunca lo expusieron porque
+    # corrían con gpu.enabled=false). Construir siempre uno es seguro: para
+    # gpu.enabled=false, check_gpu() nunca se invoca (preflight.py lo gatea
+    # por ese mismo flag) y __init__ no hace ningún subproceso real -- solo
+    # falla en voz baja (retorna None/[]) si nvidia-smi no está disponible
+    # cuando de verdad se consulta.
+    gpu_inspector = gpu_inspector_module.NvidiaSmiGpuInspector()
+    preflight_results = preflight_module.run_campaign_preflight(
+        manifest, env, catalog, node_profile=profile, gpu_inspector=gpu_inspector,
+    )
     blocking_failures = [result for result in preflight_results if not result.passed and result.blocking]
     if blocking_failures:
         print(json.dumps({
@@ -108,6 +121,7 @@ def cmd_run_campaign(args: argparse.Namespace) -> int:
     result = campaign_module.run_campaign(
         manifest, catalog, env, node_id=args.node_id, reference_kernel_ref=args.reference_kernel_ref,
         hostname=args.hostname or "", campaign_timeout_seconds=args.campaign_timeout_seconds,
+        gpu_inspector=gpu_inspector,
     )
 
     # ARC-142: run_campaign() no lanza excepción cuando una combinación es

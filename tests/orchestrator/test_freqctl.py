@@ -237,6 +237,68 @@ def test_frq09_solo_toca_los_cpus_delegados(tmp_path):
     assert not (tmp_path / "cpu1/cpufreq/scaling_setspeed").exists()
 
 
+def test_arc163_apply_frequency_extiende_a_los_hermanos_smt(tmp_path):
+    # ARC-162/163: cpu16 es hermano SMT de cpu0 (comparten núcleo físico) --
+    # apply_frequency() debe restringirlo también, aunque solo se pase [0]
+    # como delegado, para que el candado del delegado no quede sin efecto
+    # bajo carga real por culpa del hermano libre.
+    paths = {
+        0: _write_cpu(tmp_path, 0, governor="powersave"),
+        16: _write_cpu(tmp_path, 16, governor="powersave"),
+    }
+    env = _env(paths, write_capable=True, strategy="bounded_range")
+    env.smt_siblings = {0: [0, 16]}
+    level = SimpleNamespace(id="F0", mode="fixed", fraction=1.0)
+
+    result = freqctl.apply_frequency([0], level, env)
+
+    assert (tmp_path / "cpu0/cpufreq/scaling_max_freq").read_text() == "2261000"
+    assert (tmp_path / "cpu16/cpufreq/scaling_max_freq").read_text() == "2261000"
+    assert 16 in result.per_cpu_applied_khz
+
+
+def test_arc163_apply_frequency_sin_smt_siblings_no_toca_otros_cpus(tmp_path):
+    # Comportamiento anterior a ARC-163 preservado: sin env.smt_siblings
+    # declarado (mismo default que todo fixture/entorno de prueba
+    # existente), apply_frequency() sigue tocando solo los CPUs pasados.
+    paths = {
+        0: _write_cpu(tmp_path, 0, governor="powersave"),
+        16: _write_cpu(tmp_path, 16, governor="powersave"),
+    }
+    env = _env(paths, write_capable=True, strategy="bounded_range")
+    level = SimpleNamespace(id="F0", mode="fixed", fraction=1.0)
+
+    freqctl.apply_frequency([0], level, env)
+
+    assert (tmp_path / "cpu16/cpufreq/scaling_max_freq").read_text() == "2261000"  # valor original de _write_cpu
+    assert (tmp_path / "cpu16/cpufreq/scaling_governor").read_text() == "powersave"
+
+
+def test_arc163_snapshot_y_restore_incluyen_los_hermanos_smt(tmp_path):
+    # ARC-163: si apply_frequency() va a escribir en los hermanos, el
+    # snapshot tomado al inicio de la campaña debe conocer su estado
+    # previo -- de lo contrario restore_original_state() los dejaría
+    # modificados permanentemente al terminar (el mismo tipo de fuga de
+    # estado residual que motivó esta corrección, ver ARC-162).
+    paths = {
+        0: _write_cpu(tmp_path, 0, min_khz=1064000, max_khz=2261000),
+        16: _write_cpu(tmp_path, 16, min_khz=1064000, max_khz=2261000),
+    }
+    env = _env(paths, write_capable=True, strategy="bounded_range")
+    env.smt_siblings = {0: [0, 16]}
+
+    original = freqctl.snapshot_original_state([0], env)
+    assert 16 in original.per_cpu
+
+    level = SimpleNamespace(id="F4", mode="fixed", fraction=0.0)
+    freqctl.apply_frequency([0], level, env)
+    assert (tmp_path / "cpu16/cpufreq/scaling_max_freq").read_text() == "1064000"
+
+    assert freqctl.restore_original_state(original, env) is True
+    assert (tmp_path / "cpu16/cpufreq/scaling_min_freq").read_text() == "1064000"
+    assert (tmp_path / "cpu16/cpufreq/scaling_max_freq").read_text() == "2261000"
+
+
 def test_frq04_restore_es_idempotente_y_verificado(tmp_path):
     paths = {0: _write_cpu(tmp_path, 0, governor="performance", setspeed_khz=None)}
     env = _env(paths, write_capable=True, strategy="discrete_bounds")
@@ -423,3 +485,230 @@ def test_arc108_write_and_verify_falla_tras_agotar_reintentos(tmp_path, monkeypa
     # Un permiso realmente ausente falla siempre, no de forma intermitente
     # -- el reintento no debe convertir esto en un falso positivo.
     assert freqctl._write_and_verify(path, "2261000", attr="scaling_max_freq", cpu=0) is False
+
+
+def test_arc161_wait_for_frequency_settled_retorna_de_inmediato_si_ya_esta_dentro_de_tolerancia(tmp_path):
+    paths = {
+        0: _write_cpu(tmp_path, 0, max_khz=805000),
+        1: _write_cpu(tmp_path, 1, max_khz=798000),
+    }
+    env = _env(paths, write_capable=True, strategy="bounded_range")
+
+    observed = freqctl.wait_for_frequency_settled(
+        [0, 1], 800000, env, tolerance_fraction=0.05, timeout_seconds=5.0,
+    )
+
+    assert observed == {0: 805000, 1: 798000}
+
+
+def test_arc161_wait_for_frequency_settled_target_none_no_espera(tmp_path, monkeypatch):
+    # ARC-161: un nivel REF/native_governor no tiene objetivo numerico --
+    # nada que asentar, retorna de inmediato sin dormir ni fallar.
+    paths = {0: _write_cpu(tmp_path, 0, max_khz=3200000)}
+    env = _env(paths, write_capable=True, strategy="bounded_range")
+    monkeypatch.setattr(freqctl.time, "sleep", lambda s: (_ for _ in ()).throw(AssertionError("no deberia dormir")))
+
+    observed = freqctl.wait_for_frequency_settled(
+        [0], None, env, tolerance_fraction=0.05, timeout_seconds=5.0,
+    )
+
+    assert observed == {0: 3200000}
+
+
+def test_arc161_wait_for_frequency_settled_reintenta_hasta_asentar(tmp_path, monkeypatch):
+    # ARC-161: simula el decaimiento lento real de paccaA100 (EPP=performance
+    # bajo HWP) -- las primeras lecturas siguen cerca del nivel anterior
+    # (3200000), y solo tras un par de reintentos cae dentro de tolerancia
+    # del objetivo (800000).
+    cur_path = tmp_path / "cpu0/cpufreq/scaling_cur_freq"
+    paths = {0: _write_cpu(tmp_path, 0, max_khz=3200000)}
+    env = _env(paths, write_capable=True, strategy="bounded_range")
+
+    readings = iter(["3200000", "2100000", "820000"])
+
+    def fake_sleep(_seconds: float) -> None:
+        cur_path.write_text(next(readings))
+
+    monkeypatch.setattr(freqctl.time, "sleep", fake_sleep)
+
+    observed = freqctl.wait_for_frequency_settled(
+        [0], 800000, env, tolerance_fraction=0.05, timeout_seconds=5.0, poll_interval_seconds=0.01,
+    )
+
+    assert observed == {0: 820000}
+
+
+def test_arc161_wait_for_frequency_settled_falla_tras_timeout(tmp_path, monkeypatch):
+    # ARC-161: si la frecuencia nunca converge dentro del plazo, falla en
+    # voz alta (FrequencyControlError) en vez de proceder a medir sin
+    # confirmacion -- exactamente el problema que este mecanismo evita.
+    paths = {0: _write_cpu(tmp_path, 0, max_khz=3200000)}
+    env = _env(paths, write_capable=True, strategy="bounded_range")
+    monkeypatch.setattr(freqctl.time, "sleep", lambda s: None)
+
+    clock = iter([0.0, 0.01, 0.02, 10.0])
+    monkeypatch.setattr(freqctl.time, "monotonic", lambda: next(clock))
+
+    with pytest.raises(freqctl.FrequencyControlError):
+        freqctl.wait_for_frequency_settled(
+            [0], 800000, env, tolerance_fraction=0.05, timeout_seconds=5.0, poll_interval_seconds=0.01,
+        )
+
+
+def test_arc161_settle_if_configured_no_hace_nada_si_deshabilitado(tmp_path, monkeypatch):
+    applied = freqctl.AppliedFrequency(
+        level_id="F4", strategy="bounded_range", requested_khz=800000, applied_khz=800000,
+        per_cpu_applied_khz={0: 800000}, governor_applied=None, write_skipped_reason=None,
+    )
+    env = _env({0: _write_cpu(tmp_path, 0)}, write_capable=True, strategy="bounded_range")
+    monkeypatch.setattr(
+        freqctl, "wait_for_frequency_settled",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("no deberia llamarse")),
+    )
+
+    assert freqctl.settle_if_configured([0], applied, env, settle_config=None) is None
+    assert freqctl.settle_if_configured([0], applied, env, settle_config={}) is None
+    assert freqctl.settle_if_configured([0], applied, env, settle_config={"enabled": False}) is None
+
+
+def test_arc161_settle_if_configured_delega_con_los_parametros_del_manifiesto(tmp_path, monkeypatch):
+    applied = freqctl.AppliedFrequency(
+        level_id="F4", strategy="bounded_range", requested_khz=800000, applied_khz=800000,
+        per_cpu_applied_khz={0: 800000}, governor_applied=None, write_skipped_reason=None,
+    )
+    env = _env({0: _write_cpu(tmp_path, 0)}, write_capable=True, strategy="bounded_range")
+
+    captured = {}
+
+    def fake_wait(cpus, target_khz, env_arg, *, tolerance_fraction, timeout_seconds, poll_interval_seconds):
+        captured.update(
+            cpus=cpus, target_khz=target_khz, tolerance_fraction=tolerance_fraction,
+            timeout_seconds=timeout_seconds, poll_interval_seconds=poll_interval_seconds,
+        )
+        return {0: 800000}
+
+    monkeypatch.setattr(freqctl, "wait_for_frequency_settled", fake_wait)
+    monkeypatch.setattr(freqctl, "_start_warmup_load", lambda cpus: ["fake_proc"])
+    monkeypatch.setattr(freqctl, "_stop_warmup_load", lambda procs: None)
+
+    result = freqctl.settle_if_configured(
+        [0], applied, env,
+        settle_config={"enabled": True, "tolerance_fraction": 0.05, "timeout_seconds": 12.0, "poll_interval_seconds": 0.25},
+    )
+
+    assert result == {0: 800000}
+    assert captured == {
+        "cpus": [0], "target_khz": 800000, "tolerance_fraction": 0.05,
+        "timeout_seconds": 12.0, "poll_interval_seconds": 0.25,
+    }
+
+
+def test_arc165_settle_if_configured_arranca_y_detiene_el_warmup_alrededor_del_sondeo(tmp_path, monkeypatch):
+    applied = freqctl.AppliedFrequency(
+        level_id="F0", strategy="bounded_range", requested_khz=3200000, applied_khz=3200000,
+        per_cpu_applied_khz={0: 3200000}, governor_applied=None, write_skipped_reason=None,
+    )
+    env = _env({0: _write_cpu(tmp_path, 0)}, write_capable=True, strategy="bounded_range")
+
+    calls = []
+    fake_procs = ["fake_proc_0"]
+
+    def fake_start(cpus):
+        calls.append(("start", list(cpus)))
+        return fake_procs
+
+    def fake_stop(procs):
+        calls.append(("stop", procs))
+
+    monkeypatch.setattr(freqctl, "_start_warmup_load", fake_start)
+    monkeypatch.setattr(freqctl, "_stop_warmup_load", fake_stop)
+    monkeypatch.setattr(freqctl, "wait_for_frequency_settled", lambda *a, **k: calls.append(("wait",)) or {0: 3200000})
+
+    freqctl.settle_if_configured(
+        [0], applied, env,
+        settle_config={"enabled": True, "tolerance_fraction": 0.05, "timeout_seconds": 12.0},
+    )
+
+    assert calls == [("start", [0]), ("wait",), ("stop", fake_procs)]
+
+
+def test_arc165_settle_if_configured_detiene_el_warmup_aunque_el_sondeo_falle(tmp_path, monkeypatch):
+    applied = freqctl.AppliedFrequency(
+        level_id="F0", strategy="bounded_range", requested_khz=3200000, applied_khz=3200000,
+        per_cpu_applied_khz={0: 3200000}, governor_applied=None, write_skipped_reason=None,
+    )
+    env = _env({0: _write_cpu(tmp_path, 0)}, write_capable=True, strategy="bounded_range")
+
+    stopped = []
+    monkeypatch.setattr(freqctl, "_start_warmup_load", lambda cpus: ["fake_proc"])
+    monkeypatch.setattr(freqctl, "_stop_warmup_load", lambda procs: stopped.append(procs))
+
+    def fake_wait_falla(*a, **k):
+        raise freqctl.FrequencyControlError("timeout simulado")
+
+    monkeypatch.setattr(freqctl, "wait_for_frequency_settled", fake_wait_falla)
+
+    with pytest.raises(freqctl.FrequencyControlError):
+        freqctl.settle_if_configured(
+            [0], applied, env,
+            settle_config={"enabled": True, "tolerance_fraction": 0.05, "timeout_seconds": 12.0},
+        )
+
+    assert stopped == [["fake_proc"]]
+
+
+def test_arc165_settle_if_configured_sin_objetivo_numerico_no_arranca_warmup(tmp_path, monkeypatch):
+    applied = freqctl.AppliedFrequency(
+        level_id="REF", strategy="bounded_range", requested_khz=None, applied_khz=None,
+        per_cpu_applied_khz={0: None}, governor_applied=None, write_skipped_reason=None,
+    )
+    env = _env({0: _write_cpu(tmp_path, 0)}, write_capable=True, strategy="bounded_range")
+
+    monkeypatch.setattr(
+        freqctl, "_start_warmup_load",
+        lambda cpus: (_ for _ in ()).throw(AssertionError("no deberia arrancar warmup sin objetivo")),
+    )
+    monkeypatch.setattr(freqctl, "wait_for_frequency_settled", lambda *a, **k: {0: 800000})
+
+    result = freqctl.settle_if_configured(
+        [0], applied, env,
+        settle_config={"enabled": True, "tolerance_fraction": 0.05, "timeout_seconds": 12.0},
+    )
+    assert result == {0: 800000}
+
+
+def test_arc165_start_warmup_load_lanza_taskset_yes_por_cpu(monkeypatch):
+    launched = []
+
+    class _FakeProc:
+        def __init__(self, cmd):
+            self.cmd = cmd
+
+    def fake_popen(cmd, **kwargs):
+        launched.append(cmd)
+        return _FakeProc(cmd)
+
+    monkeypatch.setattr(freqctl.subprocess, "Popen", fake_popen)
+
+    procs = freqctl._start_warmup_load([0, 1])
+
+    assert len(procs) == 2
+    assert launched == [["taskset", "-c", "0", "yes"], ["taskset", "-c", "1", "yes"]]
+
+
+def test_arc165_stop_warmup_load_termina_y_espera_cada_proceso(monkeypatch):
+    class _FakeProc:
+        def __init__(self):
+            self.terminated = False
+            self.waited = False
+
+        def terminate(self):
+            self.terminated = True
+
+        def wait(self, timeout=None):
+            self.waited = True
+
+    procs = [_FakeProc(), _FakeProc()]
+    freqctl._stop_warmup_load(procs)
+
+    assert all(p.terminated and p.waited for p in procs)

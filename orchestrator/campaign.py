@@ -386,11 +386,25 @@ def schedule_runs(combinations: Sequence[Combination]) -> list[ScheduledRun]:
 
 
 def _run_id_for(manifest: Any, scheduled: ScheduledRun) -> str:
+    """ARC-172: a diferencia de las otras dos llamadas a build_run_id() en
+    este archivo (líneas ~777 y ~800), esta nunca pasó gpu_freq_level_id --
+    nunca se notó porque hasta ARC-170/171 ninguna campaña real había
+    declarado manifest.gpu_frequency_levels con kernels de GPU en la
+    matriz. Sin el sufijo __gpu<id>, las 6 combinaciones de un mismo
+    (kernel, nivel de CPU, repetición) que solo difieren en el nivel de
+    GPU colapsan sobre el MISMO run_id -- y por tanto el mismo run_dir en
+    disco: cada una sobrescribe la telemetría de la anterior en vez de
+    escribir en su propio directorio, confirmado en el smoke de ARC-170
+    (job 6344, 6/36 aceptadas, 30/36 rechazadas, los 6 run_id "sin sufijo"
+    esperados apareciendo cada uno con 1 aceptación + 5 rechazos en vez de
+    las 6 combinaciones reales completamente aisladas entre sí)."""
     base = runner_module.build_run_id(
         manifest.campaign_id,
         scheduled.combination.kernel_ref,
         scheduled.combination.frequency_level.id,
         scheduled.combination.repetition_index,
+        scheduled.combination.gpu_frequency_level.id
+        if scheduled.combination.gpu_frequency_level is not None else None,
     )
     return f"{base}__baseline" if scheduled.mode == "baseline" else base
 

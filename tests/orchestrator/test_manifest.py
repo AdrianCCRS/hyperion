@@ -70,6 +70,7 @@ def test_man_t01_manifest_valido(tmp_path, monkeypatch, catalogo, campaign):
     assert resultado.turbo == {}
     assert resultado.frequency_validation == {}
     assert resultado.temperature == {}
+    assert resultado.frequency_settle == {}
 
 
 def test_arc138_parsea_control_turbo_y_validacion_de_frecuencia(tmp_path, monkeypatch, catalogo, campaign):
@@ -86,6 +87,89 @@ def test_arc138_parsea_control_turbo_y_validacion_de_frecuencia(tmp_path, monkey
 def test_arc138_validacion_por_ventana_exige_tolerancia(tmp_path, monkeypatch, catalogo, campaign):
     campaign["frequency_validation"] = {"require_per_window": True}
     with pytest.raises(manifest.ManifestValidationError, match="tolerance_fraction"):
+        cargar(tmp_path, monkeypatch, catalogo, campaign)
+
+
+def test_arc166_grace_seconds_ausente_es_cero(tmp_path, monkeypatch, catalogo, campaign):
+    campaign["frequency_validation"] = {"require_per_window": True, "tolerance_fraction": 0.05}
+    resultado = cargar(tmp_path, monkeypatch, catalogo, campaign)
+    assert resultado.frequency_validation.get("grace_seconds", 0.0) == 0.0
+
+
+def test_arc166_parsea_grace_seconds(tmp_path, monkeypatch, catalogo, campaign):
+    campaign["frequency_validation"] = {
+        "require_per_window": True, "tolerance_fraction": 0.05, "grace_seconds": 15.0,
+    }
+    resultado = cargar(tmp_path, monkeypatch, catalogo, campaign)
+    assert resultado.frequency_validation == {
+        "require_per_window": True, "tolerance_fraction": 0.05, "grace_seconds": 15.0,
+    }
+
+
+def test_arc166_grace_seconds_negativo_falla(tmp_path, monkeypatch, catalogo, campaign):
+    campaign["frequency_validation"] = {
+        "require_per_window": True, "tolerance_fraction": 0.05, "grace_seconds": -1.0,
+    }
+    with pytest.raises(manifest.ManifestValidationError, match="grace_seconds"):
+        cargar(tmp_path, monkeypatch, catalogo, campaign)
+
+
+def test_arc169_tail_grace_seconds_ausente_es_cero(tmp_path, monkeypatch, catalogo, campaign):
+    campaign["frequency_validation"] = {"require_per_window": True, "tolerance_fraction": 0.05}
+    resultado = cargar(tmp_path, monkeypatch, catalogo, campaign)
+    assert resultado.frequency_validation.get("tail_grace_seconds", 0.0) == 0.0
+
+
+def test_arc169_parsea_tail_grace_seconds(tmp_path, monkeypatch, catalogo, campaign):
+    campaign["frequency_validation"] = {
+        "require_per_window": True, "tolerance_fraction": 0.05, "tail_grace_seconds": 1.2,
+    }
+    resultado = cargar(tmp_path, monkeypatch, catalogo, campaign)
+    assert resultado.frequency_validation == {
+        "require_per_window": True, "tolerance_fraction": 0.05, "tail_grace_seconds": 1.2,
+    }
+
+
+def test_arc169_tail_grace_seconds_negativo_falla(tmp_path, monkeypatch, catalogo, campaign):
+    campaign["frequency_validation"] = {
+        "require_per_window": True, "tolerance_fraction": 0.05, "tail_grace_seconds": -1.0,
+    }
+    with pytest.raises(manifest.ManifestValidationError, match="tail_grace_seconds"):
+        cargar(tmp_path, monkeypatch, catalogo, campaign)
+
+
+def test_arc161_frequency_settle_ausente_es_deshabilitado(tmp_path, monkeypatch, catalogo, campaign):
+    resultado = cargar(tmp_path, monkeypatch, catalogo, campaign)
+    assert resultado.frequency_settle == {}
+
+
+def test_arc161_parsea_frequency_settle(tmp_path, monkeypatch, catalogo, campaign):
+    campaign["frequency_settle"] = {
+        "enabled": True, "timeout_seconds": 15.0, "tolerance_fraction": 0.05, "poll_interval_seconds": 0.2,
+    }
+    resultado = cargar(tmp_path, monkeypatch, catalogo, campaign)
+    assert resultado.frequency_settle == {
+        "enabled": True, "timeout_seconds": 15.0, "tolerance_fraction": 0.05, "poll_interval_seconds": 0.2,
+    }
+
+
+def test_arc161_frequency_settle_habilitado_exige_timeout_seconds(tmp_path, monkeypatch, catalogo, campaign):
+    campaign["frequency_settle"] = {"enabled": True, "tolerance_fraction": 0.05}
+    with pytest.raises(manifest.ManifestValidationError, match="timeout_seconds"):
+        cargar(tmp_path, monkeypatch, catalogo, campaign)
+
+
+def test_arc161_frequency_settle_habilitado_exige_tolerance_fraction(tmp_path, monkeypatch, catalogo, campaign):
+    campaign["frequency_settle"] = {"enabled": True, "timeout_seconds": 15.0}
+    with pytest.raises(manifest.ManifestValidationError, match="tolerance_fraction"):
+        cargar(tmp_path, monkeypatch, catalogo, campaign)
+
+
+def test_arc161_frequency_settle_poll_interval_debe_ser_menor_que_timeout(tmp_path, monkeypatch, catalogo, campaign):
+    campaign["frequency_settle"] = {
+        "enabled": True, "timeout_seconds": 1.0, "tolerance_fraction": 0.05, "poll_interval_seconds": 2.0,
+    }
+    with pytest.raises(manifest.ManifestValidationError, match="poll_interval_seconds"):
         cargar(tmp_path, monkeypatch, catalogo, campaign)
 
 

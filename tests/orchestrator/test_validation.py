@@ -116,6 +116,155 @@ def test_arc145_traza_multi_cpu_completa_y_en_tolerancia_acepta(tmp_path):
     assert summary["missing_samples"] == 0
 
 
+def _write_multi_cpu_frequency_samples_with_ts(path: Path, rows: list[tuple[int, str, str]]) -> None:
+    """rows: (timestamp_ns, primary, all_cpus)."""
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=["tag", "timestamp_ns", "scaling_cur_freq_khz", "scaling_cur_freq_khz_all"],
+        )
+        writer.writeheader()
+        for ts_ns, primary, all_cpus in rows:
+            writer.writerow({
+                "tag": "CPU", "timestamp_ns": ts_ns,
+                "scaling_cur_freq_khz": primary, "scaling_cur_freq_khz_all": all_cpus,
+            })
+
+
+def test_arc166_grace_seconds_excluye_muestras_tempranas_de_la_tolerancia(tmp_path):
+    path = tmp_path / "samples.csv"
+    _write_multi_cpu_frequency_samples_with_ts(path, [
+        # ARC-166: dos ventanas tempranas (t=0s, t=5s) con un CPU rezagado
+        # fuera de tolerancia -- dentro de grace_seconds=10.0, no cuentan.
+        (0, "3200000", "3200000;3200000;3200000;2400000"),
+        (5_000_000_000, "3200000", "3200000;3200000;3200000;2400000"),
+        # A partir de t=11s (fuera de la gracia), ya limpio.
+        (11_000_000_000, "3200000", "3200000;3200000;3200000;3200000"),
+        (12_000_000_000, "3200000", "3200000;3200000;3200000;3200000"),
+    ])
+
+    verdict, summary = validation.validate_cpu_frequency_trace(
+        path, require_per_window=True, expected_khz=3_200_000, tolerance_fraction=0.03,
+        expected_cpu_count=4, grace_seconds=10.0,
+    )
+
+    assert verdict.accepted is True
+    assert summary["excluded_by_grace_samples"] == 8
+    assert summary["observed_samples"] == 8
+
+
+def test_arc166_grace_seconds_no_exime_los_chequeos_estructurales(tmp_path):
+    path = tmp_path / "samples.csv"
+    _write_multi_cpu_frequency_samples_with_ts(path, [
+        # Ventana temprana (dentro de la gracia) con solo 3 de 4 CPUs --
+        # sigue siendo un fallo estructural real, no de dispersión.
+        (0, "3200000", "3200000;3200000;3200000"),
+        (11_000_000_000, "3200000", "3200000;3200000;3200000;3200000"),
+    ])
+
+    verdict, summary = validation.validate_cpu_frequency_trace(
+        path, require_per_window=True, expected_khz=3_200_000, tolerance_fraction=0.03,
+        expected_cpu_count=4, grace_seconds=10.0,
+    )
+
+    assert verdict.accepted is False
+    assert summary["cpu_count_mismatch_samples"] == 1
+    assert summary["missing_samples"] == 1
+
+
+def test_arc166_toda_la_traza_dentro_de_grace_seconds_falla_en_voz_alta(tmp_path):
+    path = tmp_path / "samples.csv"
+    _write_multi_cpu_frequency_samples_with_ts(path, [
+        (0, "3200000", "3200000;3200000;3200000;3200000"),
+        (5_000_000_000, "3200000", "3200000;3200000;3200000;3200000"),
+    ])
+
+    verdict, summary = validation.validate_cpu_frequency_trace(
+        path, require_per_window=True, expected_khz=3_200_000, tolerance_fraction=0.03,
+        expected_cpu_count=4, grace_seconds=10.0,
+    )
+
+    assert verdict.accepted is False
+    assert verdict.factor_id == "E01"
+    assert "grace_seconds" in verdict.message
+
+
+def test_arc166_grace_seconds_default_cero_preserva_comportamiento_anterior(tmp_path):
+    path = tmp_path / "samples.csv"
+    _write_multi_cpu_frequency_samples_with_ts(path, [
+        (0, "3200000", "3200000;3200000;3200000;2400000"),
+    ])
+
+    verdict, summary = validation.validate_cpu_frequency_trace(
+        path, require_per_window=True, expected_khz=3_200_000, tolerance_fraction=0.03,
+        expected_cpu_count=4,
+    )
+
+    assert verdict.accepted is False
+    assert summary["excluded_by_grace_samples"] == 0
+
+
+def test_arc169_tail_grace_seconds_excluye_muestras_tardias_de_la_tolerancia(tmp_path):
+    path = tmp_path / "samples.csv"
+    _write_multi_cpu_frequency_samples_with_ts(path, [
+        # ARC-169: la corrida asienta bien al principio, pero cerca del
+        # FINAL un hilo termina antes que sus pares y queda ocioso --
+        # dentro de tail_grace_seconds=10.0 (medido hacia atras desde el
+        # ultimo tick), no cuenta.
+        (0, "3200000", "3200000;3200000;3200000;3200000"),
+        (1_000_000_000, "3200000", "3200000;3200000;3200000;3200000"),
+        (11_000_000_000, "3200000", "3200000;3200000;3200000;2400000"),
+        (12_000_000_000, "3200000", "3200000;3200000;3200000;2400000"),
+    ])
+
+    verdict, summary = validation.validate_cpu_frequency_trace(
+        path, require_per_window=True, expected_khz=3_200_000, tolerance_fraction=0.03,
+        expected_cpu_count=4, tail_grace_seconds=10.0,
+    )
+
+    assert verdict.accepted is True
+    assert summary["excluded_by_grace_samples"] == 8
+    assert summary["observed_samples"] == 8
+
+
+def test_arc169_grace_seconds_y_tail_grace_seconds_combinados(tmp_path):
+    path = tmp_path / "samples.csv"
+    _write_multi_cpu_frequency_samples_with_ts(path, [
+        # Temprano (dentro de grace_seconds) Y tardio (dentro de
+        # tail_grace_seconds) ambos fuera de tolerancia; solo el tramo
+        # intermedio limpio cuenta.
+        (0, "3200000", "3200000;3200000;3200000;2400000"),
+        (12_000_000_000, "3200000", "3200000;3200000;3200000;3200000"),
+        (13_000_000_000, "3200000", "3200000;3200000;3200000;3200000"),
+        (25_000_000_000, "3200000", "3200000;3200000;3200000;2400000"),
+    ])
+
+    verdict, summary = validation.validate_cpu_frequency_trace(
+        path, require_per_window=True, expected_khz=3_200_000, tolerance_fraction=0.03,
+        expected_cpu_count=4, grace_seconds=10.0, tail_grace_seconds=10.0,
+    )
+
+    assert verdict.accepted is True
+    assert summary["excluded_by_grace_samples"] == 8
+    assert summary["observed_samples"] == 8
+
+
+def test_arc169_tail_grace_seconds_default_cero_preserva_comportamiento_anterior(tmp_path):
+    path = tmp_path / "samples.csv"
+    _write_multi_cpu_frequency_samples_with_ts(path, [
+        (0, "3200000", "3200000;3200000;3200000;3200000"),
+        (1_000_000_000, "3200000", "3200000;3200000;3200000;2400000"),
+    ])
+
+    verdict, summary = validation.validate_cpu_frequency_trace(
+        path, require_per_window=True, expected_khz=3_200_000, tolerance_fraction=0.03,
+        expected_cpu_count=4,
+    )
+
+    assert verdict.accepted is False
+    assert summary["tail_grace_seconds"] == 0.0
+
+
 def test_arc138_validate_run_rechaza_e01_y_conserva_el_resultado_en_metadata(tmp_path):
     entry = _kernel_entry(tmp_path)
     result = _run_result()

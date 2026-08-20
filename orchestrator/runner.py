@@ -451,6 +451,15 @@ def run_single(
         frequency_level = _resolve_frequency_level(manifest, freq_level_id)
         if environment_profile is not None and getattr(environment_profile, "frequency_write_capable", False):
             applied_frequency = apply_frequency(manifest.cores.delegated_cpus, frequency_level, environment_profile)
+            # ARC-161: espera activa opcional (manifest.frequency_settle) --
+            # sin esto, una corrida corta puede medirse bajo el techo de
+            # frecuencia anterior mientras el hardware todavía decae hacia
+            # el nivel pedido (EPP=performance bajo HWP, confirmado en
+            # paccaA100 con scaling_cur_freq muestreado en vivo).
+            freqctl.settle_if_configured(
+                manifest.cores.delegated_cpus, applied_frequency, environment_profile,
+                settle_config=getattr(manifest, "frequency_settle", None),
+            )
         elif frequency_level.mode != "native_governor":
             # RUN-09 (ARC-101): a "fixed" level was requested but this node
             # cannot actually write frequency. Silently running at native
@@ -598,7 +607,12 @@ def run_single(
     frequency_validation = getattr(manifest, "frequency_validation", None) or {}
     require_per_window_frequency = bool(frequency_validation.get("require_per_window", False))
     frequency_tolerance_fraction = frequency_validation.get("tolerance_fraction")
-    if getattr(entry, "device", "cpu") == "cpu" and require_per_window_frequency:
+    # ARC-149: success ya refleja si el launcher realmente corrio (RUN-04);
+    # sin este chequeo, una corrida fallida (timeout, exit_code != 0) nunca
+    # escribio samples.csv y validate_cpu_frequency_trace() crasheaba con un
+    # FileNotFoundError sin manejar en vez de dejar que el resto del
+    # pipeline (RunResult.success) marque la corrida como rechazada.
+    if success and getattr(entry, "device", "cpu") == "cpu" and require_per_window_frequency:
         expected_khz = getattr(applied_frequency, "requested_khz", None)
         frequency_verdict, frequency_summary = validation_module.validate_cpu_frequency_trace(
             run_dir / "samples.csv",
@@ -606,6 +620,8 @@ def run_single(
             expected_khz=expected_khz,
             tolerance_fraction=frequency_tolerance_fraction,
             expected_cpu_count=len(manifest.cores.delegated_cpus),
+            grace_seconds=float(frequency_validation.get("grace_seconds", 0.0)),
+            tail_grace_seconds=float(frequency_validation.get("tail_grace_seconds", 0.0)),
         )
         frequency_summary.update({
             "accepted": frequency_verdict.accepted,

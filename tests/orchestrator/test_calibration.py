@@ -47,7 +47,11 @@ def _fake_run_result(
     None,
     {"accepted": False, "factor_id": "E01", "message": "fuera de objetivo"},
 ])
-def test_cal07_calibracion_falla_cerrado_sin_traza_aceptada(tmp_path, frequency_trace):
+def test_arc167_cal07_calibracion_ya_no_bloquea_solo_advierte(tmp_path, frequency_trace, caplog):
+    """ARC-167: CAL-07 en calibración degradó de bloqueante a advertencia --
+    decisión explícita del usuario tras evidencia real de que `stream_official`
+    produce dispersión dispersa (no un transitorio) que no refleja un P_pico/
+    BW_pico erróneo (ambos vienen del stdout, nunca de esta traza)."""
     stream_entry = _kernel_entry(
         id="stream", reports_bandwidth_stdout=True, bandwidth_stdout_pattern=r"BW=([0-9.]+)",
     )
@@ -68,11 +72,14 @@ def test_cal07_calibracion_falla_cerrado_sin_traza_aceptada(tmp_path, frequency_
         metadata = {} if frequency_trace is None else {"frequency_trace_validation": frequency_trace}
         return _fake_run_result(run_dir, metadata=metadata)
 
-    with pytest.raises(calibration.CalibrationError, match="CAL-07"):
-        calibration.run_calibration(manifest, catalog, run_single=fake_run_single)
+    with caplog.at_level("WARNING"):
+        result = calibration.run_calibration(manifest, catalog, run_single=fake_run_single)
+
+    assert result.plausibility_check_passed is True
+    assert any("CAL-07" in record.message for record in caplog.records)
 
 
-def test_cal07_referencias_fallan_si_su_traza_de_frecuencia_no_fue_aceptada(tmp_path):
+def test_arc167_cal07_referencias_ya_no_bloquea_solo_advierte(tmp_path, caplog):
     entry = _kernel_entry(
         id="npb_ep", role="dataset", phase_label_hint="compute_bound",
         size_variant="S", expected_runtime_seconds=1, warmup_seconds=0.0,
@@ -95,11 +102,13 @@ def test_cal07_referencias_fallan_si_su_traza_de_frecuencia_no_fue_aceptada(tmp_
             },
         })
 
-    with pytest.raises(calibration.CalibrationError, match="CAL-07"):
+    with caplog.at_level("WARNING"):
         calibration.run_calibration_references(
             entry, manifest, "npb_ep", node_id="pacca-a100", run_single=fake_run_single,
         )
-    assert not (tmp_path / "calibration_references.json").exists()
+
+    assert (tmp_path / "calibration_references.json").exists()
+    assert any("CAL-07" in record.message for record in caplog.records)
 
 
 def test_cal01_cal02_cal03_run_calibration_extrae_del_stdout_no_de_pmu(tmp_path):
@@ -330,6 +339,56 @@ def test_arc78_run_calibration_calibra_por_cada_nivel_de_frecuencia(tmp_path):
     assert ref_loaded.i_ridge_flops_per_byte == pytest.approx(1.0)
     assert fg1_loaded.i_ridge_flops_per_byte == pytest.approx(0.5)
     assert fg1_loaded.p_pico_flops_per_s < ref_loaded.p_pico_flops_per_s
+
+
+def test_arc161_run_calibration_invoca_settle_if_configured_por_nivel(tmp_path, monkeypatch):
+    # ARC-161: sin verificar que la frecuencia se asento antes de medir
+    # P_pico, ert_probe puede medir bajo el techo del nivel anterior en vez
+    # del pedido (confirmado en paccaA100, EPP=performance bajo HWP decae
+    # lento hacia frecuencias mas bajas). run_calibration() debe invocar
+    # freqctl.settle_if_configured() una vez POR NIVEL, con la
+    # AppliedFrequency real de ese nivel.
+    stream_entry = _kernel_entry(id="stream", reports_bandwidth_stdout=True, bandwidth_stdout_pattern=r"BW=([0-9.]+)")
+    ert_entry = _kernel_entry(id="ert", reports_flops_stdout=True, flops_stdout_pattern=r"FLOPS=([0-9.]+)")
+    manifest = _manifest(tmp_path, datasheet={"bw_pico_bytes_per_s": 1.0e10, "p_pico_flops_per_s": 1.0e10})
+    manifest.frequency_levels = (
+        SimpleNamespace(id="REF", mode="native_governor", fraction=None),
+        SimpleNamespace(id="FG_1", mode="fixed", fraction=0.5),
+    )
+    manifest.frequency_settle = {"enabled": True, "timeout_seconds": 15.0, "tolerance_fraction": 0.05}
+    catalog = {"stream": stream_entry, "ert": ert_entry}
+
+    def fake_apply_frequency(cpus, level, env):
+        return SimpleNamespace(
+            level_id=level.id, strategy="bounded_range", requested_khz=(None if level.id == "REF" else 1600000),
+            applied_khz=None, per_cpu_applied_khz={}, governor_applied=None, write_skipped_reason=None,
+        )
+
+    def fake_run_single(entry, manifest, kernel_ref, freq_level_id, repetition, **kwargs):
+        run_dir = tmp_path / f"{kernel_ref}_{freq_level_id}"
+        run_dir.mkdir(exist_ok=True)
+        flops = "10000000000" if freq_level_id == "REF" else "5000000000"
+        if entry is stream_entry:
+            (run_dir / "stdout.txt").write_text("BW=10000000000\n")
+        else:
+            (run_dir / "stdout.txt").write_text(f"FLOPS={flops}\n")
+        return _fake_run_result(run_dir)
+
+    settle_calls = []
+    monkeypatch.setattr(
+        calibration.freqctl, "settle_if_configured",
+        lambda cpus, applied, env, *, settle_config: settle_calls.append((applied.level_id, settle_config)),
+    )
+
+    calibration.run_calibration(
+        manifest, catalog, environment_profile=SimpleNamespace(frequency_write_capable=True),
+        run_single=fake_run_single, apply_frequency=fake_apply_frequency,
+    )
+
+    assert settle_calls == [
+        ("REF", manifest.frequency_settle),
+        ("FG_1", manifest.frequency_settle),
+    ]
 
 
 def test_arc78_nivel_no_referencia_no_puede_medir_mas_flops_que_la_referencia(tmp_path):

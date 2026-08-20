@@ -1,0 +1,95 @@
+# ARC-169: campaña suplementaria dirigida SOLO a npb_cg -- la campaña
+# principal (pacca_cpu_final_attempt03_20260820, ARC-168) quedó con 0/10
+# aceptadas en F1 y 1/10 en F2 para este kernel. Investigado: las muestras
+# fuera de tolerancia caen 100% en los primeros ~53ms de cada corrida (un
+# transitorio de arranque más largo que el grace_seconds=0.05 calibrado
+# con ert_probe, un kernel mucho más corto) -- no hay dispersión en el
+# resto de la corrida (8s limpios). grace_seconds subido a 0.15 (~3x
+# margen sobre el peor caso medido) es suficiente para este caso, sin
+# tail_grace_seconds (npb_cg no mostró el efecto de unión final que sí
+# tuvo rodinia_lavamd_omp -- ver campaign_pacca_dvfs_supplement_rodinia_lavamd.yaml).
+#
+# Resto de la configuración idéntica a campaign_pacca_dvfs.yaml.
+
+campaign_id: pacca_cpu_supplement_npb_cg_20260820
+environment_tier: hpc_sc3
+seed: 20260806
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_cpu_supplement_npb_cg_20260820
+overwrite: true
+
+catalog_path: kernels/catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: npb_cg
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F0, mode: fixed, fraction: 1.0}
+  - {id: F1, mode: fixed, fraction: 0.75}
+  - {id: F2, mode: fixed, fraction: 0.5}
+  - {id: F3, mode: fixed, fraction: 0.25}
+  - {id: F4, mode: fixed, fraction: 0.0}
+
+repetitions_per_combination: 10
+target_windows_per_repetition: 50
+interval_ns: 1000000  # 1 ms
+
+running_ratio_min: 0.90
+
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+  grace_seconds: 0.15
+
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+
+turbo:
+  require_disabled: true
+
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+
+projected_campaign_bytes: 12884901888
+remaining_core_hours: 100000
+projected_core_hours: 50
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+rapl:
+  enabled: true
+
+uncore:
+  enabled: true
+
+gpu:
+  enabled: false
+
+timeouts_seconds:
+  ready: 15
+  run: 180
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 480000000000

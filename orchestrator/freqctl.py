@@ -6,6 +6,7 @@ import logging
 import os
 from pathlib import Path
 import signal
+import subprocess
 import time
 from typing import Any, Callable, Iterable, Mapping
 
@@ -156,12 +157,37 @@ def _target_khz(level: Any, available_khz: Iterable[int]) -> int:
     return round(low + float(fraction) * (high - low))
 
 
+def _expand_with_smt_siblings(cpus: Iterable[int], env: Any) -> tuple[int, ...]:
+    """ARC-163: los CPUs delegados pueden compartir núcleo físico con
+    hermanos SMT que el manifiesto nunca declara -- confirmado en paccaA100
+    (ARC-162, Prueba B) que un hermano sin restringir permite que el reloj
+    físico del núcleo compartido supere el candado del CPU delegado bajo
+    carga real, pese a que cada CPU lógico tiene su propia política cpufreq
+    independiente en software. `env.smt_siblings` (poblado por
+    environment.detect_environment(), incluye typically al propio CPU +
+    su(s) hermano(s)) es la fuente de verdad -- ausente o vacío (SMT
+    deshabilitado, o entorno de prueba sin ese campo) no cambia el
+    comportamiento anterior, nunca se infiere una topología no confirmada.
+    """
+    expanded = set(cpus)
+    for siblings in (getattr(env, "smt_siblings", None) or {}).values():
+        expanded.update(siblings)
+    return tuple(sorted(expanded))
+
+
 def snapshot_original_state(cpus: Iterable[int], env: Any) -> OriginalState:
     """FRQ-01: read-only snapshot, taken exactly once at campaign start.
 
     Safe to call regardless of frequency_write_capable: it never writes.
+
+    ARC-163: el conjunto snapshoteado se expande a los hermanos SMT de
+    `cpus` (ver `_expand_with_smt_siblings`) -- `restore_original_state()`
+    solo puede devolver a su estado original lo que este snapshot capturó,
+    así que si `apply_frequency()` va a escribir en los hermanos, este
+    snapshot debe conocer su estado previo o la restauración los dejaría
+    modificados permanentemente.
     """
-    cpus = tuple(cpus)
+    cpus = _expand_with_smt_siblings(cpus, env)
     strategy = getattr(env, "frequency_control_strategy", STRATEGY_UNAVAILABLE)
     if not _control_paths(env):
         return OriginalState(cpus=cpus, strategy=STRATEGY_UNAVAILABLE, per_cpu={})
@@ -323,7 +349,10 @@ def _apply_bounded(cpus: tuple[int, ...], level: Any, env: Any) -> AppliedFreque
 def apply_frequency(
     cpus: Iterable[int], level: Any, env: Any, *, original: OriginalState | None = None
 ) -> AppliedFrequency:
-    """Apply one FrequencyLevel to exactly `cpus` (FRQ-09: never node-wide).
+    """Apply one FrequencyLevel to `cpus` y, cuando `env.smt_siblings` los
+    declara, a sus hermanos SMT también (ARC-163 -- ver
+    `_expand_with_smt_siblings`; FRQ-09 sigue cumpliéndose en espíritu:
+    nunca node-wide, solo los CPUs relacionados con `cpus`).
 
     FRQ-06: if frequency_write_capable is False, this never touches sysfs and
     reports strategy="unavailable" regardless of env.frequency_control_strategy.
@@ -334,6 +363,8 @@ def apply_frequency(
 
     if not getattr(env, "frequency_write_capable", False):
         return _apply_unavailable(level.id)
+
+    cpus = _expand_with_smt_siblings(cpus, env)
 
     if getattr(level, "mode", None) == "native_governor":
         if original is None:
@@ -349,6 +380,125 @@ def apply_frequency(
     # (environment.py only sets write_capable alongside a real strategy), but
     # fail into the safe "no write" branch instead of guessing a mechanism.
     return _apply_unavailable(level.id)
+
+
+def wait_for_frequency_settled(
+    cpus: Iterable[int], target_khz: int | None, env: Any, *,
+    tolerance_fraction: float, timeout_seconds: float, poll_interval_seconds: float = 0.2,
+) -> Mapping[int, int | None]:
+    """ARC-161: espera activa hasta que scaling_cur_freq de cada CPU delegado
+    caiga dentro de `tolerance_fraction` de `target_khz`, releyendo cada
+    `poll_interval_seconds`, en vez de una pausa fija.
+
+    Motivo: en paccaA100, energy_performance_preference=performance bajo HWP
+    hace que el hardware decaiga lentamente hacia un techo de frecuencia más
+    bajo tras venir de un nivel más alto -- un barrido real (0.5s a 12s)
+    mostró que el asentamiento NO es monótono con el tiempo esperado (8s
+    asentó limpio, 12s inmediatamente después falló peor que 8s), así que
+    una pausa fija no es confiable sin importar cuánto se alargue: solo
+    verificar el estado real, con reintentos, puede confirmarlo. Mismo
+    principio que `_write_and_verify` ya aplica a la escritura misma,
+    extendido al asentamiento posterior.
+
+    `target_khz=None` (nivel REF/native_governor, sin objetivo numérico) no
+    tiene nada que asentar -- retorna de inmediato la lectura actual, sin
+    esperar ni fallar.
+
+    Lanza FrequencyControlError si el timeout se agota sin que todos los
+    CPUs converjan -- fallar en voz alta es la única opción correcta aquí:
+    proceder a medir sin la frecuencia confirmada reintroduciría en silencio
+    exactamente el problema que este mecanismo existe para evitar.
+    """
+    cpus = tuple(cpus)
+    if target_khz is None:
+        return {cpu: _read_int(cur_freq_path(env, cpu)) for cpu in cpus}
+
+    tolerance_khz = tolerance_fraction * target_khz
+    deadline = time.monotonic() + timeout_seconds
+    observed: Mapping[int, int | None] = {}
+    while True:
+        observed = {cpu: _read_int(cur_freq_path(env, cpu)) for cpu in cpus}
+        if all(
+            value is not None and abs(value - target_khz) <= tolerance_khz
+            for value in observed.values()
+        ):
+            return observed
+        if time.monotonic() >= deadline:
+            raise FrequencyControlError(
+                f"freqctl: la frecuencia no se asentó dentro de {timeout_seconds}s "
+                f"(objetivo={target_khz}kHz ± {tolerance_khz:.0f}kHz, observado={observed})"
+            )
+        time.sleep(poll_interval_seconds)
+
+
+def _start_warmup_load(cpus: Iterable[int]) -> list[subprocess.Popen]:
+    """ARC-165: `scaling_cur_freq` bajo `intel_pstate` se calcula del ratio
+    APERF/MPERF -- solo refleja un candado alto pineado cuando el CPU está
+    ejecutando instrucciones de verdad; en reposo reporta cerca del piso sin
+    importar `scaling_min/max_freq` (confirmado en `paccaA100`, ARC-164).
+    Genera esa actividad con un `yes` por CPU, confinado con `taskset`, para
+    que `wait_for_frequency_settled` sondee un valor que puede converger.
+    Falla en silencio por CPU (best-effort): si `taskset`/`yes` no están
+    disponibles, el sondeo posterior simplemente seguirá viendo el CPU en
+    reposo y fallará su propio timeout de forma visible -- no hay un modo
+    silencioso nuevo que ocultar.
+    """
+    procs: list[subprocess.Popen] = []
+    for cpu in cpus:
+        try:
+            procs.append(subprocess.Popen(
+                ["taskset", "-c", str(cpu), "yes"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            ))
+        except OSError:
+            logger.warning("freqctl: no se pudo lanzar el warm-up de asentamiento en cpu%d", cpu)
+    return procs
+
+
+def _stop_warmup_load(procs: list[subprocess.Popen]) -> None:
+    for proc in procs:
+        proc.terminate()
+    for proc in procs:
+        try:
+            proc.wait(timeout=2.0)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+
+
+def settle_if_configured(
+    cpus: Iterable[int], applied: AppliedFrequency, env: Any, *, settle_config: Mapping[str, Any] | None,
+) -> Mapping[int, int | None] | None:
+    """ARC-161: envoltura de conveniencia para los llamadores reales
+    (calibration.py, runner.py) -- lee `manifest.frequency_settle` y no hace
+    nada si `enabled=False`/ausente (mismo criterio "ausente = deshabilitado"
+    que turbo/uncore/gpu, nunca se infiere habilitado). Retorna None cuando
+    no se esperó nada, o el último `scaling_cur_freq` observado por CPU
+    cuando sí se esperó y asentó.
+
+    ARC-165: cuando hay un objetivo numérico que asentar (no REF/
+    native_governor), envuelve el sondeo con un warm-up real en `cpus` (ver
+    `_start_warmup_load`) -- sin esto, un CPU inactivo nunca puede confirmar
+    un candado alto (ARC-164), sin importar cuánto se espere. El warm-up se
+    detiene siempre antes de retornar, incluso si el sondeo lanza
+    FrequencyControlError por timeout.
+    """
+    config = settle_config or {}
+    if not config.get("enabled", False):
+        return None
+    cpus = list(cpus)
+    kwargs = dict(
+        tolerance_fraction=float(config["tolerance_fraction"]),
+        timeout_seconds=float(config["timeout_seconds"]),
+        poll_interval_seconds=float(config.get("poll_interval_seconds", 0.2)),
+    )
+    if applied.requested_khz is None:
+        return wait_for_frequency_settled(cpus, applied.requested_khz, env, **kwargs)
+    warmup_procs = _start_warmup_load(cpus)
+    try:
+        return wait_for_frequency_settled(cpus, applied.requested_khz, env, **kwargs)
+    finally:
+        _stop_warmup_load(warmup_procs)
 
 
 def restore_original_state(original: OriginalState, env: Any) -> bool:

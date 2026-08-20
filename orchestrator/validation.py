@@ -32,6 +32,8 @@ def validate_cpu_frequency_trace(
     expected_khz: int | None,
     tolerance_fraction: float | None,
     expected_cpu_count: int | None = None,
+    grace_seconds: float = 0.0,
+    tail_grace_seconds: float = 0.0,
 ) -> tuple[Verdict, dict[str, Any]]:
     """E01/FRQ-10: valida el reloj medido en los ticks reales del PMU.
 
@@ -42,6 +44,32 @@ def validate_cpu_frequency_trace(
     contrato legado de validar solo ``scaling_cur_freq_khz``; producción
     pasa siempre la cantidad de CPUs delegados y exige la columna multi-CPU
     de ARC-145.
+
+    ARC-166: ``grace_seconds`` excluye de la comprobación de TOLERANCIA (no
+    de los chequeos estructurales de integridad -- ``missing``/
+    ``count_mismatches``/``primary_mismatches`` siguen exigidos desde la
+    primera muestra) las lecturas tomadas dentro de esa ventana desde el
+    primer tick CPU de la traza. Confirmado reproducible en `paccaA100`
+    (2/2 corridas idénticas): un CPU delegado específico tarda ~10-11ms en
+    engancharse al candado justo después de que arranca el kernel real,
+    pese a que el warm-up previo a la corrida (ARC-165) ya había confirmado
+    el asentamiento de los 6 CPUs -- mismo patrón que el `warmup_seconds`
+    ya establecido a nivel de kernel para excluir el arranque de las
+    ventanas de calidad PMU, aplicado aquí a la traza de frecuencia.
+    Default 0.0 preserva el comportamiento anterior byte a byte.
+
+    ARC-169: ``tail_grace_seconds`` excluye, de la misma comprobación de
+    TOLERANCIA (nunca de los chequeos estructurales), las lecturas dentro
+    de esa ventana antes del ÚLTIMO tick CPU de la traza. Confirmado en la
+    campaña final (`pacca_cpu_final_attempt03_20260820`): kernels con una
+    única región paralela larga (sin las barreras internas repetidas de
+    `stream_official`) pueden diluir el mismo promedio APERF/MPERF
+    dependiente de actividad justo en la unión final de esa región, cuando
+    un hilo termina su parte del trabajo antes que sus pares y queda
+    ocioso mientras los espera -- mismo mecanismo que ARC-167 documentó
+    para `stream_official`, pero concentrado al final en vez de disperso
+    entre fases. Default 0.0 preserva el comportamiento anterior byte a
+    byte.
     """
     with open(samples_path, newline="", encoding="utf-8") as handle:
         rows = [row for row in csv.DictReader(handle) if row.get("tag") == "CPU"]
@@ -51,14 +79,45 @@ def validate_cpu_frequency_trace(
     count_mismatches = 0
     primary_mismatches = 0
     spreads: list[int] = []
+    grace_ns = grace_seconds * 1e9
+    tail_grace_ns = tail_grace_seconds * 1e9
+    t0_ns: int | None = None
+    t_end_ns: int | None = None
+    if tail_grace_ns > 0:
+        for row in reversed(rows):
+            try:
+                t_end_ns = int(row.get("timestamp_ns"))
+                break
+            except (TypeError, ValueError):
+                continue
+    excluded_by_grace = 0
     for row in rows:
+        try:
+            ts_ns: int | None = int(row.get("timestamp_ns"))
+        except (TypeError, ValueError):
+            ts_ns = None
+        if t0_ns is None and ts_ns is not None:
+            t0_ns = ts_ns
+        within_grace = (
+            grace_ns > 0 and ts_ns is not None and t0_ns is not None
+            and (ts_ns - t0_ns) < grace_ns
+        )
+        within_tail_grace = (
+            tail_grace_ns > 0 and ts_ns is not None and t_end_ns is not None
+            and (t_end_ns - ts_ns) < tail_grace_ns
+        )
+        within_grace = within_grace or within_tail_grace
+
         if expected_cpu_count is None:
             raw = row.get("scaling_cur_freq_khz")
             try:
                 value = int(raw)
                 if value <= 0:
                     raise ValueError
-                observed.append(value)
+                if within_grace:
+                    excluded_by_grace += 1
+                else:
+                    observed.append(value)
             except (TypeError, ValueError):
                 missing += 1
             continue
@@ -76,11 +135,14 @@ def validate_cpu_frequency_trace(
                 if value <= 0:
                     raise ValueError
                 row_observed.append(value)
-                observed.append(value)
+                if within_grace:
+                    excluded_by_grace += 1
+                else:
+                    observed.append(value)
             except (TypeError, ValueError):
                 missing += 1
 
-        if len(row_observed) >= 2:
+        if len(row_observed) >= 2 and not within_grace:
             spreads.append(max(row_observed) - min(row_observed))
 
         # El launcher escribe el mismo valor en la columna escalar y en el
@@ -107,6 +169,9 @@ def validate_cpu_frequency_trace(
         "observed_min_khz": min(observed) if observed else None,
         "observed_max_khz": max(observed) if observed else None,
         "observed_spread_max_khz": max(spreads) if spreads else None,
+        "grace_seconds": grace_seconds,
+        "tail_grace_seconds": tail_grace_seconds,
+        "excluded_by_grace_samples": excluded_by_grace,
     }
     if require_per_window and (not rows or missing > 0 or count_mismatches > 0 or primary_mismatches > 0):
         return Verdict(
@@ -120,6 +185,21 @@ def validate_cpu_frequency_trace(
     if expected_khz is not None:
         if tolerance_fraction is None:
             return Verdict(False, "E01", "nivel fixed sin tolerance_fraction declarada"), summary
+        if rows and not observed:
+            # ARC-166/ARC-169: toda la corrida cayó dentro de grace_seconds
+            # y/o tail_grace_seconds -- no hay ninguna muestra fuera de esas
+            # ventanas que confirme el candado. Silenciar esto (mismatches=[]
+            # sobre una lista vacía "pasa" por vacuidad) reintroduciría
+            # exactamente el riesgo que E01 existe para prevenir: aceptar
+            # una corrida sin ninguna confirmación real de frecuencia.
+            # Fallar en voz alta en su lugar, mismo principio que RUN-09
+            # (ARC-101).
+            return Verdict(
+                False, "E01",
+                f"toda la traza ({len(rows)} ventanas CPU) cae dentro de grace_seconds="
+                f"{grace_seconds}s/tail_grace_seconds={tail_grace_seconds}s -- ninguna muestra "
+                "disponible fuera de esas ventanas para confirmar el candado",
+            ), summary
         tolerance_khz = expected_khz * tolerance_fraction
         summary["tolerance_khz_effective"] = tolerance_khz
         mismatches = [value for value in observed if abs(value - expected_khz) > tolerance_khz]

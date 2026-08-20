@@ -80,8 +80,16 @@ kernels:
       # en el smoke test de 8 hilos). Ver Registro_Cambios ARC-125.
       # ARC-126: -march=native solo dejaba a GCC eligiendo AVX2, no AVX-512
       # -- agregado tambien -mprefer-vector-width=512 (417.8-555 GFLOP/s).
-      # Este es el checksum FINAL, con ambas flags.
-      pacca-a100: "sha256:12b3310aaaf3f80e0fa18a54872c94621c5557f58c1f3f5b238a57df10cd200f"
+      # ARC-158: el driver de kernels/ert/ert_probe.c abria una region
+      # OpenMP nueva por cada combinacion del barrido y tomaba el MAXIMO
+      # GFLOPs/sec entre docenas de mediciones -- algunas de solo 31-63
+      # microsegundos, dominadas por overhead de sincronizacion, no computo
+      # real (por eso el "pico" no escalaba con la frecuencia de CPU
+      # fijada). Corregido con repeticiones adaptativas por tamano de
+      # trabajo (una sola medicion fiable de >=1ms por tamano). Mismas
+      # flags de compilacion (-O3 -march=native -mprefer-vector-width=512
+      # -fopenmp), recompilado en paccaA100. Checksum FINAL, con el fix.
+      pacca-a100: "sha256:562cf51d4c45bc1917d5565d41cc8a333f9c4e1ff9888b47807d56894358a08f"
 
   # npb_ep se quitó del catálogo (2026-08-06): su "Mop/s total" reporta
   # "Operation type = Random numbers generated" en su propio stdout, no

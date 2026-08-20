@@ -285,6 +285,43 @@ def test_arc129_build_matrix_producto_cartesiano_para_kernel_gpu(tmp_path):
     }
 
 
+def test_arc172_run_id_for_incluye_el_nivel_de_gpu(tmp_path):
+    """ARC-172: _run_id_for() nunca pasaba gpu_freq_level_id a build_run_id()
+    -- a diferencia de las otras dos llamadas en campaign.py (run_ids_in_order
+    y telemetry_run_id, ambas correctas). Sin el sufijo __gpu<id>, dos
+    combinaciones del mismo (kernel, nivel de CPU, repetición) que solo
+    difieren en el nivel de GPU colapsaban sobre el mismo run_id -- y por
+    tanto el mismo run_dir en disco, sobrescribiéndose entre sí."""
+    manifest = _manifest(tmp_path, campaign_id="camp01")
+    combo_a = Combination("gpu_kernel", FrequencyLevel("REF", "native_governor"), 1, FrequencyLevel("GREF", "native_governor"))
+    combo_b = Combination("gpu_kernel", FrequencyLevel("REF", "native_governor"), 1, FrequencyLevel("GF0", "fixed", 1.0))
+
+    run_id_a = campaign._run_id_for(manifest, campaign.ScheduledRun(combo_a, "telemetry"))
+    run_id_b = campaign._run_id_for(manifest, campaign.ScheduledRun(combo_b, "telemetry"))
+
+    assert run_id_a != run_id_b
+    assert run_id_a == "camp01__gpu_kernel__REF__gpuGREF__rep01"
+    assert run_id_b == "camp01__gpu_kernel__REF__gpuGF0__rep01"
+
+
+def test_arc172_run_id_for_sin_nivel_de_gpu_no_cambia(tmp_path):
+    manifest = _manifest(tmp_path, campaign_id="camp01")
+    combo = Combination("npb_ep", FrequencyLevel("REF", "native_governor"), 1, None)
+
+    run_id = campaign._run_id_for(manifest, campaign.ScheduledRun(combo, "telemetry"))
+
+    assert run_id == "camp01__npb_ep__REF__rep01"
+
+
+def test_arc172_run_id_for_sufijo_baseline_se_conserva_con_nivel_de_gpu(tmp_path):
+    manifest = _manifest(tmp_path, campaign_id="camp01")
+    combo = Combination("gpu_kernel", FrequencyLevel("REF", "native_governor"), 1, FrequencyLevel("GF0", "fixed", 1.0))
+
+    run_id = campaign._run_id_for(manifest, campaign.ScheduledRun(combo, "baseline"))
+
+    assert run_id == "camp01__gpu_kernel__REF__gpuGF0__rep01__baseline"
+
+
 def test_arc129_build_matrix_kernel_gpu_sin_gpu_frequency_levels_no_cambia(tmp_path):
     # ARC-129: catálogo presente, kernel es device=="gpu", pero el
     # manifiesto no declaró gpu_frequency_levels -- debe seguir acoplado al

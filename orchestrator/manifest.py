@@ -128,6 +128,20 @@ class Manifest:
     turbo: Mapping[str, Any] = field(default_factory=dict)
     frequency_validation: Mapping[str, Any] = field(default_factory=dict)
     temperature: Mapping[str, Any] = field(default_factory=dict)
+    # ARC-161: en paccaA100, energy_performance_preference=performance bajo
+    # HWP hace que el hardware decaiga lentamente hacia un techo de
+    # frecuencia mas bajo tras venir de un nivel mas alto -- confirmado con
+    # scaling_cur_freq muestreado en vivo, en una escala de segundos, no
+    # milisegundos (docs/retoma/pacca/Diagnostico_CAL07_Dispersion_Frecuencia_STREAM_20260819.md).
+    # Ausente/{} = deshabilitado, mismo criterio que turbo/uncore/gpu --
+    # nunca se infiere habilitado. Cuando enabled=True, apply_frequency() se
+    # sigue de una espera activa (relee scaling_cur_freq hasta que los CPUs
+    # delegados caigan dentro de tolerance_fraction del objetivo, o falla
+    # con FrequencyControlError tras timeout_seconds) en vez de una pausa
+    # fija -- un barrido real (0.5s a 12s) mostro que el asentamiento NO es
+    # monotono con el tiempo esperado (8s asento limpio, 12s inmediatamente
+    # despues fallo peor que 8s), asi que una pausa ciega no es confiable.
+    frequency_settle: Mapping[str, Any] = field(default_factory=dict)
 
 
 def _error(rule_id: str, field: str, message: str) -> None:
@@ -439,6 +453,61 @@ def load(path: str | Path) -> Manifest:
             "MAN-00", "frequency_validation.tolerance_fraction",
             "es obligatorio cuando require_per_window=true",
         )
+    grace_seconds = frequency_validation_raw.get("grace_seconds", 0.0)
+    if isinstance(grace_seconds, bool) or not isinstance(grace_seconds, (int, float)) or grace_seconds < 0:
+        _error(
+            "MAN-00", "frequency_validation.grace_seconds",
+            "debe ser un número mayor o igual que cero",
+        )
+    tail_grace_seconds = frequency_validation_raw.get("tail_grace_seconds", 0.0)
+    if (
+        isinstance(tail_grace_seconds, bool)
+        or not isinstance(tail_grace_seconds, (int, float))
+        or tail_grace_seconds < 0
+    ):
+        _error(
+            "MAN-00", "frequency_validation.tail_grace_seconds",
+            "debe ser un número mayor o igual que cero",
+        )
+
+    frequency_settle_raw = document.get("frequency_settle", {})
+    if not isinstance(frequency_settle_raw, Mapping):
+        _error("MAN-00", "frequency_settle", "debe ser un objeto")
+    settle_enabled = frequency_settle_raw.get("enabled", False)
+    if not isinstance(settle_enabled, bool):
+        _error("MAN-00", "frequency_settle.enabled", "debe ser booleano")
+    if settle_enabled:
+        settle_timeout = frequency_settle_raw.get("timeout_seconds")
+        settle_tolerance = frequency_settle_raw.get("tolerance_fraction")
+        settle_poll = frequency_settle_raw.get("poll_interval_seconds", 0.2)
+        if (
+            isinstance(settle_timeout, bool)
+            or not isinstance(settle_timeout, (int, float))
+            or float(settle_timeout) <= 0
+        ):
+            _error(
+                "MAN-00", "frequency_settle.timeout_seconds",
+                "es obligatorio y debe ser numérico mayor que cero cuando enabled=true",
+            )
+        if (
+            isinstance(settle_tolerance, bool)
+            or not isinstance(settle_tolerance, (int, float))
+            or not 0 <= float(settle_tolerance) < 1
+        ):
+            _error(
+                "MAN-00", "frequency_settle.tolerance_fraction",
+                "es obligatorio y debe ser un número en [0, 1) cuando enabled=true",
+            )
+        if (
+            isinstance(settle_poll, bool)
+            or not isinstance(settle_poll, (int, float))
+            or float(settle_poll) <= 0
+            or float(settle_poll) >= float(settle_timeout)
+        ):
+            _error(
+                "MAN-00", "frequency_settle.poll_interval_seconds",
+                "debe ser numérico mayor que cero y menor que timeout_seconds",
+            )
 
     temperature_raw = document.get("temperature", {})
     if not isinstance(temperature_raw, Mapping):
@@ -464,6 +533,7 @@ def load(path: str | Path) -> Manifest:
         hardware_datasheet, projected_campaign_bytes, remaining_core_hours, projected_core_hours,
         load_threshold, gpu_interval_ns_raw, dict(uncore_raw), gpu_frequency_levels,
         dict(turbo_raw), dict(frequency_validation_raw), dict(temperature_raw),
+        dict(frequency_settle_raw),
     )
     matrix_size = compute_matrix_size(manifest)
     # MAN-03: cada combinación tiene baseline y telemetry, por eso se duplica.

@@ -120,7 +120,29 @@ cgroup_path: null
 
 perf_enabled: true
 
+# ARC-161: apply_frequency() se llama para el eje de CPU sin importar el
+# device del kernel (ARC-153) -- el mismo decaimiento lento de HWP bajo
+# EPP=performance (confirmado en paccaA100 con scaling_cur_freq muestreado
+# en vivo, docs/retoma/pacca/Diagnostico_CAL07_Dispersion_Frecuencia_STREAM_20260819.md)
+# afecta esta campaña GPU igual que a la de CPU. Espera activa, no pausa
+# fija -- un barrido real mostro que el asentamiento no es monotono con el
+# tiempo esperado.
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+
 rapl:
+  enabled: true
+
+# ARC-127 agregó este mismo campo a campaign_pacca_dvfs.yaml (E12: sin él,
+# check_uncore_required_for_cpu_dataset rechaza toda ventana de CPU con
+# quality_status != "ok") -- este manifiesto GPU nunca lo recibió pese a que
+# la calibración CPU (stream_official/ert_probe) corre siempre como
+# infraestructura del pipeline y produce ventanas de CPU sujetas al mismo
+# chequeo E12.
+uncore:
   enabled: true
 
 gpu:
@@ -135,9 +157,16 @@ timeouts_seconds:
   run: 180
   shutdown: 15
 
+# ARC-127 corrigió este mismo valor (72.0 GFLOP/s, medido con el bug de
+# ert_probe ya arreglado en ARC-125/126) en campaign_pacca_dvfs.yaml -- este
+# manifiesto GPU se quedó atrás porque la calibración CPU (stream_official/
+# ert_probe) corre siempre como infraestructura del pipeline, aunque la
+# matriz de kernels sea GPU; D03 lo habría rechazado como "fuera de rango"
+# contra el P_pico real de 417.8-555 GFLOP/s. Mismo valor corregido
+# (480 GFLOP/s, centro del rango medido) que campaign_pacca_dvfs_smoke.yaml.
 hardware_datasheet:
-  bw_pico_bytes_per_s: 58353900000
-  p_pico_flops_per_s: 72004000000
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 480000000000
 
 # ARC-73: I09/OPS-01 (preflight.py) los exigen explícitamente, sin ellos
 # run_campaign_preflight() bloquea con "debe declararse" -- mismos valores

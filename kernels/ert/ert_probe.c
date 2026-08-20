@@ -28,6 +28,25 @@
 
 #define FLOPS_PER_ELEM 16
 #define ALIGN_BYTES 64
+/* ARC-158: por debajo de este umbral, el tiempo medido queda dominado por
+ * el overhead de arranque/union de la region paralela de OpenMP (y por la
+ * resolucion del reloj) en vez de computo real sostenido -- confirmado en
+ * paccaA100: la medicion "mejor" que el driver reportaba correspondia a
+ * ventanas de 31-63 microsegundos (BEST_WORKING_SET_DOUBLES=4994,
+ * BEST_TRIALS=32-64), y el GFLOPs/sec resultante no variaba con la
+ * frecuencia de nucleo fijada (485-510 GFLOP/s identico en F0=3.2GHz,
+ * F2=2.2GHz, F4=0.8GHz, con Turbo confirmado desactivado) -- la firma de
+ * estar midiendo ruido de sincronizacion, no FMA real. 1ms es dos ordenes
+ * de magnitud por encima de esas ventanas espurias, sin acercarse al
+ * tiempo total del barrido completo (cientos de ms).
+ */
+#define MIN_TIMED_SECONDS 1e-3
+/* ARC-158 (segunda vuelta): tope de seguridad para el numero de
+ * repeticiones al buscar una medicion de al menos MIN_TIMED_SECONDS --
+ * nunca alcanzado en la practica (con seis nucleos y el tamano de trabajo
+ * mas chico del barrido ya se cruza el umbral en pocas duplicaciones),
+ * solo evita un bucle sin fin ante un caso patologico. */
+#define MAX_TRIALS_CAP (1ULL << 24)
 
 static double now_seconds(void) {
 #ifdef _OPENMP
@@ -89,8 +108,17 @@ int main(void) {
             buf[i] = 1.0 + (double)(i % 7) * 1e-3;
         }
 
-        uint64_t max_trials = (bytes < 65536) ? 64 : 8;
-        for (uint64_t trials = 1; trials <= max_trials; trials *= 2) {
+        /* ARC-158: en vez de barrer un numero fijo de repeticiones y
+         * descartar las que resultan demasiado cortas (lo que sesgaba la
+         * medicion "mejor" hacia tamanos de trabajo grandes -- que ya no
+         * caben en L1/L2 y pasan a estar limitados por ancho de banda, no
+         * por computo, invalidando el propósito del probe), se duplican
+         * las repeticiones hasta alcanzar una duracion fiable para ESTE
+         * tamano de trabajo especificamente, preservando que se mida
+         * dentro de la cache mientras se obtiene una senal por encima del
+         * overhead de sincronizacion de OpenMP y de la resolucion del
+         * reloj. Una sola medicion fiable por tamano, no varias. */
+        for (uint64_t trials = 1; trials <= MAX_TRIALS_CAP; trials *= 2) {
             double sink = 0.0;
             double t0 = now_seconds();
 #ifdef _OPENMP
@@ -104,7 +132,7 @@ int main(void) {
 #endif
             double t1 = now_seconds();
             double seconds = t1 - t0;
-            if (seconds <= 0.0) {
+            if (seconds < MIN_TIMED_SECONDS) {
                 continue;
             }
 
@@ -116,6 +144,7 @@ int main(void) {
                 best_n = n;
                 best_trials = trials;
             }
+            break; /* medicion fiable obtenida para este tamano -- siguiente bytes. */
         }
         free(buf);
     }

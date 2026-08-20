@@ -51,6 +51,68 @@ def test_env_t01_frecuencia_compatible(tmp_path):
     assert perfil.smt_siblings[2] == [2, 3]
 
 
+def crear_sysfs_con_hermanos_externos(tmp_path, *, escribible=True):
+    """ARC-163: a diferencia de crear_sysfs() (hermanos dentro del mismo
+    rango pequeño 0-7), aquí los hermanos SMT de los CPUs delegados quedan
+    FUERA del rango delegado -- igual que en paccaA100 real (delegados
+    0-5, hermanos 16-21, ver ARC-162)."""
+    raiz = tmp_path / "sys"
+    parejas = {0: 16, 1: 17, 2: 18}
+    for cpu, hermano in parejas.items():
+        for c in (cpu, hermano):
+            cpufreq = raiz / f"devices/system/cpu/cpu{c}/cpufreq"
+            topologia = raiz / f"devices/system/cpu/cpu{c}/topology"
+            cpufreq.mkdir(parents=True)
+            topologia.mkdir(parents=True)
+            (cpufreq / "scaling_driver").write_text("intel_pstate")
+            (cpufreq / "scaling_available_frequencies").write_text("800000 1600000 3200000")
+            (cpufreq / "scaling_min_freq").write_text("800000")
+            (cpufreq / "scaling_max_freq").write_text("3200000")
+            if escribible:
+                os.chmod(cpufreq / "scaling_min_freq", 0o644)
+                os.chmod(cpufreq / "scaling_max_freq", 0o644)
+            (topologia / "thread_siblings_list").write_text(f"{cpu},{hermano}")
+    eventos = raiz / "bus/event_source/devices/cpu/events"
+    eventos.mkdir(parents=True)
+    (eventos / "cycles").write_text("event=0x3c")
+    return raiz
+
+
+def test_arc163_frequency_control_paths_incluye_hermanos_smt_externos(tmp_path):
+    raiz = crear_sysfs_con_hermanos_externos(tmp_path)
+    perfil = environment.detect_environment("0-2", str(raiz))
+
+    # Los hermanos (16, 17, 18) nunca se declaran como delegados, pero
+    # freqctl.py necesita sus rutas de control para poder restringirlos
+    # junto con los delegados (ARC-162).
+    assert set(perfil.frequency_control_paths.keys()) == {0, 1, 2, 16, 17, 18}
+    assert perfil.smt_siblings[0] == [0, 16]
+
+
+def test_arc163_frequency_write_capable_exige_tambien_los_hermanos(tmp_path):
+    raiz = crear_sysfs_con_hermanos_externos(tmp_path, escribible=False)
+    for c in (16, 17, 18):
+        os.chmod(raiz / f"devices/system/cpu/cpu{c}/cpufreq/scaling_max_freq", 0o444)
+    perfil = environment.detect_environment("0-2", str(raiz))
+    assert perfil.frequency_write_capable is False
+
+
+def test_arc163_hermanos_ya_dentro_del_rango_delegado_no_agregan_claves_nuevas(tmp_path):
+    # crear_sysfs() (fixture pre-existente) empareja hermanos DENTRO del
+    # mismo rango pequeño (cpu2<->cpu3, cpu4<->cpu5) -- a diferencia de
+    # crear_sysfs_con_hermanos_externos(), aquí todo hermano de un CPU
+    # delegado ya es tambien delegado. sibling_only_cpus queda vacío, así
+    # que no se dispara una segunda llamada a _frequency_data() ni se
+    # agrega ninguna clave nueva más allá de lo que el fixture ya expone
+    # (que no incluye scaling_min/max_freq -- solo confirma que el nuevo
+    # camino de ARC-163 no rompe este caso, ya cubierto por
+    # test_env_t01_frecuencia_compatible).
+    raiz = crear_sysfs(tmp_path)
+    perfil = environment.detect_environment("2-5", str(raiz))
+    assert perfil.smt_siblings == {2: [2, 3], 3: [2, 3], 4: [4, 5], 5: [4, 5]}
+    assert perfil.frequency_control_paths == {}
+
+
 def test_env_t02_una_frecuencia_no_es_controlable(tmp_path):
     raiz = crear_sysfs(tmp_path, driver="acpi-cpufreq", frecuencias="2400000")
     assert environment.detect_environment("2-5", str(raiz)).freq_control_capable is False

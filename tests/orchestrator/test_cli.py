@@ -55,7 +55,14 @@ def test_run_campaign_pasa_los_argumentos_correctos(monkeypatch, tmp_path):
     monkeypatch.setattr(cli.catalog_module, "load_catalog", lambda path: {})
     monkeypatch.setattr(cli, "_detect_environment", lambda manifest, config: "ENV")
     monkeypatch.setattr(cli.node_profile_module, "build_node_profile", lambda *a, **k: "PROFILE")
-    monkeypatch.setattr(cli.preflight_module, "run_campaign_preflight", lambda *a, **k: [_passing_check()])
+
+    preflight_calls = {}
+
+    def fake_preflight(*a, **k):
+        preflight_calls["kwargs"] = k
+        return [_passing_check()]
+
+    monkeypatch.setattr(cli.preflight_module, "run_campaign_preflight", fake_preflight)
 
     calls = {}
 
@@ -76,6 +83,13 @@ def test_run_campaign_pasa_los_argumentos_correctos(monkeypatch, tmp_path):
     assert kwargs["node_id"] == "felix-sc3"
     assert kwargs["reference_kernel_ref"] == "npb_ep"
     assert kwargs["campaign_timeout_seconds"] == 3600.0
+    # ARC-171: sin un gpu_inspector real conectado, G01-G03 siempre
+    # bloqueaban con "se requiere un inspector NVML" en cualquier campaña
+    # con gpu.enabled=true -- verifica que cmd_run_campaign construye uno
+    # y lo pasa tanto al preflight como a run_campaign (mismo objeto, para
+    # que el chequeo por-combinación de G01 use la misma fuente de datos).
+    assert isinstance(preflight_calls["kwargs"]["gpu_inspector"], cli.gpu_inspector_module.NvidiaSmiGpuInspector)
+    assert kwargs["gpu_inspector"] is preflight_calls["kwargs"]["gpu_inspector"]
 
 
 def test_run_campaign_arc142_sale_con_codigo_1_si_hay_rechazadas(monkeypatch, tmp_path):

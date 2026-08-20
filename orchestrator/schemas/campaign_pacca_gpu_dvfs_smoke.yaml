@@ -1,0 +1,112 @@
+# Smoke test de campaign_pacca_gpu_dvfs.yaml -- primera vez que
+# gpu.enabled=true corre en una campaña real (el smoke previo de
+# ARC-153/154 nunca lo activó, solo validó el shim de blocking-sync). Antes
+# de comprometer las 288 combinaciones completas, se ejercita el mecanismo
+# de punta a punta con 1 solo kernel (rodinia_gaussian, el mismo ya usado
+# en el smoke de blocking-sync) sobre la matriz COMPLETA de niveles (2 CPU
+# x 6 GPU = 12 pares), con el mínimo de repeticiones permitido (MAN-02).
+# Mismo criterio que campaign_pacca_gpu_smoke.yaml / la disciplina de
+# prueba de humo ya establecida para uncore (ARC-124) y el shim de
+# blocking-sync (ARC-153/154).
+#
+# Resto de la configuración idéntica a campaign_pacca_gpu_dvfs.yaml.
+#
+# ARC-172: renombrado de pacca_gpu_dvfs_smoke_20260820 -- ese intento (job
+# 6344) corrió con un bug real en campaign.py::_run_id_for() (nunca pasaba
+# gpu_freq_level_id a build_run_id()), así que las 6 combinaciones de cada
+# grupo (kernel, nivel CPU, repetición) que solo difieren en el nivel de
+# GPU colapsaban sobre el mismo run_id/run_dir, sobrescribiéndose entre sí
+# (6/36 aceptadas, 30/36 rechazadas -- no reflejaba el mecanismo real de
+# actuación de GPU). Corregido; mismo criterio de siempre (ARC-150/166):
+# intento nuevo, nunca se borra ni se reusa el anterior.
+campaign_id: pacca_gpu_dvfs_smoke2_20260820
+environment_tier: hpc_sc3
+seed: 20260820
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_gpu_dvfs_smoke2_20260820
+overwrite: true
+
+catalog_path: kernels/catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: rodinia_gaussian
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F4, mode: fixed, fraction: 0.0}
+
+gpu_frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F0, mode: fixed, fraction: 1.0}
+  - {id: F1, mode: fixed, fraction: 0.75}
+  - {id: F2, mode: fixed, fraction: 0.5}
+  - {id: F3, mode: fixed, fraction: 0.25}
+  - {id: F4, mode: fixed, fraction: 0.0}
+
+repetitions_per_combination: 3
+target_windows_per_repetition: 5
+interval_ns: 1000000  # 1 ms
+gpu_interval_ns: 5000000  # 5 ms
+
+running_ratio_min: 0.90
+
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+  grace_seconds: 0.05
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+
+rapl:
+  enabled: true
+
+uncore:
+  enabled: true
+
+turbo:
+  require_disabled: true
+
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+
+gpu:
+  enabled: true
+  calibration:
+    - gpu_stream_bw
+    - gpu_ert_probe_fp32
+    - gpu_ert_probe_fp64
+
+timeouts_seconds:
+  ready: 15
+  run: 90
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 480000000000
+
+projected_campaign_bytes: 50000000
+remaining_core_hours: 1000.0
+projected_core_hours: 2.0

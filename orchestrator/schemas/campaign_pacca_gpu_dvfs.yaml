@@ -1,0 +1,130 @@
+# Campaña real multi-frecuencia de GPU en paccaA100 -- primera vez que
+# gpu.enabled=true en una campaña de producción (el permiso P4,
+# nvidia-smi -lgc/-rgc, se confirmó funcionando bajo carga real en ARC-137;
+# el smoke previo de ARC-153/154, campaign_pacca_gpu_smoke.yaml, corrió con
+# gpu.enabled=false -- solo validó el shim de blocking-sync y el harness,
+# nunca la actuación real de reloj de GPU dentro de una campaña).
+#
+# 2026-08-20: decisión explícita del usuario sobre el eje de CPU durante
+# combinaciones GPU (pregunta abierta desde ARC-153/155): fijar la CPU al
+# nivel mínimo (F4) SIEMPRE, respaldado por ARC-155 (prueba controlada real
+# con rodinia_gaussian -- sin overhead de lanzamiento medible atribuible a
+# la frecuencia de CPU) y por el hecho de que, con el shim de
+# blocking-sync activo desde ARC-153/154, el host CPU ahora duerme en vez
+# de spinnear durante la espera de cada kernel GPU, así que ya no aporta
+# nada útil trabajando a un reloj alto mientras la GPU calcula.
+#
+# Implementación: `frequency_levels` (eje de CPU) declara únicamente REF y
+# F4 -- MAN-10 exige exactamente un nivel native_governor en la lista, así
+# que REF no se puede omitir, pero es intencional: las corridas con CPU=REF
+# quedan como una comparación de referencia real (¿cambia algo del
+# comportamiento GPU si la CPU corre nativa en vez de fija al mínimo, a
+# través de TODO el barrido de GPU?), no solo un artefacto del esquema.
+# `gpu_frequency_levels` (ARC-129, producto cartesiano real) es el eje que
+# efectivamente se barre: REF, F0-F4. Cada combinación real de dataset
+# quedará etiquetada con ambos niveles (freq_level_id=CPU,
+# gpu_freq_level_id=GPU) en windows.csv -- el análisis del dataset debe
+# filtrar por freq_level_id=="F4" para aislar el eje de decisión de hoy,
+# tratando freq_level_id=="REF" como el grupo de comparación.
+#
+# Resto de la configuración (kernels, calibración GPU, cores/rapl/smt_policy,
+# uncore, timeouts) idéntica a campaign_pacca_gpu_ref.yaml, ya validada.
+
+campaign_id: pacca_gpu_dvfs_20260820
+environment_tier: hpc_sc3
+seed: 20260820
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_gpu_dvfs_20260820
+overwrite: true
+
+catalog_path: kernels/catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: gpu_dgemm_n4096
+  - kernel_ref: rodinia_gaussian
+  - kernel_ref: rodinia_backprop
+  - kernel_ref: rodinia_lavamd
+  - kernel_ref: rodinia_heartwall
+  - kernel_ref: rodinia_lud
+  - kernel_ref: rodinia_myocyte
+  - kernel_ref: rodinia_dwt2d
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F4, mode: fixed, fraction: 0.0}
+
+gpu_frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F0, mode: fixed, fraction: 1.0}
+  - {id: F1, mode: fixed, fraction: 0.75}
+  - {id: F2, mode: fixed, fraction: 0.5}
+  - {id: F3, mode: fixed, fraction: 0.25}
+  - {id: F4, mode: fixed, fraction: 0.0}
+
+repetitions_per_combination: 3
+target_windows_per_repetition: 5
+interval_ns: 1000000  # 1 ms
+gpu_interval_ns: 5000000  # 5 ms
+
+running_ratio_min: 0.90
+
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+  grace_seconds: 0.05
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+
+rapl:
+  enabled: true
+
+uncore:
+  enabled: true
+
+turbo:
+  require_disabled: true
+
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+
+gpu:
+  enabled: true
+  calibration:
+    - gpu_stream_bw
+    - gpu_ert_probe_fp32
+    - gpu_ert_probe_fp64
+
+timeouts_seconds:
+  ready: 15
+  run: 180
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 480000000000
+
+projected_campaign_bytes: 400000000
+remaining_core_hours: 1000.0
+projected_core_hours: 15.0

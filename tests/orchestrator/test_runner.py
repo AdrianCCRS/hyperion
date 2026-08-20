@@ -218,7 +218,10 @@ def test_arc138_run_single_persiste_veredicto_de_traza_de_frecuencia(tmp_path, m
     monkeypatch.delenv("FAKE_LAUNCHER_BEHAVIOR", raising=False)
     entry = _make_entry(tmp_path)
     manifest = _make_manifest(tmp_path)
-    manifest.frequency_validation = {"require_per_window": True, "tolerance_fraction": 0.05}
+    manifest.frequency_validation = {
+        "require_per_window": True, "tolerance_fraction": 0.05, "grace_seconds": 15.0,
+        "tail_grace_seconds": 1.2,
+    }
     observed = {}
 
     def fake_validate(path, **kwargs):
@@ -239,7 +242,45 @@ def test_arc138_run_single_persiste_veredicto_de_traza_de_frecuencia(tmp_path, m
     assert observed["expected_khz"] is None
     assert observed["tolerance_fraction"] == 0.05
     assert observed["expected_cpu_count"] == 4
+    assert observed["grace_seconds"] == 15.0
+    assert observed["tail_grace_seconds"] == 1.2
     assert "frequency_trace_validation" in (result.run_dir / "metadata.json").read_text()
+
+
+def test_arc166_run_single_grace_seconds_ausente_por_defecto_es_cero(tmp_path, monkeypatch):
+    monkeypatch.delenv("FAKE_LAUNCHER_BEHAVIOR", raising=False)
+    entry = _make_entry(tmp_path)
+    manifest = _make_manifest(tmp_path)
+    manifest.frequency_validation = {"require_per_window": True, "tolerance_fraction": 0.05}
+    observed = {}
+
+    def fake_validate(path, **kwargs):
+        observed.update(kwargs)
+        return (runner.validation_module.Verdict(True, None, "ok"), {"cpu_samples": 3})
+
+    monkeypatch.setattr(runner.validation_module, "validate_cpu_frequency_trace", fake_validate)
+    runner.run_single(entry, manifest, "npb_ep", "REF", 1, harness=_harness())
+
+    assert observed["grace_seconds"] == 0.0
+    assert observed["tail_grace_seconds"] == 0.0
+
+
+def test_arc149_run_single_corrida_fallida_no_crashea_validando_traza(tmp_path, monkeypatch):
+    # ARC-149: el launcher fake "fail" no escribe samples.csv (sale con
+    # exit_code=1 antes de generar cualquier fixture) -- antes del fix,
+    # validate_cpu_frequency_trace() se llamaba igual y crasheaba con
+    # FileNotFoundError sin manejar, tumbando toda la campaña en vez de
+    # dejar que RunResult.success=False marque la corrida como rechazada.
+    monkeypatch.setenv("FAKE_LAUNCHER_BEHAVIOR", "fail")
+    entry = _make_entry(tmp_path)
+    manifest = _make_manifest(tmp_path)
+    manifest.frequency_validation = {"require_per_window": True, "tolerance_fraction": 0.05}
+
+    result = runner.run_single(entry, manifest, "npb_ep", "REF", 1, harness=_harness())
+
+    assert result.success is False
+    assert not (result.run_dir / "samples.csv").exists()
+    assert "frequency_trace_validation" not in result.metadata
 
 
 def test_arc141_timeout_usa_piso_del_manifiesto_y_factor_dvfs(tmp_path):
@@ -516,6 +557,67 @@ def test_frq03_frecuencia_solicitada_y_aplicada_llegan_a_la_metadata_de_la_corri
     assert result.metadata["freq_khz_requested"] == 2261000
     assert result.metadata["freq_khz_applied"] == 2261000
     assert result.metadata["freq_governor_applied"] == "userspace"
+
+
+def test_arc161_run_single_invoca_settle_if_configured_con_la_config_del_manifiesto(tmp_path, monkeypatch):
+    # ARC-161: manifest.frequency_settle habilitado debe llegar intacto a
+    # freqctl.settle_if_configured() junto con la AppliedFrequency real y
+    # los CPUs delegados -- ese modulo decide si espera o no, run_single()
+    # solo debe delegarle la config del manifiesto sin interpretarla.
+    monkeypatch.delenv("FAKE_LAUNCHER_BEHAVIOR", raising=False)
+    entry = _make_entry(tmp_path)
+    manifest = _make_manifest(tmp_path)
+    manifest.frequency_settle = {"enabled": True, "timeout_seconds": 15.0, "tolerance_fraction": 0.05}
+    env_profile = SimpleNamespace(frequency_write_capable=True)
+    applied = SimpleNamespace(
+        level_id="F0", strategy="bounded_range", requested_khz=800000, applied_khz=800000,
+        per_cpu_applied_khz={2: 800000}, governor_applied=None, write_skipped_reason=None,
+    )
+    captured = {}
+
+    def fake_settle(cpus, applied_arg, env_arg, *, settle_config):
+        captured.update(cpus=cpus, applied=applied_arg, env=env_arg, settle_config=settle_config)
+
+    monkeypatch.setattr(runner.freqctl, "settle_if_configured", fake_settle)
+
+    runner.run_single(
+        entry, manifest, "npb_ep", "F0", 1,
+        harness=_harness(), environment_profile=env_profile,
+        apply_frequency=lambda cpus, level, env: applied,
+    )
+
+    assert captured["cpus"] == (2, 3, 4, 5)
+    assert captured["applied"] is applied
+    assert captured["env"] is env_profile
+    assert captured["settle_config"] == manifest.frequency_settle
+
+
+def test_arc161_run_single_sin_frequency_settle_pasa_none(tmp_path, monkeypatch):
+    # ARC-161: manifiestos sin declarar frequency_settle (el default de
+    # todo manifiesto anterior a este cambio) deben seguir funcionando --
+    # settle_if_configured() recibe None y no hace nada (mismo criterio
+    # "ausente = deshabilitado" que turbo/uncore/gpu).
+    monkeypatch.delenv("FAKE_LAUNCHER_BEHAVIOR", raising=False)
+    entry = _make_entry(tmp_path)
+    manifest = _make_manifest(tmp_path)
+    env_profile = SimpleNamespace(frequency_write_capable=True)
+    applied = SimpleNamespace(
+        level_id="F0", strategy="bounded_range", requested_khz=800000, applied_khz=800000,
+        per_cpu_applied_khz={2: 800000}, governor_applied=None, write_skipped_reason=None,
+    )
+    captured = {}
+    monkeypatch.setattr(
+        runner.freqctl, "settle_if_configured",
+        lambda cpus, applied_arg, env_arg, *, settle_config: captured.update(settle_config=settle_config),
+    )
+
+    runner.run_single(
+        entry, manifest, "npb_ep", "F0", 1,
+        harness=_harness(), environment_profile=env_profile,
+        apply_frequency=lambda cpus, level, env: applied,
+    )
+
+    assert captured["settle_config"] is None
 
 
 def test_frq03_sin_apply_frequency_no_agrega_campos_de_frecuencia(tmp_path, monkeypatch):

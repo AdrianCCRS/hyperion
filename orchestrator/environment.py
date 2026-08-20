@@ -408,6 +408,32 @@ def detect_environment(
     cpus = _available_cpus(sysfs, delegated)
     scaling_driver, frequencies, control_paths = _frequency_data(sysfs, cpus)
     turbo_hwp_state, base_frequency_khz = _turbo_hwp_data(sysfs, cpus)
+
+    smt_siblings: dict[int, list[int]] = {}
+    for cpu in delegated:
+        siblings = _read_text(
+            sysfs.cpu_root / f"cpu{cpu}" / "topology/thread_siblings_list"
+        )
+        if siblings is not None:
+            smt_siblings[cpu] = _parse_cpu_list(siblings)
+
+    # ARC-163: extiende frequency_control_paths para cubrir tambien a los
+    # hermanos SMT de los CPUs delegados -- freqctl.py los necesita para
+    # poder restringirlos junto con los delegados. Confirmado en paccaA100
+    # (ARC-162, Prueba B) que un hermano SMT sin restringir permite que el
+    # nucleo fisico compartido supere el candado del CPU delegado bajo
+    # carga real, pese a que cada CPU logico tiene su propia politica
+    # cpufreq independiente en software (`related_cpus`/`affected_cpus` =
+    # solo la propia CPU) -- el reloj fisico del nucleo si es compartido.
+    # No afecta scaling_driver/available_frequencies_khz (mismo hardware,
+    # mismos valores) -- solo agrega entradas de control_paths para poder
+    # escribir/leer los hermanos.
+    sibling_only_cpus = sorted(
+        {sibling for siblings in smt_siblings.values() for sibling in siblings if sibling not in cpus}
+    )
+    if sibling_only_cpus:
+        _, _, sibling_control_paths = _frequency_data(sysfs, sibling_only_cpus)
+        control_paths = {**control_paths, **sibling_control_paths}
     # ARC-138: cpuinfo_max_freq incluye turbo en intel_pstate. Cuando el
     # admin ya fijó no_turbo=1, el extremo superior físicamente alcanzable
     # es base_frequency; usar 3.6 GHz para F0 haría que el manifiesto pidiera
@@ -443,13 +469,6 @@ def detect_environment(
         if name in required_attrs
     )
 
-    smt_siblings: dict[int, list[int]] = {}
-    for cpu in delegated:
-        siblings = _read_text(
-            sysfs.cpu_root / f"cpu{cpu}" / "topology/thread_siblings_list"
-        )
-        if siblings is not None:
-            smt_siblings[cpu] = _parse_cpu_list(siblings)
     numa_cpu_map, delegated_cpu_numa_nodes = _numa_data(sysfs, delegated)
     frequency_domain_cpus = _frequency_domain_data(sysfs, delegated)
     perf_events = sorted(

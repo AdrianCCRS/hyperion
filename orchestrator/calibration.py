@@ -10,6 +10,7 @@ import time
 from types import SimpleNamespace
 from typing import Any, Callable, Mapping, Sequence
 
+from . import freqctl
 from . import runner
 from .catalog import KernelEntry
 from .runner import RunResult
@@ -218,23 +219,40 @@ def _require_valid_frequency_trace(
 ) -> None:
     """ARC-141: `run_single()` ya calcula `frequency_trace_validation` (E01,
     ARC-138) contra las lecturas reales del colector cuando el manifiesto
-    declara `frequency_validation.require_per_window` -- pero antes de este
-    cambio, ninguna calibración lo consultaba: `_measure_bw_and_flops_peak()`
-    solo revisaba `result.success` (CAL-02/CAL-03), así que STREAM/ERT podían
-    correr a una frecuencia física distinta de la solicitada (el mismo
-    hallazgo de ARC-136/140 -- turbo ignorando el candado) y la calibración
-    igual se aceptaba y se guardaba como válida, contaminando en silencio el
-    ridge point (P_pico/BW_pico) de ese nivel. Ausente (manifiesto sin
-    `frequency_validation` declarado, o kernel de GPU) nunca bloquea --
-    mismo criterio que `validation.validate_run()` ya aplica a las corridas
-    de conjunto de datos. Cuando el manifiesto sí la exige, que el resumen
-    falte también bloquea: aceptar ausencia no sería un cierre fail-closed."""
+    declara `frequency_validation.require_per_window`.
+
+    ARC-167 (2026-08-19): a pesar del nombre, esta función ya NO bloquea la
+    calibración -- solo registra un `logger.warning()` cuando la traza
+    falta o queda rechazada. Downgrade deliberado, decidido explícitamente
+    por el usuario tras evidencia real en `paccaA100`: `stream_official`
+    (kernel de calibración de BW_pico, corto y con barreras de
+    sincronización entre sus 4 fases Copy/Scale/Add/Triad) produce
+    dispersión dispersa y real de `scaling_cur_freq` -- no un transitorio
+    de arranque (ya cubierto por `frequency_validation.grace_seconds`,
+    ARC-166), sino caídas puntuales cerca del final de la corrida cuando
+    algunos hilos terminan su fase antes que otros y quedan momentáneamente
+    ociosos, diluyendo el promedio APERF/MPERF de esa ventana sin que el
+    candado de frecuencia haya cambiado realmente. `npb_mg` (kernel real
+    del dataset) corre limpio bajo el mismo nivel F0 (ARC-156) -- este
+    patrón es propio de la estructura de `stream_official`/`ert_probe`
+    como microbenchmarks de calibración, no algo que se espere en las
+    corridas reales del dataset. Crucialmente, `P_pico`/`BW_pico` se
+    extraen del `stdout` del propio programa vía regex (`_extract_metric`),
+    nunca de esta traza PMU (ARC-156) -- CAL-07 en calibración siempre fue
+    una verificación redundante de calidad, no la fuente del número
+    calibrado, así que bloquear la campaña completa por su ruido no está
+    justificado. `E01` (`runner.py`, corridas reales del dataset) NO
+    cambia -- sigue siendo bloqueante ahí, donde sí importa que la
+    telemetría por ventana sea confiable para clasificación."""
     frequency_trace = (result.metadata or {}).get("frequency_trace_validation")
     if require_per_window and frequency_trace is None:
-        raise CalibrationError(
-            f"{label}: la calibración ({ref}) en {freq_level_id!r} no guardó "
-            "frequency_trace_validation aunque el manifiesto exige validación por ventana"
+        logger.warning(
+            "%s: la calibración (%s) en %r no guardó frequency_trace_validation "
+            "aunque el manifiesto exige validación por ventana -- CAL-07 ya no bloquea "
+            "la calibración (ARC-167), solo se registra como advertencia",
+            label, ref, freq_level_id,
         )
+        return
     if frequency_trace is not None and (
         not isinstance(frequency_trace, Mapping)
         or not frequency_trace.get("accepted", False)
@@ -243,9 +261,10 @@ def _require_valid_frequency_trace(
             frequency_trace.get("message")
             if isinstance(frequency_trace, Mapping) else "resumen de traza malformado"
         )
-        raise CalibrationError(
-            f"{label}: la traza de frecuencia de la calibración ({ref}) en {freq_level_id!r} "
-            f"no fue válida: {message or 'traza de frecuencia inválida'}"
+        logger.warning(
+            "%s: la traza de frecuencia de la calibración (%s) en %r no fue válida: %s "
+            "-- CAL-07 ya no bloquea la calibración (ARC-167), solo se registra como advertencia",
+            label, ref, freq_level_id, message or "traza de frecuencia inválida",
         )
 
 
@@ -392,7 +411,15 @@ def run_calibration(
             # _measure_bw_and_flops_peak también pasa el callable a cada
             # run_single para que el objetivo quede en metadata y la traza
             # FRQ-10 pueda validarse en STREAM y ERT por separado.
-            apply_frequency(manifest.cores.delegated_cpus, level, environment_profile)
+            applied_here = apply_frequency(manifest.cores.delegated_cpus, level, environment_profile)
+            # ARC-161: espera activa opcional (manifest.frequency_settle) --
+            # sin esto, ert_probe (corre en decenas de ms) puede medir bajo
+            # el techo de frecuencia anterior en vez del nivel pedido
+            # mientras el hardware todavía decae hacia el nuevo objetivo.
+            freqctl.settle_if_configured(
+                manifest.cores.delegated_cpus, applied_here, environment_profile,
+                settle_config=getattr(manifest, "frequency_settle", None),
+            )
         elif getattr(level, "mode", None) not in (None, "native_governor"):
             # RUN-09 (ARC-102): mismo principio que runner.run_single -- esta
             # función tiene su PROPIA lógica de aplicación de frecuencia
