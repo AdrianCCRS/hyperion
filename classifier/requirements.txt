@@ -1,0 +1,11 @@
+# Fase 2 (classifier/). No se pinnean versiones exactas -- el venv real en
+# pacca (~/hyperion-venv) ya las tiene instaladas; este archivo documenta
+# QUÉ se necesita, no fija una versión exacta a reproducir bit a bit.
+pandas
+numpy
+scikit-learn
+matplotlib
+seaborn
+jupyter
+ipykernel
+optuna
