@@ -27,7 +27,7 @@ source ~/hyperion-venv/bin/activate
 cd ~/hyperion-kernels
 export HYPERION_GPU_FREQ_WRITE_CAPABLE=1
 python3 -m orchestrator.cli run-campaign \
-  --manifest ~/hyperion/orchestrator/schemas/campaign_pacca_gpu_smoke.yaml \
+  --manifest ~/hyperion/orchestrator/schemas/campaigns/campaign_pacca_gpu_smoke.yaml \
   --node-id pacca-a100 \
   --hostname "$(hostname)" \
   --reference-kernel-ref rodinia_gaussian \

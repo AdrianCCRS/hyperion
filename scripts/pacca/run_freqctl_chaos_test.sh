@@ -47,11 +47,11 @@ snapshot_sysfs "$evidence_dir/before.tsv"
   sha256sum \
     ~/hyperion/orchestrator/freqctl.py \
     ~/hyperion/orchestrator/campaign.py \
-    ~/hyperion/orchestrator/schemas/campaign_pacca_freqctl_chaos.yaml
+    ~/hyperion/orchestrator/schemas/campaigns/campaign_pacca_freqctl_chaos.yaml
 } > "$evidence_dir/context.txt"
 
 python3 -m orchestrator.cli run-campaign \
-  --manifest ~/hyperion/orchestrator/schemas/campaign_pacca_freqctl_chaos.yaml \
+  --manifest ~/hyperion/orchestrator/schemas/campaigns/campaign_pacca_freqctl_chaos.yaml \
   --node-id pacca-a100 \
   --hostname "$(hostname)" \
   --reference-kernel-ref npb_mg \

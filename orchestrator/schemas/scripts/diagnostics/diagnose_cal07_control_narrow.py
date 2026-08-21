@@ -17,7 +17,7 @@ from orchestrator import runner
 from orchestrator import validation as validation_module
 from orchestrator.config import load_config
 
-MANIFEST_PATH = "/home/latorresn/hyperion/orchestrator/schemas/campaign_pacca_dvfs_smoke.yaml"
+MANIFEST_PATH = "/home/latorresn/hyperion/orchestrator/schemas/campaigns/campaign_pacca_dvfs_smoke.yaml"
 NODE_ID = "pacca-a100"
 MARGIN_KHZ = 1000
 

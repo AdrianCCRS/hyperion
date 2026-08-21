@@ -19,7 +19,7 @@ from orchestrator import manifest as manifest_module
 from orchestrator import runner
 from orchestrator.config import load_config
 
-MANIFEST_PATH = "/home/latorresn/hyperion/orchestrator/schemas/campaign_pacca_dvfs_smoke.yaml"
+MANIFEST_PATH = "/home/latorresn/hyperion/orchestrator/schemas/campaigns/campaign_pacca_dvfs_smoke.yaml"
 NODE_ID = "pacca-a100"
 
 

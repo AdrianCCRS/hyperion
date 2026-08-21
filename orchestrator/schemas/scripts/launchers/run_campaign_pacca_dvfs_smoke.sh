@@ -20,7 +20,7 @@ export LD_LIBRARY_PATH="/opt/ohpc/pub/libs/gnu12/openblas/0.3.21/lib:${LD_LIBRAR
 source ~/hyperion-venv/bin/activate
 cd ~/hyperion-kernels
 python3 -m orchestrator.cli run-campaign \
-  --manifest ~/hyperion/orchestrator/schemas/campaign_pacca_dvfs_smoke.yaml \
+  --manifest ~/hyperion/orchestrator/schemas/campaigns/campaign_pacca_dvfs_smoke.yaml \
   --node-id pacca-a100 \
   --hostname "$(hostname)" \
   --reference-kernel-ref npb_mg \

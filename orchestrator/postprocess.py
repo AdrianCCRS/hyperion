@@ -974,7 +974,7 @@ def run_postprocess(
     crudos originales), pero la salida derivada nunca sobrescribe el
     ``windows.csv``/``verdict.json`` de la corrida original. Pensado para
     el reprocesamiento offline de corridas ya ejecutadas (ver
-    ``orchestrator/schemas/reprocess_frequency_quality_v2.py``); None (el
+    ``orchestrator/schemas/tools/reprocess_frequency_quality_v2.py``); None (el
     default) preserva el comportamiento anterior byte a byte.
 
     POST-15: calibration.load_calibration() refuses (raises) a calibration

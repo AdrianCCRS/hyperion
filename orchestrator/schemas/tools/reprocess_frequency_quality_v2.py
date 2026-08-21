@@ -27,7 +27,7 @@ corrida original -- cada corrida reprocesada escribe:
 
 Uso:
     python3 -m orchestrator.schemas.reprocess_frequency_quality_v2 \\
-        --manifest orchestrator/schemas/campaign_pacca_dvfs.yaml \\
+        --manifest orchestrator/schemas/campaigns/campaign_pacca_dvfs.yaml \\
         --campaign-dir /home/latorresn/hyperion-results/campaigns/pacca_cpu_final_attempt03_20260820 \\
         --derived-dir /home/latorresn/hyperion-results/campaigns/pacca_cpu_final_attempt03_20260820_arc174 \\
         [--run-id run_id_especifico ...]   # opcional, si se omite reprocesa todas

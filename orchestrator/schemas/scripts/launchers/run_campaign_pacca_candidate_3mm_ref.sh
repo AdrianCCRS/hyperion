@@ -10,7 +10,7 @@ export LD_LIBRARY_PATH="/opt/ohpc/pub/compiler/gcc/12.4.0/lib64:/opt/ohpc/pub/li
 source ~/hyperion-venv/bin/activate
 cd ~/hyperion-kernels
 python3 -m orchestrator.cli run-campaign \
-  --manifest ~/hyperion/orchestrator/schemas/campaign_pacca_candidate_3mm_ref.yaml \
+  --manifest ~/hyperion/orchestrator/schemas/campaigns/campaign_pacca_candidate_3mm_ref.yaml \
   --node-id pacca-a100 \
   --hostname "$(hostname)" \
   --reference-kernel-ref npb_mg \
