@@ -56,6 +56,9 @@ USECOLS = [
     "ipc", "mpki", "llc_miss_rate", "stall_backend_ratio", "ips",
     "running_ratio", "pkg_delta_uj",
     "operational_intensity_uncore_real", "i_ridge_used",
+    # No lo usan C1/C2/C3, pero sí uncore_coupling.py, que reutiliza este
+    # cargador: el ancho de banda alcanzado sale de aquí.
+    "bytes_moved_uncore_real",
 ]
 
 FEATURES = [
