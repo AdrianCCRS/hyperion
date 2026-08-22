@@ -1,0 +1,132 @@
+# T1.4 del plan maestro: pre-vuelo de rejilla fina 2800-3200 MHz.
+# Ver docs/general/PLAN_MAESTRO_FASE2.md, Parte IV, Ola 1.
+#
+# QUÉ FALSEA. Que exista una frecuencia entre 2600 y 3200 MHz que mejore la
+# ENERGÍA con degradación de tiempo acotada.
+#
+# POR QUÉ AHÍ Y NO ABAJO. El umbral alpha <= 0.226 gobierna el objetivo de
+# minimizar EDP, y bajo ese objetivo el óptimo es la frecuencia máxima para
+# los nueve kernels. Pero el objetivo general de la tesis es minimizar
+# energía admitiendo una holgura de tiempo `s`, y ahí el óptimo cae en
+#
+#     f* = f_ref / (1 + s/alpha)
+#
+# Con alpha ~ 0.9 y s = 5 % da ~3032 MHz; con alpha = 0.5, ~2909 MHz. Para
+# los nueve kernels del dataset cae en 2831-3051 MHz. La rejilla actual
+# salta 3200 -> 2600 y NO TIENE UNA SOLA MEDICIÓN en esa banda.
+#
+# Este manifiesto reemplaza al de la campaña 6391, que se canceló por un
+# razonamiento equivocado: se concluyó que la resolución hacía falta en el
+# fondo del rango aplicando a este objetivo una conclusión que solo vale
+# para el EDP sin restricciones.
+#
+# KERNELS. Los tres de alpha más bajo del dataset, que son donde el óptimo
+# interior tiene más margen para existir:
+#   npb_sp  alpha 0.499
+#   npb_mg  alpha 0.664
+#   npb_cg  alpha 0.782
+#
+# NIVELES. F0 como ancla más los dos puntos nuevos. Nada más: el pre-vuelo
+# no reconstruye la curva, solo comprueba si hay mínimo interior.
+#   1.0000000000 -> 3200 MHz  (F0, ancla)
+#   0.9166666667 -> 3000 MHz  (S3000)
+#   0.8333333333 -> 2800 MHz  (S2800)
+#
+# CONCLUSIONES
+#   - Existe mínimo de energía interior con degradación < 5 %: el objetivo
+#     con holgura SÍ produce una decisión que tomar, y el modelo recupera su
+#     razón de ser aunque el EDP puro no la dé. Se extiende la rejilla en la
+#     campaña final.
+#   - No existe: el objetivo con holgura tampoco produce decisión en CPU, y
+#     el peso del trabajo se traslada al eje GPU, cuyo umbral es 2.8x más
+#     laxo (alpha <= 0.639) y donde ya hay un caso confirmado dentro
+#     (rodinia_lavamd, alpha = 0.201).
+#
+# COSTO. 3 kernels x 3 niveles x 3 reps = 27 corridas, ~25 min.
+
+campaign_id: pacca_fine_grid_preflight_20260822
+environment_tier: hpc_sc3
+seed: 20260806
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_fine_grid_preflight_20260822
+overwrite: true
+
+catalog_path: ../kernels/catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: npb_sp
+  - kernel_ref: npb_mg
+  - kernel_ref: npb_cg
+
+# MAN-10 exige exactamente un nivel native_governor, de ahí REF.
+frequency_levels:
+  - {id: REF,   mode: native_governor}
+  - {id: F0,    mode: fixed, fraction: 1.0}            # 3200 MHz
+  - {id: S3000, mode: fixed, fraction: 0.9166666667}   # 3000 MHz
+  - {id: S2800, mode: fixed, fraction: 0.8333333333}   # 2800 MHz
+
+repetitions_per_combination: 3
+target_windows_per_repetition: 50
+interval_ns: 1000000  # 1 ms
+
+running_ratio_min: 0.90
+
+# Los tres kernels son NPB clase B, con historial de asentamiento conocido
+# de la campaña final. Se conservan los valores que ARC-174 dejó validados.
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+  grace_seconds: 0.15
+  tail_grace_seconds: 0.15
+
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+
+turbo:
+  require_disabled: true
+
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+
+projected_campaign_bytes: 3221225472
+remaining_core_hours: 100000
+projected_core_hours: 10
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+rapl:
+  enabled: true
+
+uncore:
+  enabled: true
+
+gpu:
+  enabled: false
+
+timeouts_seconds:
+  ready: 15
+  run: 300
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 480000000000

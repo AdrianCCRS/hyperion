@@ -214,6 +214,116 @@ kernels:
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
 
+  # ARC-181: NPB clase C. El EJE DE TAMANO del plan maestro (Parte V.2).
+  #
+  # El regimen de un kernel no es propiedad del algoritmo sino del algoritmo
+  # CONTRA la jerarquia de memoria de este nodo: la LLC del Gold 5315Y es de
+  # 12 MiB por socket. Los seis NPB del dataset estan TODOS en clase B, y
+  # ninguno satura memoria (npb_mg, el mas cerca, llega al 74 % del ancho de
+  # banda de STREAM; cinco no pasan del 30 %). Subir de clase multiplica el
+  # conjunto de trabajo por ~8 y es la forma canonica y citable de barrer
+  # ese eje: no exige escribir codigo y produce puntos comparables con toda
+  # la literatura de NPB.
+  #
+  # Los binarios ya estaban construidos en pacca con el mismo
+  # scripts/felix/build_npb.sh (que fija -march=native, ARC-125), asi que
+  # comparten flags con las entradas de clase B y la comparacion B contra C
+  # aisla el tamano.
+  #
+  # Los tiempos son estimaciones conservadoras a partir de la clase B: el
+  # trabajo escala ~8x pero los kernels limitados por memoria escalan peor.
+  # Se corrigen con la medicion del pre-vuelo T1.2.
+
+  - id: npb_cg_c
+    suite: NPB-OMP
+    role: dataset
+    exec_path: bin/cg.C.x
+    phase_label_hint: memory_bound
+    size_variant: C
+    expected_runtime_seconds: 220
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 1288490188  # ~1.2 GiB
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:fab8297c326e28dcc77baf4dbad0d192953b829797cebcf9df1032f52ba9ef58"
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+
+  - id: npb_mg_c
+    suite: NPB-OMP
+    role: dataset
+    exec_path: bin/mg.C.x
+    phase_label_hint: memory_bound
+    size_variant: C
+    expected_runtime_seconds: 35
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 4294967296  # ~4 GiB (512^3 contra 256^3 en B)
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:e5cd4e5fbdd4ce4a43a42995b9394fc47a6cb699f8483574f3c58e448a0df03e"
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+
+  - id: npb_sp_c
+    suite: NPB-OMP
+    role: dataset
+    exec_path: bin/sp.C.x
+    phase_label_hint: intermedio
+    size_variant: C
+    expected_runtime_seconds: 400
+    warmup_seconds: 1.0
+    estimated_memory_bytes: 3221225472
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:c5ed2db7b33eb2c8d9c81b074a232871104fefc1a58de2f550b7730bdb31b6ff"
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+
+  - id: npb_ft_c
+    suite: NPB-OMP
+    role: dataset
+    exec_path: bin/ft.C.x
+    phase_label_hint: memory_bound
+    size_variant: C
+    expected_runtime_seconds: 180
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 6442450944
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:0c06d1e7a039ca11829fdb790ae6c091fe38fbacd294399230241ac769a87b46"
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+
+  - id: npb_bt_c
+    suite: NPB-OMP
+    role: dataset
+    exec_path: bin/bt.C.x
+    phase_label_hint: compute_bound
+    size_variant: C
+    expected_runtime_seconds: 400
+    warmup_seconds: 1.0
+    estimated_memory_bytes: 3221225472
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:1ce634c48cfce848d12877dc23d66229c20d29ebdfe93e8b7dddc587181e4aad"
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+
+  - id: npb_lu_c
+    suite: NPB-OMP
+    role: dataset
+    exec_path: bin/lu.C.x
+    phase_label_hint: intermedio
+    size_variant: C
+    expected_runtime_seconds: 350
+    warmup_seconds: 1.0
+    estimated_memory_bytes: 2147483648
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:3d284de6fadb91ad1ec3f63b39deed4cce1ba2e5f79ac2a888c8ff125a4c7d89"
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+
   # ARC-70: primeros kernels GPU del catalogo (Fase 1 de
   # docs/general/plan_trabajo_grado.md -- caracterizacion, sin modelo ni
   # control de reloj todavia, ver Diseno_Politica_DVFS_CPU_GPU.md). Solo
