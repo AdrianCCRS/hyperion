@@ -786,7 +786,7 @@ kernels:
     estimated_memory_bytes: 671088640  # 512 MiB de buffer + permutacion
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
-      pacca-a100: "sha256:a8c5f9c90f9cffb735769702355ba585885e15c8ba2450ef35caefe0954a9231"
+      pacca-a100: "sha256:cb790802b39cb180fd7741ab21167cc018e7253f867136482ef706cbc49f357f"
 
   # phasic: tres variantes que solo difieren en el PERIODO de fase. Es lo
   # que permite medir a partir de que frecuencia de cambio deja de compensar
@@ -803,7 +803,7 @@ kernels:
     estimated_memory_bytes: 671088640
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
-      pacca-a100: "sha256:d35f861bffda15d6a5b419cbe6242175a758fecadd559f687fbee17de6f5f089"
+      pacca-a100: "sha256:9db88ce12f910c15a9843ff475977da3aa6cc994198db6666dc714887e1a6748"
 
   - id: phasic_p100
     suite: HYPERION-PHASE
@@ -817,7 +817,7 @@ kernels:
     estimated_memory_bytes: 671088640
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
-      pacca-a100: "sha256:d35f861bffda15d6a5b419cbe6242175a758fecadd559f687fbee17de6f5f089"
+      pacca-a100: "sha256:9db88ce12f910c15a9843ff475977da3aa6cc994198db6666dc714887e1a6748"
 
   - id: phasic_p1000
     suite: HYPERION-PHASE
@@ -831,4 +831,4 @@ kernels:
     estimated_memory_bytes: 671088640
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
-      pacca-a100: "sha256:d35f861bffda15d6a5b419cbe6242175a758fecadd559f687fbee17de6f5f089"
+      pacca-a100: "sha256:9db88ce12f910c15a9843ff475977da3aa6cc994198db6666dc714887e1a6748"
