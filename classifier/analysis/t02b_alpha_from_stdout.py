@@ -74,11 +74,19 @@ def runtime_from_stdout(run_dir: Path, pattern: str) -> float | None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--campaign-dir", required=True)
+    # El directorio REPROCESADO (..._arc174) solo conserva windows.csv,
+    # verdict.json y la procedencia; `stdout.txt` se queda en el crudo. El
+    # indice de corridas se construye sobre el reprocesado, que es el que
+    # tiene la matriz completa, y el stdout se busca por el mismo nombre de
+    # corrida en el crudo.
+    parser.add_argument("--stdout-dir", required=True,
+                        help="directorio CRUDO de la campaña, donde están los stdout.txt")
     parser.add_argument("--catalog", required=True)
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
 
     index = discover_runs(Path(args.campaign_dir))
+    stdout_root = Path(args.stdout_dir)
     patterns = load_patterns(Path(args.catalog))
     print(f"nodo de análisis: {platform.node()}", flush=True)
     print(f"kernels con patrón de runtime en el catálogo: {sorted(patterns)}\n", flush=True)
@@ -96,7 +104,8 @@ def main() -> int:
         # suma las pesaria distinto.
         by_level: dict[str, list[float]] = {}
         for row in index[index["kernel_ref"] == kernel].itertuples():
-            seconds = runtime_from_stdout(Path(row.windows_path).parent, pattern)
+            run_name = Path(row.windows_path).parent.name
+            seconds = runtime_from_stdout(stdout_root / run_name, pattern)
             if seconds is not None:
                 by_level.setdefault(row.freq_level_id, []).append(seconds)
 
