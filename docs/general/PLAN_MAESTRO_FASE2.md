@@ -731,3 +731,115 @@ ataca precisamente el segundo.
 
 Los cuatro riesgos abiertos de la Parte VII que dependían de la Ola 0 quedan
 cerrados. Se abre uno nuevo, T0.2b, y es urgente.
+
+---
+
+# ANEXO B — T0.2b/T0.2c: alpha recalculado (jobs directos + 6433)
+
+## B.1 alpha por CORRIDA, tres estimaciones
+
+Duración tomada de lo que el propio kernel imprime por stdout
+(`Time in seconds`), inmune a cualquier filtrado de ventanas. r² 0.976–0.9997.
+
+| kernel | α filtrado (original) | α crudo | **α stdout** |
+|---|---|---|---|
+| npb_mg | 0.6379 | 0.3848 | **0.3834** |
+| npb_sp | 0.5070 | 0.4906 | **0.4895** |
+| npb_cg | 0.7807 | 0.7599 | **0.7572** |
+| npb_ft | 0.8843 | 0.7705 | **0.7766** |
+| npb_lu | 0.8917 | 0.8401 | **0.8410** |
+| npb_bt | 0.9070 | 0.9016 | **0.9019** |
+| dgemm_n2048 | **1.1506** | 0.9308 | **0.9339** |
+
+**Las ventanas crudas y el stdout coinciden a menos de 0.008 en α.** Eso
+valida las duraciones crudas y confirma que la estimación sesgada era la
+filtrada. `3mm_omp` y `lavamd_omp` no declaran patrón de runtime en el
+catálogo y no son evaluables por esta vía.
+
+**Ya no hay ningún α > 1 a nivel de corrida:** el máximo es 0.934.
+
+### Por qué el sesgo golpea más a los kernels cortos
+
+`npb_mg` dura **0.847 s** en F0. Con `grace_seconds = 0.15` y
+`tail_grace_seconds = 0.15`, las ventanas descartadas por transitorio son
+0.30 s, el **35 % de la corrida**. Eso explica casi exactamente su retención
+del 60.2 % en F0, y por qué es el kernel donde más cambia α (0.638 → 0.383).
+La misma ventana de gracia sobre una corrida de 27 s (`npb_bt`) es el 1 %,
+y su α apenas se mueve (0.907 → 0.902).
+
+**Consecuencia de diseño para las campañas nuevas:** la ventana de gracia
+debe ser una fracción del tiempo de corrida, no un valor absoluto, o los
+kernels cortos quedan sistemáticamente sesgados.
+
+## B.2 alpha por TRAMO con duraciones sin filtrar
+
+| kernel | α medio | sd | p05 | α mín | % celdas ≤ 0.226 |
+|---|---|---|---|---|---|
+| npb_sp | 0.5071 | 0.0106 | 0.4925 | 0.4858 | 0.0 |
+| npb_mg | 0.6664 | 0.1978 | 0.3951 | 0.2593 | 0.0 |
+| npb_cg | 0.7824 | 0.0946 | 0.7611 | **0.2011** | 0.1 |
+| npb_lu | 0.8917 | 0.0264 | 0.8493 | 0.8269 | 0.0 |
+| npb_bt | 0.9070 | 0.0049 | 0.8986 | 0.8906 | 0.0 |
+| npb_ft | 0.9597 | 0.2990 | 0.3839 | 0.2477 | 0.0 |
+| 3mm_omp | 1.0522 | 0.0344 | 0.9845 | 0.9467 | 0.0 |
+| lavamd_omp | 1.1075 | 0.0816 | 1.0862 | 0.8319 | 0.0 |
+| dgemm_n2048 | 1.1530 | 0.0658 | 1.0600 | 1.0199 | 0.0 |
+
+**1 celda de 9000 (0.01 %)** por debajo del umbral. Mínimo global 0.2011.
+
+## B.3 CORRECCIÓN a la conclusión de T0.2
+
+En el Anexo A.2 se concluyó que el filtro de calidad explicaba α > 1. **Eso
+es cierto solo a nivel de CORRIDA.** Quitando el filtro, los α por TRAMO
+apenas se movieron (dgemm 1.159 → 1.153; lavamd 1.092 → 1.108), y tres
+kernels siguen por encima de 1.
+
+Así que hay **dos efectos distintos**, no uno:
+
+1. **Nivel de corrida:** sesgo de retención del filtro. Resuelto y
+   cuantificado. El α por corrida es fiable y está validado por tres vías
+   independientes.
+2. **Nivel de tramo:** persiste un α > 1 que el filtro no explica. La causa
+   más probable es **desalineación de los tramos**: la coordenada de avance
+   por instrucciones es invariante al 0.34 % *sobre la corrida completa*,
+   pero dentro de un centil una deriva pequeña hace que la celda *k* en F4
+   no cubra exactamente el mismo trabajo que en F0. Además la duración de
+   una celda es ~1 % de la corrida, así que el ruido relativo es mucho mayor.
+
+### Qué se puede afirmar y qué no
+
+- **Fiable:** el α por corrida. Mínimo del dataset **0.3834** (`npb_mg`).
+- **Con reservas:** el α por tramo. Su magnitud y su dispersión pueden
+  contener artefacto de binado. La afirmación de C2 de que "α varía entre
+  tramos" sigue apoyada por T0.1 (la estructura de fase es real, ACF
+  0.90–0.997), pero **la magnitud de esa variación no es de fiar** hasta
+  validar el binado contra la etiqueta de verdad de `phasic`.
+- Nótese que el α por corrida es la combinación **ponderada por duración**
+  de los α por tramo, no su media simple. Que `npb_mg` tenga α por corrida
+  0.383 y media por tramo 0.666 significa que **sus tramos LARGOS son los de
+  α bajo** — un dato físicamente interesante y favorable, porque son los que
+  más pesan en el consumo.
+
+## B.4 El diagnóstico central NO cambia
+
+| | Antes | Después de corregir |
+|---|---|---|
+| α mínimo por corrida | 0.242 (era por tramo) | **0.3834** |
+| α mínimo por tramo | 0.242 | 0.2011 |
+| Celdas bajo umbral | 0 de 9000 | **1 de 9000** |
+| Kernels bajo umbral | 0 de 9 | **0 de 9** |
+
+**Ningún kernel del dataset alcanza el régimen viable.** La corrección mueve
+los números pero no el diagnóstico: el catálogo sigue siendo el problema, y
+el plan de las Olas 1 y 2 sigue en pie sin cambios.
+
+## B.5 Tarea nueva que sale de aquí
+
+**T0.2d — validar el binado de tramos contra la etiqueta de verdad de
+`phasic`.** Cuando 6420 entregue datos, comparar los tramos que produce la
+coordenada de avance contra las marcas `PHASE` reales. Es la única forma de
+saber cuánto del α > 1 por tramo es artefacto. Sin nodo adicional: usa los
+datos del pre-vuelo que ya está en cola.
+
+**Y un cambio de diseño para las campañas nuevas:** `grace_seconds` y
+`tail_grace_seconds` deben expresarse como fracción del tiempo de corrida.
