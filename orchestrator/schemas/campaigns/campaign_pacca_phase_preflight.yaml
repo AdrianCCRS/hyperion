@@ -38,6 +38,23 @@
 #       origen y las 240 corridas de phasic de la campaña grande habrían
 #       salido con ground truth inservible -- que era su única razón de ser.
 #
+#   S5. ¿La fase de cómputo de phasic es COMPARABLE con las cargas
+#       compute-bound reales del catálogo? No basta con que su etiqueta
+#       Roofline salga compute_bound: como no toca memoria, su OI es enorme
+#       y la etiqueta sale bien incluso si el código es escalar. Lo que hay
+#       que mirar en los datos son dos cosas: la tasa de FLOPs alcanzada
+#       frente al pico de 480 GFLOP/s que mide ert_probe en AVX-512, y la
+#       potencia de paquete frente a la de rajaperf_polybench_3mm_omp. Si
+#       phasic consume mucho menos, su EDP no transfiere a nada real y el
+#       umbral alpha <= 0.226 --que sale del rango dinámico de potencia del
+#       nodo-- no se le aplica.
+#
+#       No es hipotético: la primera versión de phasic.c compilaba a
+#       mulsd/addsd escalar sobre xmm (~1/16 del pico) porque era, junto con
+#       ptrchase, el único kernel del catálogo sin script de build. Ver
+#       scripts/pacca/build_phase_kernels.sh, que ahora verifica con objdump
+#       el ancho de vector REALMENTE emitido.
+#
 # QUÉ *NO* ES. No produce datos para el dataset: 3 repeticiones no sustentan
 # ninguna afirmación del libro. Su salida se lee, se decide, y se descarta.
 #
