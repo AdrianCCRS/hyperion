@@ -122,162 +122,160 @@ continuo **no** resolvió el problema de generalización.
 
 ---
 
-## 4. El hallazgo que reencuadra el proyecto: el uncore está acoplado
+## 4. Tres retractaciones y el hallazgo que sí sostiene la evidencia
 
-C2 devolvió **α > 1 en cuatro de nueve kernels** con r² de 0.96–0.999. Bajo
-la ley `T(f)/T_ref = (1−α) + α·(f_ref/f)`, α es una *fracción del tiempo* y
-no puede exceder 1. Un ajuste excelente con α > 1 no es ruido: es el modelo
-mal especificado.
+Las conclusiones de la primera versión de este documento sobre uncore y
+sobre el conteo de bytes eran **incorrectas**. La auditoría (job 6427) las
+desmintió. Se dejan escritas porque el error importa tanto como el
+resultado.
 
-La ley supone que la parte insensible al reloj —la espera a memoria— es
-constante en frecuencia. Eso solo vale si el uncore (malla, controlador de
-memoria, L3) corre a frecuencia independiente.
+### 4.1 RETRACTADO — "los bytes de uncore están inflados ~17×"
 
-**Prueba (job 6426).** Ancho de banda alcanzado por nivel, relativo a F0, y
-su pendiente contra la frecuencia relativa. Con uncore independiente, una
-carga que ya satura memoria mantendría su ancho de banda al bajar el reloj
-(pendiente ≈ 0). Con uncore acoplado, lo pierde proporcionalmente
-(pendiente ≈ 1).
+Se calculó el ancho de banda como `bytes_moved_uncore_real / delta_t_ns`
+fila por fila. Eso está mal. `_apply_uncore_intervals`
+(orchestrator/postprocess.py:300-317) difunde los bytes de UN intervalo de
+uncore a TODAS las ventanas de CPU que cubre: el intervalo dura ~13 ms
+(piso de `perf stat -I`) y la ventana ~1 ms, así que cada fila lleva
+escrito el total del intervalo, no su parte. El docstring advierte de esta
+clase de error exactamente.
 
-| kernel | pendiente d(BW_rel)/d(f_rel) |
-|---|---|
-| npb_sp | **+1.024** |
-| dgemm_n2048 | **+1.011** |
-| npb_lu | **+1.009** |
-| npb_bt | **+0.984** |
-| 3mm_omp | **+0.968** |
-| npb_ft | **+0.960** |
-| npb_cg | **+0.889** |
-| npb_mg | +0.681 |
-| lavamd_omp | +0.571 |
+Medido: **13.0 ventanas por intervalo, idéntico en los seis niveles de
+frecuencia, p05 = p95 = 13.0, sobre las 540 corridas.** 997 / 13 = 76.7.
 
-Siete de nueve kernels en ≈ 1.0. Incluso `npb_cg`, el más memory-bound del
-catálogo según el score (b medio 0.839), cae al 32.5 % de ancho de banda al
-25 % de frecuencia.
-
-**Por qué importa.** Reencuadra el hallazgo central del proyecto:
-
-- Antes: *"los nueve kernels resultaron sensibles a frecuencia"* — suena a
-  mala selección de benchmarks, y la respuesta sería agregar cargas.
-- Ahora: *"en esta plataforma el DVFS de núcleo también frena el uncore, de
-  modo que la fracción insensible a la frecuencia no llega a existir para
-  ninguna carga"* — es una propiedad medida del nodo, y agregar cargas no
-  la cambiaría.
-
-La segunda es una tesis defendible. La primera es una debilidad.
-
-**Confusión que hay que resolver.** Pendiente ≈ 1 también es lo que se ve
-si el kernel *no* está realmente saturando memoria y simplemente emite
-peticiones más despacio porque el núcleo va más lento. Las dos
-explicaciones están confundidas en estos datos. Lo que las separa es
-`ptrchase` (job 6420): una persecución de punteros pura está limitada por
-latencia de memoria por construcción. Si `ptrchase` también sale con
-pendiente ≈ 1 y α alto, el acoplamiento queda establecido.
-
----
-
-## 5. Problema nuevo y BLOQUEANTE: el conteo de bytes de uncore
-
-Los valores absolutos de ancho de banda son físicamente imposibles.
+A la granularidad correcta:
 
 | fuente | BW |
 |---|---|
-| `stream_official`, calibración F0, vía `bytes_moved_uncore_real` | **997 GB/s** |
-| `stream_official`, calibración F1 | 992 GB/s |
-| Pico del nodo en el manifiesto (`bw_pico_bytes_per_s`) | **59.5 GB/s** |
-| `npb_mg` F0 | 738 GB/s |
-| `npb_cg` F0 | 624 GB/s |
+| STREAM F0, por intervalo | **76.80 GB/s** |
+| Pico declarado del nodo | 59.50 GB/s |
+| cociente | **1.291** |
 
-STREAM existe precisamente para medir el pico de memoria. Que su propio
-tráfico de uncore dé 997 GB/s contra los 59.5 GB/s que el mismo STREAM
-reporta por stdout es una inconsistencia de **~17×**.
+1.291 no es un error: es el factor de *write-allocate* / RFO. Un fallo de
+escritura lee primero la línea, así que la DRAM ve más tráfico del que
+STREAM contabiliza como útil (×1.5 en Copy/Scale, ×1.33 en Triad). Para la
+mezcla de STREAM, ~1.3 es el valor de libro.
 
-**Por qué bloquea.** La etiqueta depende de las dos cifras a la vez:
+**El conteo de bytes es correcto y queda validado contra física conocida.
+La etiqueta no está sesgada.** No hay nada bloqueante aquí.
 
-- `I_ridge = P_pico / BW` usa el valor de STREAM (59.5 GB/s).
-- `OI = FLOPs / bytes_uncore` por ventana usa el conteo CAS.
+### 4.2 RETRACTADO — "el uncore está acoplado al reloj del núcleo"
 
-Si los bytes están inflados ~17×, el OI está deflactado ~17× y **todas las
-ventanas quedan empujadas hacia memory_bound** frente a un ridge calculado
-sin esa inflación. Es un sesgo sistemático en la etiqueta misma, no en el
-modelo.
+Se infirió del hecho de que 7 de 9 kernels pierden ancho de banda con
+pendiente ≈ 1.0 contra la frecuencia. Se advirtió en su momento que esa
+señal está confundida con "el kernel no estaba saturando memoria". **El
+control resuelve la confusión en contra de la hipótesis.**
 
-**Qué NO invalida.** El análisis de pendientes de §4 es un cociente
-(BW relativo a F0), así que un factor de escala constante se cancela. La
-conclusión de acoplamiento sobrevive **si** el factor es independiente de
-la frecuencia — cosa que hay que verificar, no asumir.
+STREAM, que satura memoria por construcción:
 
-**Explicaciones inocentes posibles**, ninguna del tamaño observado:
-contar los dos sockets cuando solo se usa NUMA 0 (×2), tráfico de
-write-allocate que STREAM no cuenta como útil (×1.5), unidad de línea de
-caché distinta de 64 B. Un ×17 no sale de ahí. Hay que auditar
-`uncore_reader` contra STREAM antes de relanzar nada.
+| nivel | MHz | BW (GB/s) | BW relativo | f relativo |
+|---|---|---|---|---|
+| F0 | 3200 | 76.80 | 1.000 | 1.000 |
+| F1 | 2600 | 76.68 | 0.998 | 0.813 |
+| F2 | 2000 | 75.12 | 0.978 | 0.625 |
+| F3 | 1400 | 70.72 | 0.921 | 0.438 |
+| F4 | 800 | 60.18 | **0.784** | 0.250 |
+
+**STREAM conserva el 78.4 % de su ancho de banda al 25 % del reloj**
+(pendiente ≈ 0.29, no ≈ 1.0). El camino a memoria NO se frena con el DVFS
+de núcleo en este nodo.
+
+Entonces la pendiente ≈ 1.0 de los otros siete kernels significa otra cosa:
+**no estaban saturando memoria.** Al bajar el reloj simplemente emiten
+peticiones más despacio. Es comportamiento limitado por núcleo.
+
+Ancho de banda corregido en F0, contra los 76.80 GB/s de STREAM:
+
+| kernel | BW F0 (GB/s) | % de STREAM | pendiente |
+|---|---|---|---|
+| npb_mg | 57.18 | 74 % | 0.681 |
+| npb_cg | 48.35 | 63 % | 0.889 |
+| npb_sp | 43.73 | 57 % | 1.024 |
+| npb_ft | 21.76 | 28 % | 0.960 |
+| dgemm_n2048 | 21.01 | 27 % | 1.011 |
+| npb_lu | 5.84 | 8 % | 1.009 |
+| npb_bt | 3.88 | 5 % | 0.984 |
+
+Ninguno satura. La tendencia general es la esperada —más saturado, menor
+pendiente— con `npb_sp` como excepción sin explicar. `3mm_omp` y
+`lavamd_omp` mueven 0.18 y 0.07 GB/s: su "pendiente de ancho de banda" mide
+ruido, no memoria, y por eso es errática.
+
+### 4.3 RETRACTADO — "ninguna carga puede bajar del umbral en este nodo"
+
+Ajuste directo de α sobre las duraciones reales de las corridas de
+calibración:
+
+| carga | α | r² | T(F4)/T(F0) |
+|---|---|---|---|
+| **stream_official** | **0.1538** | 0.982 | 1.484 |
+| ert_probe | 0.2277 | 0.980 | 1.716 |
+
+**STREAM está en α = 0.154, por debajo del umbral de viabilidad 0.226.**
+ERT está justo encima.
+
+Es la existencia que faltaba: **sí hay cargas por debajo del umbral en este
+nodo.** Bajar la frecuencia SÍ mejora el EDP de STREAM.
+
+---
+
+## 5. Diagnóstico corregido
+
+El hallazgo central del proyecto no es una propiedad de la plataforma. Es
+una propiedad **del catálogo**:
+
+- El umbral de viabilidad es α ≤ 0.226.
+- STREAM, saturando memoria, está en 0.154. **Por debajo.**
+- El mínimo de los 9 kernels del dataset es 0.242, sobre 9000 celdas.
+- Ninguno de los 9 supera el 74 % del ancho de banda alcanzable, y cinco
+  no llegan al 30 %.
+
+Los nueve kernels del dataset **no son suficientemente memory-bound**. El
+régimen donde el DVFS paga existe en este nodo, y el catálogo no lo toca.
+
+Eso es exactamente el hueco que `ptrchase` (persecución de punteros,
+limitada por latencia) y `phasic` fueron construidos para cubrir, y ahora
+hay una razón medida para esperar que funcionen en vez de una corazonada.
 
 ---
 
 ## 6. Dónde queda el proyecto
 
-Con honestidad, y sin suavizarlo:
+Mucho mejor que hace unas horas, y por evidencia, no por optimismo.
 
-**La hipótesis original —que un modelo aprenda a elegir frecuencia y ahorre
-energía— tiene evidencia negativa fuerte en CPU sobre este nodo.** No por
-falta de datos ni de rejilla: por el rango dinámico de potencia del
-procesador y, muy probablemente, por el acoplamiento del uncore.
+**Lo que sigue en pie:**
+- C3 falla: el regresor no generaliza a un kernel no visto (R² negativo en
+  los nueve pliegues). Ese problema es real y no lo toca nada de lo
+  anterior.
+- La causa sigue siendo la misma: 9 kernels no son una muestra con la que
+  LOKO signifique algo, y todos viven en el mismo régimen.
 
-**Eso no es lo mismo que un proyecto fallido.** El alcance aprobado exige
-construir el clasificador y la política, y eso se construye igual. Lo que
-cambia es la conclusión que reporta: en esta plataforma la política
-correcta es no bajar la frecuencia, y el trabajo **explica por qué con
-evidencia medida** en vez de afirmarlo. Un resultado negativo con mecanismo
-identificado es más fuerte que un positivo débil.
+**Lo que cambió:**
+- El objetivo es alcanzable en este hardware. Antes parecía físicamente
+  cerrado.
+- Se sabe qué falta: cargas en el régimen α < 0.226, que es donde está
+  STREAM y donde no hay ni un kernel del dataset.
+- La etiqueta está validada contra física conocida (§4.1), no solo contra
+  sí misma.
 
-Lo que sí está en riesgo real es la **validez de la etiqueta** (§5). Ese sí
-es un problema que hay que cerrar, porque afecta a todo lo demás.
-
----
-
-## 7. Qué falta, en orden
-
-### Bloqueante antes de relanzar la campaña final de CPU
-
-1. **Auditar el conteo de bytes de uncore contra STREAM.** Comparar el
-   ancho de banda que STREAM reporta por stdout con el derivado de los
-   contadores CAS, socket por socket. Sin nodo de medición: los datos ya
-   existen. **Nada debe relanzarse hasta cerrarlo.**
-2. **Verificar que el factor de inflación es independiente de la
-   frecuencia.** Si no lo fuera, la conclusión de §4 se cae.
-
-### Encolado, esperando que se libere paccaA100
-
-3. **Job 6420** — preflight de fases, 27 corridas, ~20 min. Responde:
-   ¿es alcanzable α ≤ 0.226 (S1)?, ¿pasan la validación en el fondo del
-   rango (S2)?, ¿se resuelve la fase en ventanas de 1 ms (S3)?, ¿cruza la
-   etiqueta de verdad con las ventanas (S4)?, ¿es comparable la fase de
-   cómputo con las cargas reales (S5)?
-4. **Job 6412** — campaña de fases, ~4 h, en `hold`. Su diseño depende de
-   lo que diga 6420.
-
-### Sin nodo, pendientes
-
-5. **C1b — autocorrelación de `b`** a lo largo de la coordenada de avance.
-   Separa estructura de fase de ruido de muestreo. Decide si el 15.3 % de
-   varianza intra-corrida es señal.
-6. **Revisar C3 con el target corregido**, si la auditoría de §5 cambia las
-   etiquetas.
-
-### Solo en paccaA100, y solo si hay modelo que valga la pena
-
-7. **Latencia de inferencia.** Es una afirmación sobre el hardware de
-   despliegue; medirla en `pacca01` sería inválido.
+**Lo que sigue abierto y no debe minimizarse:**
+- C1b: si el 15.3 % de varianza intra-corrida es señal o ruido.
+- Que α > 1 en cuatro kernels sigue sin explicación. Descartado el uncore,
+  la causa es otra y no se ha identificado.
 
 ---
 
-## 8. Decisiones que este documento NO toma
+## 7. Qué hacer, en orden
 
-- **D2** (arquitectura del modelo de Fase 2) sigue abierta. C1 respalda la
-  primera salida (`b` continuo). C2 y C3 debilitan la segunda: α varía pero
-  no cruza el umbral, y el regresor no generaliza. No se escribe §Fase 2 del
-  libro hasta cerrar §5 y 6420.
-- **Agregar cargas reales multifásicas** (HPCG u otra) queda supeditado a
-  C1b: si la varianza intra-corrida es ruido, agregar cargas no la arregla;
-  si es señal, puede que no haga falta agregar nada.
+1. **Job 6420 (preflight, ~20 min, en cola).** Ahora tiene un prior fuerte:
+   si STREAM da 0.154, `ptrchase` —limitado por latencia y no por ancho de
+   banda— debería quedar por debajo. Es la confirmación directa.
+2. **Medir la rejilla 2800–3200 MHz.** Bajo el objetivo de minimizar
+   energía con holgura de tiempo `s`, el óptimo cae en
+   `f* = f_ref / (1 + s/α)`: con α ≈ 0.9 y s = 5 %, en ~3032 MHz; con
+   α = 0.5, en ~2909 MHz. La rejilla actual salta 3200 → 2600 y **no tiene
+   una sola medición ahí**. Es la campaña de rejilla fina que se canceló
+   (job 6391) y que debe volver.
+3. **C1b — autocorrelación de `b`.** Sin nodo.
+4. **Explicar α > 1.** Sin nodo, sobre los datos existentes.
+5. **Añadir cargas en el régimen de STREAM al catálogo del dataset**, no
+   solo como calibración. STREAM ya demuestra que el régimen existe.
