@@ -186,9 +186,17 @@ int main(int argc, char **argv) {
     printf("transitions = %d\n", n_marks);
     printf("compute_flops = %ld\n", compute_flops);
     printf("memory_hops = %ld\n", memory_hops);
-    /* ETIQUETA DE VERDAD: instante (relativo al inicio) en que empieza cada
-     * fase y de qué tipo es. Es lo que permite validar contra la etiqueta
-     * Roofline y medir la latencia de deteccion del clasificador. */
+    /* ANCLA DE RELOJ. Sin esto las marcas de abajo son offsets sin origen y
+     * NO se pueden cruzar con windows.csv: el colector estampa t_start_ns /
+     * t_end_ns con CLOCK_MONOTONIC absoluto (telemetry metrics.hpp), no con
+     * el t0 de este proceso. Publicar t_start en el MISMO reloj es lo que
+     * hace alineable la etiqueta de verdad; es el mismo reloj y la misma
+     * maquina, asi que la resta es directa y no hay que estimar desfase. */
+    printf("T0_MONOTONIC_NS %lld\n", (long long)(t_start * 1e9));
+    /* ETIQUETA DE VERDAD: instante (relativo a T0_MONOTONIC_NS) en que
+     * empieza cada fase y de qué tipo es. Es lo que permite validar contra
+     * la etiqueta Roofline y medir la latencia de deteccion del
+     * clasificador. */
     printf("# ground_truth_phases offset_seconds,kind\n");
     for (int i = 0; i < n_marks; i++) {
         printf("PHASE %.6f %c\n", marks[i], kinds[i]);

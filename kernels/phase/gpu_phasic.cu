@@ -158,9 +158,15 @@ int main(int argc, char **argv) {
     const double elapsed = now_seconds() - t0;
     printf("Time in seconds = %.6f\n", elapsed);
     printf("transitions = %d\n", transitions);
-    /* ETIQUETA DE VERDAD: instante en que empieza cada fase y de qué tipo.
-     * Permite validar la etiqueta Roofline y medir el retardo de detección
-     * del clasificador en número de ventanas. */
+    /* ANCLA DE RELOJ. Sin esto las marcas de abajo son offsets sin origen y
+     * NO se pueden cruzar con windows.csv: el colector estampa t_start_ns /
+     * t_end_ns con CLOCK_MONOTONIC absoluto (telemetry metrics.hpp), no con
+     * el t0 de este proceso. Publicar t0 en el MISMO reloj es lo que hace
+     * alineable la etiqueta de verdad. */
+    printf("T0_MONOTONIC_NS %lld\n", (long long)(t0 * 1e9));
+    /* ETIQUETA DE VERDAD: instante (relativo a T0_MONOTONIC_NS) en que
+     * empieza cada fase y de qué tipo. Permite validar la etiqueta Roofline
+     * y medir el retardo de detección del clasificador en ventanas. */
     printf("# ground_truth_phases offset_seconds,kind\n");
     for (int i = 0; i < transitions; ++i) printf("PHASE %.6f %c\n", marks[i], kinds[i]);
     printf("Verification = SUCCESSFUL\n");

@@ -1,0 +1,138 @@
+# ARC-177: PREFLIGHT de la campaña de fases (campaign_pacca_phase_probe.yaml).
+#
+# POR QUÉ EXISTE. La campaña de fases cuesta ~4 h y el bloque de rejilla que
+# viene detrás ~9 h. Ambos descansan sobre supuestos que NUNCA se han medido
+# en hardware, porque los cuatro kernels son nuevos. Este manifiesto existe
+# para falsar esos supuestos por ~20 min antes de comprometer las horas,
+# siguiendo el mismo criterio que campaign_pacca_dvfs_smoke.yaml (ARC-130)
+# aplicó antes de la campaña de 3 h: un pre-vuelo de punta a punta.
+#
+# El precedente no es teórico. La campaña final perdió cobertura completa en
+# F0-F2 para dos kernels (0/10 aceptadas) por un transitorio de cola que solo
+# se detectó DESPUÉS de correrla; hizo falta ARC-174 y dos campañas
+# suplementarias dirigidas para taparlo.
+#
+# QUÉ SUPUESTOS FALSA, en orden de cuánto duele que sean falsos:
+#
+#   S1. ¿Es alcanzable alpha <= 0.226 en este nodo?
+#       Es LA pregunta que decide si DVFS en CPU sirve para algo aquí, y
+#       basta con dos niveles: alpha es un ajuste de UN parámetro sobre
+#       T(f)/T_ref = (1-a) + a*(f_ref/f), así que F0 y F4 lo determinan. La
+#       rejilla de 8 niveles de la campaña grande mide la FORMA de la curva,
+#       que solo interesa si la respuesta a S1 es que sí. Cuestan ~2 min de
+#       los ~20.
+#
+#   S2. ¿Las corridas de estos kernels pasan la validación de frecuencia en
+#       el FONDO del rango? Binarios nuevos, sin historial de asentamiento
+#       propio, y F4 es la transición más grande. Si se rechazan, la campaña
+#       grande produce huecos exactamente donde está la física interesante.
+#
+#   S3. ¿Se resuelve la estructura de fase en ventanas de 1 ms? p010 tiene
+#       fases de 10 ms = 10 ventanas por fase, que es el caso límite; p1000
+#       (1 s = 1000 ventanas) es el caso cómodo. Si p010 sale liso, la
+#       campaña grande no debe gastar 80 corridas en él.
+#
+#   S4. ¿La etiqueta de verdad se cruza con windows.csv? phasic publica
+#       T0_MONOTONIC_NS (ARC-177) en el mismo reloj que el colector estampa
+#       en t_start_ns. Sin ese ancla las marcas PHASE eran offsets sin
+#       origen y las 240 corridas de phasic de la campaña grande habrían
+#       salido con ground truth inservible -- que era su única razón de ser.
+#
+# QUÉ *NO* ES. No produce datos para el dataset: 3 repeticiones no sustentan
+# ninguna afirmación del libro. Su salida se lee, se decide, y se descarta.
+#
+# COSTO. 3 kernels x 3 niveles x 3 reps = 27 corridas. ptrchase ~12 s y
+# phasic ~24 s; con calibración, baselines y asentamiento, ~20 min.
+#
+# REJILLA. Solo los extremos. F0 (3200) y F4 (800) determinan alpha; REF
+# está porque MAN-10 exige exactamente un nivel native_governor. Los niveles
+# intermedios no aportan nada a ninguno de los cuatro supuestos.
+#
+# phasic_p100 se omite a propósito: interpola entre p010 y p1000, así que no
+# falsa ningún supuesto que esos dos no falsen ya.
+
+campaign_id: pacca_phase_preflight_20260822
+environment_tier: hpc_sc3
+seed: 20260806
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_phase_preflight_20260822
+overwrite: true
+
+catalog_path: ../kernels/catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: ptrchase
+  - kernel_ref: phasic_p010
+  - kernel_ref: phasic_p1000
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F0,  mode: fixed, fraction: 1.0}   # 3200 MHz
+  - {id: F4,  mode: fixed, fraction: 0.0}   #  800 MHz
+
+repetitions_per_combination: 3
+target_windows_per_repetition: 50
+interval_ns: 1000000  # 1 ms
+
+running_ratio_min: 0.90
+
+# Mismos valores que la campaña grande, a propósito: si el asentamiento de
+# estos kernels necesita más margen, el pre-vuelo tiene que enterarse con la
+# configuración REAL, no con una más laxa que oculte el problema.
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+  grace_seconds: 0.15
+  tail_grace_seconds: 0.15
+
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+
+turbo:
+  require_disabled: true
+
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+
+projected_campaign_bytes: 2147483648
+remaining_core_hours: 100000
+projected_core_hours: 5
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+rapl:
+  enabled: true
+
+uncore:
+  enabled: true
+
+gpu:
+  enabled: false
+
+timeouts_seconds:
+  ready: 15
+  run: 180
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 480000000000
