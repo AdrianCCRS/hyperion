@@ -579,3 +579,155 @@ EN PARALELO:           desbloquear el eje GPU (T2.3), que tiene
 artefacto de usar la frecuencia nominal, todos los α del proyecto —incluido
 el 0.242 que define el diagnóstico— hay que recalcularlos, y varias
 conclusiones de este documento cambian.
+
+---
+
+# ANEXO A — Resultados de la Ola 0 (job 6429, 2026-08-22)
+
+## A.1 T0.1 — La estructura de fase es SEÑAL, no ruido. *(cierra G4)*
+
+Autocorrelación a rezago 1 de `b` dentro de cada corrida, contra la misma
+serie permutada al azar (control nulo que conserva la distribución marginal
+y destruye solo el orden temporal):
+
+| kernel | ACF(1) | ACF(1) nulo | persistencia (ventanas a 1/e) |
+|---|---|---|---|
+| npb_cg | 0.9967 | −0.0028 | **200** |
+| npb_ft | 0.9662 | 0.0008 | 17 |
+| npb_bt | 0.9626 | −0.0002 | 14 |
+| npb_lu | 0.9582 | −0.0008 | 13 |
+| 3mm_omp | 0.9485 | −0.0005 | 50 |
+| lavamd_omp | 0.9321 | −0.0021 | 9 |
+| npb_sp | 0.9150 | 0.0007 | 6 |
+| dgemm_n2048 | 0.8996 | −0.0037 | 5 |
+| npb_mg | 0.8995 | −0.0064 | 5 |
+
+**Inequívoco.** ACF entre 0.90 y 0.997 contra un nulo de ~0.000 en los
+nueve. El 15.3 % de varianza intra-corrida de C1 **es estructura real**.
+
+Y da algo que no se tenía: **la escala temporal de las fases es de 5 a 200
+ventanas, o sea 5–200 ms.** La transición de P-state medida en este nodo es
+de ~10–11 ms, así que `npb_cg` (200 ventanas) es holgadamente conmutable y
+`dgemm`/`npb_mg` (5 ventanas) están en el límite. Ese contraste es
+exactamente lo que `phasic_p010/p100/p1000` fue construido para barrer.
+
+## A.2 T0.2 — α > 1 explicado: es el FILTRO DE CALIDAD *(cierra A6)*
+
+| kernel | α filtrado | α crudo | retención F0 | retención F4 |
+|---|---|---|---|---|
+| rodinia_lavamd_omp | 1.2042 | **1.0272** | 0.869 | 0.982 |
+| dgemm_n2048 | 1.1506 | **0.9308** | 0.809 | 0.950 |
+| 3mm_omp | 1.0516 | **1.0067** | 0.957 | 0.990 |
+| npb_ft | 0.8843 | **0.7705** | 0.872 | 0.962 |
+| **npb_mg** | 0.6379 | **0.3848** | **0.602** | 0.820 |
+| npb_lu | 0.8917 | 0.8401 | 0.942 | 0.984 |
+| npb_cg | 0.7807 | 0.7599 | 0.975 | 0.994 |
+| npb_sp | 0.5070 | 0.4906 | 0.968 | 0.987 |
+| npb_bt | 0.9070 | 0.9016 | 0.994 | 0.998 |
+
+**En los nueve kernels, la retención en F0 es menor que en F4.** El filtro
+de validación de frecuencia rechaza más ventanas a alta frecuencia que a
+baja, así que `T(F0)` queda sistemáticamente subestimado, el cociente
+`T(F4)/T(F0)` se infla, y con él α. `npb_mg` pierde el 40 % de sus ventanas
+en F0.
+
+La hipótesis (b) queda descartada: la frecuencia observada es exactamente
+la nominal en los seis niveles.
+
+### Consecuencia grave: **todos los α del proyecto están sesgados al alza**
+
+`npb_mg` pasa de 0.638 a **0.385**. En C2 su distribución por tramo tenía
+p05 = 0.400 y mínimo 0.242; corregida hacia abajo en la misma proporción,
+**una fracción real de sus tramos caería por debajo del umbral 0.226**.
+
+### T0.2b — NUEVA TAREA, URGENTE, sin nodo
+
+Ni el α filtrado ni el crudo son correctos: el filtrado tiene el sesgo de
+retención, y el crudo incluye tiempo corrido a la frecuencia equivocada. La
+duración correcta es la que **el propio kernel reporta por stdout** — NPB
+imprime `Time in seconds`, y el catálogo ya tiene
+`runtime_seconds_stdout_pattern` para extraerlo. Es inmune a cualquier
+filtrado de ventanas.
+
+**Recalcular todos los α con esa duración antes de que nada dependa de
+ellos**, incluidos el 0.242 que sostiene el diagnóstico y la tabla de C2.
+
+## A.3 T0.3 — Los rasgos SÍ contienen la información *(el resultado clave)*
+
+**Techo intra-kernel** (entrenar y probar dentro del mismo kernel; no es
+generalización, es el techo de lo aprendible con estos rasgos):
+
+| kernel | R² intra-kernel |
+|---|---|
+| npb_cg | **0.977** |
+| npb_mg | 0.883 |
+| dgemm_n2048 | 0.877 |
+| npb_lu | 0.833 |
+| npb_sp | 0.812 |
+| npb_bt | 0.657 |
+| npb_ft | 0.657 |
+| 3mm_omp | 0.333 |
+| lavamd_omp | 0.158 |
+
+**LOKO por suite** (cuatro pliegues reales en vez de nueve falsos):
+
+| suite excluida | kernels | MAE modelo | MAE trivial | R² |
+|---|---|---|---|---|
+| NPB | 6 | **0.3821** | 0.4223 | −7.6 |
+| RAJAPerf | 1 | **0.2007** | 0.2762 | −11.3 |
+| Rodinia | 1 | **0.3191** | 0.4329 | −251.3 |
+| DGEMM | 1 | 0.4119 | 0.2222 | −85.1 |
+
+**Lectura, y es la conclusión más importante de toda la Ola 0.** El techo
+es alto (0.66–0.98) en siete de nueve kernels: **el vector de rasgos
+contiene la información necesaria para predecir `b`.** El fallo de C3 no es
+del modelo ni de los rasgos, es de **generalización entre regímenes**.
+
+Eso es precisamente un problema de catálogo, y por tanto **arreglable**. Si
+el techo hubiera sido bajo, ningún catálogo lo habría arreglado y habría
+que rehacer el vector de entrada.
+
+Los dos techos bajos (3mm 0.333, lavamd 0.158) son los dos kernels con
+tráfico DRAM prácticamente nulo (0.2 % y 0.1 % del de STREAM): su `b` está
+dominado por ruido de medición del OI. Consistente.
+
+## A.4 T0.4 — El objetivo cuantitativo para los kernels nuevos
+
+α (con duraciones crudas) contra fracción del ancho de banda de STREAM:
+
+| kernel | α | BW F0 (GB/s) | % de STREAM |
+|---|---|---|---|
+| *stream_official* | *0.154* | *76.80* | *100* |
+| npb_mg | 0.385 | 57.18 | 74.5 |
+| npb_sp | 0.491 | 43.73 | 56.9 |
+| npb_cg | 0.760 | 48.35 | 63.0 |
+| npb_ft | 0.771 | 21.76 | 28.3 |
+| npb_lu | 0.840 | 5.84 | 7.6 |
+| npb_bt | 0.902 | 3.88 | 5.1 |
+| dgemm_n2048 | 0.931 | 21.01 | 27.4 |
+| 3mm_omp | 1.007 | 0.19 | 0.2 |
+| lavamd_omp | 1.027 | 0.07 | 0.1 |
+
+Interpolando entre `npb_mg` (74.5 %, α 0.385) y STREAM (100 %, α 0.154), el
+umbral α = 0.226 cae alrededor del **90–92 % de saturación**.
+
+**Ése es el objetivo cuantitativo del catálogo nuevo: llegar a ~90 % del
+ancho de banda de STREAM.** `npb_mg` está a 15 puntos, y la clase C
+multiplica su conjunto de trabajo por 8 — es la apuesta de T1.2.
+
+La relación no es monótona (`npb_cg` a 63 % tiene α mayor que `npb_sp` a
+57 %), así que esto es una guía de diseño, no una ley. La saturación de
+ancho de banda no es lo mismo que el acotamiento por latencia, y `ptrchase`
+ataca precisamente el segundo.
+
+## A.5 Cómo queda el diagnóstico tras la Ola 0
+
+| Antes de la Ola 0 | Después |
+|---|---|
+| ¿El 15.3 % es señal o ruido? | **Señal**, ACF 0.90–0.997 contra nulo 0.000 |
+| ¿Por qué α > 1? | **Sesgo de retención del filtro**; todos los α están inflados |
+| ¿Fallan los rasgos o el catálogo? | **El catálogo.** Techo intra-kernel 0.66–0.98 |
+| ¿Cuánto hay que mejorar el catálogo? | **~90 % de saturación de memoria** |
+
+Los cuatro riesgos abiertos de la Parte VII que dependían de la Ola 0 quedan
+cerrados. Se abre uno nuevo, T0.2b, y es urgente.
