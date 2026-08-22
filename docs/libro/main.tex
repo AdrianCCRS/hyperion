@@ -1072,13 +1072,46 @@ Esta observación identifica una distancia entre el diseño muestral de la Fase 
 \section{Limitación de cadencia en la telemetría de GPU}
 \label{sec:resultados-gpu-cadencia}
 
-La campaña DVFS de GPU se ejecutó sobre ocho cargas de conjunto de datos, dos niveles de frecuencia de CPU y seis de GPU, con tres repeticiones por combinación. El análisis posterior encontró que solo el 7.4\% de sus ventanas (160\,142 de 2\,171\,803) satisface simultáneamente los criterios de utilización mínima y presencia de etiqueta.
+La campaña DVFS de GPU se ejecutó sobre ocho cargas de conjunto de datos, dos niveles de frecuencia de CPU y seis de GPU, con tres repeticiones por combinación.
 
-La causa dominante no es que la GPU registre utilización nula, sino que el 85.0\% de las ventanas \textbf{no contiene lectura alguna de GPU}. El origen es una diferencia de cadencia entre dos instrumentos: la ventana de telemetría de CPU tiene una duración mediana de 0.26~ms en estas cargas, mientras que el muestreo de la biblioteca de gestión de la GPU está configurado a intervalos de 100~ms. La GPU produce del orden de diez muestras por segundo frente a varios miles de cierres de ventana en el mismo lapso, de modo que la inmensa mayoría de las ventanas no puede contener una lectura fresca y queda con los campos de GPU indefinidos.
+Un primer análisis reportó que solo el 7.4\% de las ventanas satisfacía los criterios de aceptación, cifra que resultó estar mal encuadrada. Las filas de telemetría de GPU son de tipo \textit{passthrough}: constituyen registros propios y no ventanas de CPU con campos adicionales, de modo que el conjunto contiene dos poblaciones distintas mezcladas en el mismo archivo. Las filas de GPU son el 11.7\% del total; el 88.3\% restante son ventanas de CPU que por construcción nunca debieron contener lectura del acelerador. Calculada sobre la población pertinente, la tasa de filas de GPU utilizables es del \textbf{42.6\%}, no del 7.4\%.
 
-Se trata, por tanto, de un desajuste de diseño entre las granularidades de dos subsistemas de medición, no de un fallo del actuador ni del sensor: la energía y el reloj sí se registran correctamente en las ventanas que coinciden con una muestra. La implicación práctica es que el análisis de GPU debe realizarse a la granularidad de su propia telemetría, agregando ventanas hasta el intervalo de muestreo efectivo, y que esa reagregación puede efectuarse sobre los datos ya recolectados sin repetir la campaña.
+La proporción de filas de GPU respecto de las de CPU sí refleja una diferencia real de cadencia entre ambos instrumentos --- la ventana de CPU dura 0.26~ms en estas cargas frente a los 100~ms del muestreo de la biblioteca de gestión de la GPU ---, pero esa diferencia es una consecuencia esperada de que ambos subsistemas muestreen a su propio ritmo, no una pérdida de datos: la energía, el reloj y la utilización se registran correctamente en cada muestra que la GPU emite. La implicación metodológica es que el análisis de GPU debe realizarse a la granularidad de su propia telemetría y no a la de la CPU.
 
-Un segundo efecto, independiente del anterior, afecta a las ventanas que sí contienen lectura: aproximadamente la mitad reporta utilización por debajo del piso de ruido del sensor. En la carga \texttt{rodinia\_lud} los únicos valores observados son 0, 1 y 6\%, mientras la GPU consume una potencia media de 61~W sobre un reposo de aproximadamente 35~W, es decir, mientras está ejecutando trabajo real. La utilización reportada por la biblioteca de gestión no resulta, en esa carga, un indicador fiable de actividad; la potencia por encima del reposo lo es más. Este trabajo documenta la discrepancia pero no la resuelve: establecer cuál de las dos señales debe gobernar el criterio de aceptación exige una comparación controlada que no se ha realizado.
+El 57.4\% de filas de GPU descartadas no se distribuye de forma uniforme, y esa distribución es el hallazgo relevante. Cuatro cargas presentan entre 90.0\% y 99.2\% de filas utilizables --- \texttt{gpu\_dgemm\_n4096}, \texttt{rodinia\_gaussian}, \texttt{rodinia\_lavamd} y \texttt{rodinia\_heartwall} ---, mientras que las cuatro restantes caen entre 0.0\% y 35.1\%, con \texttt{rodinia\_lud} sin ninguna fila aceptada.
+
+Contrastado el rechazo contra el comportamiento físico de cada carga, la causa no es una falla del sensor sino que esas cargas no ejercitan el acelerador. Aplicando a la GPU el mismo ajuste de sensibilidad a la frecuencia de la ecuación \ref{eq:alpha}, \texttt{rodinia\_lud} presenta $\alpha = 0.030$ con un coeficiente de determinación negativo: su tiempo de ejecución crece un factor 1.12 cuando el reloj de la GPU se reduce en un factor 6.7, es decir, permanece esencialmente constante. Su potencia de GPU se mantiene entre 59 y 62~W durante toda la ejecución, mientras que las cargas que sí ejercitan el acelerador alcanzan entre 109 y 257~W partiendo de ese mismo piso de aproximadamente 61~W. La utilización nula que el sensor reporta describe correctamente el estado del dispositivo: la GPU está en reposo. El criterio de aceptación, por tanto, funciona como se diseñó, y lo que descarta son cargas que no corresponden al fenómeno que la campaña pretende observar.
+
+Esta corrección invalida una lectura preliminar de los datos de GPU según la cual \texttt{rodinia\_lud} presentaba un óptimo de producto energía--retardo en el nivel de frecuencia más bajo, con una mejora del 30.5\%. Esa mejora es real como magnitud, pero corresponde al ahorro de potencia en reposo de un acelerador inactivo y no a una adaptación de frecuencia sobre trabajo efectivo; no se reporta como evidencia de viabilidad del DVFS. La observación equivalente sobre \texttt{rodinia\_lavamd}, en cambio, se sostiene: esa carga registra utilización del 99\% y potencia de hasta 247~W, es decir, ejercita el acelerador de forma sostenida, y aun así presenta $\alpha = 0.201$ con un ajuste de 0.933.
+
+\section{Rango dinámico de potencia como determinante de la viabilidad del DVFS}
+\label{sec:resultados-rango-dinamico}
+
+El contraste entre los resultados de CPU y de GPU admite una explicación unificada que no depende de las cargas sino del dispositivo. Aplicando a la GPU el mismo procedimiento de la sección \ref{sec:resultados-alpha} --- restringido a las cuatro cargas cuyo ajuste de sensibilidad resulta estadísticamente fiable, es decir, las que efectivamente ejercitan el acelerador ---, la potencia media desciende de 116.3~W a 1410~MHz hasta 45.8~W a 210~MHz.
+
+\begin{table}[htbp]
+\centering
+\caption{Rango dinámico de potencia y umbral de viabilidad del DVFS por dispositivo.}
+\label{tab:rango-dinamico}
+\begin{tabular}{lrr}
+\hline
+ & \textbf{CPU} & \textbf{GPU} \\
+\hline
+Potencia a reloj máximo & 116.5~W & 116.3~W \\
+Potencia a reloj mínimo & 83.4~W & 45.8~W \\
+Razón de reducción de reloj & 4.0$\times$ & 6.7$\times$ \\
+\textbf{Rango dinámico de potencia} & \textbf{1.40$\times$} & \textbf{2.54$\times$} \\
+\textbf{Umbral de viabilidad ($\alpha$)} & \textbf{0.226} & \textbf{0.639} \\
+$\alpha$ mínimo observado en el catálogo & 0.384 & 0.201 \\
+\hline
+\end{tabular}
+\end{table}
+
+La consecuencia es directa. Ambos dispositivos parten de una potencia comparable a su reloj máximo, pero la de la GPU desciende hasta el 39\% de ese valor mientras la del procesador solo baja al 72\%. Como el umbral de viabilidad surge del equilibrio entre una potencia que decrece y un tiempo que crece, un dispositivo con mayor rango dinámico tolera cargas mucho más sensibles al reloj antes de que reducir la frecuencia deje de compensar: el umbral pasa de $\alpha \leq 0.226$ en el procesador a $\alpha \leq 0.639$ en el acelerador, casi el triple.
+
+Esto reformula el resultado negativo de la sección \ref{sec:resultados-alpha}. La ausencia de ahorro energético en CPU no se explica por una propiedad de las cargas seleccionadas --- que también contribuye, al situarse todas por encima de 0.384 --- sino, de forma más fundamental, por el estrecho rango dinámico de potencia del procesador de esta plataforma: incluso una carga completamente insensible al reloj obtendría a lo sumo la reducción del 28\% que corresponde a ese rango. En la GPU, en cambio, la misma carga hipotética obtendría una reducción del 61\%, y una carga real medida en el catálogo (\texttt{rodinia\_lavamd}, $\alpha = 0.201$) ya se sitúa holgadamente por debajo del umbral.
+
+La conclusión operativa para el diseño del agente es que la capacidad de actuación no es simétrica entre los dos dispositivos de este nodo heterogéneo, y que esa asimetría es cuantificable a priori a partir de una única medición de potencia por dispositivo, sin necesidad de recorrer el espacio completo de cargas.
 
 \section{Ampliación del catálogo con cargas multifásicas}
 \label{sec:resultados-multifasico}
@@ -1148,7 +1181,7 @@ Quinta, ninguna de las nueve cargas del catálogo se sitúa en la región donde 
 
 Sexta, el análisis de eficiencia bajo restricción de rendimiento no es concluyente con la rejilla de frecuencias empleada: la frecuencia correspondiente a una degradación del 5\% cae, para las nueve cargas, dentro del intervalo no muestreado entre 2600 y 3200~MHz (sección \ref{sec:resultados-presupuesto}). Los presupuestos de degradación del 5\%, 10\% y 20\% devuelven resultados idénticos por ausencia de puntos de medición, no por ausencia de ahorro.
 
-Séptima, la telemetría de GPU presenta un desajuste de cadencia respecto de la de CPU que deja el 85.0\% de las ventanas sin lectura del acelerador (sección \ref{sec:resultados-gpu-cadencia}). El análisis de GPU debe realizarse a la granularidad de su propio muestreo; adicionalmente, la utilización reportada por la biblioteca de gestión resulta un indicador poco fiable de actividad en al menos una carga, y este trabajo documenta la discrepancia sin resolver cuál de las señales disponibles debe gobernar el criterio de aceptación.
+Séptima, cuatro de las ocho cargas de GPU no ejercitan el acelerador de forma suficiente para constituir sujetos válidos de un estudio DVFS (sección \ref{sec:resultados-gpu-cadencia}): su tiempo de ejecución apenas responde al reloj de la GPU y su potencia permanece en el piso de reposo. El conjunto de GPU sostiene, en la práctica, cuatro cargas efectivas en lugar de ocho, y una sola de ellas ---\texttt{rodinia\_lavamd}--- se sitúa por debajo del umbral de viabilidad del dispositivo. El análisis de GPU debe realizarse, además, a la granularidad de su propio muestreo y no a la de la telemetría de CPU.
 
 Octava, la temperatura de paquete no está conectada a un \textit{gate} bloqueante de sensor.
 
