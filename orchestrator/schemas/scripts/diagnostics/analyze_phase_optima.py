@@ -56,6 +56,14 @@ FEATURES = [
 
 
 def load_kernel(kernel: str) -> pd.DataFrame:
+    """Carga las 50 corridas del kernel (5 niveles x 10 reps).
+
+    OJO con ``repetition``: en windows.csv vale siempre 1, porque cada
+    corrida se lanza con repetitions=1 y su índice real vive en el nombre
+    del directorio. Agrupar por esa columna fusionaría las 10 repeticiones
+    en una sola pseudo-corrida y el progreso acumulado cruzaría de una a
+    otra. Por eso el índice de repetición se deriva aquí, del run_id.
+    """
     frames = []
     for level in LEVEL_MHZ:
         for rep in REPS:
@@ -63,6 +71,7 @@ def load_kernel(kernel: str) -> pd.DataFrame:
             if not path.exists():
                 continue
             frame = pd.read_csv(path, usecols=lambda c: c in COLS, low_memory=False)
+            frame["rep_idx"] = rep
             frames.append(frame)
     if not frames:
         raise FileNotFoundError(f"sin corridas para {kernel}")
@@ -88,9 +97,14 @@ def main() -> None:
     summary = []
     for kernel in KERNELS:
         df = load_kernel(kernel)
-        df = align.add_instruction_progress(df)
+        # run_keys por corrida REAL: kernel+nivel+rep_idx identifica una
+        # ejecucion unica. Sin rep_idx, las 10 reps se concatenarian.
+        df = align.add_instruction_progress(
+            df, run_keys=("kernel_ref", "freq_level_id", "rep_idx"))
         df = align.assign_progress_bins(df, n_bins=N_BINS)
-        cells = align.aggregate_cells(df, feature_cols=FEATURES)
+        cells = align.aggregate_cells(
+            df, feature_cols=FEATURES,
+            cell_keys=("kernel_ref", "rep_idx", "progress_bin", "freq_level_id"))
         del df
 
         cells["edp"] = cells["energy_uj"] * cells["duration_ns"]
@@ -99,7 +113,7 @@ def main() -> None:
         alphas: list[float] = []
         r2s: list[float] = []
 
-        for (_rep, _bin), group in cells.groupby(["repetition", "progress_bin"], observed=True):
+        for (_rep, _bin), group in cells.groupby(["rep_idx", "progress_bin"], observed=True):
             per_level = group.set_index("freq_level_id")
             durations = {
                 LEVEL_MHZ[lvl]: per_level.loc[lvl, "duration_ns"]
