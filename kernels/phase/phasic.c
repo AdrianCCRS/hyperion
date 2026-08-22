@@ -127,28 +127,53 @@ int main(int argc, char **argv) {
         n_marks++;
 
         if (phase == 0) {
-            /* FASE COMPUTE: 8 acumuladores independientes para llenar el
-             * pipeline de FMA sin que la dependencia serial lo estanque --
-             * el objetivo es saturar la unidad aritmética, no medir latencia. */
+            /* FASE COMPUTE. Los acumuladores van en un ARREGLO, no en ocho
+             * variables sueltas, y el bucle interno lleva "omp simd": con
+             * variables sueltas GCC emitia mulsd/addsd ESCALAR sobre xmm
+             * (verificado con objdump), o sea ~1/16 del pico de la maquina.
+             * Eso importa aqui mas que en cualquier otro kernel: el pico de
+             * 480 GFLOP/s que fija el ridge del Roofline lo mide ert_probe
+             * compilado en AVX-512, asi que una fase "de computo" escalar
+             * no es comparable con las cargas reales del catalogo -- ni en
+             * FLOPs alcanzados ni, sobre todo, en POTENCIA, que es de donde
+             * sale el umbral de viabilidad alpha <= 0.226. Ver ARC-125: la
+             * misma leccion ya la habia aprendido este repo con ert_probe,
+             * donde -march=native por si solo dejaba a GCC en AVX2.
+             *
+             * NACC = 32 son cuatro registros zmm de 8 doubles, suficientes
+             * para cubrir la latencia de la unidad de FMA sin desbordar el
+             * banco de registros. */
             long flops = 0;
 #ifdef _OPENMP
 #pragma omp parallel reduction(+:flops)
 #endif
             {
-                double a0=1.0000001,a1=1.0000002,a2=1.0000003,a3=1.0000004;
-                double a4=1.0000005,a5=1.0000006,a6=1.0000007,a7=1.0000008;
+                enum { NACC = 32 };
+                double acc[NACC] __attribute__((aligned(64)));
+                for (int j = 0; j < NACC; j++) acc[j] = 1.0 + (double)j * 1e-7;
                 const double k = 1.0000000001, c = 1e-9;
                 long local = 0;
                 while (now_seconds() - phase_start < phase_seconds) {
                     for (int rep = 0; rep < 20000; rep++) {
-                        a0 = a0 * k + c; a1 = a1 * k + c;
-                        a2 = a2 * k + c; a3 = a3 * k + c;
-                        a4 = a4 * k + c; a5 = a5 * k + c;
-                        a6 = a6 * k + c; a7 = a7 * k + c;
+#ifdef _OPENMP
+#pragma omp simd
+#endif
+                        for (int j = 0; j < NACC; j++) acc[j] = acc[j] * k + c;
                     }
-                    local += 20000L * 8L * 2L;  /* 8 FMA = 16 FLOP por rep */
+                    /* Cada elemento hace una multiplicacion y una suma. El
+                     * contador FP_ARITH_INST_RETIRED cuenta un FMA como dos
+                     * operaciones, asi que este conteo analitico y el del
+                     * PMC miden lo mismo se fusione o no la instruccion. */
+                    local += 20000L * (long)NACC * 2L;
                 }
-                fsink += a0+a1+a2+a3+a4+a5+a6+a7;
+                double s = 0.0;
+                for (int j = 0; j < NACC; j++) s += acc[j];
+                /* El sumidero se acumula bajo critical: "fsink += ..." desde
+                 * la region paralela era una carrera de datos. */
+#ifdef _OPENMP
+#pragma omp critical
+#endif
+                fsink += s;
                 flops += local;
             }
             compute_flops += flops;
