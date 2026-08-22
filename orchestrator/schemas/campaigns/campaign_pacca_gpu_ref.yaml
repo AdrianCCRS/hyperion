@@ -58,7 +58,7 @@ seed: 20260807
 output_dir: /home/latorresn/hyperion-results/campaigns/pacca_gpu_ref_20260807
 overwrite: true
 
-catalog_path: kernels/catalog.yaml
+catalog_path: ../kernels/catalog.yaml
 
 calibration:
   - kernel_ref: stream_official

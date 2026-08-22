@@ -6,7 +6,7 @@ environment_tier: hpc_sc3
 seed: 20260713
 output_dir: ../../runs/sc3_startup_audit
 overwrite: false
-catalog_path: kernels/catalog.yaml
+catalog_path: ../kernels/catalog.yaml
 
 calibration:
   - kernel_ref: stream_official

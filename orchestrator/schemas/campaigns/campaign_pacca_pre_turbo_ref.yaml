@@ -8,7 +8,7 @@ seed: 20260814
 
 output_dir: /home/latorresn/hyperion-results/validation/pacca_pre_turbo_ref_20260814
 overwrite: true
-catalog_path: kernels/catalog.yaml
+catalog_path: ../kernels/catalog.yaml
 
 calibration:
   - kernel_ref: stream_official

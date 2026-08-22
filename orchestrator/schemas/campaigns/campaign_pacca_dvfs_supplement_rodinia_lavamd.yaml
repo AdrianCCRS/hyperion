@@ -25,7 +25,7 @@ seed: 20260806
 output_dir: /home/latorresn/hyperion-results/campaigns/pacca_cpu_supplement_rodinia_lavamd_20260820
 overwrite: true
 
-catalog_path: kernels/catalog.yaml
+catalog_path: ../kernels/catalog.yaml
 
 calibration:
   - kernel_ref: stream_official

@@ -26,7 +26,7 @@ seed: 20260806
 output_dir: /home/latorresn/hyperion-results/campaigns/pacca_dvfs_smoke_allkernels_20260812
 overwrite: true
 
-catalog_path: kernels/catalog.yaml
+catalog_path: ../kernels/catalog.yaml
 
 calibration:
   - kernel_ref: stream_official

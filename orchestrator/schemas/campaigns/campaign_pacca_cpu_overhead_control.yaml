@@ -28,7 +28,7 @@ seed: 20260806
 output_dir: /home/latorresn/hyperion-results/diagnostics/pacca_cpu_overhead_control_20260819
 overwrite: true
 
-catalog_path: kernels/catalog.yaml
+catalog_path: ../kernels/catalog.yaml
 
 calibration:
   - kernel_ref: stream_official
