@@ -983,6 +983,116 @@ Esa misma bandera de ancho vectorial explícito se evaluó también sobre el mic
 
 El desplazamiento resultante del punto de inflexión es sustancial: de aproximadamente 1.22~FLOP/byte con el defecto, a un valor final en el rango 7.0--9.3~FLOP/byte una vez corregido --- una diferencia de magnitud suficiente para invertir la clasificación de toda ventana cuya intensidad caiga entre ambos valores, exactamente el rango donde se concentra buena parte de las cargas de conjunto de datos de este catálogo (sección \ref{sec:resultados-interferencia-uncore}). Por invariancia del propio modelo Roofline, este desplazamiento no sesga la intensidad operacional observada de ninguna ventana --- esa magnitud es una propiedad del algoritmo y es invariante al ancho vectorial con el que se ejecuta, medida directamente por el contador de hardware descrito en la sección \ref{sec:validacion-flops} con independencia de cuántos elementos procese cada instrucción ---; afecta exclusivamente la posición del techo contra el cual esa intensidad se compara. La primera campaña de CPU se calibró bajo el punto de inflexión defectuoso y quedó descartada por este motivo y por la ausencia de \textit{uncore}; la campaña limpia de reemplazo ya emplea ambos mecanismos corregidos, aunque su eje de frecuencia queda limitado por el hallazgo de turbo descrito en la sección \ref{sec:resultados-cpu-dvfs}.
 
+\section{Campaña DVFS final de CPU}
+\label{sec:resultados-campana-final}
+
+Con los cuatro mecanismos de actuación verificados (sección \ref{sec:resultados-smt-siblings}) y el turbo global efectivamente deshabilitado por el envoltorio operacional antes de que el instrumento detecte el entorno, se ejecutó la campaña DVFS completa de CPU: 9 kernels de conjunto de datos, 6 niveles (REF y F0--F4) y 10 repeticiones por combinación, 540 corridas de telemetría cada una con su \textit{baseline} atómico. Con la deshabilitación del turbo, el rango dinámico detectado se recorta a la frecuencia base y los niveles quedan en 3200, 2600, 2000, 1400 y 800~MHz para F0--F4.
+
+El criterio de aceptación por ventana se revisó durante el análisis de esta campaña. La versión original rechazaba una corrida completa cuando la dispersión agregada de frecuencia superaba la tolerancia, lo que descartaba corridas cuyo transitorio de arranque era el único tramo fuera de rango; se reemplazó por una clasificación por ventana que marca individualmente cada muestra y conserva el resto de la corrida. Reprocesada la campaña bajo ese criterio, el conjunto resultante contiene 10\,251\,941 ventanas, de las cuales 9\,953\,976 (97.1\%) satisfacen simultáneamente el estado de calidad general, la validez de la frecuencia observada y la presencia de etiqueta de régimen. La distribución global de etiquetas resulta prácticamente balanceada: 50.2\% \textit{memory-bound} frente a 49.8\% \textit{compute-bound}.
+
+Esta campaña sí constituye un barrido DVFS válido: cada nivel fue verificado por ventana contra su frecuencia efectiva, no solo por la relectura de los límites escritos. Sobre ella se apoyan los resultados de las cuatro secciones siguientes.
+
+\section{Sensibilidad de las cargas a la frecuencia y frontera de viabilidad del DVFS en CPU}
+\label{sec:resultados-alpha}
+
+El barrido válido permite, por primera vez en este trabajo, cuantificar cómo responde cada carga a un cambio de reloj. El tiempo de ejecución se descompone en una fracción sensible a la frecuencia y otra insensible --- dominada por la latencia física de acceso a memoria principal, que no cambia con el reloj del núcleo --- según la relación
+
+\begin{equation}
+\label{eq:alpha}
+\frac{T(f)}{T(f_{\text{ref}})} = (1 - \alpha) + \alpha \cdot \frac{f_{\text{ref}}}{f},
+\end{equation}
+
+donde $\alpha \in [0,1]$ es la fracción sensible al reloj. La estructura es la misma de la ley de Amdahl, sustituyendo la fracción paralelizable por la fracción sensible a la frecuencia. Ajustada por mínimos cuadrados sin término independiente --- la física impone que a $f = f_{\text{ref}}$ el tiempo relativo valga exactamente uno, de modo que la recta no admite intercepto --- sobre los cinco niveles fijos de cada kernel, la ecuación \ref{eq:alpha} describe los datos con un coeficiente de determinación entre 0.976 y 0.9998 (Tabla \ref{tab:alpha}). Un solo parámetro reconstruye, por tanto, la curva completa de tiempo frente a frecuencia con un error del orden del 1--2\% en la mayoría de los casos.
+
+\begin{table}[htbp]
+\centering
+\caption{Fracción de tiempo sensible a la frecuencia ($\alpha$) y calidad del ajuste de la ecuación \ref{eq:alpha}, por carga de conjunto de datos.}
+\label{tab:alpha}
+\begin{tabular}{lrrr}
+\hline
+\textbf{Carga} & \textbf{$\alpha$} & \textbf{$R^2$} & \textbf{$T(800)/T(3200)$} \\
+\hline
+npb\_mg & 0.384 & 0.976 & 2.21 \\
+npb\_sp & 0.491 & 0.994 & 2.49 \\
+npb\_cg & 0.761 & 0.997 & 3.32 \\
+npb\_ft & 0.774 & 0.9997 & 3.34 \\
+npb\_lu & 0.840 & 0.9997 & 3.53 \\
+npb\_bt & 0.902 & 0.9996 & 3.72 \\
+dgemm\_n2048 & 0.931 & 0.9995 & 3.82 \\
+rajaperf\_polybench\_3mm\_omp & 1.007 & 0.9998 & 4.05 \\
+rodinia\_lavamd\_omp & 1.026 & 0.998 & 4.04 \\
+\hline
+\end{tabular}
+\end{table}
+
+La potencia media de paquete medida sobre las nueve cargas desciende de 116.5~W a 3200~MHz a 83.4~W a 800~MHz, pasando por 105.2, 96.6 y 89.4~W en los niveles intermedios. Es decir: una reducción del reloj a la cuarta parte solo reduce la potencia un 28\%. Ese piso de potencia estática elevado --- atribuible al consumo del \textit{uncore}, los controladores de memoria y los núcleos no delegados del paquete, que permanecen encendidos con independencia del reloj de los seis núcleos bajo carga --- es la magnitud que determina si bajar la frecuencia puede compensar.
+
+Combinando el modelo de potencia medido con la ecuación \ref{eq:alpha} se obtiene una condición de viabilidad. Para el escalón de 3200 a 2600~MHz, donde la penalización temporal es menor respecto de la ganancia de potencia, el producto energía--retardo mejora únicamente si $0.903 \cdot (1 + 0.231\,\alpha)^2 < 1$, es decir, si
+
+\begin{equation}
+\label{eq:alpha-umbral}
+\alpha < 0.226.
+\end{equation}
+
+\textbf{Ninguna de las nueve cargas del catálogo satisface esa condición}: el valor mínimo observado es 0.384. Este resultado explica de forma unificada por qué el barrido DVFS no muestra ahorro alguno en CPU --- el óptimo de EDP coincide con la frecuencia máxima en las nueve cargas ---, y lo hace atribuyendo la causa no a una limitación del instrumento, del modelo predictivo o de la resolución de la rejilla de frecuencias, sino a la composición del propio catálogo: las cargas seleccionadas se sitúan todas fuera de la región donde el DVFS es físicamente rentable en esta plataforma.
+
+Conviene subrayar que $\alpha$ y la etiqueta de régimen no son la misma magnitud, aunque correlacionan fuertemente (coeficiente de Pearson $-0.82$, $n = 9$). La etiqueta Roofline indica qué techo limita a una carga en principio, comparando su intensidad operacional contra el punto de inflexión; $\alpha$ mide cuánto le afecta efectivamente el reloj. La carga \texttt{npb\_bt} ilustra la diferencia: está etiquetada \textit{memory-bound} en el 99.4\% de sus ventanas bajo el gobernador nativo y, sin embargo, presenta $\alpha = 0.902$, es decir, su tiempo escala casi proporcionalmente con el reloj. Estar por debajo del punto de inflexión no implica saturar el ancho de banda: una carga puede quedar limitada por latencia, por dependencias de datos o por ocupación, y todas esas limitaciones sí dependen del reloj. Para decidir una frecuencia, $\alpha$ es la magnitud pertinente y la etiqueta es un estimador imperfecto de ella.
+
+\subsection{Consecuencia sobre la medición de eficiencia bajo restricción de rendimiento}
+\label{sec:resultados-presupuesto}
+
+El objetivo general de este trabajo formula la eficiencia energética bajo una restricción explícita de rendimiento. Esa formulación no equivale a minimizar el EDP sin restricciones: exige encontrar el consumo mínimo alcanzable dentro de una degradación tolerada. La frecuencia que produce exactamente una degradación $\delta$ se obtiene de la ecuación \ref{eq:alpha} como $f = f_{\text{ref}} / (1 + \delta/\alpha)$.
+
+Evaluada con los valores de la Tabla \ref{tab:alpha}, esa frecuencia cae entre 2831 y 3051~MHz para las nueve cargas con $\delta = 5\%$, y entre 2539 y 2916~MHz con $\delta = 10\%$. La rejilla empleada en la campaña salta directamente de 3200 a 2600~MHz, de modo que \textbf{ningún nivel medido cae dentro de esos intervalos} salvo para una sola carga. Esto tiene una consecuencia metodológica directa y verificada empíricamente: al calcular el ahorro energético máximo alcanzable bajo presupuestos de degradación del 5\%, 10\% y 20\%, los tres devuelven idéntico resultado, porque el único nivel alcanzable dentro de cualquiera de ellos es la propia frecuencia máxima. El dato no indica ausencia de ahorro; indica ausencia de puntos de medición donde ese ahorro podría manifestarse.
+
+La rejilla de frecuencias de la campaña final se diseñó, en consecuencia, con resolución concentrada en dos regiones y por dos motivos distintos: en la banda 2800--3000~MHz, para hacer medible la eficiencia bajo restricción de rendimiento; y en la banda 1000--1200~MHz, porque para cargas con $\alpha$ cercano a cero el óptimo de EDP se desplaza al extremo inferior del rango --- donde el modelo predice una mejora del 28\% sin degradación alguna --- y la resolución existente entre 800 y 1400~MHz era insuficiente para localizarlo.
+
+\section{Dependencia del punto de inflexión Roofline con la frecuencia de operación}
+\label{sec:resultados-ridge-frecuencia}
+
+El punto de inflexión del modelo Roofline es el cociente entre el techo de cómputo y el de ancho de banda. Dado que la calibración se ejecuta a cada nivel de frecuencia, y que el techo de cómputo depende del reloj mientras el de memoria depende principalmente del subsistema de memoria, el punto de inflexión no es una constante de la plataforma sino una función del punto de operación. Medido sobre la campaña final, desciende de 8.733~FLOP/byte a 3200~MHz a 2.992~FLOP/byte a 800~MHz, con valores intermedios de 7.258, 5.690 y 4.313. El valor es idéntico para las nueve cargas dentro de cada nivel, como corresponde a una propiedad del nodo y no de la carga.
+
+La caída (factor 0.343) es menor que la de la frecuencia (factor 0.25), lo que indica que el ancho de banda efectivo también se reduce al bajar el reloj de núcleo --- consistente con una menor cantidad de peticiones de memoria en vuelo y una prebúsqueda menos agresiva ---, aunque este trabajo no midió el ancho de banda de forma independiente a cada nivel para cuantificar esa contribución por separado.
+
+La consecuencia es que la etiqueta de régimen es relativa al punto de operación en que se observa. Dos de las nueve cargas invierten su clasificación a lo largo del barrido sin que su intensidad operacional cambie: \texttt{npb\_bt} pasa de 0.6\% de ventanas \textit{compute-bound} bajo el gobernador nativo a 89.8\% a 800~MHz, y \texttt{npb\_lu} de 0.0\% a 69.1\%. En ambos casos la intensidad operacional permanece esencialmente constante --- 6.4 y 3.1--4.1~FLOP/byte respectivamente --- y lo que se desplaza es el umbral contra el que se compara. Las siete cargas restantes conservan su etiqueta porque su intensidad queda lejos de la banda barrida por el punto de inflexión (2.99--8.73~FLOP/byte).
+
+Esto no constituye un defecto del instrumento ni del modelo: el Roofline es, por construcción, un modelo por configuración, y a menor frecuencia el techo de cómputo baja y más cargas quedan limitadas por él. Para un agente que opera en línea el comportamiento es incluso conveniente, ya que observará siempre la telemetría a la frecuencia vigente y calculará la etiqueta contra el punto de inflexión correspondiente. Sí impone una restricción metodológica sobre el procesamiento posterior: la etiqueta de un nivel de frecuencia no puede propagarse a otro, y cualquier comparación entre niveles debe conservar la etiqueta medida en cada uno por separado.
+
+\section{Homogeneidad de régimen del conjunto de cargas}
+\label{sec:resultados-homogeneidad}
+
+La distribución global de etiquetas de la campaña final es balanceada (50.2\% frente a 49.8\%), pero ese balance se produce \textit{entre} cargas y no \textit{dentro} de ellas. Medida la fracción de ventanas de la clase minoritaria dentro de cada carga y nivel, el valor medio es del 4.0\%, y cuatro de las nueve cargas presentan exactamente 0.0\% en los seis niveles: son de un único régimen de principio a fin. Las dos cargas con mezcla apreciable --- \texttt{npb\_bt} con 11.8\% y \texttt{npb\_lu} con 19.0\% --- deben esa mezcla al desplazamiento del punto de inflexión descrito en la sección anterior, no a una alternancia de comportamiento durante la ejecución: en ambas, la mezcla es nula bajo el gobernador nativo y aparece únicamente en los niveles inferiores del barrido.
+
+Este resultado es una propiedad esperada del diseño muestral: la selección de cargas se definió como una muestra intencional compuesta por ejemplos representativos de cada escenario base, es decir, por ejemplos deliberadamente puros de cada régimen. El catálogo cumple ese diseño con precisión.
+
+Su consecuencia sobre la Fase 2, sin embargo, es sustantiva. Un clasificador entrenado sobre este conjunto, evaluado bajo una partición que excluye una carga completa del entrenamiento, se enfrenta a un pliegue de prueba compuesto casi enteramente por una sola clase. Evaluado empíricamente sobre 1\,011\,907 ventanas con siete características de bajo costo --- ninguna de ellas derivada de la intensidad operacional ni del punto de inflexión, para evitar que el modelo se limite a recalcular el umbral que define la propia etiqueta ---, ningún modelo supera de forma apreciable al predictor trivial de clase mayoritaria: 0.393 de $F_1$ macro para la regresión logística frente a 0.371 del predictor trivial, quedando los ensambles de árboles por debajo de este último. El resultado no mide una insuficiencia de los modelos evaluados ni de las características seleccionadas, sino la ausencia, en el conjunto de datos, del fenómeno que se pretende clasificar: no existe variación de régimen intra-ejecución que un clasificador pueda aprender a detectar.
+
+Esta observación identifica una distancia entre el diseño muestral de la Fase 1 y el problema que el trabajo se propone atacar, que se aborda ampliando el catálogo en la sección \ref{sec:resultados-multifasico}.
+
+\section{Limitación de cadencia en la telemetría de GPU}
+\label{sec:resultados-gpu-cadencia}
+
+La campaña DVFS de GPU se ejecutó sobre ocho cargas de conjunto de datos, dos niveles de frecuencia de CPU y seis de GPU, con tres repeticiones por combinación. El análisis posterior encontró que solo el 7.4\% de sus ventanas (160\,142 de 2\,171\,803) satisface simultáneamente los criterios de utilización mínima y presencia de etiqueta.
+
+La causa dominante no es que la GPU registre utilización nula, sino que el 85.0\% de las ventanas \textbf{no contiene lectura alguna de GPU}. El origen es una diferencia de cadencia entre dos instrumentos: la ventana de telemetría de CPU tiene una duración mediana de 0.26~ms en estas cargas, mientras que el muestreo de la biblioteca de gestión de la GPU está configurado a intervalos de 100~ms. La GPU produce del orden de diez muestras por segundo frente a varios miles de cierres de ventana en el mismo lapso, de modo que la inmensa mayoría de las ventanas no puede contener una lectura fresca y queda con los campos de GPU indefinidos.
+
+Se trata, por tanto, de un desajuste de diseño entre las granularidades de dos subsistemas de medición, no de un fallo del actuador ni del sensor: la energía y el reloj sí se registran correctamente en las ventanas que coinciden con una muestra. La implicación práctica es que el análisis de GPU debe realizarse a la granularidad de su propia telemetría, agregando ventanas hasta el intervalo de muestreo efectivo, y que esa reagregación puede efectuarse sobre los datos ya recolectados sin repetir la campaña.
+
+Un segundo efecto, independiente del anterior, afecta a las ventanas que sí contienen lectura: aproximadamente la mitad reporta utilización por debajo del piso de ruido del sensor. En la carga \texttt{rodinia\_lud} los únicos valores observados son 0, 1 y 6\%, mientras la GPU consume una potencia media de 61~W sobre un reposo de aproximadamente 35~W, es decir, mientras está ejecutando trabajo real. La utilización reportada por la biblioteca de gestión no resulta, en esa carga, un indicador fiable de actividad; la potencia por encima del reposo lo es más. Este trabajo documenta la discrepancia pero no la resuelve: establecer cuál de las dos señales debe gobernar el criterio de aceptación exige una comparación controlada que no se ha realizado.
+
+\section{Ampliación del catálogo con cargas multifásicas}
+\label{sec:resultados-multifasico}
+
+Los resultados de las secciones \ref{sec:resultados-alpha} y \ref{sec:resultados-homogeneidad} identifican dos carencias del catálogo respecto del problema planteado, ambas atribuibles al mismo origen: la muestra intencional se compuso de ejemplos puros de cada régimen, y ninguno de ellos cae en la región donde el DVFS es rentable en esta plataforma ni presenta alternancia de régimen durante su ejecución.
+
+Se incorporaron en consecuencia dos microbenchmarks propios, diseñados específicamente contra esas dos carencias y manteniendo el carácter intencional del muestreo declarado en el diseño metodológico.
+
+El primero recorre una permutación aleatoria de punteros sobre un ciclo hamiltoniano único que abarca un espacio de memoria muy superior a la caché de último nivel, con granularidad de línea de caché y una cadena de dependencias estrictamente serial. A diferencia de los microbenchmarks de ancho de banda, que saturan el bus y cuyo rendimiento sí depende parcialmente del reloj, este queda limitado por la latencia de acceso a memoria principal: cada carga depende del resultado de la anterior, de modo que el tiempo lo domina un retardo físico que no escala con el reloj de núcleo. Es, por construcción, la clase de carga con mayor probabilidad de situarse por debajo del umbral de la ecuación \ref{eq:alpha-umbral}. Una medición preliminar sobre seis hilos reporta 146~ns por salto y hilo, consistente con latencia de memoria principal.
+
+El segundo alterna deliberadamente entre una fase de operaciones de multiplicación--suma fusionada encadenadas sobre registros, sin tráfico de memoria, y una fase de persecución de punteros idéntica a la del primero. La duración de cada fase se controla \textbf{por tiempo y no por número de iteraciones}: con un recuento fijo de iteraciones, una reducción de la frecuencia alargaría la fase de cómputo más que la de memoria, alterando la proporción entre ambas entre niveles del barrido e impidiendo comparar. El programa emite además el instante de cada transición, proporcionando una etiqueta de referencia independiente del modelo Roofline contra la cual contrastar tanto la etiqueta calculada como la respuesta del clasificador, y permitiendo medir el retardo de detección en número de ventanas. Se declararon tres variantes que difieren únicamente en el período de fase --- 10~ms, 100~ms y 1~s ---, con el fin de determinar empíricamente a partir de qué frecuencia de alternancia el costo de conmutación deja de amortizarse, que es el parámetro de diseño que la Fase 3 trata como magnitud a determinar y no como constante \cite{Hebbar2022,Velicka2025}.
+
+Ambos microbenchmarks se compilaron y verificaron funcionalmente sobre la plataforma. La campaña que los ejercita a lo largo de la rejilla de frecuencias ampliada se encuentra en cola al momento de redactar esta sección; sus resultados no se reportan aquí.
+
 %==============================================================================
 % CAPÍTULO 4: DISCUSIÓN
 %==============================================================================
@@ -1005,6 +1115,19 @@ El hallazgo de precisión mixta en el catálogo de GPU (sección \ref{sec:result
 
 Finalmente, el resultado sobre precisión de \texttt{gpu\_dgemm\_n4096} (sección \ref{sec:resultados-precision-gpu}) matiza --- sin contradecir --- el hallazgo de Guerreiro et al. sobre la sensibilidad de las cargas GPGPU a la ruta de ejecución elegida por bibliotecas de terceros \cite{Guerreiro2019}: una ruta acelerada por hardware especializado invalida efectivamente un método de caracterización diseñado para instrucciones aritméticas convencionales, pero no invalida necesariamente la magnitud medida, siempre que exista una vía de verificación independiente --- en este caso, el conteo analítico del propio algoritmo --- contra la cual contrastarla.
 
+\section{Sobre la composición del catálogo y el alcance de lo demostrable}
+\label{sec:discusion-catalogo}
+
+Los resultados de las secciones \ref{sec:resultados-alpha} y \ref{sec:resultados-homogeneidad} plantean, en conjunto, una cuestión de naturaleza distinta a las anteriores: no se refieren a un defecto del instrumento, sino a una distancia entre el diseño muestral y el problema que el trabajo se propone atacar.
+
+El diseño metodológico definió una muestra intencional compuesta por benchmarks representativos de cuatro escenarios base, es decir, por ejemplos deliberadamente puros de cada régimen de ejecución. Esa elección es coherente y el catálogo la cumple con precisión: la fracción media de ventanas de clase minoritaria dentro de cada carga es del 4.0\%, y cuatro cargas son de un solo régimen en la totalidad de sus ventanas. La consecuencia, sin embargo, es que el conjunto resultante permite caracterizar regímenes de carga pero no contiene alternancia de régimen durante una misma ejecución --- que es precisamente el fenómeno cuya adaptación fina el estado del arte identifica como vacío abierto y sobre el que este trabajo propone actuar.
+
+Esta distancia se manifiesta de dos formas independientes y mutuamente consistentes. En la evaluación del clasificador, ningún modelo supera al predictor trivial bajo partición por carga, porque el pliegue de prueba carece de la variación que se le pide distinguir. En el análisis de viabilidad energética, las nueve cargas quedan por encima del umbral de la ecuación \ref{eq:alpha-umbral}, de modo que la política óptima para todas ellas coincide con la frecuencia máxima y no existe decisión que un agente pueda tomar mejor que una constante.
+
+Es importante precisar qué afirma y qué no afirma este resultado. No afirma que el DVFS sea inútil en esta plataforma: afirma que ninguna de las cargas medidas se sitúa en la región donde resulta rentable, y el mismo modelo que lo establece predice, para una carga con $\alpha$ próximo a cero, una mejora del 28\% del producto energía--retardo sin degradación de rendimiento. Tampoco afirma que el régimen de ejecución sea inútil como señal de control: la correlación de $-0.82$ entre la etiqueta y la sensibilidad a la frecuencia sostiene la premisa de que clasificar el régimen informa la decisión de frecuencia. Lo que el resultado establece es que el conjunto de datos actual no puede, por sí solo, demostrar ninguna de las dos cosas, y que la vía para hacerlo es ampliar el catálogo hacia la región no cubierta --- la ampliación descrita en la sección \ref{sec:resultados-multifasico} --- y no ajustar el modelo predictivo sobre un conjunto que carece del fenómeno.
+
+Metodológicamente, este hallazgo es de la misma familia que los discutidos en las secciones anteriores, aplicado esta vez al diseño experimental en lugar de al instrumento: un conjunto de datos que satisface todos sus criterios de aceptación de calidad --- 97.1\% de ventanas válidas, etiquetas coherentes, frecuencia verificada por ventana --- puede aun así ser inadecuado para la pregunta que se le quiere formular, y esa inadecuación solo se hace visible al intentar responderla. La verificación de que un instrumento mide bien no sustituye a la verificación de que lo medido contiene el fenómeno de interés.
+
 %==============================================================================
 % CAPÍTULO 5: CONCLUSIONES
 %==============================================================================
@@ -1017,11 +1140,27 @@ El aporte metodológico central de esta fase, más allá de los datos concretos 
 
 \section{Limitaciones}
 
-Este trabajo reconoce las siguientes limitaciones. Primera, aunque la clasificación CPU depende exclusivamente de bytes medidos mediante \textit{uncore}, esa señal tiene un piso práctico de intervalo de aproximadamente 10~ms, más grueso que las ventanas de CPU de aproximadamente 1~ms; la intensidad y la etiqueta son, por tanto, propiedades del intervalo \textit{uncore} difundidas a las ventanas que cubre, no mediciones independientes a 1~ms. Segunda, el presupuesto simultáneo de PMU depende del estado de mecanismos del sistema operativo ajenos al proyecto; se redujo a nueve eventos para convivir con la reserva encontrada, pero una reserva futura adicional exigiría repetir la verificación. Tercera, el control CPU por núcleo no domina el turbo global en la configuración actual: el lector por ventana permite detectar la divergencia, pero resolverla requiere autoridad administrativa sobre \texttt{no\_turbo} o \texttt{max\_perf\_pct}; la temperatura de paquete tampoco está conectada a un gate bloqueante de sensor. Cuarta, el catálogo y los \textit{encodings} crudos están restringidos a la microarquitectura de la Tabla \ref{tab:plataforma}; no se reclama portabilidad de los mecanismos de actuación sin repetir sus verificaciones bajo carga en cada estado de plataforma. Quinta, aunque el actuador GPU ya fue validado en dos frecuencias bajo carga, todavía no existe una campaña GPU multi-frecuencia completa aceptada, y la campaña CPU disponible no contiene niveles efectivos diferenciados.
+Este trabajo reconoce las siguientes limitaciones. Primera, aunque la clasificación CPU depende exclusivamente de bytes medidos mediante \textit{uncore}, esa señal tiene un piso práctico de intervalo de aproximadamente 10~ms, más grueso que las ventanas de CPU de aproximadamente 1~ms; la intensidad y la etiqueta son, por tanto, propiedades del intervalo \textit{uncore} difundidas a las ventanas que cubre, no mediciones independientes a 1~ms. Segunda, el presupuesto simultáneo de PMU depende del estado de mecanismos del sistema operativo ajenos al proyecto; se redujo a nueve eventos para convivir con la reserva encontrada, pero una reserva futura adicional exigiría repetir la verificación. Tercera, el catálogo y los \textit{encodings} crudos están restringidos a la microarquitectura de la Tabla \ref{tab:plataforma}; no se reclama portabilidad de los mecanismos de actuación sin repetir sus verificaciones bajo carga en cada estado de plataforma.
+
+Cuarta, y de mayor consecuencia para las fases siguientes, el catálogo de la Fase 1 no contiene alternancia de régimen intra-ejecución (sección \ref{sec:resultados-homogeneidad}): la fracción media de ventanas de clase minoritaria dentro de cada carga es del 4.0\% y cuatro cargas son de un solo régimen en la totalidad de sus ventanas. El conjunto sostiene la caracterización de regímenes de carga, pero no la evaluación de un clasificador de fases intra-ejecución, y esa insuficiencia se documenta empíricamente: ningún modelo evaluado supera al predictor trivial bajo partición por carga. La ampliación descrita en la sección \ref{sec:resultados-multifasico} está dirigida específicamente a esta limitación, y su campaña no ha concluido al momento de redactar este documento.
+
+Quinta, ninguna de las nueve cargas del catálogo se sitúa en la región donde el DVFS de CPU resulta energéticamente rentable en esta plataforma (ecuación \ref{eq:alpha-umbral}). Las conclusiones sobre ahorro energético en CPU derivadas de este conjunto describen, por tanto, la ausencia de ahorro \textit{para estas cargas concretas}, y no una propiedad general de la plataforma; el mismo modelo predice mejoras sustanciales para cargas con $\alpha$ próximo a cero, cuya existencia efectiva sobre este nodo no está verificada al momento de redactar este documento.
+
+Sexta, el análisis de eficiencia bajo restricción de rendimiento no es concluyente con la rejilla de frecuencias empleada: la frecuencia correspondiente a una degradación del 5\% cae, para las nueve cargas, dentro del intervalo no muestreado entre 2600 y 3200~MHz (sección \ref{sec:resultados-presupuesto}). Los presupuestos de degradación del 5\%, 10\% y 20\% devuelven resultados idénticos por ausencia de puntos de medición, no por ausencia de ahorro.
+
+Séptima, la telemetría de GPU presenta un desajuste de cadencia respecto de la de CPU que deja el 85.0\% de las ventanas sin lectura del acelerador (sección \ref{sec:resultados-gpu-cadencia}). El análisis de GPU debe realizarse a la granularidad de su propio muestreo; adicionalmente, la utilización reportada por la biblioteca de gestión resulta un indicador poco fiable de actividad en al menos una carga, y este trabajo documenta la discrepancia sin resolver cuál de las señales disponibles debe gobernar el criterio de aceptación.
+
+Octava, la temperatura de paquete no está conectada a un \textit{gate} bloqueante de sensor.
 
 \section{Trabajo Futuro}
 
-En el corto plazo, tres tareas siguen directamente habilitadas. Primera, resolver con la administración el control del turbo global de CPU y repetir la campaña limpia, usando el lector por ventana para aceptar cada nivel por su frecuencia efectiva y no solo por la relectura de sysfs. Segunda, ejecutar la campaña GPU multi-frecuencia ahora que \texttt{-lgc} fue verificado bajo carga, comenzando por una prueba de humo que ejercite el mismo producto cartesiano y los mismos gates de la campaña final. Tercera, consolidar ambos conjuntos y definir la partición experimental de la Fase 2 por corrida o carga, evitando tratar como observaciones independientes ventanas que comparten una etiqueta de intervalo \textit{uncore} o una intensidad GPU caracterizada por kernel.
+En el corto plazo, cuatro tareas siguen directamente habilitadas. Primera, completar la campaña que ejercita los microbenchmarks de la sección \ref{sec:resultados-multifasico} sobre la rejilla ampliada, cuyo primer resultado decide si existe sobre esta plataforma alguna carga por debajo del umbral de la ecuación \ref{eq:alpha-umbral}: de existir, el conjunto habilita la evaluación completa de la política DVFS en CPU; de no existir, quedaría establecido que el piso de potencia estática del nodo impide el ahorro para cualquier carga, y el aporte de actuación se apoyaría en la GPU, donde sí se observaron óptimos interiores de frecuencia.
+
+Segunda, completar la rejilla de las nueve cargas existentes en las bandas 2800--3000 y 1000--1200~MHz, que es lo que permitirá cuantificar la eficiencia bajo restricción de rendimiento (sección \ref{sec:resultados-presupuesto}) sin repetir los niveles ya medidos.
+
+Tercera, reagregar la campaña de GPU a la granularidad de su propia telemetría y contrastar la utilización reportada contra la potencia sobre el reposo como criterio de actividad, ambas cosas realizables sobre los datos ya recolectados.
+
+Cuarta, definir la partición experimental de la Fase 2 excluyendo cargas completas del entrenamiento, y no solo corridas: la evidencia de la sección \ref{sec:resultados-homogeneidad} muestra que una partición menos estricta produciría una estimación optimista sin fundamento, dado que las ventanas de una misma carga comparten etiqueta casi por completo. La evaluación del clasificador sobre las cargas multifásicas incorporadas admite, además, un contraste más exigente y más próximo al escenario de despliegue: entrenar exclusivamente sobre las cargas homogéneas del catálogo original y evaluar la detección de transiciones sobre cargas multifásicas nunca observadas, contra la etiqueta de referencia que estas emiten.
 
 
 %==============================================================================
