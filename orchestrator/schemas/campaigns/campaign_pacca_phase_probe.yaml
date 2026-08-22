@@ -1,0 +1,138 @@
+# ARC-176: campaña de fases y frontera de alpha.
+#
+# MOTIVO. Dos hallazgos de la exploración de Fase 2 la hacen necesaria:
+#
+# 1. Con el modelo de potencia real del nodo (116.5 W a 3200 MHz, 83.4 W a
+#    800 MHz) y la ley de escalado T(f)/T_ref = (1-a) + a*(f_ref/f), bajar
+#    la frecuencia solo mejora el EDP si alpha <= 0.224. El alpha más bajo
+#    de los 9 kernels del dataset es 0.384 (npb_mg). Están TODOS por encima
+#    del umbral: por eso ninguno se beneficia de DVFS. No falta rejilla ni
+#    falta modelo -- faltan cargas en esa zona.
+#
+# 2. El dataset no contiene variación de fase intra-ejecución: la clase
+#    minoritaria dentro de cada kernel es 4.0 % de media y cuatro kernels
+#    están al 0.0 %. Eso deja al clasificador sin nada que clasificar dentro
+#    de una corrida, y es la causa de que no supere al predictor trivial
+#    bajo LOKO (F1 0.393 contra 0.371).
+#
+# La §5.1 del anteproyecto define la muestra como "no probabilística de tipo
+# intencional". Añadir cargas elegidas a propósito para exhibir el fenómeno
+# que la §4.2 declara como vacío es ejecutar esa metodología, no alterarla.
+#
+# QUÉ MIDE
+#
+#   ptrchase   -- ¿es alcanzable alpha <= 0.224 en este nodo? Persecución de
+#                 punteros limitada por LATENCIA (no por ancho de banda como
+#                 STREAM), que es el patrón con más probabilidad de bajar del
+#                 umbral. Es la pregunta que decide si DVFS en CPU es viable
+#                 aquí para CUALQUIER carga.
+#   phasic_*   -- carga multifásica con etiqueta de verdad. Tres periodos de
+#                 fase (10 ms, 100 ms, 1 s) para medir a partir de qué
+#                 frecuencia de cambio deja de compensar conmutar.
+#
+# REJILLA DE FRECUENCIA. Deliberadamente distinta de la campaña 6391, que
+# se canceló. Aquella añadía resolución entre 3200 y 2600 MHz; la tabla de
+# alpha muestra que la frecuencia óptima para cargas de alpha bajo cae en el
+# FONDO del rango (alpha=0 -> 800 MHz, alpha=0.05 -> 1400, alpha=0.10 ->
+# 2000), así que la resolución hace falta abajo, no arriba. Se conservan los
+# niveles clásicos y se añaden 1200 y 1000 MHz:
+#   1.0000000000 -> 3200 MHz    0.1666666667 -> 1200 MHz
+#   0.7500000000 -> 2600 MHz    0.0833333333 -> 1000 MHz
+#   0.5000000000 -> 2000 MHz    0.0000000000 ->  800 MHz
+#   0.2500000000 -> 1400 MHz
+#
+# COSTO. 4 kernels x 8 niveles x 10 reps = 320 corridas. ptrchase ~12 s y
+# phasic 20 s por corrida; con sobrecarga de asentamiento y baselines se
+# estima en 3.5-4 h.
+
+campaign_id: pacca_phase_probe_20260822
+environment_tier: hpc_sc3
+seed: 20260806
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_phase_probe_20260822
+overwrite: true
+
+catalog_path: ../kernels/catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: ptrchase
+  - kernel_ref: phasic_p010
+  - kernel_ref: phasic_p100
+  - kernel_ref: phasic_p1000
+
+frequency_levels:
+  - {id: REF,   mode: native_governor}
+  - {id: F0,    mode: fixed, fraction: 1.0}            # 3200 MHz
+  - {id: F1,    mode: fixed, fraction: 0.75}           # 2600 MHz
+  - {id: F2,    mode: fixed, fraction: 0.5}            # 2000 MHz
+  - {id: F3,    mode: fixed, fraction: 0.25}           # 1400 MHz
+  - {id: S1200, mode: fixed, fraction: 0.1666666667}   # 1200 MHz
+  - {id: S1000, mode: fixed, fraction: 0.0833333333}   # 1000 MHz
+  - {id: F4,    mode: fixed, fraction: 0.0}            #  800 MHz
+
+repetitions_per_combination: 10
+target_windows_per_repetition: 50
+interval_ns: 1000000  # 1 ms
+
+running_ratio_min: 0.90
+
+# grace/tail 0.15 s: valor ya demostrado suficiente en ARC-169 para el
+# transitorio de arranque, y estos kernels son nuevos (sin historial de
+# asentamiento propio). Sobre corridas de 12-24 s no diluye la validación.
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+  grace_seconds: 0.15
+  tail_grace_seconds: 0.15
+
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+
+turbo:
+  require_disabled: true
+
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+
+projected_campaign_bytes: 10737418240
+remaining_core_hours: 100000
+projected_core_hours: 30
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+rapl:
+  enabled: true
+
+uncore:
+  enabled: true
+
+gpu:
+  enabled: false
+
+timeouts_seconds:
+  ready: 15
+  run: 180
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 480000000000

@@ -762,3 +762,73 @@ kernels:
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
       pacca-a100: "sha256:386fd7a0db562f12a872891268270171e289be744cebc86c94595d61239c467d"
+
+  # --- ARC-176: cargas para la zona alpha <= 0.224 ------------------------
+  # Los 9 kernels del dataset tienen alpha en [0.384, 1.026]. Con el modelo
+  # de potencia real de paccaA100 (116.5 W a 3200 MHz -> 83.4 W a 800 MHz),
+  # bajar la frecuencia solo mejora el EDP si alpha <= 0.224. Ninguna carga
+  # actual llega a esa zona, y por eso ninguna se beneficia de DVFS.
+  # Estas dos existen para poblarla.
+
+  - id: ptrchase
+    suite: HYPERION-PHASE
+    role: dataset
+    exec_path: bin/ptrchase
+    # 512 MiB desborda con holgura la LLC de 12 MiB de este SKU, forzando
+    # DRAM en cada salto. La permutacion es reproducible (--seed fijo): si
+    # cambiara entre niveles de frecuencia, cambiaria el patron de fallos y
+    # las corridas no serian comparables.
+    exec_args: "--size-mib 512 --iterations 6 --seed 20260806"
+    phase_label_hint: memory_bound
+    size_variant: MIB512
+    expected_runtime_seconds: 12
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 671088640  # 512 MiB de buffer + permutacion
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:a8c5f9c90f9cffb735769702355ba585885e15c8ba2450ef35caefe0954a9231"
+
+  # phasic: tres variantes que solo difieren en el PERIODO de fase. Es lo
+  # que permite medir a partir de que frecuencia de cambio deja de compensar
+  # conmutar -- la amortizacion del costo de transicion de la sec. 4.2.
+  - id: phasic_p010
+    suite: HYPERION-PHASE
+    role: dataset
+    exec_path: bin/phasic
+    exec_args: "--phase-seconds 0.010 --total-seconds 20 --size-mib 512 --seed 20260806"
+    phase_label_hint: mixed
+    size_variant: P010MS
+    expected_runtime_seconds: 24
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 671088640
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:0269588668806ded2a268e6c6d36f6143a76583652effef18ff8470857bb696a"
+
+  - id: phasic_p100
+    suite: HYPERION-PHASE
+    role: dataset
+    exec_path: bin/phasic
+    exec_args: "--phase-seconds 0.100 --total-seconds 20 --size-mib 512 --seed 20260806"
+    phase_label_hint: mixed
+    size_variant: P100MS
+    expected_runtime_seconds: 24
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 671088640
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:0269588668806ded2a268e6c6d36f6143a76583652effef18ff8470857bb696a"
+
+  - id: phasic_p1000
+    suite: HYPERION-PHASE
+    role: dataset
+    exec_path: bin/phasic
+    exec_args: "--phase-seconds 1.000 --total-seconds 20 --size-mib 512 --seed 20260806"
+    phase_label_hint: mixed
+    size_variant: P1000MS
+    expected_runtime_seconds: 24
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 671088640
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:0269588668806ded2a268e6c6d36f6143a76583652effef18ff8470857bb696a"
