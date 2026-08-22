@@ -803,7 +803,7 @@ kernels:
     estimated_memory_bytes: 671088640
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
-      pacca-a100: "sha256:0269588668806ded2a268e6c6d36f6143a76583652effef18ff8470857bb696a"
+      pacca-a100: "sha256:d35f861bffda15d6a5b419cbe6242175a758fecadd559f687fbee17de6f5f089"
 
   - id: phasic_p100
     suite: HYPERION-PHASE
@@ -817,7 +817,7 @@ kernels:
     estimated_memory_bytes: 671088640
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
-      pacca-a100: "sha256:0269588668806ded2a268e6c6d36f6143a76583652effef18ff8470857bb696a"
+      pacca-a100: "sha256:d35f861bffda15d6a5b419cbe6242175a758fecadd559f687fbee17de6f5f089"
 
   - id: phasic_p1000
     suite: HYPERION-PHASE
@@ -831,4 +831,4 @@ kernels:
     estimated_memory_bytes: 671088640
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
-      pacca-a100: "sha256:0269588668806ded2a268e6c6d36f6143a76583652effef18ff8470857bb696a"
+      pacca-a100: "sha256:d35f861bffda15d6a5b419cbe6242175a758fecadd559f687fbee17de6f5f089"
