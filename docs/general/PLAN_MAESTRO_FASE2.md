@@ -524,11 +524,36 @@ director. Si ninguna de las dos, α es la única con algo que predecir.
 
 | Job | Qué | Partición | Estado |
 |---|---|---|---|
-| 6420 | Pre-vuelo de fases (T1.1) | GPU | PENDING, tras el array de terceros |
-| 6412 | Campaña de fases (T2.1) | GPU | **HELD** — liberar solo tras leer 6420 |
+| 6420 | Pre-vuelo de fases (T1.1) | GPU | **RECHAZADO** — 0/27 aceptadas, causa: CAP_PERFMON (ARC-184) |
+| 6412 | Campaña de fases (T2.1) | GPU | **HELD** |
+| 6430 | Pre-vuelo de tamaño (T1.2) | GPU | **CANCELADO** a mano — mismo problema detectado a los 2 min |
+| 6431 | Pre-vuelo de rejilla fina (T1.4) | GPU | **HELD** |
 | 6424 | Compuertas C1/C2/C3 | normal | COMPLETADO |
-| 6426 | Acoplamiento de uncore | normal | COMPLETADO (conclusión retractada) |
+| 6426 | Acoplamiento de uncore | normal | COMPLETADO (conclusión retractada, ver Anexo B) |
 | 6427 | Auditoría de bytes | normal | COMPLETADO |
+| 6443 | Sonda de potencia de reposo GPU (v1) | GPU | FALLÓ (campo `sm` inválido en `--query-supported-clocks`) |
+| 6447 | Sonda de potencia de reposo GPU (v2) | GPU | COMPLETADO, ver Anexo C |
+| — | T0.2b/c/d, auditoría uncore, `gpu_phasic` | GPU/normal/directo | Todos completados fuera de `sbatch` de campaña (ver más abajo) |
+
+### Hallazgo crítico: hoy no se puede correr NINGUNA campaña, ni CPU ni GPU
+
+`MAN-07` exige que **toda** campaña declare `stream_official` y `ert_probe`
+en `calibration:` (son las únicas fuentes de ancho de banda/FLOPs para el
+ridge de CPU) — son kernels `device: cpu` por defecto. Eso hace
+`has_cpu_kernel = True` **siempre**, sin importar si el catálogo de la
+campaña es puramente GPU. Con `has_cpu_kernel = True`, `E12` exige
+`uncore.enabled = True` (si no, rechaza); y con `uncore.enabled = True`,
+`E13` (ARC-184) bloquea porque `perf` no puede leer `uncore_imc`.
+
+Es un candado doble por diseño, no un error: intentar sortearlo poniendo
+`uncore.enabled: false` simplemente cambia cuál de los dos preflights
+bloquea (E12 en vez de E13). **No hay combinación de campos del manifiesto
+que evite el bloqueo mientras el admin no reponga `CAP_PERFMON`.** Todo lo
+hecho durante esta sesión posterior al descubrimiento (compilar
+`gpu_phasic`, medir potencia de reposo, T0.2b/c/d) se hizo **fuera** del
+harness de campaña — invocando binarios y `nvidia-smi` directamente, o
+reanalizando datos ya escritos — precisamente porque el harness está
+cerrado.
 
 ## VIII.2 Recetas
 
@@ -930,13 +955,53 @@ pre-vuelo" del resto del plan.
 ## C.6 Lo que queda abierto en el eje GPU (F1, F2, F3 restantes)
 
 - **F1/F2** (`rodinia_lud`/`rodinia_heartwall` con `success_check:
-  {type: exit_code}`, no validan CUDA): no atacado en esta sesión. El
-  riesgo está parcialmente mitigado en la práctica porque los manifiestos
-  fijan `--nodelist=paccaA100 --gres=gpu:1`, así que Slurm ya impide
-  ejecutar sin GPU real — pero sigue sin haber una verificación positiva de
-  que el kernel corrió en el dispositivo.
-- El eje de compilación de `gpu_phasic.cu` (E5) sigue pendiente de nvcc en
-  paccaA100.
+  {type: exit_code}`, no validan CUDA): **no modificado directamente**
+  (tocar la fuente de terceros aumenta huella sin necesidad clara), pero
+  su riesgo real quedó bastante más acotado por dos cosas que sí se
+  hicieron esta sesión:
+  1. Los manifiestos fijan `--nodelist=paccaA100 --gres=gpu:1`, así que
+     Slurm ya impide ejecutar sin GPU real.
+  2. **Con el criterio de potencia de C.3 activo, una corrida cuya GPU no
+     hizo trabajo real (fallo silencioso de CUDA) se queda en la potencia
+     de reposo durante toda la corrida → cero ventanas "usables" →
+     rechazada por VAL-09/I10**, exactamente el mismo mecanismo que ya
+     protege contra un kernel genuinamente ocioso. Antes de C.3 esto NO
+     era cierto de forma confiable (el piso de utilización tenía el sesgo
+     de F3), así que activar `idle_power_mw_by_level` cierra la mayor
+     parte de F1/F2 como efecto colateral, sin tocar Rodinia. Queda como
+     mitigación, no como prueba positiva de que el kernel usó CUDA — para
+     eso haría falta instrumentar la fuente.
+- **E5 (compilación de `gpu_phasic.cu`): RESUELTO.** `nvcc` no está en
+  ningún module ni en el `PATH` por defecto, pero sí existe en
+  `/home/latorresn/latorresn/cuda-12.3` (CUDA 12.3, confirmado contra
+  `compute_cap` real de la A100 = 8.0). Compilado con
+  `scripts/pacca/build_gpu_phase_kernels.sh` (ARC-186), catalogado como
+  `gpu_phasic_p010/p100/p1000` (mismo patrón que `phasic` de CPU).
+
+  **Hallazgo colateral importante, genérico para cualquier kernel CUDA
+  futuro**: `nvcc` **no produce binarios reproducibles byte a byte**.
+  Confirmado en vivo: dos builds consecutivas de la MISMA fuente, mismos
+  flags, mismo nodo, dieron `sha256` distintos (divergen desde el byte
+  897688). Es su pipeline de compilación en varias etapas
+  (`cudafe`/`ptxas`) el que incrusta nombres de archivo temporal
+  aleatorios en metadatos de depuración — el código ejecutable en sí es
+  idéntico: tras `strip --strip-all` las dos builds dan el **mismo**
+  `sha256`. El script de build despoja el binario **antes** de calcular
+  el checksum que va al catálogo, precisamente para que una reconstrucción
+  legítima futura no quede bloqueada por `C02` (verificación de checksum
+  del binario). GCC sí es reproducible (verificado con el mismo método
+  sobre `phasic`/`ptrchase`): el problema es específico de `nvcc`.
+
+  **Limitación estructural documentada, no resuelta**: `CAT-10` exige
+  `operational_intensity_flops_per_byte` estático por kernel para todo
+  `device: gpu`, a diferencia de CPU donde el OI se mide dinámicamente por
+  ventana vía `uncore_imc`. Como `gpu_phasic` alterna dos regímenes
+  extremos dentro de una sola corrida, su `phase_label_train` automático
+  será **constante** durante toda la corrida — el pipeline estándar de
+  etiquetado no puede capturar la alternancia en GPU con la telemetría
+  actual. Lo que sí sirve del kernel (y es lo que T0.2d ya explotó): las
+  marcas de verdad reales (`T0_MONOTONIC_NS` + `PHASE`) cruzadas
+  *offline* contra `gpu_power_mw`/`gpu_sm_clock_mhz` por ventana.
 
 ---
 
