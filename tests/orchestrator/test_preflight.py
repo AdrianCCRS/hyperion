@@ -157,7 +157,11 @@ def test_pre_t13_preflight_completo_correcto(tmp_path, env):
         # nunca existio y siempre daba una lista vacia) -- este test quiere
         # que TODO pase, asi que pmc_count debe alcanzar el presupuesto real
         # (9 desde ARC-132, este pmc_count=10 sigue siendo suficiente).
-        manifest, env, {"cal": entry, "dataset": entry}, sysfs=SysfsPaths.from_base(tmp_path / "sys"), node_profile=SimpleNamespace(pmc_count=10)
+        manifest, env, {"cal": entry, "dataset": entry}, sysfs=SysfsPaths.from_base(tmp_path / "sys"),
+        node_profile=SimpleNamespace(pmc_count=10),
+        # E13 (ARC-184) lee el PMU real con `perf`; se inyecta para que
+        # el test siga siendo hermetico, igual que gpu_inspector.
+        uncore_probe=lambda: (True, "cas_count_read=4096"),
     )
     assert results and all(result.passed for result in results)
 
@@ -574,3 +578,35 @@ def test_nivel_nativo_no_exige_governor_ni_permiso_de_frecuencia(tmp_path, env):
         manifest, env, {"cal": entry}, sysfs=SysfsPaths.from_base(tmp_path / "sys"), node_profile=SimpleNamespace(pmc_count=0)
     )
     assert {result.factor_id for result in results}.isdisjoint({"E07", "E09"})
+
+
+def test_arc184_e13_bloquea_si_el_uncore_no_es_legible():
+    """El modo de fallo real del 2026-08-22: `perf stat` sigue corriendo y
+    emitiendo intervalos a su cadencia normal aunque cada termino vuelva
+    "<not supported>", asi que nada falla ruidosamente. La campaña de fases
+    gasto 27 corridas y ~20 min para terminar en 0 aceptadas / 27
+    rechazadas, todas por I10 con el 100 % de las ventanas en
+    intensity_undefined."""
+    resultado = preflight.check_uncore_readable(
+        True,
+        probe=lambda: (False, "<not supported>,MiB,uncore_imc_0/cas_count_read/u"),
+        paranoid_path="/dev/null",
+    )
+    assert resultado.factor_id == "E13"
+    assert not resultado.passed
+    assert resultado.blocking
+
+
+def test_arc184_e13_pasa_cuando_el_contador_responde():
+    resultado = preflight.check_uncore_readable(
+        True, probe=lambda: (True, "cas_count_read=8192"), paranoid_path="/dev/null"
+    )
+    assert resultado.passed
+
+
+def test_arc184_e13_no_aplica_sin_uncore():
+    """Una campaña puramente de GPU no depende de uncore, igual que en E11 y
+    E12: el chequeo no debe bloquearla."""
+    resultado = preflight.check_uncore_readable(False)
+    assert resultado.passed
+    assert not resultado.blocking

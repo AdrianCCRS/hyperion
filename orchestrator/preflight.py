@@ -289,6 +289,97 @@ def check_uncore_required_for_cpu_dataset(entries: Iterable[Any], uncore_enabled
     )
 
 
+def check_uncore_readable(
+    uncore_enabled: bool,
+    *,
+    probe: Callable[[], tuple[bool, str]] | None = None,
+    paranoid_path: str | Path = "/proc/sys/kernel/perf_event_paranoid",
+) -> CheckResult:
+    """E13 (ARC-184): comprueba que los contadores de uncore se pueden LEER
+    de verdad, no solo que el manifiesto los pida.
+
+    E12 verifica `manifest.uncore.enabled`, que es una declaración de
+    intención. Este chequeo verifica la capacidad real, que es otra cosa y
+    puede desaparecer sin que nada en el repositorio cambie: `uncore_imc`
+    son contadores de ámbito sistema y `perf` solo los abre con
+    `perf_event_paranoid <= 0` o con CAP_PERFMON en el binario. Con
+    `paranoid = 2` --el valor por defecto de la mayoría de distribuciones--
+    perf degrada los eventos a espacio de usuario, donde el IMC no existe,
+    y devuelve "<not supported>" por cada término.
+
+    Lo peor de ese modo de fallo es que NO es ruidoso: `perf stat` sigue
+    corriendo y emitiendo intervalos a su cadencia normal, solo que con los
+    contadores vacíos (ARC-120 ya blindó al lector para distinguirlo). La
+    campaña corre entera, produce miles de ventanas, y solo al escribir
+    cada `verdict.json` se descubre que el 100 % quedó
+    `intensity_undefined` y toda corrida se rechaza por VAL-09/I10.
+
+    Ocurrió de verdad el 2026-08-22: el pre-vuelo de fases gastó 27
+    corridas y ~20 min para terminar en 0 aceptadas / 27 rechazadas, y la
+    campaña de tamaño se canceló a mano tras dos minutos al detectarse lo
+    mismo. La campaña del 2026-08-20 sí había leído uncore en el MISMO nodo
+    y sin reinicio de por medio, así que el permiso puede irse y volver:
+    hay que comprobarlo en cada campaña, no una vez.
+    """
+    if not uncore_enabled:
+        return _result(
+            "E13", "Contadores de uncore legibles", True, False,
+            {"uncore_enabled": False},
+            "uncore no está habilitado en este manifiesto, no aplica",
+        )
+
+    paranoid: int | None = None
+    try:
+        paranoid = int(Path(paranoid_path).read_text().strip())
+    except (OSError, ValueError):
+        paranoid = None
+
+    if probe is None:
+        probe = _probe_uncore_counters
+    readable, detail = probe()
+
+    return _result(
+        "E13", "Contadores de uncore legibles", readable, True,
+        {"perf_event_paranoid": paranoid, "probe": detail},
+        "No se pueden LEER los contadores uncore_imc pese a que el manifiesto los exige. "
+        "Sin ellos toda ventana de CPU queda intensity_undefined y la campaña completa "
+        "se rechazaría por VAL-09/I10 (ARC-184). "
+        "Requiere que el administrador ponga kernel.perf_event_paranoid <= 0 o conceda "
+        "CAP_PERFMON a /usr/bin/perf; no es corregible desde la cuenta de usuario",
+    )
+
+
+def _probe_uncore_counters(timeout_seconds: float = 5.0) -> tuple[bool, str]:
+    """Lee un intervalo real de `uncore_imc_0/cas_count_read/`.
+
+    Se mide contra el PMU de verdad y no contra `perf_event_paranoid` a
+    secas porque CAP_PERFMON en el binario de perf también habilita la
+    lectura con paranoid alto: mirar solo el sysctl daría un falso negativo
+    en un nodo correctamente configurado por capacidades.
+    """
+    import subprocess
+
+    try:
+        completed = subprocess.run(
+            ["perf", "stat", "-a", "-x", ",", "-e", "uncore_imc_0/cas_count_read/",
+             "sleep", "0.05"],
+            capture_output=True, text=True, timeout=timeout_seconds,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        return False, f"no se pudo ejecutar perf: {error}"
+
+    # perf escribe el informe en stderr; el conteo es el primer campo.
+    output = (completed.stderr or "") + (completed.stdout or "")
+    lowered = output.lower()
+    if "not supported" in lowered or "not counted" in lowered:
+        return False, output.strip().splitlines()[-1][:200] if output.strip() else "sin salida"
+    for line in output.strip().splitlines():
+        first = line.split(",", 1)[0].strip()
+        if first.isdigit():
+            return True, f"cas_count_read={first}"
+    return False, output.strip().splitlines()[-1][:200] if output.strip() else "sin salida"
+
+
 def check_external_load(threshold: float, load_reader: Callable[[], tuple[float, float, float]] = os.getloadavg, cpu_count: int = 1) -> CheckResult:
     """E08.
 
@@ -594,7 +685,9 @@ def _read(path: Path) -> str | None:
 
 
 def run_campaign_preflight(
-    manifest: Any, env: Any, catalog: Mapping[str, Any], *, sysfs: SysfsPaths | None = None, node_profile: Any = None, gpu_inspector: GpuInspector | None = None
+    manifest: Any, env: Any, catalog: Mapping[str, Any], *, sysfs: SysfsPaths | None = None,
+    node_profile: Any = None, gpu_inspector: GpuInspector | None = None,
+    uncore_probe: Callable[[], tuple[bool, str]] | None = None,
 ) -> list[CheckResult]:
     """Ejecuta todos los checks de campaña que disponen de datos antes de la matriz."""
     cores = _cores(manifest)
@@ -644,6 +737,12 @@ def run_campaign_preflight(
     refs = tuple(_value(manifest, "calibration", ())) + tuple(_value(manifest, "kernels", ()))
     entries = [catalog[reference] for reference in refs]
     results.append(check_uncore_required_for_cpu_dataset(entries, uncore_enabled))
+    # E13 va junto a E12 a propósito: E12 comprueba que el manifiesto PIDA
+    # uncore, E13 que el nodo pueda DARLO. Los dos fallan igual aguas abajo
+    # (toda ventana de CPU en intensity_undefined) pero por causas
+    # independientes, y el segundo puede aparecer sin que cambie nada del
+    # repositorio.
+    results.append(check_uncore_readable(uncore_enabled, probe=uncore_probe))
     output_dir, overwrite = _value(manifest, "output_dir"), bool(_value(manifest, "overwrite", False))
     results.append(_result("I07", "Directorio de campaña", overwrite or not Path(output_dir).exists(), True, {"output_dir": str(output_dir)}, "output_dir ya existe"))
     projected = _value(manifest, "projected_campaign_bytes")
