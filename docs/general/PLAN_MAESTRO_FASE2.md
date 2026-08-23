@@ -937,7 +937,9 @@ según el mecanismo y el arreglo, va en el Anexo G.
 
 ## C.5 Pendiente para activar el criterio en campañas reales
 
-Añadir al bloque `gpu:` de los manifiestos GPU:
+**El ejemplo original de esta sección tenía `active_power_margin_mw: 20000`
+como escalar único — RETRACTADO por ARC-189 (Anexo G): rechaza F4 completo
+incluso con trabajo GPU real.** El campo debe ser un mapa por nivel:
 
 ```yaml
 gpu:
@@ -948,7 +950,12 @@ gpu:
     F2: 36225.1
     F3: 34500.9
     F4: 33804.0
-  active_power_margin_mw: 20000
+  active_power_margin_mw:      # provisional, ver Anexo G.4 -- necesita re-medición
+    F0: 6000
+    F1: 3000                   # F1 tiene un pico de reposo sin explicar (Anexo G.4), no confiar aún
+    F2: 1800
+    F3: 1200
+    F4: 800
 ```
 
 Estos valores son de **20 s por nivel**, suficientes para decidir el
