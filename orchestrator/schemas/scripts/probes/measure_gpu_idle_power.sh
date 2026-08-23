@@ -39,11 +39,16 @@ echo "gpu_index,level_id,target_mhz,observed_mhz_first,observed_mhz_last,mean_po
 
 # Niveles porcentuales del rango disponible, mismos puntos que
 # gpu_frequency_levels en los manifiestos (F0=100%, F1=75%, F2=50%,
-# F3=25%, F4=0%). Se leen los relojes SM disponibles en vivo -- no se
-# asume ningun valor fijo de A100, el hardware real decide.
-mapfile -t AVAILABLE_MHZ < <(nvidia-smi -i 0 --query-gpu=clocks.sm --format=csv,noheader,nounits)
-MAX_MHZ=$(nvidia-smi -i 0 --query-supported-clocks=sm --format=csv,noheader,nounits | sort -n | tail -1)
-MIN_MHZ=$(nvidia-smi -i 0 --query-supported-clocks=sm --format=csv,noheader,nounits | sort -n | head -1)
+# F3=25%, F4=0%). Se leen los relojes disponibles en vivo -- no se asume
+# ningun valor fijo de A100, el hardware real decide.
+#
+# El campo de consulta es "graphics", no "sm": es el mismo dominio de
+# reloj que -lgc/-rgc controlan (confirmado con --help-query-supported-clocks
+# en paccaA100; "sm" no es un campo valido en esta version de nvidia-smi y
+# hacia fallar el script entero bajo "set -e", sin nada en stderr util
+# porque el pipe con sort/head/tail se tragaba el mensaje de error).
+MAX_MHZ=$(nvidia-smi -i 0 --query-supported-clocks=graphics --format=csv,noheader,nounits | sort -n | tail -1)
+MIN_MHZ=$(nvidia-smi -i 0 --query-supported-clocks=graphics --format=csv,noheader,nounits | sort -n | head -1)
 
 for LEVEL in F0:1.0 F1:0.75 F2:0.5 F3:0.25 F4:0.0; do
     id="${LEVEL%%:*}"
@@ -52,6 +57,9 @@ for LEVEL in F0:1.0 F1:0.75 F2:0.5 F3:0.25 F4:0.0; do
 
     sudo nvidia-smi -i 0 -lgc "${target},${target}" >/dev/null
 
+    # clocks.sm (namespace --query-gpu, distinto de --query-supported-clocks
+    # de arriba) SÍ es válido y es el mismo que usa orchestrator/gpu_freqctl.py
+    # para verificar el reloj aplicado -- se mantiene por consistencia.
     observed_first=$(nvidia-smi -i 0 --query-gpu=clocks.sm --format=csv,noheader,nounits)
 
     samples=()
