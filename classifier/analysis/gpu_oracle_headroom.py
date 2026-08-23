@@ -159,11 +159,19 @@ def fit_alpha(points: list[tuple[float, float]]) -> tuple[float, float, float]:
 
 
 def main() -> int:
-    global BASE
+    global BASE, CID, KERNELS, CPU_LEVELS, REPS
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", type=Path, default=BASE)
+    parser.add_argument("--campaign-id", default=CID)
+    parser.add_argument("--kernels", nargs="+", default=KERNELS)
+    parser.add_argument("--cpu-levels", nargs="+", default=CPU_LEVELS)
+    parser.add_argument("--reps", type=int, default=len(REPS))
     args = parser.parse_args()
     BASE = args.base
+    CID = args.campaign_id
+    KERNELS = list(args.kernels)
+    CPU_LEVELS = list(args.cpu_levels)
+    REPS = list(range(1, args.reps + 1))
 
     data = collect()
     if not data:
