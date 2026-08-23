@@ -159,3 +159,81 @@ mueve su potencia solo 0.7–3.8% (Anexo M / L.5).
 La cita primaria de ese trabajo está dentro del survey (`Mei2016`,
 referencia [24] de ese documento); **hay que rastrearla ahí antes de
 citarla directamente.**
+
+---
+
+## 7. CPU: la literatura YA CITADA responde "qué hicieron ellos" (2026-08-23)
+
+El hallazgo de `docs/general/resultados_compuertas_fase2.md` (clasificador
+de fase NO supera la línea base trivial bajo LOKO: F1=0.393 vs 0.371;
+α varía 0.642 ENTRE kernels pero solo 0.004–0.056 DENTRO de cada uno) es
+el mismo patrón que GPU. Los tres papers de CPU que el libro **ya cita**
+resuelven exactamente ese problema, de dos formas distintas:
+
+### 7.1 Estrategia A: clasificar la APLICACIÓN, no la fase
+
+`\cite{Guerreiro2019}` (GPU, pero el diseño transfiere íntegro): entrena
+offline con benchmarks sintéticos, clasifica cualquier aplicación nueva
+usando eventos de PMU recolectados **a una sola frecuencia de
+referencia**, y predice el comportamiento en el resto de frecuencias.
+16% de ahorro promedio, 36% pico, **0.74% de desviación promedio respecto
+al óptimo real**. Con presupuesto de degradación ≤10%: hasta 26%.
+
+`\cite{Calore2017}` (Haswell CPU + K80 GPU, ambos): probaron ajuste
+**función por función** y lo abandonaron explícitamente por no ser
+conveniente ("*clock tuning on a function-by-function basis is not
+convenient*"), pivotando a **una frecuencia constante para todo el
+programa** — ~7% de ahorro en GPU sin costo de rendimiento. Para CPU, la
+regla que dan es literalmente la nuestra: *"fair energy savings are
+possible by tuning the processor clock to lower values in all cases in
+which the code is memory-bound"* — clasificación por balance de máquina
+vs. intensidad operacional, el mismo Roofline que ya usamos
+(`\cite{Williams2009}`).
+
+Es la MISMA arquitectura que ya rediseñé para GPU tras el Anexo M:
+features observados en un solo nivel de referencia, predicción por
+kernel/aplicación, sin necesitar variación de fase intra-corrida. **No es
+una arquitectura nueva para CPU — es la misma que GPU, y GPU ya tomó la
+decisión correcta antes de saberlo.**
+
+### 7.2 Estrategia B: control reactivo contra un gobernador débil
+
+`\cite{Hebbar2022}` (Intel Core i7, SPEC CPU2017) es la respuesta
+alternativa, y explica algo que no habíamos considerado: comparan contra
+el gobernador **ondemand** real de Linux, no contra "siempre máxima
+frecuencia". Hallazgo clave: *"el gobernador ondemand tiende a mantener
+el procesador en la frecuencia más alta incluso cuando ~90% de los ciclos
+activos están detenidos"* — el gobernador por defecto es malo detectando
+cargas memory-bound. Su técnica muestrea una razón de PMU barata
+(`stall_backend_ratio` o equivalente) **cada 100 ms** y la mapea
+LINEALMENTE (continuo, no clasificación binaria) a una frecuencia,
+durante toda la ejecución. Resultado: 121–183% de mejora en eficiencia
+energética — **contra ondemand**, no contra máxima frecuencia.
+
+Advertencia que dejan documentada: una variante que muestreó una métrica
+más ruidosa (CPI directo) cambió de frecuencia demasiado seguido y generó
+oscilaciones anchas (1.5→4.0 GHz) que empeoraron el consumo — la
+inestabilidad del controlador es un riesgo real, no solo teórico.
+
+### 7.3 Tercera confirmación independiente: clasificar el JOB, no la fase
+
+`\cite{Antici2024}` (MCBound, SC24, producción real en Fugaku): F1-macro
+≥ 0.89 clasificando trabajos completos como memory/compute-bound, **a
+nivel de job**, no de fase. Tres papers, tres grupos, misma decisión de
+granularidad.
+
+### 7.4 Consecuencia para el acoplamiento CPU cuando vuelva CAP_PERFMON
+
+1. El rediseño de GPU (predicción por kernel desde un nivel de
+   referencia, sin clasificación de fase) **se acopla directo a CPU sin
+   inventar nada nuevo** — es la arquitectura que la literatura ya usa
+   para ambos dispositivos.
+2. **Cambiar el baseline de comparación** de "siempre performance" a un
+   gobernador real (`ondemand`/`schedutil` en Linux) es una vía barata y
+   citable para revertir el resultado "desastroso": si el gobernador de
+   pacca también ignora `stall_backend_ratio` alto, ahí puede vivir un
+   ahorro grande que "siempre F0" nunca iba a mostrar.
+3. Explorar un controlador reactivo (Hebbar-style) es una segunda línea
+   de trabajo, independiente de si el dataset tiene o no variación
+   intra-kernel — ataca el problema desde el lado del baseline, no desde
+   el lado del dataset.
