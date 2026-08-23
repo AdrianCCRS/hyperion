@@ -57,18 +57,40 @@ def load_patterns(catalog_path: Path) -> dict[str, str]:
     return out
 
 
-def runtime_from_stdout(run_dir: Path, pattern: str) -> float | None:
+# ARC-187: respaldo universal cuando el kernel no declara su propio patrón
+# (p.ej. 3mm_omp: RAJAPerf imprime una tabla de metricas sin una etiqueta
+# de "tiempo total" limpia). telemetry_kernel_launcher.cpp imprime esta
+# linea de resumen SIEMPRE, para cualquier kernel, con el tiempo de pared
+# de la corrida instrumentada medido por el propio arnes -- no depende de
+# que el binario de terceros imprima nada. Es en nanosegundos, de ahi la
+# conversion; NO es la misma magnitud que "windows.csv sumado" (esa ya se
+# valido contra el stdout propio del kernel a <0.008 en alpha para los 7
+# kernels que si tienen patron), pero sirve como fuente independiente.
+_LAUNCHER_SUMMARY_RE = re.compile(r"telemetry_mean_ns=([0-9.]+)")
+
+
+def runtime_from_stdout(run_dir: Path, pattern: str | None) -> float | None:
     stdout = run_dir / "stdout.txt"
     if not stdout.exists():
         return None
-    match = re.search(pattern, stdout.read_text(errors="replace"))
-    if not match:
-        return None
-    try:
-        value = float(match.group(1))
-    except (TypeError, ValueError):
-        return None
-    return value if value > 0 else None
+    text = stdout.read_text(errors="replace")
+    if pattern:
+        match = re.search(pattern, text)
+        if match:
+            try:
+                value = float(match.group(1))
+            except (TypeError, ValueError):
+                value = None
+            if value is not None and value > 0:
+                return value
+    fallback = _LAUNCHER_SUMMARY_RE.search(text)
+    if fallback:
+        try:
+            ns = float(fallback.group(1))
+        except (TypeError, ValueError):
+            return None
+        return (ns / 1e9) if ns > 0 else None
+    return None
 
 
 def main() -> int:
@@ -93,11 +115,11 @@ def main() -> int:
 
     rows = []
     sin_patron = []
+    used_fallback = []
     for kernel in sorted(index["kernel_ref"].unique()):
         pattern = patterns.get(kernel)
         if not pattern:
-            sin_patron.append(kernel)
-            continue
+            used_fallback.append(kernel)
 
         # Duracion por nivel: MEDIA de las repeticiones, no suma, porque el
         # numero de repeticiones aceptadas puede diferir entre niveles y una
@@ -114,7 +136,7 @@ def main() -> int:
             for lvl, vals in by_level.items() if lvl in NOMINAL_MHZ and vals
         }
         if len(durations) < 3 or 3200.0 not in durations:
-            sin_patron.append(f"{kernel} (datos insuficientes)")
+            sin_patron.append(f"{kernel} (datos insuficientes incluso con respaldo)")
             continue
 
         alpha, r2 = fit_alpha(durations, 3200.0)
@@ -124,6 +146,7 @@ def main() -> int:
             "alpha_stdout": round(alpha, 4),
             "r2": round(r2, 4),
             "bajo_umbral": bool(alpha <= BREAK_EVEN),
+            "fuente": "respaldo (telemetry_mean_ns)" if kernel in used_fallback else "patrón propio",
             "T_F0_s": round(durations.get(3200.0, float("nan")), 3),
             "T_F4_s": round(durations.get(800.0, float("nan")), 3),
             "ratio_F4_F0": round(durations[800.0] / durations[3200.0], 4) if 800.0 in durations else None,
@@ -134,7 +157,7 @@ def main() -> int:
     print("== alpha con la duración reportada por el kernel ==", flush=True)
     print(table.drop(columns=["reps_por_nivel"]).to_string(index=False), flush=True)
     if sin_patron:
-        print(f"\nsin patrón de runtime declarado (no evaluables aquí): {sin_patron}", flush=True)
+        print(f"\nsin datos utilizables (ni patrón propio ni respaldo): {sin_patron}", flush=True)
 
     bajo = table[table["bajo_umbral"]]
     print(f"\numbral de viabilidad: alpha <= {BREAK_EVEN}", flush=True)

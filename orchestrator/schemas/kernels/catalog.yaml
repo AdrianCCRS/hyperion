@@ -851,6 +851,10 @@ kernels:
       pattern: "(?s)Configuration used:\\s*cores = 6, boxes1d = 24.*Total time:\\s*[0-9.]+ s"
     binary_checksum:
       pacca-a100: "sha256:92cb259bd2ca1d0a67a4d52490b76cdb2eb844568c7e73864023c52d7abb2648"
+    # ARC-187: mismo texto que success_check confirma que existe ("Total
+    # time:\n7.732188224792 s") -- cierra el hueco de T0.2b, que no podía
+    # recalcular alpha para este kernel por falta de este patrón.
+    runtime_seconds_stdout_pattern: "Total time:\\s*([0-9.]+)\\s*s"
 
   # Segundo candidato CPU, medido solo después de comprobar que LavaMD no
   # basta para aliviar el desbalance global. RAJAPerf v2025.12.1,
