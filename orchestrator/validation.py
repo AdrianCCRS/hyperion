@@ -439,7 +439,7 @@ def validate_windows(
     target_windows_per_repetition: int,
     device: str,
     gpu_idle_power_mw_by_level: Mapping[str, float] | None = None,
-    gpu_active_power_margin_mw: float | None = None,
+    gpu_active_power_margin_mw: Mapping[str, float] | float | None = None,
 ) -> Verdict:
     """VAL-09 (ARC-94): segunda etapa de aceptación, DESPUÉS de que
     postprocess.py escribió windows.csv -- validate_run() por sí solo solo
@@ -487,17 +487,37 @@ def validate_windows(
     Cuando se proveen ``gpu_idle_power_mw_by_level`` y
     ``gpu_active_power_margin_mw``, el criterio pasa a ser potencia sobre
     la línea de reposo (vatios reales de NVML, no una fracción de tiempo
-    con ruido de muestreo): ``gpu_power_mw - idle(nivel) >= margen``. Un
-    kernel ocioso da ~0 W de exceso en CUALQUIER nivel de reloj, así que
-    este criterio es invariante a la frecuencia por construcción. La línea
-    de reposo se mide por nivel (no un solo valor para toda la campaña)
-    porque la potencia de reposo de la GPU también depende del reloj
-    fijado.
+    con ruido de muestreo): ``gpu_power_mw - idle(nivel) >= margen(nivel)``.
+    Un kernel ocioso da ~0 W de exceso en CUALQUIER nivel de reloj, así que
+    la COMPARACIÓN es invariante a la frecuencia por construcción -- pero
+    el margen NO puede ser un solo número para toda la campaña.
 
-    Sin esos dos parámetros (``None``, el default) el comportamiento es
-    IDÉNTICO al anterior -- piso de utilización fijo -- para no alterar
-    ninguna campaña ya en cola que no declare el campo nuevo del
-    manifiesto.
+    ARC-189 (encontrado el día siguiente de introducir ARC-185, con datos
+    reales de tres kernels confirmados activos por otras vías --
+    heartwall, gaussian, dgemm_n4096): el exceso de potencia de trabajo
+    GPU REAL escala con el reloj casi tan fuerte como la propia potencia de
+    reposo. A F0 (1410 MHz) el exceso mínimo observado en ventanas con
+    ``gpu_util_pct >= 50`` fue ~9.5-12.7 W; al mismo kernel, en el MISMO
+    régimen de actividad, a F4 (210 MHz) el exceso cae a ~1.3-3.8 W. Un
+    margen de 20000 mW (el valor recomendado en la primera versión de
+    ARC-185, calibrado solo contra el RUIDO de una sonda en reposo, nunca
+    contra trabajo real) habría rechazado el 100 % de las ventanas activas
+    en F4 de los TRES kernels de referencia -- exactamente el defecto que
+    ARC-185 pretendía corregir, pero en la dirección contraria y aplicado a
+    datos genuinamente buenos, no solo a los ociosos. Por eso el margen
+    debe ser ``gpu_active_power_margin_mw: Mapping[str, float]``, una
+    entrada por nivel, igual que la línea de reposo.
+
+    Por compatibilidad se acepta también un único ``float`` (se aplica a
+    todos los niveles); pasar un solo número para TODA la rejilla de
+    F0 a F4 es casi con certeza un error de calibración, no una elección
+    válida, dado lo anterior -- se admite la forma escalar solo para no
+    romper un caller que declare un único nivel.
+
+    Sin ``gpu_idle_power_mw_by_level``/``gpu_active_power_margin_mw``
+    (``None``, el default) el comportamiento es IDÉNTICO al anterior --
+    piso de utilización fijo -- para no alterar ninguna campaña ya en cola
+    que no declare el campo nuevo del manifiesto.
     """
     with open(windows_path, newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
@@ -508,16 +528,33 @@ def validate_windows(
             gpu_idle_power_mw_by_level is not None and gpu_active_power_margin_mw is not None
         )
         if use_power_criterion:
+            # ARC-189: margen por nivel. Un float suelto se trata como el
+            # mismo margen en todos los niveles (compatibilidad), pero eso
+            # es casi con certeza un error de calibración -- ver docstring.
+            margin_by_level = (
+                gpu_active_power_margin_mw
+                if isinstance(gpu_active_power_margin_mw, Mapping)
+                else None
+            )
+            flat_margin = (
+                gpu_active_power_margin_mw
+                if not isinstance(gpu_active_power_margin_mw, Mapping)
+                else None
+            )
+
             def _has_gpu_signal(row: Mapping[str, Any]) -> bool:
                 level = row.get("gpu_freq_level_id")
                 idle = gpu_idle_power_mw_by_level.get(level) if level else None
                 if idle is None:
                     return False  # nivel sin línea de reposo medida: fail-closed, no se asume 0
+                margin = margin_by_level.get(level) if margin_by_level is not None else flat_margin
+                if margin is None:
+                    return False  # nivel sin margen declarado: fail-closed, igual que sin línea de reposo
                 try:
                     power = float(row.get("gpu_power_mw") or "nan")
                 except ValueError:
                     return False
-                return (power - idle) >= gpu_active_power_margin_mw
+                return (power - idle) >= margin
         else:
             def _has_gpu_signal(row: Mapping[str, Any]) -> bool:
                 try:

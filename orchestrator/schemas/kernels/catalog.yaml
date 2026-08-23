@@ -779,14 +779,38 @@ kernels:
     gpu_precision: fp32
     size_variant: "16384x16384_97"
     expected_runtime_seconds: 20 # medido en paccaA100: 7.56 s binario puro
-    # ARC-86: incluso a 16384x16384, gpu_power_mw nunca supera 46.6W en
-    # toda la corrida (piso de idle ~37-38W) -- el filtro DWT es demasiado
-    # liviano/memory-bound para generar una carga sostenida real sin
-    # importar el tamano de imagen, el tiempo de pared lo domina la carga
-    # del BMP (805 MB) y la inicializacion, no el computo GPU. Misma
-    # categoria de senal degenerada que rodinia_myocyte/rodinia_backprop
-    # (ARC-86): se mantiene el valor heredado (1.0s) en vez del 0.537s que
-    # devuelve measure_warmup.py sobre esta senal sin carga real.
+    # ARC-86: la conclusion original ("gpu_power_mw nunca supera 46.6W en
+    # toda la corrida") NO SE PUDO REPRODUCIR (ARC-190, reverificado
+    # 2026-08-23 sobre pacca_gpu_dvfs_20260820, misma imagen 16384x16384):
+    # en F0 la potencia real va de 59.6W a 83.5W (media 65.1W), muy por
+    # ENCIMA del piso de reposo medido en vivo para ese nivel (53.8W).
+    # 97 % de las ventanas estan por encima de 60W. El comentario original
+    # esta mal, probablemente medido bajo una condicion distinta a la
+    # documentada -- no se elimina, se corrige, para no perder el rastro.
+    #
+    # Lo que SI es real y explica por que gpu_util_pct (21.6% de ventanas
+    # >=5%) subestima la actividad: dwt2d muestra potencia elevada con
+    # utilizacion NVML baja, la firma tipica de un kernel memory-bound
+    # (OI=2.17 declarado arriba) que ocupa la SM poco (muchos ciclos en
+    # espera de memoria) pero SI mueve DRAM real. gpu_util_pct mide
+    # "fraccion de tiempo con algun kernel corriendo", no intensidad de
+    # trabajo -- no es el metro correcto para este patron.
+    #
+    # PERO no es un caso limpio para el criterio de potencia tampoco
+    # (ARC-185/189): el exceso sobre reposo se DESPLOMA con la frecuencia
+    # mucho mas que en dgemm/gaussian/heartwall -- en F4 el exceso medido
+    # cae a ~1W, indistinguible del ruido de la propia sonda de reposo.
+    # Con potencia Y utilizacion en desacuerdo, y ese desacuerdo variando
+    # con el nivel, la decision de incluir este kernel en la matriz final
+    # queda ABIERTA -- no se resuelve solo corrigiendo este comentario.
+    # Ver docs/general/PLAN_MAESTRO_FASE2.md Anexo G.
+    #
+    # warmup_seconds se mantiene en el valor heredado 1.0s en vez del
+    # 0.537s que measure_warmup.py propuso originalmente sobre la señal
+    # que ARC-86 creyó degenerada -- con la corrección de arriba, esa
+    # señal SÍ tiene actividad real, así que 0.537s podría ser válido,
+    # pero no se remide aquí: cambiar warmup a la baja exige confirmar
+    # que no recorta el arranque real, y eso no se ha hecho.
     warmup_seconds: 1.0
     # ARC-86: memoria real medida con nvidia-smi (16384x16384): ~8352 MiB,
     # con margen ~50% sobre eso (antes 16 MB, calibrado para 192x192).

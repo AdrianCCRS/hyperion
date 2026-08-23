@@ -141,3 +141,23 @@ def test_filter_gpu_trainable_sin_parametros_preserva_el_piso_de_utilizacion():
     result = load.filter_gpu_trainable(df)
 
     assert len(result) == 1
+
+
+def test_filter_gpu_trainable_margen_por_nivel_arc189():
+    # ARC-189: mismo bug/arreglo que en validate_windows -- un margen unico
+    # rechaza F4 pese a exceso real; el margen por nivel lo acepta.
+    df = pd.DataFrame([
+        {"quality_status": "gpu_telemetry", "gpu_util_pct": "90", "gpu_freq_level_id": "F4",
+         "gpu_power_mw": "38000", "phase_label_train": "compute_bound"},
+    ])
+
+    con_margen_unico = load.filter_gpu_trainable(
+        df, idle_power_mw_by_level={"F4": 33804.0}, active_power_margin_mw=20000.0,
+    )
+    assert len(con_margen_unico) == 0
+
+    con_margen_por_nivel = load.filter_gpu_trainable(
+        df, idle_power_mw_by_level={"F4": 33804.0},
+        active_power_margin_mw={"F4": 800.0},
+    )
+    assert len(con_margen_por_nivel) == 1

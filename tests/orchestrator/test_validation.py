@@ -767,3 +767,73 @@ def test_arc185_sin_parametros_de_potencia_preserva_el_comportamiento_anterior(t
     windows_path = _write_windows_csv(tmp_path / "windows.csv", rows)
     verdict = validation.validate_windows(windows_path, target_windows_per_repetition=5, device="gpu")
     assert verdict.accepted is False
+
+
+def test_arc189_margen_unico_rechaza_f4_pese_a_trabajo_real(tmp_path):
+    # ARC-189: reproduce el bug encontrado el 2026-08-23 -- un margen
+    # UNICO de 20000 mW (el recomendado en la primera version de ARC-185)
+    # rechaza F4 aunque haya exceso de potencia real y sostenido, porque el
+    # exceso de trabajo GPU real tambien encoge con el reloj. Medido en
+    # heartwall/gaussian/dgemm_n4096: el exceso minimo en ventanas
+    # claramente activas a F4 fue de apenas ~1.3-3.8 W.
+    rows = [
+        {
+            "quality_status": "gpu_telemetry", "phase_label_train": "compute_bound",
+            "gpu_util_pct": "90", "gpu_freq_level_id": "F4", "gpu_power_mw": "38000",
+        }
+        for _ in range(10)
+    ]
+    windows_path = _write_windows_csv(tmp_path / "windows.csv", rows)
+    # idle F4 = 33804, potencia real = 38000 -> exceso real = 4196 mW.
+    veredicto_margen_unico = validation.validate_windows(
+        windows_path, target_windows_per_repetition=10, device="gpu",
+        gpu_idle_power_mw_by_level={"F0": 53820.7, "F4": 33804.0},
+        gpu_active_power_margin_mw=20000.0,  # el valor viejo, mal calibrado
+    )
+    assert veredicto_margen_unico.accepted is False  # el bug: rechaza trabajo real
+
+    veredicto_margen_por_nivel = validation.validate_windows(
+        windows_path, target_windows_per_repetition=10, device="gpu",
+        gpu_idle_power_mw_by_level={"F0": 53820.7, "F4": 33804.0},
+        gpu_active_power_margin_mw={"F0": 6000.0, "F4": 800.0},  # el arreglo
+    )
+    assert veredicto_margen_por_nivel.accepted is True  # el mismo trabajo real, aceptado
+
+
+def test_arc189_margen_por_nivel_sigue_rechazando_reposo_en_f0(tmp_path):
+    # El margen mas alto en F0 sigue protegiendo contra falsos positivos
+    # ahi, donde el ruido de reposo es mas ancho.
+    rows = [
+        {
+            "quality_status": "gpu_telemetry", "phase_label_train": "compute_bound",
+            "gpu_util_pct": "2", "gpu_freq_level_id": "F0", "gpu_power_mw": "56000",
+        }
+        for _ in range(10)
+    ]
+    windows_path = _write_windows_csv(tmp_path / "windows.csv", rows)
+    # idle F0 = 53820.7, potencia = 56000 -> exceso = 2179 mW, por debajo
+    # del margen de 6000 en F0 (aunque supere el margen de F4).
+    verdict = validation.validate_windows(
+        windows_path, target_windows_per_repetition=10, device="gpu",
+        gpu_idle_power_mw_by_level={"F0": 53820.7, "F4": 33804.0},
+        gpu_active_power_margin_mw={"F0": 6000.0, "F4": 800.0},
+    )
+    assert verdict.accepted is False
+
+
+def test_arc189_nivel_sin_margen_declarado_falla_cerrado(tmp_path):
+    rows = [
+        {
+            "quality_status": "gpu_telemetry", "phase_label_train": "compute_bound",
+            "gpu_util_pct": "90", "gpu_freq_level_id": "F2", "gpu_power_mw": "300000",
+        }
+        for _ in range(10)
+    ]
+    windows_path = _write_windows_csv(tmp_path / "windows.csv", rows)
+    verdict = validation.validate_windows(
+        windows_path, target_windows_per_repetition=10, device="gpu",
+        gpu_idle_power_mw_by_level={"F2": 36225.1},
+        # Solo F0/F4 tienen margen declarado -- F2 no cuenta, no se asume el de otro nivel.
+        gpu_active_power_margin_mw={"F0": 6000.0, "F4": 800.0},
+    )
+    assert verdict.accepted is False

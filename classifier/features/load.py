@@ -92,7 +92,7 @@ def filter_gpu_trainable(
     df: pd.DataFrame,
     *,
     idle_power_mw_by_level: dict[str, float] | None = None,
-    active_power_margin_mw: float | None = None,
+    active_power_margin_mw: dict[str, float] | float | None = None,
 ) -> pd.DataFrame:
     """Ventanas de GPU utilizables para entrenar, en espejo del criterio
     que ``validate_windows()`` usa para aceptar la corrida (ARC-185).
@@ -105,7 +105,16 @@ def filter_gpu_trainable(
     ``gpu_util_pct`` es una fracción de TIEMPO y crece con reloj más
     lento aunque el kernel esté genuinamente ocioso (medido: rodinia_lud
     pasa de 0.0 % en F0 a 3.5 % en F4). Sin línea de reposo para el nivel
-    de una fila, esa fila se descarta (fail-closed, no se asume 0)."""
+    de una fila, esa fila se descarta (fail-closed, no se asume 0).
+
+    ARC-189: ``active_power_margin_mw`` DEBE variar por nivel -- el
+    exceso de potencia de trabajo GPU real escala casi tanto con el reloj
+    como la propia potencia de reposo (medido: ~9.5-12.7 W de exceso
+    mínimo en ventanas claramente activas a F0, contra ~1.3-3.8 W del
+    MISMO régimen de actividad a F4, en tres kernels de referencia
+    distintos). Un margen único calibrado en F0 rechaza F4 completo. Se
+    acepta un ``float`` suelto solo por compatibilidad -- ver
+    ``validate_windows`` para el mismo razonamiento."""
     base_mask = (
         (df["quality_status"] == "gpu_telemetry")
         & df["phase_label_train"].notna()
@@ -113,8 +122,14 @@ def filter_gpu_trainable(
     )
     if idle_power_mw_by_level is not None and active_power_margin_mw is not None:
         idle = df["gpu_freq_level_id"].map(idle_power_mw_by_level)
+        margin = (
+            df["gpu_freq_level_id"].map(active_power_margin_mw)
+            if isinstance(active_power_margin_mw, dict)
+            else active_power_margin_mw
+        )
         power = pd.to_numeric(df["gpu_power_mw"], errors="coerce")
-        signal_mask = idle.notna() & ((power - idle) >= active_power_margin_mw)
+        signal_mask = idle.notna() & margin.notna() if isinstance(margin, pd.Series) else idle.notna()
+        signal_mask = signal_mask & ((power - idle) >= margin)
     else:
         signal_mask = pd.to_numeric(df["gpu_util_pct"], errors="coerce") >= _GPU_UTIL_NOISE_FLOOR_PCT
     return df.loc[base_mask & signal_mask].copy()

@@ -922,13 +922,18 @@ Enrutado end-to-end: `manifest.gpu.idle_power_mw_by_level` /
 9 tests nuevos (4 en `test_validation.py`, 3 en `test_load.py`), todos
 verdes junto con los 92 preexistentes.
 
-## C.4 Margen recomendado
+## C.4 Margen recomendado -- RETRACTADO, ver Anexo G
 
-Con la dispersión medida (máx 56.39, mín 33.64 mW·1000), un margen de
-**≥ 15 000 mW (15 W)** deja el falso-positivo del pico atípico de F1 fuera:
-56.39 − 40.11 ≈ 16.3 W de ruido máximo observado en un solo nivel. Se
-propone `active_power_margin_mw: 20000` (20 W) como valor inicial,
-conservador sobre el ruido medido.
+**El margen único de 20 000 mW propuesto aquí resultó ser un error grave**,
+encontrado al día siguiente (ARC-189): rechaza F4 completo incluso para
+kernels con trabajo GPU genuino y sostenido, porque el exceso de potencia
+de trabajo real también se reduce con el reloj -- a F4 puede ser tan bajo
+como ~1.3 W, muy por debajo de cualquier margen calibrado contra F0. La
+tabla original de la Ola de idle-power (C.2) medía solo la línea de
+REPOSO; nunca se contrastó contra el exceso de un kernel activo de
+verdad, y por eso el margen quedó mal calibrado en la dirección
+peligrosa (rechaza datos buenos, no solo malos). El margen correcto,
+según el mecanismo y el arreglo, va en el Anexo G.
 
 ## C.5 Pendiente para activar el criterio en campañas reales
 
@@ -1258,3 +1263,107 @@ campañas GPU existentes — el interés está en el reloj de GPU, no de CPU.
 Mucho más barato que CPU porque el eje activo real son 4 kernels, no 9 —
 consecuencia directa de que solo la mitad del catálogo GPU hace trabajo
 real medible.
+
+---
+
+# ANEXO G — ARC-189: el margen de potencia debía ser por nivel, no único
+
+## G.1 Cómo se encontró
+
+Al investigar por qué `rodinia_dwt2d` mostraba solo 21.2% de actividad
+pese a tener potencia elevada (ver G.3), se contrastó el criterio de
+potencia (C.3) contra tres kernels **ya confirmados como activos por
+otras vías** (`rodinia_heartwall`, `rodinia_gaussian`, `gpu_dgemm_n4096`)
+en F0 y F4. El resultado fue el mismo en los tres: con el margen único de
+20 000 mW recomendado el día anterior, **`frac_excess>=20W` daba
+exactamente 0.000 en F4 para los tres**, pese a que `gpu_util_pct` los
+mostraba entre 35.6% y 94.5% activos ahí mismo.
+
+## G.2 El mecanismo
+
+El exceso de potencia de trabajo GPU real escala con el reloj casi tanto
+como la propia potencia de reposo. Medido sobre ventanas con
+`gpu_util_pct >= 50` (actividad inequívoca):
+
+| kernel | exceso mínimo F0 | exceso mínimo F4 | razón |
+|---|---|---|---|
+| rodinia_heartwall | 9 477 mW | 1 287 mW | 7.4× |
+| rodinia_gaussian | 11 353 mW | 3 059 mW | 3.7× |
+| gpu_dgemm_n4096 | 10 357 mW | 3 753 mW | 2.8× |
+
+Un margen de 20 000 mW, calibrado el día anterior **solo contra el ruido
+de una sonda en reposo** (job 6447, sin ninguna carga real corriendo),
+nunca se contrastó contra el exceso de un kernel activo de verdad. En F4
+ningún kernel activo lo habría superado — el criterio construido
+explícitamente para no rechazar trabajo real por el sesgo de frecuencia
+(F3) tenía **el mismo sesgo, en la misma dirección, por una causa
+distinta**.
+
+## G.3 El arreglo
+
+`gpu_active_power_margin_mw` deja de ser un escalar y pasa a ser un mapa
+por nivel, igual que `gpu_idle_power_mw_by_level`, en
+`validate_windows()` y `filter_gpu_trainable()`. Un `float` suelto se
+sigue aceptando por compatibilidad, con la advertencia explícita en el
+docstring de que es casi con certeza un error. 4 tests nuevos (3 en
+`test_validation.py`, 1 en `test_load.py`), incluido uno que reproduce el
+bug exacto (margen único rechaza F4 con trabajo real; margen por nivel lo
+acepta). 570 tests totales, todos verdes.
+
+## G.4 Margen provisional — necesita re-medición, no está cerrado
+
+Con el mínimo real por nivel (tres kernels, arriba) y el ruido de reposo
+de la sonda (job 6447), un margen conservador y seguro:
+
+| nivel | margen propuesto | mínimo real observado | ruido de reposo (rango) |
+|---|---|---|---|
+| F0 | 6 000 mW | 9 477–12 739 | hasta ±6 440 (ver abajo) |
+| F1 | 3 000 mW | 4 175–7 159 | **hasta +16 284, atípico** |
+| F2 | 1 800 mW | 2 528–3 324 | ±500 |
+| F3 | 1 200 mW | 1 888–2 528 | ±400 |
+| F4 | 800 mW | 1 287–3 753 | ±400 |
+
+**No se toma como definitivo.** F1 mostró un pico de reposo de +16 284 mW
+sobre su propia media en la sonda de 20 s (job 6447) — un solo evento, de
+causa no confirmada (candidata: transitorio de asentamiento justo tras
+`nvidia-smi -lgc`, sin período de espera antes de muestrear). Si ese pico
+es recurrente y no un artefacto de la sonda corta, un margen de 3 000 mW
+en F1 no lo cubre con seguridad. **Antes de usar esta tabla en una
+campaña real**: remedir la línea de reposo con una sonda más larga (≥60 s
+por nivel), excluyendo explícitamente los primeros 1–2 s tras fijar el
+reloj (mismo principio que `frequency_settle` ya aplica en CPU), y
+verificar si el pico de F1 persiste.
+
+## G.5 `rodinia_dwt2d` — el caso que originó todo esto, sigue sin resolver
+
+El comentario del catálogo que decía "potencia nunca supera 46.6 W" **no
+se pudo reproducir**: en F0 la potencia real va de 59.6 a 83.5 W (media
+65.1 W), muy por encima del reposo (53.8 W); 97% de las ventanas superan
+60 W. Corregido en el catálogo (`orchestrator/schemas/kernels/catalog.yaml`).
+
+Lo que explica el 21.2% de `gpu_util_pct`: `dwt2d` tiene potencia elevada
+con utilización NVML baja — la firma de un kernel memory-bound (OI = 2.17,
+ya declarado) que ocupa poco la SM pero sí mueve DRAM real.
+`gpu_util_pct` mide fracción de tiempo con *algún* kernel corriendo, no
+intensidad de trabajo — no es el metro correcto para este patrón.
+
+**Pero tampoco es un caso limpio para el criterio de potencia.** El
+exceso sobre reposo se desploma con la frecuencia mucho más que en
+`dgemm`/`gaussian`/`heartwall`: en F4 cae a ~1 W, indistinguible del
+ruido de la propia sonda. Con potencia y utilización en desacuerdo, y ese
+desacuerdo variando con el nivel, **la inclusión de `dwt2d` en la matriz
+final queda abierta** — no se resuelve solo corrigiendo el comentario.
+
+## G.6 Qué falta
+
+1. Re-medir la línea de reposo GPU con sonda larga (≥60 s), excluyendo el
+   transitorio de asentamiento, y confirmar o descartar el pico de F1.
+2. Recalibrar el margen por nivel contra esa medición corregida.
+3. Decidir `dwt2d` con un criterio adicional (p.ej. energía total sobre
+   reposo integrada en toda la corrida, no ventana a ventana) en vez de
+   los dos que ya mostraron discrepancia.
+4. Repetir la auditoría de actividad (F.2) para `backprop`/`myocyte` con
+   el criterio de potencia YA corregido antes de decidir si necesitan
+   tamaño mayor — el 19.1%/10.8% de la tabla anterior se midió con
+   `gpu_util_pct`, que para kernels memory-bound livianos puede estar
+   subestimando lo mismo que en `dwt2d`.
