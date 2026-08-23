@@ -1120,6 +1120,16 @@ acumula más que proporcionalmente al bajar el reloj para el patrón de
 acceso específico de LavaMD. Ninguna de las dos está medida — quedan como
 pendiente explícita, no como explicación.
 
+**Corroboración que descarta una de las dos candidatas.** T0.2 (Anexo A.2)
+ya había medido, con un método INDEPENDIENTE (duración cruda sumada desde
+`windows.csv`, medida por el arnés, no impresa por el kernel), α = 1.0272
+para este mismo kernel — prácticamente idéntico al 1.0289 de aquí. Si la
+causa fuera "una porción de tiempo no delegada a los cores fijados que el
+propio print del kernel cuenta pero el arnés no", las dos mediciones
+deberían discrepar; no lo hacen. Descarta razonablemente la candidata (a)
+y deja (b) — algún efecto de latencia de memoria— como la más plausible,
+aunque sigue sin medirse directamente.
+
 **No cambia el diagnóstico central**: `lavamd_omp` sigue muy por encima
 del umbral 0.226, así que no afecta la conclusión de que ningún kernel del
 dataset alcanza el régimen viable. Cambia sí la afirmación puntual de que
