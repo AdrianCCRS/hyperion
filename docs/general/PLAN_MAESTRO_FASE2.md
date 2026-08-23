@@ -1553,3 +1553,147 @@ confirmada; binning de `phasic` con 13% de discrepancia F0 vs F4 sin
 validar contra los 9 kernels reales de CPU; NPB clase C catalogados
 pero nunca corridos; limitación arquitectónica de `gpu_phasic` (CAT-10,
 etiqueta constante) sin resolver.
+
+---
+
+# ANEXO K — Hueco del oráculo en GPU: el catálogo actual no tiene margen (2026-08-23)
+
+Análisis offline sobre las 144 corridas del job 6462, cero costo de nodo.
+Scripts: `classifier/analysis/gpu_oracle_headroom.py` y
+`gpu_alpha_calibration_kernels.py`.
+
+## K.0 Prerrequisito verificado
+
+`gpu_energy_valid=1` en el **100%** de las filas `gpu_telemetry`, con
+`gpu_energy_delta_mj` poblado, comprobado en F0, F2 y F4. La medición de
+energía GPU es fiable; el análisis se apoya en piso firme.
+
+## K.1 La métrica correcta es energía TOTAL, no solo GPU
+
+En estas corridas la GPU aporta solo ~47% de la energía total
+(gaussian CPU=REF: 396.9 J GPU vs 453.1 J CPU+DRAM). Bajar el reloj de
+GPU alarga la corrida y la CPU delegada sigue consumiendo durante esa
+extensión. Evaluar solo el lado GPU sobreestimaría el ahorro de forma
+grosera: en `gaussian` de F0 a F1 la energía **de GPU baja** 400→339 J,
+pero la **total sube** 858→913 J, porque la CPU suma +117 J. Todo lo que
+sigue usa energía total.
+
+## K.2 El hueco del oráculo es prácticamente nulo
+
+| kernel | CPU | mejor nivel | ahorro E% | costo t% |
+|---|---|---|---|---|
+| rodinia_gaussian | REF | REF | 0.91 | −0.82 |
+| gpu_dgemm_n4096 | REF | REF | 2.14 | −2.15 |
+| rodinia_heartwall | REF | REF | 0.41 | −0.56 |
+| rodinia_lavamd | REF | F1 | 1.34 | +10.02 |
+| rodinia_gaussian | F4 | REF | 1.15 | −0.82 |
+| gpu_dgemm_n4096 | F4 | F0 | 0.00 | 0.00 |
+| rodinia_heartwall | F4 | F0 | 0.00 | 0.00 |
+| **rodinia_lavamd** | **F4** | **F1** | **7.67** | **+4.87** |
+
+**Los "ahorros" de REF sobre F0 no son ahorros de DVFS.** REF bajo carga
+hace boost hasta ~1410 MHz, o sea el mismo punto de operación que F0; el
+costo de tiempo NEGATIVO (REF resulta más rápido *y* más barato) delata
+que es ruido de medición entre dos puntos equivalentes, no una decisión
+de frecuencia. Descontando eso, **3 de 4 kernels no tienen absolutamente
+nada que ganar**: el reloj máximo ya es el óptimo.
+
+El único margen real es `rodinia_lavamd`: 7.67% de ahorro en F1 con 4.87%
+de costo en tiempo (CPU=F4).
+
+## K.3 Por qué: alpha lo predice 4/4
+
+| kernel | CPU | alpha | r2 | ¿margen? |
+|---|---|---|---|---|
+| rodinia_heartwall | REF | 0.771 | 0.9905 | no |
+| gpu_dgemm_n4096 | REF | 0.619 | 0.9950 | no |
+| rodinia_gaussian | REF | 0.607 | 0.9953 | no |
+| **rodinia_lavamd** | REF | **0.179** | 0.9648 | **sí** |
+| **rodinia_lavamd** | F4 | **0.062** | 0.9726 | **sí** |
+
+Con el umbral heredado del eje CPU (α < 0.226 ⇒ el DVFS paga), **alpha
+acierta el resultado del oráculo en los 4 kernels**. El instrumento de la
+Fase 1 transfiere íntegro al eje GPU — resultado metodológico reutilizable
+en el documento.
+
+## K.4 El mecanismo: solo se escala el reloj de SM
+
+`nvidia-smi -lgc` fija el reloj **gráfico/SM**; el reloj de **memoria
+queda intacto**. De ahí se sigue la predicción: un kernel limitado por
+ancho de banda de DRAM debe ser casi insensible. Verificado con los
+kernels de calibración, que ya corrieron en los 6 niveles (cero costo):
+
+| kernel | α | T(F4)/T(F0) con recorte de reloj 6.7× |
+|---|---|---|
+| `gpu_stream_bw` (ancho de banda puro) | **0.071** | **1.485** |
+| `rodinia_heartwall` (cómputo) | 0.771 | 5.52 |
+
+Mismo recorte de reloj, 3.7× de diferencia en penalización. **El margen de
+DVFS en GPU vive en los kernels limitados por memoria.**
+
+(`gpu_ert_probe_fp64` quedó descartado del tamizaje: su tiempo NO es
+monótono al bajar el reloj — F4 sale más rápido que F3 — señal de que
+autoajusta su tamaño de problema. Su α no es interpretable y el script lo
+marca automáticamente.)
+
+## K.5 Hallazgo colateral: CPU al mínimo CUESTA energía
+
+En los 4 kernels, `CPU=REF` domina a `CPU=F4` en energía total:
+
+| kernel | E_tot CPU=REF | E_tot CPU=F4 | penalización |
+|---|---|---|---|
+| rodinia_gaussian | 850.1 | 894.3 | +5.2% |
+| gpu_dgemm_n4096 | 907.7 | 1111.6 | +22.5% |
+| rodinia_heartwall | 685.0 | 754.8 | +10.2% |
+| rodinia_lavamd | 731.7 | 2307.6 | **+215%** |
+
+Frenar la CPU alarga la corrida más de lo que ahorra en potencia:
+race-to-idle gana. `lavamd` es el caso extremo (5.7 s → 16.8 s), lo que
+además revela que su carga tiene un componente de CPU dominante.
+
+**Esto no invalida la decisión de CPU-al-mínimo como control experimental**
+(aislar el efecto de la GPU es un propósito legítimo y distinto), pero
+sí significa que, **como política**, CPU-al-mínimo es la opción equivocada
+en los 4 kernels medidos.
+
+## K.6 Conclusión y consecuencia
+
+Segunda confirmación independiente, ahora en el eje GPU, de lo ya
+concluido en CPU: **es el catálogo, no la plataforma.** La plataforma sí
+tiene margen de DVFS explotable (`gpu_stream_bw`, α=0.071, lo demuestra);
+los kernels elegidos son los que no lo tienen.
+
+**No construir el modelo de ML sobre estos 4 kernels.** El techo teórico
+que podría capturar cualquier modelo es ~1.9% de energía promedio, con
+CV de tiempo entre repeticiones de hasta 4.8% — un modelo que "gane" por
+ese margen no es defendible en una sustentación.
+
+Consecuencia operativa: alpha pasa de ser una métrica descriptiva a ser
+un **instrumento de tamizaje barato** para reconstruir el catálogo GPU
+alrededor de kernels limitados por memoria. Ver K.7.
+
+## K.7 Candidatos a tamizar, en orden de prioridad
+
+1. **`rodinia_dwt2d`** — el que se excluyó por dudoso (Anexo G.5) es ahora
+   el más prometedor. Su firma (OI=2.17, potencia alta con `gpu_util_pct`
+   baja) es exactamente la de un kernel limitado por ancho de banda. La
+   ambigüedad del criterio de actividad que lo dejó fuera es un *síntoma*
+   de la propiedad que ahora se busca, no un defecto.
+2. **`gpu_stream_bw` / `babelstream_cuda`** — α=0.071 ya medido, binario
+   ya construido. Promoverlo de solo-calibración a kernel de dataset.
+3. **`backprop` y `myocyte`** — se excluyeron por actividad baja medida con
+   `gpu_util_pct`, el criterio que G.6 ítem 4 ya marcó como inadecuado
+   justamente para kernels memory-bound livianos. Reauditar con potencia.
+
+Tamizaje propuesto: 5 niveles fijos × 1–2 rep, **solo tiempo**, sin
+matriz completa. Conservar únicamente los que den α < 0.226, y recién
+entonces correr campaña completa sobre los sobrevivientes + `lavamd`.
+
+## K.8 Qué queda decidido sobre la arquitectura del modelo
+
+Con estos datos, el nivel óptimo es **constante dentro de cada kernel**
+y varía **entre** kernels — el escenario (a) de la discusión previa: un
+selector por kernel, no un clasificador de fase por ventana. **CAT-10
+deja de ser bloqueante.** No está probado que no exista variación
+intra-corrida (no se midió), pero con 3 de 4 kernels en "usar el máximo"
+no hay evidencia que justifique la inversión en el esquema (b).
