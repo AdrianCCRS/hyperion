@@ -1658,6 +1658,15 @@ en los 4 kernels medidos.
 
 ## K.6 Conclusión y consecuencia
 
+> **RETRACTADO por el Anexo L (job 6463).** La conclusión de abajo — "es
+> el catálogo, no la plataforma" — resultó **falsa** al tamizar los
+> candidatos memory-bound: los tres fallaron igual, y la causa es un piso
+> de potencia estática de la plataforma (~117 W) que cierra la ventana
+> del DVFS para casi cualquier kernel. Es la plataforma. Se conserva el
+> texto original para dejar la traza del error. El α=0.071 de
+> `gpu_stream_bw` citado como prueba tampoco alcanza: el umbral real
+> exigido por el piso estático es α ≈ 0.03, no 0.226.
+
 Segunda confirmación independiente, ahora en el eje GPU, de lo ya
 concluido en CPU: **es el catálogo, no la plataforma.** La plataforma sí
 tiene margen de DVFS explotable (`gpu_stream_bw`, α=0.071, lo demuestra);
@@ -1697,3 +1706,119 @@ selector por kernel, no un clasificador de fase por ventana. **CAT-10
 deja de ser bloqueante.** No está probado que no exista variación
 intra-corrida (no se midió), pero con 3 de 4 kernels en "usar el máximo"
 no hay evidencia que justifique la inversión en el esquema (b).
+
+---
+
+# ANEXO L — El piso de potencia estática cierra la ventana del DVFS en GPU (job 6463)
+
+Tamizaje de α sobre los candidatos memory-bound de K.7. Job 6463,
+COMPLETADO, exit 0, 23:39, **54/54 aceptadas, 0 rechazadas**. (Predije que
+`dwt2d` sería rechazado en F4 por su exceso de potencia de ~1 W; **me
+equivoqué**, los márgenes del Anexo I lo manejaron sin problema.)
+
+## L.1 El ajuste de α resultó INVALIDO — y el r2 lo delató
+
+| kernel | α | intercepto | 1−α | r2 |
+|---|---|---|---|---|
+| rodinia_myocyte | 0.161 | 1.241 | 0.839 | **0.535** |
+| rodinia_backprop | 0.157 | 1.197 | 0.843 | **0.628** |
+| rodinia_dwt2d | 0.306 | 1.456 | 0.694 | **0.530** |
+
+Los α salen bajos (aparentarían "el DVFS paga"), pero **el modelo no
+ajusta**: r2 de 0.53–0.63 y el intercepto incompatible con 1−α, que el
+modelo exige. **Estos α no se pueden reportar.** La causa está en los
+tiempos crudos: `dwt2d` da F3=17.601 s y F4=**17.538 s** — más rápido con
+el reloj recortado 2.4× — y `myocyte` satura en F3→F4 (21.688→22.012).
+Ese punto de F4, con el mayor apalancamiento en la regresión (x=6.71),
+aplana la recta y produce un α bajo espurio.
+
+**Descartadas dos explicaciones, ambas por verificación directa:**
+
+1. *¿Falla el actuado de frecuencia en F4?* No. El reloj de SM medido
+   bajo carga da min = max = objetivo exacto en los 5 niveles y los 3
+   kernels (1410/1110/810/510/**210**). Actuación impecable.
+2. *¿Rodinia hace menos trabajo en F4 saliendo con código 0?* (el modo de
+   fallo del incidente `test.avi`.) No. El stdout de `dwt2d` es idéntico
+   en F0/F3/F4: mismo `inputsize 805306368` cargado completo, las mismas
+   3 etapas de DWT, stderr vacío.
+
+## L.2 La causa real: la potencia total apenas se mueve
+
+`P_cpu` es **constante en ~82–87 W** en todos los niveles y todos los
+kernels. La CPU delegada (6 núcleos, gobernador `performance`) no baja su
+consumo porque la GPU vaya más lenta — solo espera más tiempo, cobrando
+igual.
+
+| kernel | P(F0) | P(F4) | caída de P | T(F4)/T(F0) |
+|---|---|---|---|---|
+| gpu_dgemm_n4096 | 246.7 W | 144.5 W | 41.4% | 4.57 |
+| rodinia_heartwall | 177.5 W | 121.2 W | 31.7% | 5.52 |
+| rodinia_gaussian | 158.4 W | 120.2 W | 24.1% | 4.55 |
+| rodinia_myocyte | 140.4 W | 117.0 W | 16.6% | 2.16 |
+| rodinia_dwt2d | 135.6 W | 116.5 W | 14.1% | 3.18 |
+| rodinia_lavamd | 127.2 W | 113.7 W | 10.6% | 2.08 |
+| rodinia_backprop | 89.5 W | 101.1 W | **−12.9%** | 2.14 |
+
+Todos convergen a un piso de **~113–121 W** por más que el reloj baje
+6.7×. `backprop` es patológico: su potencia **sube** al bajar el reloj,
+así que no puede pagar en ningún escenario.
+
+## L.3 El criterio exacto, sin modelo de por medio
+
+Como E = P·T, bajar el reloj paga si y solo si
+
+    T(f)/T(F0)  <  P(F0)/P(f)
+
+No depende de Amdahl ni de α — solo de energía y tiempo medidos, así que
+sobrevive a que el ajuste sea inválido. Aplicado a los **7 kernels × 5
+niveles** medidos hasta hoy (35 combinaciones), **explica el 100% de los
+casos**, y solo uno lo satisface:
+
+| caso | T/T(F0) | P(F0)/P | ¿paga? |
+|---|---|---|---|
+| **rodinia_lavamd @ F1** | **1.100** | **1.115** | **SI, −1.34%** |
+| rodinia_myocyte @ F1 | 1.280 | 1.125 | no, +13.77% |
+| rodinia_dwt2d @ F1 | 1.544 | 1.107 | no, +39.47% |
+| rodinia_backprop @ F1 | 1.287 | 0.954 | no, +34.94% |
+| … las 31 restantes | — | — | no |
+
+El único ganador lo es por un margen de **1.5 puntos**. No es una política,
+es una casualidad al filo del ruido.
+
+## L.4 Corrección: es la plataforma, no el catálogo
+
+K.6 concluyó "es el catálogo, no la plataforma" y **eso era falso**. La
+prueba estaba diseñada para refutarlo y lo refutó: los tres kernels más
+memory-bound del catálogo (OI de 0.06, 0.45 y 2.17 — más bajos que
+cualquiera de los 4 originales) fallaron exactamente igual.
+
+El umbral real que impone el piso estático no es α < 0.226 (heredado del
+eje CPU) sino, de la tabla de L.2, **una holgura de tiempo de solo
+1.12–1.20× frente a un recorte de reloj de 6.7×** — o sea **α ≈ 0.03**.
+Ningún kernel real del catálogo se acerca; ni siquiera `gpu_stream_bw`
+(α=0.071, T(F4)/T(F0)=1.485) lo lograría.
+
+## L.5 Dónde SI está la energía
+
+En `dwt2d` a F0, `E_cpu` = 466.7 J de 747.2 J totales: **el 62% de la
+energía de una corrida GPU la gasta una CPU que está esperando.** Ese es
+el lever grande, no el reloj de la GPU.
+
+Cuidado: **no** se resuelve bajando la frecuencia de la CPU — K.5 ya midió
+que CPU al mínimo empeora la energía total en los 4 kernels (hasta +215%),
+porque alarga la corrida más de lo que ahorra. La vía plausible es reducir
+el número de núcleos delegados o liberar los núcleos mientras la GPU
+trabaja, no frenarlos. **Sin medir todavía.**
+
+## L.6 Consecuencia para el modelo de ML
+
+**El eje GPU no sostiene un modelo de DVFS.** De 35 combinaciones medidas
+hay exactamente una decisión no trivial, con 1.34% de ahorro y 1.5 puntos
+de margen. Un clasificador entrenado sobre eso no puede superar de forma
+defendible a la constante "usar siempre el reloj máximo".
+
+Esto vale como **resultado negativo riguroso**, que es un entregable
+legítimo: criterio analítico explícito, validado sobre 7 kernels y 35
+combinaciones, con el mecanismo físico identificado y cuantificado (piso
+estático de ~117 W). No es "no funcionó"; es "aquí está la condición que
+debe cumplirse, y esta plataforma no la cumple".
