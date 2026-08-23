@@ -1374,3 +1374,60 @@ final queda abierta** — no se resuelve solo corrigiendo el comentario.
    tamaño mayor — el 19.1%/10.8% de la tabla anterior se midió con
    `gpu_util_pct`, que para kernels memory-bound livianos puede estar
    subestimando lo mismo que en `dwt2d`.
+
+---
+
+# ANEXO I — ARC-194: sonda de reposo v2 y márgenes finales de los 6 niveles
+
+## I.1 Resultado de la sonda larga (job 6461, 60 s/nivel, asentamiento excluido)
+
+| nivel | MHz | reposo medio | p95 | máx |
+|---|---|---|---|---|
+| REF | 210 (autorregulado) | 33 654.0 | 33 780 | 33 860 |
+| F0 | 1410 | 53 621.8 | 54 090 | 55 620 |
+| F1 | 1110 | 39 856.8 | 40 020 | **40 570** |
+| F2 | 810 | 36 084.9 | 36 250 | 36 610 |
+| F3 | 510 | 34 441.0 | 34 620 | 34 820 |
+| F4 | 210 | 33 677.6 | 33 810 | 33 870 |
+
+**El pico de F1 desapareció.** Con el transitorio de asentamiento excluido
+y 300 muestras (antes 100), el máximo de F1 es 40 570 — nada parecido al
+56 390 espurio de la v1. Confirma que era un transitorio de la sonda
+corta, no una inestabilidad real del nivel.
+
+**`REF` en reposo iguala a `F4`** (33 654 vs 33 678): sin reloj fijado, la
+GPU se autorregula al mínimo cuando no hay carga, sin importar el
+gobernador.
+
+## I.2 Exceso real en REF — mucho mayor que en cualquier nivel fijo
+
+| kernel | exceso mínimo en REF | exceso mínimo en F0 |
+|---|---|---|
+| rodinia_heartwall | 41 875 | 9 477 |
+| rodinia_gaussian | 28 060 | 11 353 |
+| gpu_dgemm_n4096 | 27 180 | 10 357 |
+
+Bajo carga, `REF` deja subir el reloj libremente (boost), así que su
+exceso real es mucho mayor que el de F0 pese a que su reposo es igual al
+de F4. Es el nivel más fácil de discriminar de los seis.
+
+## I.3 Márgenes finales por nivel
+
+Derivados como: por encima de 2–4× el techo de ruido de reposo (p95/máx
+menos la media) Y por debajo de la mitad del exceso mínimo real observado.
+
+| nivel | idle (mW) | margen (mW) | techo de ruido | exceso real mínimo | factor de seguridad |
+|---|---|---|---|---|---|
+| REF | 33 654.0 | 800 | ~206 | 27 180 | 34× bajo la señal |
+| F0 | 53 621.8 | 4 000 | ~2 000 | 9 477 | 2× sobre ruido, 2.4× bajo señal |
+| F1 | 39 856.8 | 2 000 | ~713 | 4 175 | 2.8× sobre ruido, 2× bajo señal |
+| F2 | 36 084.9 | 1 200 | ~525 | 2 528 | 2.3× sobre ruido, 2.1× bajo señal |
+| F3 | 34 441.0 | 900 | ~379 | 1 888 | 2.4× sobre ruido, 2.1× bajo señal |
+| F4 | 33 677.6 | 800 | ~193 | 1 287 | 4.1× sobre ruido, 1.6× bajo señal |
+
+**Ya no son provisionales** — a diferencia de la tabla de G.4, esta se
+derivó de una sonda de reposo limpia (60 s, asentamiento excluido) y de
+exceso real medido en tres kernels de referencia en los 6 niveles. F4
+queda con el margen de seguridad más ajustado (1.6×); si algún kernel
+nuevo muestra un exceso real menor a 1287 mW en F4, revisar antes de
+confiar en el criterio ahí.
