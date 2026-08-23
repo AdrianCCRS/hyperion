@@ -937,3 +937,82 @@ pre-vuelo" del resto del plan.
   que el kernel corrió en el dispositivo.
 - El eje de compilación de `gpu_phasic.cu` (E5) sigue pendiente de nvcc en
   paccaA100.
+
+---
+
+# ANEXO D — T0.2d: validación del binado contra la etiqueta de verdad (ARC-187)
+
+## D.1 Cómo se hizo posible sin uncore ni preflight nuevo
+
+Los datos usados son del job 6420 (pre-vuelo de fases), **rechazado**
+por VAL-09/I10 a causa del problema de CAP_PERFMON (ARC-184) — pero el
+rechazo solo invalida las columnas derivadas de `uncore` (OI,
+`phase_label_uncore_real`). `delta_instructions`, `t_start_ns`/`t_end_ns`
+(telemetría de `perf_event_open`, independiente de uncore) y las marcas
+`PHASE`/`T0_MONOTONIC_NS` por stdout (ARC-177) son reales y completas
+(`running_ratio = 1.0`). El primer intento del script filtraba por
+`quality_status == "ok"`, que descartaba las 20 266 ventanas de cada
+corrida por error — `intensity_undefined` solo significa "sin OI", no
+"sin telemetría". Corregido para excluir solo los estados que sí
+invalidan esas columnas.
+
+## D.2 Resultado
+
+| kernel (período de fase) | pureza media del bin | pureza p05 | acuerdo F0 vs F4 |
+|---|---|---|---|
+| `phasic_p010` (10 ms) | 0.514 | 0.507 | 0.70 |
+| `phasic_p1000` (1 s) | **0.988** | 0.917 | **0.87** |
+
+**`phasic_p010` no es un caso de desalineación** — es un problema de
+escala. Con 100 bins sobre ~20 s de corrida, cada bin cubre ~200 ms, es
+decir ~20 ciclos completos de una fase de 10 ms. La baja pureza (0.51,
+esencialmente aleatoria) es la consecuencia matemática esperada de
+promediar 20 alternancias dentro de un mismo bin, no evidencia de que el
+binado esté mal alineado. Confirma, eso sí, algo útil para S3: 100 bins es
+resolución insuficiente para fases de 10 ms — habría que usar más bins o
+directamente descartar `phasic_p010` de la campaña de fases (S3 ya lo
+sugería).
+
+**`phasic_p1000` es la prueba limpia** (el período de fase, 1 s, es 5× más
+largo que un bin, ~200 ms): la pureza intra-nivel es alta (0.988 de
+media, 0.917 en el peor bin) — el binado SÍ aísla fases reales dentro de
+un mismo nivel. Pero el **acuerdo entre F0 y F4 es solo 0.87**: en ~13 %
+de los bins, la fase dominante en F0 no coincide con la de F4, pese a que
+cada bin es internamente casi puro en ambos niveles por separado.
+
+## D.3 Interpretación — y por qué no generaliza sin más a los 9 kernels reales
+
+13 % de desacuerdo es real, pero antes de aplicarlo al resto del proyecto
+hay que entender POR QUÉ pasa, y la explicación más plausible es
+específica de `phasic`, no un defecto general de la coordenada de avance:
+
+`phasic` alterna entre una fase de FMA denso en instrucciones (cientos de
+miles de retiros por milisegundo) y una fase de persecución de punteros
+muy pobre en instrucciones (un salto de puntero por iteración, dominado
+por latencia de memoria, no por reloj). Si esa densidad de instrucciones
+por segundo de pared responde de forma DISTINTA a la frecuencia en cada
+fase —lo cual es casi seguro: la fase de cómputo es sensible al reloj por
+definición, la de memoria no— entonces la fracción de instrucciones que
+corresponde a "haber completado el bin k" deja de ser la misma posición
+temporal real entre F0 y F4. La invariancia del 0.34 % (ARC-175) se validó
+sobre aplicaciones con densidad de instrucciones razonablemente homogénea
+a lo largo de la corrida; `phasic` la viola a propósito, porque para eso
+se construyó (alternar dos regímenes extremos).
+
+**Esto es tranquilizador para C2**, no alarmante: los 9 kernels reales del
+dataset (NPB, DGEMM, RAJAPerf, Rodinia) no alternan deliberadamente entre
+regímenes de densidad de instrucciones tan opuestos dentro de una sola
+corrida — son individualmente más homogéneos. El 13 % de desacuerdo medido
+aquí es probablemente una cota superior, no una cifra transferible a
+`npb_ft`/`npb_mg`/etc. tal cual.
+
+## D.4 Lo que sigue abierto
+
+- El α > 1 residual por tramo (Anexo B.3) sigue sin una causa CONFIRMADA
+  para los kernels reales — este anexo da una hipótesis de mecanismo
+  (densidad de instrucciones dependiente de fase y de frecuencia) y una
+  cota de cuánto podría pesar en el peor caso (`phasic`), pero no mide el
+  efecto directamente sobre `npb_ft`/`dgemm`/etc.
+- Si se usa `phasic` como instrumento de validación de latencia de
+  detección más adelante, hacerlo con `phasic_p100`/`p1000`, nunca
+  `p010` — confirmado que 100 bins no lo resuelven.
