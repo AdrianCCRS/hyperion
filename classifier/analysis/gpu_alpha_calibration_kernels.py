@@ -31,6 +31,12 @@ CID = "pacca_gpu_nucleo_activo_20260823"
 DEFAULT_BASE = Path.home() / f"hyperion-results/campaigns/{CID}"
 FIXED_LEVELS = ["F0", "F1", "F2", "F3", "F4"]
 
+# Las corridas de calibración no pueblan ``gpu_freq_mhz_applied`` en su
+# metadata (queda en null), a diferencia de las del dataset. Los MHz por
+# nivel sí están medidos en vivo y confirmados en el Anexo I, así que se
+# usan como respaldo cuando el campo viene vacío.
+LEVEL_MHZ = {"F0": 1410.0, "F1": 1110.0, "F2": 810.0, "F3": 510.0, "F4": 210.0}
+
 KERNELS = {
     "gpu_stream_bw": "ancho de banda puro -> se espera alpha BAJO",
     "gpu_ert_probe_fp64": "cómputo FP64 puro -> se espera alpha ALTO",
@@ -63,9 +69,11 @@ def main() -> int:
             summary = read_summary(summary_path)
             metadata = json.loads(metadata_path.read_text())
             mhz = float(metadata.get("gpu_freq_mhz_applied") or 0.0)
+            if mhz <= 0:
+                mhz = LEVEL_MHZ[level]  # respaldo, ver LEVEL_MHZ
             elapsed = summary.get("telemetry_elapsed_ns_mean", 0.0) / 1e9
-            if mhz <= 0 or elapsed <= 0:
-                print(f"   {level}: datos incompletos (MHz={mhz}, t={elapsed})")
+            if elapsed <= 0:
+                print(f"   {level}: tiempo inválido ({elapsed})")
                 continue
             if level == "F0":
                 reference = (mhz, elapsed)
@@ -80,6 +88,14 @@ def main() -> int:
             ratio = elapsed / ref_t
             print(f"   {level}  {mhz:>5.0f} MHz   t={elapsed:>8.3f} s   T/Tref={ratio:>6.3f}")
             points.append((ref_mhz / mhz, ratio))
+
+        # El tiempo debe crecer de forma monótona al bajar el reloj. Si no,
+        # el kernel probablemente autoajusta su tamaño de problema (ERT
+        # barre tamaños) y su tiempo NO es una medida limpia de alpha.
+        times = [t for _, _, t in rows]
+        if any(b < a for a, b in zip(times, times[1:])):
+            print("   AVISO: tiempo NO monótono al bajar el reloj -- el kernel")
+            print("   probablemente autoajusta su tamaño de problema; alpha aquí NO es fiable.")
 
         alpha, intercept, r2 = fit_alpha(points)
         print(f"   => alpha={alpha:.3f}   intercepto={intercept:.3f}   r2={r2:.4f}")
