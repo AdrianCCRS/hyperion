@@ -166,7 +166,29 @@ def main() -> int:
     parser.add_argument("--kernels", nargs="+", default=KERNELS)
     parser.add_argument("--cpu-levels", nargs="+", default=CPU_LEVELS)
     parser.add_argument("--reps", type=int, default=len(REPS))
+    parser.add_argument(
+        "--energy-metric",
+        choices=["total", "gpu"],
+        default="total",
+        help=(
+            "'total' = GPU + paquete CPU + DRAM (más estricto, mide el nodo "
+            "entero). 'gpu' = solo NVML, que es lo que usa la literatura de "
+            "DVFS de GPU y lo que una política de GPU realmente controla."
+        ),
+    )
+    parser.add_argument(
+        "--max-slowdown-pct",
+        type=float,
+        default=None,
+        help=(
+            "Presupuesto de degradación: descarta niveles que alarguen la "
+            "corrida más que este porcentaje. Es el planteo iso-latencia "
+            "habitual en la literatura. Sin esto, el óptimo puede ser un "
+            "nivel inaceptablemente lento."
+        ),
+    )
     args = parser.parse_args()
+    energy_key = "total_j" if args.energy_metric == "total" else "gpu_j"
     BASE = args.base
     CID = args.campaign_id
     KERNELS = list(args.kernels)
@@ -236,6 +258,10 @@ def main() -> int:
     print("=" * 78)
     print(f"TABLA 3 -- HUECO DEL ORACULO (mejor nivel vs. siempre {BASELINE_LEVEL})")
     print("=" * 78)
+    metric_label = "TOTAL (GPU+CPU+DRAM)" if args.energy_metric == "total" else "SOLO GPU (NVML)"
+    print(f"metrica de energia: {metric_label}")
+    if args.max_slowdown_pct is not None:
+        print(f"presupuesto de degradacion: <= {args.max_slowdown_pct:.0f}% mas lento que {BASELINE_LEVEL}")
     print("Un ahorro <= 0 significa que 'siempre performance' ya es lo óptimo")
     print("y que NO hay nada que un modelo pueda capturar en ese kernel.")
     print()
@@ -255,19 +281,25 @@ def main() -> int:
                 for level in GPU_LEVELS
                 if (kernel, cpu_level, level) in data
             ]
+            if args.max_slowdown_pct is not None:
+                limit = 1.0 + args.max_slowdown_pct / 100.0
+                candidates = [
+                    item for item in candidates
+                    if item[1]["elapsed_s"] <= reference["elapsed_s"] * limit
+                ]
             if not candidates:
                 continue
-            best_level, best = min(candidates, key=lambda item: item[1]["total_j"])
-            saving_pct = 100.0 * (reference["total_j"] - best["total_j"]) / reference["total_j"]
+            best_level, best = min(candidates, key=lambda item: item[1][energy_key])
+            saving_pct = 100.0 * (reference[energy_key] - best[energy_key]) / reference[energy_key]
             time_cost_pct = (
                 100.0 * (best["elapsed_s"] - reference["elapsed_s"]) / reference["elapsed_s"]
             )
-            ref_edp = reference["total_j"] * reference["elapsed_s"]
+            ref_edp = reference[energy_key] * reference["elapsed_s"]
             best_edp_level, best_edp = min(
-                candidates, key=lambda item: item[1]["total_j"] * item[1]["elapsed_s"]
+                candidates, key=lambda item: item[1][energy_key] * item[1]["elapsed_s"]
             )
             edp_gain_pct = (
-                100.0 * (ref_edp - best_edp["total_j"] * best_edp["elapsed_s"]) / ref_edp
+                100.0 * (ref_edp - best_edp[energy_key] * best_edp["elapsed_s"]) / ref_edp
             )
             print(
                 f"{kernel:<20} {cpu_level:<4} {best_level:>6} {saving_pct:>10.2f} "
@@ -292,7 +324,7 @@ def main() -> int:
             ]
             if not candidates:
                 continue
-            best_by_kernel[kernel] = min(candidates, key=lambda item: item[1]["total_j"])[0]
+            best_by_kernel[kernel] = min(candidates, key=lambda item: item[1][energy_key])[0]
         distinct = sorted(set(best_by_kernel.values()))
         print(f"  CPU={cpu_level}: {best_by_kernel}")
         print(f"    niveles óptimos distintos: {distinct}")
