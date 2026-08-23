@@ -1,0 +1,137 @@
+# Pre-vuelo del bypass ARC-191: primera campaña real con
+# uncore.enabled=false, habilitado por ese fix para no quedar bloqueados
+# por CAP_PERFMON (ARC-184) mientras se avanza el eje GPU.
+#
+# QUÉ FALSEA. Que el bypass funcione de punta a punta con datos reales, no
+# solo en los tests unitarios: que el preflight pase (E12/E13 no bloqueen),
+# que la campaña corra, que windows.csv tenga filas gpu_telemetry válidas
+# sin que la ausencia de uncore contamine nada del lado GPU, y que el
+# criterio de potencia por nivel (ARC-189, Anexo G) acepte corridas
+# reales.
+#
+# KERNELS. Los 4 con actividad real confirmada (auditoría fresca,
+# ARC-188): rodinia_gaussian (90.7%), gpu_dgemm_n4096 (86.4%),
+# rodinia_heartwall (83.5%), rodinia_lavamd (53.0%, variable). Se deja
+# fuera dwt2d a propósito -- su inclusión sigue abierta (Anexo G.5).
+#
+# REJILLA. Solo REF/F0/F4 en GPU (3 niveles, no los 6 completos) y CPU fijo
+# en REF/F4 -- suficiente para decidir si el bypass funciona, no para
+# producir dataset final.
+#
+# MARGEN DE POTENCIA. Los valores de Anexo G.4 son PROVISIONALES -- la
+# sonda de reposo (job 6447) fue de 20 s y F1 mostró un pico sin explicar.
+# Aquí solo se usan F0/F4, que sí tienen respaldo directo de tres kernels
+# de referencia. No se declara F1/F2/F3 en el margen: si alguna corrida
+# cae en esos niveles sin margen, se rechaza fail-closed (por diseño), no
+# se acepta con un valor inventado.
+#
+# COSTO. 4 kernels x 2 niveles CPU x 3 niveles GPU x 3 rep = 72 corridas +
+# calibración CPU/GPU. Los kernels más lentos (gaussian, lavamd) rondan
+# 5-10 s cada uno; se estima 25-40 min.
+
+campaign_id: pacca_gpu_uncore_disabled_preflight_20260823
+environment_tier: hpc_sc3
+seed: 20260806
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_gpu_uncore_disabled_preflight_20260823
+overwrite: true
+
+catalog_path: ../kernels/catalog.yaml
+
+# MAN-07 exige estas dos SIEMPRE (única fuente de ancho de banda/FLOPs
+# para I_ridge de CPU) -- ARC-191 no las quita, solo evita que su presencia
+# fuerce uncore.enabled=True cuando el dataset real es 100% GPU.
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: rodinia_gaussian
+  - kernel_ref: gpu_dgemm_n4096
+  - kernel_ref: rodinia_heartwall
+  - kernel_ref: rodinia_lavamd
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F4, mode: fixed, fraction: 0.0}
+
+gpu_frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F0, mode: fixed, fraction: 1.0}
+  - {id: F4, mode: fixed, fraction: 0.0}
+
+repetitions_per_combination: 3
+target_windows_per_repetition: 5
+interval_ns: 1000000
+gpu_interval_ns: 5000000
+
+running_ratio_min: 0.90
+
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+  grace_seconds: 0.05
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+
+rapl:
+  enabled: true
+
+# EL PUNTO DE ESTE PRE-VUELO: en falso, gracias a ARC-191. Las ventanas de
+# CPU (calibración) quedarán intensity_undefined -- irrelevante, nunca
+# pasan por validate_windows(). Las ventanas de GPU no dependen de esto en
+# absoluto.
+uncore:
+  enabled: false
+
+turbo:
+  require_disabled: true
+
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+
+gpu:
+  enabled: true
+  calibration:
+    - gpu_stream_bw
+    - gpu_ert_probe_fp32
+    - gpu_ert_probe_fp64
+  # ARC-189 (Anexo G): criterio de potencia por nivel, reemplaza al piso
+  # de utilización. Solo F0/F4 declarados a propósito -- ver nota arriba.
+  idle_power_mw_by_level:
+    F0: 53820.7
+    F4: 33804.0
+  active_power_margin_mw:
+    F0: 6000
+    F4: 800
+
+timeouts_seconds:
+  ready: 15
+  run: 180
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 480000000000
+
+projected_campaign_bytes: 200000000
+remaining_core_hours: 1000.0
+projected_core_hours: 3.0
