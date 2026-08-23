@@ -942,3 +942,79 @@ kernels:
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
       pacca-a100: "sha256:9db88ce12f910c15a9843ff475977da3aa6cc994198db6666dc714887e1a6748"
+
+  # ARC-186: gpu_phasic (kernels/phase/gpu_phasic.cu), analogo GPU de
+  # phasic.c. Compilado con nvcc en paccaA100 (nvcc no esta en el PATH ni
+  # en ningun module -- ver scripts/pacca/build_gpu_phase_kernels.sh, que
+  # usa la ruta absoluta del toolkit y despoja el binario porque nvcc NO da
+  # binarios reproducibles: dos builds identicas dieron sha256 distintos
+  # hasta hacer "strip --strip-all").
+  #
+  # LIMITACION ESTRUCTURAL, documentada a proposito para que no se asuma
+  # resuelta: CAT-10 exige operational_intensity_flops_per_byte para todo
+  # kernel device=="gpu", y ese es un valor ESTATICO por kernel (calibrado
+  # una vez con ncu), no una medicion dinamica por ventana como en CPU
+  # (donde el OI sale de perf_event_open/uncore_imc en cada intervalo). Por
+  # eso el phase_label_train automatico de este kernel sera CONSTANTE en
+  # toda la corrida, sin importar que el programa alterne fases reales --
+  # el pipeline estandar de etiquetado no puede capturar la alternancia en
+  # GPU con la telemetria actual. El OI declarado abajo corresponde a la
+  # FASE DE COMPUTO (FMA sin trafico de memoria, intensidad no acotada por
+  # arriba); la fase de memoria queda mal etiquetada por el pipeline
+  # automatico a proposito de esta limitacion, no por un descuido.
+  #
+  # Lo que SI sirve de este kernel: la etiqueta de verdad real (T0_MONOTONIC_NS
+  # + marcas PHASE por stdout, ver ARC-176/177) cruzada OFFLINE contra
+  # gpu_power_mw/gpu_sm_clock_mhz por ventana -- el mismo tipo de analisis
+  # que T0.2d hace para el binado de CPU. No sirve para entrenar via
+  # phase_label_train sin ese cruce manual.
+  - id: gpu_phasic_p010
+    suite: HYPERION-PHASE
+    role: dataset
+    device: gpu
+    exec_path: bin/gpu_phasic
+    exec_args: "--phase-seconds 0.010 --total-seconds 20 --size-mib 2048 --seed 20260806"
+    phase_label_hint: mixed
+    operational_intensity_flops_per_byte: 1000000.0  # fase de computo: sin trafico de memoria, ver nota arriba
+    gpu_precision: fp64
+    size_variant: P010MS
+    expected_runtime_seconds: 24
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 2415919104  # 2048 MiB de cadena + margen
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:7b1ffe1c3914baa48c3bb55cec0fc6f4ebb84b8ac55a9ef07b5786644a954481"
+
+  - id: gpu_phasic_p100
+    suite: HYPERION-PHASE
+    role: dataset
+    device: gpu
+    exec_path: bin/gpu_phasic
+    exec_args: "--phase-seconds 0.100 --total-seconds 20 --size-mib 2048 --seed 20260806"
+    phase_label_hint: mixed
+    operational_intensity_flops_per_byte: 1000000.0
+    gpu_precision: fp64
+    size_variant: P100MS
+    expected_runtime_seconds: 24
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 2415919104
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:7b1ffe1c3914baa48c3bb55cec0fc6f4ebb84b8ac55a9ef07b5786644a954481"
+
+  - id: gpu_phasic_p1000
+    suite: HYPERION-PHASE
+    role: dataset
+    device: gpu
+    exec_path: bin/gpu_phasic
+    exec_args: "--phase-seconds 1.000 --total-seconds 20 --size-mib 2048 --seed 20260806"
+    phase_label_hint: mixed
+    operational_intensity_flops_per_byte: 1000000.0
+    gpu_precision: fp64
+    size_variant: P1000MS
+    expected_runtime_seconds: 24
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 2415919104
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:7b1ffe1c3914baa48c3bb55cec0fc6f4ebb84b8ac55a9ef07b5786644a954481"
