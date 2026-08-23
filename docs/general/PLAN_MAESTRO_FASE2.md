@@ -1016,3 +1016,46 @@ aquí es probablemente una cota superior, no una cifra transferible a
 - Si se usa `phasic` como instrumento de validación de latencia de
   detección más adelante, hacerlo con `phasic_p100`/`p1000`, nunca
   `p010` — confirmado que 100 bins no lo resuelven.
+
+---
+
+# ANEXO E — corrección al Anexo B: sí queda un α > 1 por corrida (ARC-187)
+
+El Anexo B afirmó "ya no hay ningún α > 1 a nivel de corrida" — esa
+afirmación se basó en 7 de 9 kernels, porque `3mm_omp` y `lavamd_omp` no
+tenían patrón de runtime declarado y quedaron fuera de T0.2b. Con el hueco
+cerrado (ver arriba, mismo ARC-187), la tabla completa es:
+
+| kernel | α (duración propia del kernel) | r² | fuente |
+|---|---|---|---|
+| npb_mg | 0.3834 | 0.9761 | patrón propio |
+| npb_sp | 0.4895 | 0.9942 | patrón propio |
+| npb_cg | 0.7572 | 0.9969 | patrón propio |
+| npb_ft | 0.7766 | 0.9997 | patrón propio |
+| npb_lu | 0.8410 | 0.9997 | patrón propio |
+| npb_bt | 0.9019 | 0.9996 | patrón propio |
+| dgemm_n2048 | 0.9339 | 0.9996 | patrón propio |
+| 3mm_omp | 0.9827 | 0.9998 | respaldo (arnés) |
+| **lavamd_omp** | **1.0289** | **0.9999** | **patrón propio** |
+
+**`rodinia_lavamd_omp` da α = 1.029 usando su propio "Total time" impreso
+por el binario** (no el respaldo del arnés), con un ajuste casi perfecto
+(r² = 0.9999). No es un artefacto de medición del filtro de calidad (esa
+causa ya se descartó en el Anexo B para el resto) ni del respaldo
+(`3mm_omp`, que sí usa el respaldo, da 0.983 — por debajo de 1).
+
+**Sigue sin explicación confirmada.** A diferencia de los kernels
+multifásicos (`phasic`, Anexo D), `lavamd_omp` es un algoritmo único y
+coherente durante toda la corrida, así que la hipótesis de "densidad de
+instrucciones que difiere por fase" no aplica aquí. Candidatas sin
+verificar: (a) una porción de "Total time" no delegada a los cores fijados
+en frecuencia (arranque de hilos OpenMP, E/S) que no escala con el reloj y
+así infla el cociente; (b) algún efecto de latencia de memoria que se
+acumula más que proporcionalmente al bajar el reloj para el patrón de
+acceso específico de LavaMD. Ninguna de las dos está medida — quedan como
+pendiente explícita, no como explicación.
+
+**No cambia el diagnóstico central**: `lavamd_omp` sigue muy por encima
+del umbral 0.226, así que no afecta la conclusión de que ningún kernel del
+dataset alcanza el régimen viable. Cambia sí la afirmación puntual de que
+"ya no queda ningún α > 1" — no es cierta, y queda corregida aquí.
