@@ -1377,6 +1377,68 @@ final queda abierta** — no se resuelve solo corrigiendo el comentario.
 
 ---
 
+# ANEXO H — ARC-191: bypass MAN-07→E12→E13 para campañas 100% GPU, validado con job 6457
+
+## H.1 Por qué
+
+CAP_PERFMON se rompió en pacca (ARC-184): `uncore_imc` ilegible, lo que
+bloqueaba **toda** campaña — incluidas las 100% GPU, que no necesitan
+uncore en absoluto. El usuario autorizó explícitamente un bypass del
+núcleo de validación ("Estoy consciente que es un fix al core de
+telemetría y validación pero es necesario. Asegúrate de ser cauteloso y
+no romper nada en el proceso") para no quedar detenido un día completo
+mientras se gestiona el permiso a nivel de administrador.
+
+## H.2 El mecanismo del bloqueo
+
+MAN-07 exige incondicionalmente que todo manifiesto declare kernels de
+calibración de CPU (`stream_official`/`ert_probe`) en `calibration:` —
+eso no se toca. El bug real estaba en `run_campaign_preflight()` (E12):
+calculaba `has_cpu_kernel` combinando `calibration:` **y** `kernels:`,
+así que la sola presencia de `stream_official` en calibración forzaba
+`uncore.enabled=True` aunque el dataset (`kernels:`) fuera 100% GPU. E13
+entonces fallaba por CAP_PERFMON roto, para campañas que nunca iban a
+leer uncore.
+
+**Confirmado por lectura de código antes del fix**: los kernels de
+calibración pasan por `run_single()` y parsean su stdout con regex
+directamente (`_measure_bw_and_flops_peak()`), nunca por
+`postprocess_run()`/`validate_windows()` — no dependen de uncore de
+ninguna forma.
+
+## H.3 El arreglo
+
+En `run_campaign_preflight()`, E12 pasa a mirar solo `dataset_entries`
+(de `kernels:`, lo que realmente se corre y valida), no la unión con
+`calibration:`. `entries` (calibración+kernels) se preserva sin cambios
+para los demás checks (binario/checksum/success_check/memoria). 2 tests
+nuevos que reproducen el escenario real exacto: calibración=CPU,
+kernels=100% GPU, `uncore.enabled=false` → E12 y E13 pasan; y un segundo
+test que confirma que E12 **sigue bloqueando** si aparece un kernel de
+CPU real en `kernels:`.
+
+## H.4 Validación con job real (6457)
+
+`campaign_pacca_gpu_uncore_disabled_preflight.yaml`: 4 kernels GPU, 3
+niveles GPU (REF/F0/F4), 2 niveles CPU (REF/F4), 3 rep = 72 corridas,
+márgenes de potencia provisionales (solo F0/F4, sin REF todavía). Job
+6457: **COMPLETADO**, 48/72 aceptadas, **24/24 rechazadas exactamente en
+`gpuREF`** — por diseño: `gpuREF` no tenía margen declarado en ese
+manifiesto y el criterio falla cerrado (`return False`) cuando no hay
+margen para el nivel, en vez de aceptar por defecto. Ni una corrida
+inesperada del lado F0/F4. El mecanismo se comportó exactamente como se
+diseñó, de punta a punta, con datos reales.
+
+## H.5 Qué NO cubre este bypass
+
+Sigue bloqueado cualquier dataset con al menos un kernel de CPU real en
+`kernels:` — el eje de CPU permanece completamente detenido hasta que se
+repare CAP_PERFMON a nivel de administrador (reporte en
+`docs/retoma/pacca/Reporte_Perf_Sin_CAP_PERFMON_Efectivo.md`, reabierto,
+no enviado todavía).
+
+---
+
 # ANEXO I — ARC-194: sonda de reposo v2 y márgenes finales de los 6 niveles
 
 ## I.1 Resultado de la sonda larga (job 6461, 60 s/nivel, asentamiento excluido)
@@ -1431,3 +1493,63 @@ exceso real medido en tres kernels de referencia en los 6 niveles. F4
 queda con el margen de seguridad más ajustado (1.6×); si algún kernel
 nuevo muestra un exceso real menor a 1287 mW en F4, revisar antes de
 confiar en el criterio ahí.
+
+---
+
+# ANEXO J — Núcleo activo GPU, 6 niveles completos, job 6462 (2026-08-23)
+
+## J.1 Manifiesto
+
+`campaign_pacca_gpu_nucleo_activo.yaml`: mismos 4 kernels de H.4/I.2
+(`rodinia_gaussian`, `gpu_dgemm_n4096`, `rodinia_heartwall`,
+`rodinia_lavamd`), pero con los **6 niveles GPU completos**
+(REF+F0-F4), 2 niveles CPU (REF/F4), 3 rep = 144 corridas, con la tabla
+de márgenes **final** de I.3 (ya no la provisional de H.4, que solo
+cubría F0/F4). `uncore.enabled: false` bajo el mismo mecanismo ARC-191
+de H.2-H.3 — este manifiesto no prueba un mecanismo nuevo, extiende la
+cobertura de niveles del ya probado en job 6457.
+
+## J.2 Resultado
+
+Job 6462: `COMPLETED`, exit 0:0, 1:01:15. `campaign_metadata.json`:
+**144/144 aceptadas, 0 rechazadas, 0 saltadas**,
+`frequency_restored_verified: true`. Por nivel GPU: 24/24 en cada uno de
+los 6 — a diferencia de 6457, `gpuREF` **ya no se rechaza en bloque**,
+porque este manifiesto sí declara su margen (800 mW, I.3).
+
+## J.3 Spot-check de datos reales (no solo el agregado)
+
+`verdict.json` de 4 corridas (una por kernel, niveles REF/F1/F2/F3):
+las 4 con `accepted: true, message: "ok"`. `windows.csv` — potencia GPU
+real (`gpu_power_mw`) contra piso+margen del nivel:
+
+| corrida | rango medido (mW) | piso+margen (mW) | lectura |
+|---|---|---|---|
+| gaussian, REF/gpuREF | 57 073–117 926 | 34 454 | exceso amplio, no al filo |
+| heartwall, REF/gpuF1 | 42 126–65 975 | 41 857 | aceptado, pero el mínimo de ventana queda muy cerca del umbral |
+| dgemm_n4096, REF/gpuF2 | 37 074–167 181 | 37 285 | mínimo puntual por debajo del umbral; el run se acepta por criterio agregado, no por ventana individual |
+| lavamd, REF/gpuF3 | 36 374–72 309 | 35 341 | holgado |
+
+`quality_status` de la corrida `gaussian/gpuREF` (6380 ventanas):
+`intensity_undefined` (2560) y `pmu_degraded` (2397) dominan — esperado
+con `uncore.enabled=false` (H.2), no una regresión nueva.
+
+## J.4 Lectura honesta
+
+Este job cierra la fila "Núcleo activo" de la matriz GPU de F.2 de
+punta a punta, con datos reales verificados por muestreo — no solo el
+0 rechazadas del agregado. La única señal a vigilar hacia adelante es
+F1/F2: sus mínimos de ventana individuales rondan el umbral (H.4/I.3 ya
+advertía que F1 y F2 tienen el factor de seguridad más ajustado después
+de F4); el criterio de aceptación es agregado por corrida, así que no
+invalida lo aceptado aquí, pero si un kernel nuevo tiene un perfil de
+potencia más plano que estos cuatro, conviene revisar caso a caso antes
+de confiar ciegamente.
+
+**Lo que este job NO resuelve** (ver lista abierta en G.6 y el cierre de
+sesión anterior): eje de CPU sigue bloqueado por CAP_PERFMON; `dwt2d`
+sigue fuera de la matriz sin decisión; `lavamd_omp` α=1.029 sin causa
+confirmada; binning de `phasic` con 13% de discrepancia F0 vs F4 sin
+validar contra los 9 kernels reales de CPU; NPB clase C catalogados
+pero nunca corridos; limitación arquitectónica de `gpu_phasic` (CAT-10,
+etiqueta constante) sin resolver.
