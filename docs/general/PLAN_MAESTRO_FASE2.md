@@ -1134,3 +1134,127 @@ aunque sigue sin medirse directamente.
 del umbral 0.226, así que no afecta la conclusión de que ningún kernel del
 dataset alcanza el régimen viable. Cambia sí la afirmación puntual de que
 "ya no queda ningún α > 1" — no es cierta, y queda corregida aquí.
+
+---
+
+# ANEXO F — Matriz experimental propuesta, CPU y GPU, con tamaños (ARC-188)
+
+Todo lo de este anexo está **diseñado y listo** (manifiestos, catálogo,
+checksums), pero **nada puede ejecutarse hasta que el admin resuelva
+CAP_PERFMON** (§VIII.1). Se distingue lo ya medido (dataset base) de lo
+añadido y de lo condicional a un pre-vuelo.
+
+## F.1 Matriz CPU
+
+### Núcleo ya medido (dataset `arc174`, 540 corridas, referencia)
+
+| kernel | suite | tamaño | niveles | reps |
+|---|---|---|---|---|
+| npb_bt, npb_mg, npb_cg, npb_sp, npb_ft, npb_lu | NPB-OMP | clase **B** | REF,F0,F1,F2,F3,F4 | 10 |
+| dgemm_n2048 | DGEMM-OpenBLAS | N=2048 | REF,F0,F1,F2,F3,F4 | 10 |
+| rodinia_lavamd_omp | Rodinia-OpenMP | boxes1d=24 | REF,F0,F1,F2,F3,F4 | 10 |
+| rajaperf_polybench_3mm_omp | RAJAPerf-OpenMP | `--sizefact 1 --repfact 10` | REF,F0,F1,F2,F3,F4 | 10 |
+
+6/9 kernels = NPB (67% de una sola suite — el defecto de diversidad, B5).
+
+### Añadido 1 — eje de tamaño (T1.2, catálogo listo, pre-vuelo diseñado)
+
+| kernel | tamaño nuevo | binario | estado |
+|---|---|---|---|
+| npb_cg → **npb_cg_c** | clase B → **C** | `cg.C.x`, construido y verificado en pacca | listo |
+| npb_mg → **npb_mg_c** | clase B → **C** | `mg.C.x`, construido y verificado en pacca | listo |
+| npb_sp_c, npb_ft_c, npb_bt_c, npb_lu_c | clase **C** | binarios existen, catalogados, **sin pre-vuelo propio** | catálogo listo, falta diseñar T1.2b si `cg_c`/`mg_c` funcionan |
+
+Pre-vuelo diseñado: `npb_cg`+`npb_cg_c`+`npb_mg`+`npb_mg_c` × {F0,F4} × 3 rep
+= 36 corridas (`campaign_pacca_size_preflight.yaml`). Objetivo cuantitativo
+(Anexo A.4): llegar a ≥90% del ancho de banda de STREAM; `npb_mg` está en
+74.5% a clase B.
+
+### Añadido 2 — rejilla fina de frecuencia (T1.4, listo)
+
+Los 3 kernels de α más bajo (npb_sp, npb_mg, npb_cg) × {F0, **3000 MHz**,
+**2800 MHz**} × 3 rep = 27 corridas (`campaign_pacca_fine_grid_preflight.yaml`).
+Cierra el hueco 2600–3200 MHz, donde cae el óptimo bajo el objetivo de
+energía-con-holgura (2831–3051 MHz para los 9 kernels).
+
+### Añadido 3 — eje de fase (T1.1, pre-vuelo YA CORRIÓ pero rechazado por uncore)
+
+| kernel | qué es | tamaño |
+|---|---|---|
+| ptrchase | sonda monofásica de α (memoria pura) | buffer 512 MiB |
+| phasic_p010/p100/p1000 | instrumento multifásico sintético | buffer 512 MiB, período 10 ms/100 ms/1 s |
+
+Campaña completa diseñada (`campaign_pacca_phase_probe.yaml`, job 6412 en
+`hold`): 4 kernels × 8 niveles (REF,F0,F1,F2,F3,1200,1000,F4) × 10 rep =
+320 corridas. **`phasic_p010` es sospechoso de aportar poco** (T0.2d: 100
+bins no resuelven su período de 10 ms) — candidato a excluir de la
+campaña final si el pre-vuelo lo confirma.
+
+### Pendiente sin catalogar — carga real multifásica (T1.3)
+
+HPCG u otra suite real con fases documentadas en la literatura, para no
+depender solo de sintéticos como evidencia de régimen. **Sin binario, sin
+catálogo, sin pre-vuelo** — sigue siendo una propuesta, no un plan
+ejecutable todavía.
+
+### Matriz CPU total propuesta (si todos los pre-vuelos confirman)
+
+| eje | kernels | niveles | reps | corridas |
+|---|---|---|---|---|
+| Núcleo (ya medido) | 9 | 6 | 10 | 540 |
+| Tamaño | 2–6 (`*_c`) | 2 (F0,F4) | 10 (a confirmar) | 40–120 |
+| Rejilla fina | 3 | 2 (3000,2800) | 10 | 60 |
+| Fase | 3–4 | 8 | 10 | 240–320 |
+| **Total** | | | | **~900–1050 corridas** |
+
+## F.2 Matriz GPU
+
+### Kernels reales, por actividad medida (fresca, job de auditoría 2026-08-23)
+
+| kernel | tamaño actual | % activo | inclusión propuesta |
+|---|---|---|---|
+| rodinia_gaussian | 4096×4096 | 90.7% | **sí**, sin cambios |
+| gpu_dgemm_n4096 | N=4096 | 86.4% | **sí**, sin cambios |
+| rodinia_heartwall | 1000 cuadros | 83.5% | **sí** (con la mitigación de C.3 para F1/F2) |
+| rodinia_lavamd | boxes1d=70 | 53.0%, muy variable | **sí, con reservas** — el único con α medido (0.201), bajo el umbral GPU (0.639) |
+| rodinia_dwt2d | 16384×16384 | 21.2% | **no**, salvo que se explique por qué un tamaño ya grande sigue débil (no es un problema de tamaño obvio) |
+| rodinia_backprop | 1048560 | 19.1% | condicional — probar tamaño mayor primero |
+| rodinia_myocyte | 100000 | 10.8% | condicional — probar tamaño mayor primero |
+| rodinia_lud | 2048×2048 | 1.2% | **no**, sin repetir tamaño mayor primero (ver F3, sesgo confirmado) |
+
+### Eje de fase GPU (nuevo esta sesión, catálogo listo)
+
+| kernel | tamaño | estado |
+|---|---|---|
+| gpu_phasic_p010/p100/p1000 | buffer 2048 MiB, período 10 ms/100 ms/1 s | compilado, catalogado, **sin pre-vuelo propio todavía** |
+
+Limitación documentada (Anexo C.6): `phase_label_train` automático será
+constante para este kernel — solo sirve vía cruce offline de las marcas
+`PHASE` contra `gpu_power_mw`/`gpu_sm_clock_mhz`, no para entrenar
+directamente.
+
+### Rejilla de frecuencia GPU (medida en vivo, job 6447)
+
+| nivel | MHz reales | potencia de reposo |
+|---|---|---|
+| F0 | 1410 | 53.82 W |
+| F1 | 1110 | 40.11 W |
+| F2 | 810 | 36.23 W |
+| F3 | 510 | 34.50 W |
+| F4 | 210 | 33.80 W |
+
+Eje CPU durante el barrido GPU: fijo en REF/F4 (2 niveles), como en las
+campañas GPU existentes — el interés está en el reloj de GPU, no de CPU.
+
+### Matriz GPU total propuesta
+
+| eje | kernels | niveles GPU | niveles CPU | reps | corridas |
+|---|---|---|---|---|---|
+| Núcleo activo | 4 (gaussian, dgemm_n4096, heartwall, lavamd) | 6 (REF,F0-F4) | 2 | 3 | 144 |
+| Fase | 3 (`gpu_phasic_*`) | 6 | 2 | 3 | 108 |
+| Condicionales (tamaño mayor) | 2 (backprop, myocyte) | 6 | 2 | 3 | 72 (si se habilitan) |
+| **Total** | | | | | **~250–320 corridas** |
+
+Mucho más barato que CPU porque el eje activo real son 4 kernels, no 9 —
+consecuencia directa de que solo la mitad del catálogo GPU hace trabajo
+real medible.
