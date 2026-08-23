@@ -1822,3 +1822,97 @@ legítimo: criterio analítico explícito, validado sobre 7 kernels y 35
 combinaciones, con el mecanismo físico identificado y cuantificado (piso
 estático de ~117 W). No es "no funcionó"; es "aquí está la condición que
 debe cumplirse, y esta plataforma no la cumple".
+
+---
+
+# ANEXO M — CORRECCIÓN: la métrica era mía, no de la física (2026-08-23)
+
+El Anexo L concluyó que el DVFS de GPU "no puede pagar" en esta
+plataforma. **Esa conclusión dependía de una decisión metodológica que
+tomé yo, no de una restricción física**, y al contrastarla con la
+literatura resultó ser más estricta que el estándar del campo.
+
+## M.1 El error
+
+L midió **energía total (GPU + paquete CPU + DRAM)**. Lo justifiqué en
+K.1 diciendo que evaluar solo la GPU "sobreestimaría el ahorro de forma
+grosera". Pero la literatura de DVFS de GPU mide **energía de GPU vía
+NVML**, no del nodo entero — porque es lo que una política de DVFS de
+GPU realmente controla. El piso de ~84 W de la CPU delegada es una
+propiedad del nodo de medición, no del mecanismo bajo estudio.
+
+Se verificó además que ese piso **no** es un artefacto del arnés: el shim
+de blocking-sync (ARC-70) compiló y se aplicó en los jobs 6462 y 6463
+(cero advertencias en los logs), así que la CPU no está girando en vacío.
+Los 84 W son el piso real del paquete.
+
+## M.2 El resultado con la métrica de la literatura
+
+Energía solo-GPU (NVML), CPU=REF, contra "siempre F0":
+
+| kernel | mejor | ahorro E_gpu | costo t | ganancia EDP |
+|---|---|---|---|---|
+| rodinia_lavamd | F1 | **25.11%** | +10.02% | **17.60%** |
+| rodinia_heartwall | F1 | **18.24%** | +33.12% | 1.03% |
+| rodinia_gaussian | F1 | **15.35%** | +25.62% | 1.69% |
+| rodinia_myocyte | F1 | **7.66%** | +28.02% | 0.00% |
+| rodinia_dwt2d | F0 | 0.00% | — | — |
+| gpu_dgemm_n4096 | REF | 2.11% | −2.15% | artefacto REF/F0 |
+| rodinia_backprop | REF | 24.30% | −0.54% | artefacto (E_gpu de 8–49 J, no fiable) |
+
+**Cuatro kernels con ahorro real de 7.7% a 25.1%**, y el nivel óptimo
+varía entre kernels (F1 / F0 / REF) — o sea, hay señal aprendible.
+
+Estos valores caen dentro del rango publicado: 8.7–23.1% en entrenamiento
+de DNN, y 20.2–26.7% con escalado consciente de la aplicación en V100 y
+A100. El montaje no está roto; la métrica estaba sobre-restringida.
+
+## M.3 Anexo L no se retracta — se reencuadra
+
+El hallazgo de L (piso estático de ~117 W, criterio
+`T(f)/T(F0) < P(F0)/P(f)`) **sigue siendo correcto y medido**. Lo que
+cambia es su estatus: no es "el DVFS de GPU no sirve", sino **"en este
+nodo la CPU absorbe el ahorro de la GPU"** — una limitación real del
+alcance del resultado, que la literatura habitualmente no reporta.
+
+Reportar **ambas métricas** es más fuerte que cualquiera por separado:
+alineado con el campo en la métrica primaria (solo GPU), y con una
+advertencia cuantificada que el campo suele omitir.
+
+## M.4 Dos mandos que quedaron sin usar
+
+1. **Granularidad de la grilla.** Toda la acción está entre F0 (1410 MHz)
+   y F1 (1110 MHz): ahí se capturan 15–25% de ahorro, pero con 10–33% de
+   degradación. Mi grilla salta 300 MHz de una vez. Con presupuesto
+   iso-latencia de 10%, casi todo el ahorro desaparece; con 15%,
+   `lavamd@F1` reaparece con 25.11%. **El óptimo está dentro del salto que
+   no muestreé.** La A100 ofrece muchos escalones intermedios.
+2. **Reloj de memoria.** Varios trabajos escalan núcleo **y** memoria
+   (`--query-supported-clocks=mem,gr`). Aquí solo se usó `-lgc` (núcleo).
+   Para un kernel limitado por ancho de banda, el mando de memoria es
+   probablemente el que importa — y explicaría por qué `dwt2d` y
+   `stream_bw` no respondieron al de núcleo.
+
+## M.5 Consecuencia
+
+Se revierte la conclusión de L.6 ("el eje GPU no sostiene un modelo").
+**Sí lo sostiene**, con la métrica del campo. Lo pendiente antes de
+entrenar: (a) grilla fina entre 1410 y 1110 MHz, (b) probar el mando de
+memoria, (c) fijar el presupuesto de degradación como parámetro explícito
+de la política, no como supuesto implícito.
+
+## M.6 Lección de método
+
+Dos conclusiones fuertes seguidas ("es el catálogo, no la plataforma" en
+K.6; "el DVFS no puede pagar" en L.6) resultaron ser artefactos de
+decisiones propias no contrastadas contra la práctica establecida. Ambas
+se emitieron con datos correctos y análisis correcto sobre una premisa
+elegida sin verificar. **Contrastar la premisa con la literatura antes de
+declarar un resultado negativo**, no después.
+
+Referencias consultadas: MDPI Computation 8(2):37 (2020) — predicción de
+energía/rendimiento con escalado de frecuencia de núcleo y memoria;
+ICPP 2019, "Predictable GPUs Frequency Scaling for Energy and
+Performance"; arXiv:1610.01784 — survey y estudio de medición de DVFS en
+GPU; ACM (2023) — escalado consciente de la aplicación, 26.7% V100 /
+20.2% A100.
