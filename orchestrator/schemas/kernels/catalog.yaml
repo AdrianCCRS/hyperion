@@ -324,6 +324,26 @@ kernels:
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
 
+  # ARC-193 (2026-08-23): los binary_checksum de TODOS los kernels GPU de
+  # este bloque (hasta rodinia_dwt2d) se recalcularon sobre binarios
+  # DESPOJADOS ("strip --strip-all"), no sobre los originales. Mismo
+  # hallazgo que ARC-186 encontro para gpu_phasic: nvcc no da binarios
+  # reproducibles byte a byte -- una reconstruccion futura desde la misma
+  # fuente con los mismos flags da otro sha256, y el codigo ejecutable en
+  # si es identico, solo cambian metadatos de depuracion con rutas
+  # temporales aleatorias. Antes de esta correccion, estos 8 binarios (los
+  # 2 restantes, rodinia_myocyte/rodinia_dwt2d, son SCRIPTS de shell, no
+  # ELF -- deterministas por construccion, "strip" los rechazo
+  # correctamente con "File format not recognized" y sus checksums no
+  # cambiaron) habrian fallado C02 en cualquier reconstruccion legitima.
+  # Los originales sin despojar quedan respaldados en
+  # ~/hyperion-kernels/bin_unstripped_backup_20260823 en pacca. Verificado
+  # funcionalmente tras despojar: rodinia_gaussian, cublas_dgemm_bench (con
+  # LD_LIBRARY_PATH correcto -- el fallo sin él es identico en el binario
+  # SIN despojar, no una regresion del strip), babelstream_cuda,
+  # ert_probe_gpu, rodinia_lavamd y rodinia_heartwall corren igual que
+  # antes.
+  #
   # ARC-70: primeros kernels GPU del catalogo (Fase 1 de
   # docs/general/plan_trabajo_grado.md -- caracterizacion, sin modelo ni
   # control de reloj todavia, ver Diseno_Politica_DVFS_CPU_GPU.md). Solo
@@ -342,7 +362,7 @@ kernels:
     success_check: {type: exit_code}
     estimated_memory_bytes: 2952790016 # 3 arreglos x 100_000_000 x 8 B = 2.4 GB, con margen
     binary_checksum:
-      pacca-a100: "sha256:a7f2f4aee20c8d3fc3bb0e56faa0f49237f99634661f7032cd7d35a4789bd881"
+      pacca-a100: "sha256:3fba85e18ebe938f328e842fa912bcb93e816ce4b79e007fe0405d4d581e59fb"
 
   # ARC-76: `gpu_dgemm_calibration` (cuBLAS) YA NO se usa para derivar el
   # ridge point de GPU. `ncu` confirmo que cuBLAS elige aqui, sin que se le
@@ -366,7 +386,7 @@ kernels:
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     estimated_memory_bytes: 536870912 # 3 matrices 4096^2 x 8 B ~= 384 MB, con margen
     binary_checksum:
-      pacca-a100: "sha256:cbed7c396cd70b4db81046d5a875847ed821e7f53029a88cbbd24b95f81b36e7"
+      pacca-a100: "sha256:896c3a2556f0ca2df64673d3b1dc6232aa42c667a1e563a792f476cc2ed2c174"
 
   # ARC-76: microbenchmark propio de FLOPs pico de GPU (kernels/gpu/ert_probe_gpu.cu),
   # equivalente CUDA de ert_probe.c -- un bucle FMA que cada hilo corre
@@ -394,7 +414,7 @@ kernels:
     success_check: {type: exit_code}
     estimated_memory_bytes: 134217728 # 32M floats ~= 128 MB
     binary_checksum:
-      pacca-a100: "sha256:5d0203721c91739281fdcff7378188eb383fc8a02a77fad3d1e94926d83505d1"
+      pacca-a100: "sha256:9c2e86216387e58e9c908d1ed6933c89def56116cbe4b5f53b56c9b71f8e59f5"
 
   - id: gpu_ert_probe_fp64
     suite: ERT-GPU
@@ -409,7 +429,7 @@ kernels:
     success_check: {type: exit_code}
     estimated_memory_bytes: 268435456 # 32M doubles ~= 256 MB
     binary_checksum:
-      pacca-a100: "sha256:5d0203721c91739281fdcff7378188eb383fc8a02a77fad3d1e94926d83505d1"
+      pacca-a100: "sha256:9c2e86216387e58e9c908d1ed6933c89def56116cbe4b5f53b56c9b71f8e59f5"
 
   # Mismo binario que gpu_dgemm_calibration, id distinto porque aqui juega
   # el rol de dataset (compute_bound), no de calibracion -- exactamente el
@@ -459,7 +479,7 @@ kernels:
     estimated_memory_bytes: 536870912
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
-      pacca-a100: "sha256:cbed7c396cd70b4db81046d5a875847ed821e7f53029a88cbbd24b95f81b36e7"
+      pacca-a100: "sha256:896c3a2556f0ca2df64673d3b1dc6232aa42c667a1e563a792f476cc2ed2c174"
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
 
@@ -522,7 +542,7 @@ kernels:
     estimated_memory_bytes: 268435456 # 2 matrices 4096^2 x 4 B + vectores ~128 MB, con margen
     success_check: {type: exit_code}
     binary_checksum:
-      pacca-a100: "sha256:4afd5fc53117a449598a87deb7e20fb192fa1ad2a339d1fb6c726623a2eb7b11"
+      pacca-a100: "sha256:396a0777118b360442f2987f8b5447fcd4eac60c4f94500892c82dd79d29677d"
 
   # Rodinia (terceros). phase_label_hint=memory_bound: medición real (ncu,
   # ARC-70: 0.087 FLOP/byte) muy por debajo de cualquier ridge posible en
@@ -574,7 +594,7 @@ kernels:
     estimated_memory_bytes: 671088640 # con margen sobre ~407 MB de trafico DRAM medido con ncu (antes 187 MB a in=524288)
     success_check: {type: exit_code}
     binary_checksum:
-      pacca-a100: "sha256:5c7c2644ec621001225e90b35e1b069e6e740166a10aaed2d3cb9c6cc52bc05c"
+      pacca-a100: "sha256:c708460242321cc5a88b657cd5e05565a7964a7bedc60634e270c6c1e8074ef5"
 
   # Rodinia (terceros). ARC-75/76: 5 kernels nuevos, medidos con ncu en
   # paccaA100 y verificados contra el ridge correcto por precision (ver
@@ -626,7 +646,7 @@ kernels:
     estimated_memory_bytes: 4294967296
     success_check: {type: exit_code}
     binary_checksum:
-      pacca-a100: "sha256:7ce75ae90aef3fc1e878218d7e487ea2836e4dc272a95f135720da2a721b7832"
+      pacca-a100: "sha256:3d69bb876b53f2f6224bef4a0bfec5438e664607b36308eb5ab9c9b0d7d02a80"
     # ncu (ARC-75): 1233 FLOP/byte (dram__bytes.sum), muy por encima de
     # cualquier ridge posible (3.36-7.28, ARC-76) -- compute_bound
     # confirmado con margen enorme. Precision real: FP64 (#define fp double),
@@ -670,7 +690,7 @@ kernels:
     warmup_seconds: 0.2929
     success_check: {type: exit_code}
     binary_checksum:
-      pacca-a100: "sha256:72e9b633d928bc0219c9f2e373552475e54c8dbb2d5b6ff73c9e6284a80eb795"
+      pacca-a100: "sha256:0693860b0e2b75e010a9a5d2554da58f9b8fd437c2474a72e19142f2876f8f09"
     # ncu (ARC-75): 35.3 FLOP/byte (dram__bytes.sum), FP32, sin Tensor
     # Cores -- compute_bound confirmado contra el ridge FP32 vainilla medido
     # (~7.28, ARC-76). Video sintetico generado localmente (no ffmpeg -- no
@@ -703,7 +723,7 @@ kernels:
     estimated_memory_bytes: 67108864 # matriz 2048^2 x 4 B (float) ~16 MB, con margen
     success_check: {type: exit_code}
     binary_checksum:
-      pacca-a100: "sha256:a6e0ad653062eaa47a21ee51158afc0ac8e11d6daca34701cf0fbb74f98e3b46"
+      pacca-a100: "sha256:2b42526c26f72589b9361f70bf57b6926ee4ff86dd4629b7530e458f26a13a32"
     # ncu (ARC-80): 7.82 FLOP/byte exacto para N=2048 (dram__bytes.sum vs
     # FMA+add+mul agregados sobre 200 lanzamientos de kernel reales), FP32,
     # sin Tensor Cores.
