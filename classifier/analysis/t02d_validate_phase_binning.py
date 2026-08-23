@@ -89,7 +89,16 @@ def analyze_kernel(run_dirs: dict[str, list[Path]], kernel: str, n_bins: int) ->
                 "window_index", "t_start_ns", "t_end_ns", "delta_t_ns",
                 "delta_instructions", "quality_status",
             ])
-            df = df[df["quality_status"] == "ok"].copy()
+            # NO se exige quality_status=="ok": ese estado depende de que
+            # la intensidad operacional (uncore) esté definida, que aquí
+            # está roto por el problema de CAP_PERFMON (ARC-184) y por eso
+            # el job 6420 fue rechazado -- pero delta_instructions/
+            # t_start_ns/t_end_ns son telemetría de CPU (perf_event_open),
+            # independiente de uncore, y siguen siendo reales. Solo se
+            # descartan los estados que sí invalidan esas columnas.
+            df = df[~df["quality_status"].isin(
+                ["warmup_excluded", "first_sample_no_delta", "energy_invalid"]
+            )].copy()
             if df.empty:
                 continue
             # Punto medio de la ventana, en offset desde T0, mismo reloj
