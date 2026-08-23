@@ -36,32 +36,43 @@ BASELINE = "F0"
 REPS = range(1, 11)  # hasta 10 repeticiones por combinación en esta campaña
 
 
-def read_summary(path: Path) -> dict[str, float]:
-    out: dict[str, float] = {}
-    for line in path.read_text().splitlines():
-        if "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        try:
-            out[key.strip()] = float(value.strip())
-        except ValueError:
-            pass
-    return out
-
-
 def read_run(run_dir: Path) -> dict[str, float] | None:
-    summary_path = run_dir / "summary.txt"
-    if not summary_path.exists():
+    """Suma energía (RAPL pkg+dram) y tiempo directo de windows.csv.
+
+    Esta campaña quedó reprocesada (ARC-174): no tiene summary.txt, solo
+    windows.csv + reprocess_provenance.json. energy_valid marca por fila
+    si la lectura RAPL de esa ventana es de fiar; se suma solo esas.
+    """
+    windows_path = run_dir / "windows.csv"
+    if not windows_path.exists():
         return None
-    summary = read_summary(summary_path)
-    elapsed_s = summary.get("telemetry_elapsed_ns_mean", 0.0) / 1e9
-    if elapsed_s <= 0:
+
+    total_energy_uj = 0.0
+    n_energy_rows = 0
+    t_min: float | None = None
+    t_max: float | None = None
+    with windows_path.open() as handle:
+        for row in csv.DictReader(handle):
+            t_start = row.get("t_start_ns")
+            t_end = row.get("t_end_ns")
+            if t_start not in (None, "") and t_end not in (None, ""):
+                t0, t1 = float(t_start), float(t_end)
+                t_min = t0 if t_min is None else min(t_min, t0)
+                t_max = t1 if t_max is None else max(t_max, t1)
+            if row.get("energy_valid") != "1":
+                continue
+            pkg = row.get("pkg_delta_uj")
+            dram = row.get("dram_delta_uj")
+            if pkg in (None, "") or dram in (None, ""):
+                continue
+            total_energy_uj += float(pkg) + float(dram)
+            n_energy_rows += 1
+
+    if n_energy_rows == 0 or t_min is None or t_max is None:
         return None
-    energy_j = (
-        summary.get("rapl_pkg_total_delta_uj", 0.0)
-        + summary.get("rapl_dram_total_delta_uj", 0.0)
-    ) / 1e6
-    if energy_j <= 0:
+    elapsed_s = (t_max - t_min) / 1e9
+    energy_j = total_energy_uj / 1e6
+    if elapsed_s <= 0 or energy_j <= 0:
         return None
     return {"elapsed_s": elapsed_s, "energy_j": energy_j}
 
