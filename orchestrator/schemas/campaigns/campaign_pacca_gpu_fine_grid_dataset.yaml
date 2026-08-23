@@ -1,0 +1,151 @@
+# Grilla fina de frecuencia GPU sobre los 7 kernels ya validados (Anexo M/N).
+#
+# PROPOSITO. El Anexo M mostró margen real de DVFS (7.7-25.1% de ahorro de
+# energía de GPU) pero el Anexo K.8/gpu_policy_headroom.py mostró que, al
+# presupuesto de degradación de la literatura (<=4%, Mei et al. 2016),
+# ese margen es INALCANZABLE con la grilla de 6 niveles: el salto F0->F1
+# es de 300 MHz y cuesta 10-33% de tiempo, muy por encima del presupuesto.
+# Con esa grilla el margen de un modelo sobre la mejor constante es de
+# apenas 0.58 puntos -- no alcanza para entrenar nada defendible.
+#
+# Esta campaña llena ese hueco con 4 escalones intermedios entre F0
+# (1410 MHz) y F1 (1110 MHz), que es donde el Anexo M mostró que vive
+# TODA la acción.
+#
+# MARGENES DE LOS 4 NIVELES NUEVOS: INTERPOLADOS, NO MEDIDOS. La sonda de
+# reposo v2 (Anexo I) solo cubrió los 6 niveles estándar. Los valores de
+# 1350/1290/1230/1170 MHz de abajo son interpolación lineal entre los
+# valores medidos de F0 y F1. Es el mismo tipo de riesgo que ya se vivió
+# una vez (Anexo G.4 -> I): si el margen interpolado queda mal, el
+# síntoma es 0 ventanas `gpu_telemetry` (rechazo I10), no un error
+# silencioso -- así que un rechazo masivo en estos 4 niveles es la señal
+# de que hay que remedir con sonda real antes de confiar en el dataset.
+#
+# COSTO. 7 kernels x 10 niveles GPU x 1 nivel CPU x 3 rep = 210 corridas.
+# Comparable a job 6462 (144 corridas, 61 min) -> estimado ~90 min.
+
+campaign_id: pacca_gpu_fine_grid_dataset_20260823
+environment_tier: hpc_sc3
+seed: 20260806
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_gpu_fine_grid_dataset_20260823
+overwrite: true
+
+catalog_path: ../kernels/catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: rodinia_gaussian
+  - kernel_ref: gpu_dgemm_n4096
+  - kernel_ref: rodinia_heartwall
+  - kernel_ref: rodinia_lavamd
+  - kernel_ref: rodinia_myocyte
+  - kernel_ref: rodinia_backprop
+  - kernel_ref: rodinia_dwt2d
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+
+gpu_frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F0, mode: fixed, fraction: 1.0}      # 1410 MHz
+  - {id: G1, mode: fixed, fraction: 0.95}     # 1350 MHz
+  - {id: G2, mode: fixed, fraction: 0.90}     # 1290 MHz
+  - {id: G3, mode: fixed, fraction: 0.85}     # 1230 MHz
+  - {id: G4, mode: fixed, fraction: 0.80}     # 1170 MHz
+  - {id: F1, mode: fixed, fraction: 0.75}     # 1110 MHz
+  - {id: F2, mode: fixed, fraction: 0.5}      # 810 MHz
+  - {id: F3, mode: fixed, fraction: 0.25}     # 510 MHz
+  - {id: F4, mode: fixed, fraction: 0.0}      # 210 MHz
+
+repetitions_per_combination: 3
+target_windows_per_repetition: 5
+interval_ns: 1000000
+gpu_interval_ns: 5000000
+
+running_ratio_min: 0.90
+
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+  grace_seconds: 0.05
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+
+rapl:
+  enabled: true
+
+# ARC-191: ningún kernel de CPU en `kernels:`, así que E12 no exige uncore
+# aunque MAN-07 obligue a declarar stream_official/ert_probe en
+# `calibration:`. Necesario mientras CAP_PERFMON siga roto (ARC-184).
+uncore:
+  enabled: false
+
+turbo:
+  require_disabled: true
+
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+
+gpu:
+  enabled: true
+  calibration:
+    - gpu_stream_bw
+    - gpu_ert_probe_fp32
+    - gpu_ert_probe_fp64
+  idle_power_mw_by_level:
+    REF: 33654.0
+    F0: 53621.8
+    G1: 50868.8   # INTERPOLADO -- ver nota arriba
+    G2: 48115.8   # INTERPOLADO
+    G3: 45362.8   # INTERPOLADO
+    G4: 42609.8   # INTERPOLADO
+    F1: 39856.8
+    F2: 36084.9
+    F3: 34441.0
+    F4: 33677.6
+  active_power_margin_mw:
+    REF: 800
+    F0: 4000
+    G1: 3600      # INTERPOLADO
+    G2: 3200      # INTERPOLADO
+    G3: 2800      # INTERPOLADO
+    G4: 2400      # INTERPOLADO
+    F1: 2000
+    F2: 1200
+    F3: 900
+    F4: 800
+
+timeouts_seconds:
+  ready: 15
+  run: 300
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 480000000000
+
+projected_campaign_bytes: 400000000
+remaining_core_hours: 1000.0
+projected_core_hours: 6.0

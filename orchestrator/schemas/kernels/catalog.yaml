@@ -838,6 +838,93 @@ kernels:
     success_check: {type: exit_code}
     binary_checksum:
       pacca-a100: "sha256:d88d0610dbc5d25013752bdfc3b0f7712962555e36e8ee044a230f12e816ee9c"
+
+  # ARC-196 (Anexo N): variantes de tamaño de rodinia_dwt2d para diversidad
+  # de carga en el dataset de entrenamiento del modelo GPU (docs/general/
+  # PLAN_MAESTRO_FASE2.md Anexo K/L/M -- 7 kernels es muy poco para
+  # entrenar nada defendible). Mismo binario, mismo checksum, mismos
+  # datos ya presentes en ~/hyperion-kernels/data/dwt2d/ (verificados
+  # integros: tamaño de archivo = ancho*alto*3 + 54 exacto en los 5
+  # tamaños, sin truncamiento tipo test.avi).
+  #
+  # OI. El comentario de arriba ya documenta que la OI de dwt2d CAMBIA con
+  # el tamaño (4.10 a 192x192, remedido a 2.17 a 16384x16384 -- el filtro
+  # deja de caber en cache). Para 2048/4096/8192 NO hay medición con ncu.
+  # Los valores de abajo son una interpolación LOG-LINEAL en log2(pixeles)
+  # entre esos dos puntos medidos -- una aproximación declarada, no una
+  # medición. No usar para conclusiones de roofline ni de clasificación
+  # memory/compute-bound; solo satisface el requisito de catálogo
+  # (KernelEntry exige operational_intensity_flops_per_byte para
+  # device: gpu) para que la campaña corra. El modelo de GPU planeado no
+  # usa OI como feature (evita CAT-10 por diseño), así que este valor no
+  # entra en ningún cálculo que consuma el dataset resultante.
+  - id: rodinia_dwt2d_s192
+    suite: Rodinia
+    role: dataset
+    device: gpu
+    exec_path: bin/rodinia_dwt2d
+    exec_args: "-d 192x192 -f -9 test_192.bmp"
+    phase_label_hint: memory_bound
+    operational_intensity_flops_per_byte: 4.10  # medido con ncu (ver comentario de rodinia_dwt2d)
+    gpu_precision: fp32
+    size_variant: "192x192_97"
+    expected_runtime_seconds: 2
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 268435456  # ~50% de margen sobre el tamaño real medido
+    success_check: {type: exit_code}
+    binary_checksum:
+      pacca-a100: "sha256:d88d0610dbc5d25013752bdfc3b0f7712962555e36e8ee044a230f12e816ee9c"
+
+  - id: rodinia_dwt2d_s2048
+    suite: Rodinia
+    role: dataset
+    device: gpu
+    exec_path: bin/rodinia_dwt2d
+    exec_args: "-d 2048x2048 -f -9 test_2048.bmp"
+    phase_label_hint: memory_bound
+    operational_intensity_flops_per_byte: 3.10  # INTERPOLADO, no medido -- ver nota ARC-196 arriba
+    gpu_precision: fp32
+    size_variant: "2048x2048_97"
+    expected_runtime_seconds: 3
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 402653184
+    success_check: {type: exit_code}
+    binary_checksum:
+      pacca-a100: "sha256:d88d0610dbc5d25013752bdfc3b0f7712962555e36e8ee044a230f12e816ee9c"
+
+  - id: rodinia_dwt2d_s4096
+    suite: Rodinia
+    role: dataset
+    device: gpu
+    exec_path: bin/rodinia_dwt2d
+    exec_args: "-d 4096x4096 -f -9 test_4096.bmp"
+    phase_label_hint: memory_bound
+    operational_intensity_flops_per_byte: 2.79  # INTERPOLADO, no medido -- ver nota ARC-196 arriba
+    gpu_precision: fp32
+    size_variant: "4096x4096_97"
+    expected_runtime_seconds: 4
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 1207959552
+    success_check: {type: exit_code}
+    binary_checksum:
+      pacca-a100: "sha256:d88d0610dbc5d25013752bdfc3b0f7712962555e36e8ee044a230f12e816ee9c"
+
+  - id: rodinia_dwt2d_s8192
+    suite: Rodinia
+    role: dataset
+    device: gpu
+    exec_path: bin/rodinia_dwt2d
+    exec_args: "-d 8192x8192 -f -9 test_8192.bmp"
+    phase_label_hint: memory_bound
+    operational_intensity_flops_per_byte: 2.48  # INTERPOLADO, no medido -- ver nota ARC-196 arriba
+    gpu_precision: fp32
+    size_variant: "8192x8192_97"
+    expected_runtime_seconds: 8
+    warmup_seconds: 0.75
+    estimated_memory_bytes: 3288334336
+    success_check: {type: exit_code}
+    binary_checksum:
+      pacca-a100: "sha256:d88d0610dbc5d25013752bdfc3b0f7712962555e36e8ee044a230f12e816ee9c"
     # ncu (ARC-75): 4.10 FLOP/byte, FP32 confirmado en el kernel CUDA
     # (fdwt97Kernel) -- memory_bound confirmado. BMP de entrada sintetico:
     # ver scripts/pacca/generate_rodinia_synthetic_inputs.py.
