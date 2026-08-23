@@ -1099,10 +1099,18 @@ def run_campaign(
                         freq_tail_grace_seconds=float(frequency_validation.get("tail_grace_seconds", 0.0)),
                         freq_is_native_governor=item.combination.frequency_level.mode == "native_governor",
                     )
+                    # ARC-185: potencia de reposo por nivel, opcional. Sin
+                    # ninguno de los dos campos en manifest.gpu, validate_windows()
+                    # usa el piso de utilización de siempre -- una campaña ya
+                    # en cola que no declare esto no cambia de comportamiento.
+                    gpu_idle_by_level = manifest.gpu.get("idle_power_mw_by_level")
+                    gpu_active_margin = manifest.gpu.get("active_power_margin_mw")
                     verdict = validation_module.validate_windows(
                         windows_path,
                         target_windows_per_repetition=manifest.target_windows_per_repetition,
                         device=entry.device,
+                        gpu_idle_power_mw_by_level=gpu_idle_by_level,
+                        gpu_active_power_margin_mw=gpu_active_margin,
                     )
                 else:
                     verdict = provisional_verdict

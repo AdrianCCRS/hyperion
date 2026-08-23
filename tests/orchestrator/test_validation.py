@@ -669,3 +669,101 @@ def test_arc129_windows_gpu_mezcla_sobre_y_bajo_el_piso_solo_cuenta_las_reales(t
     # Pero sí alcanzan un objetivo de 3.
     verdict_ok = validation.validate_windows(windows_path, target_windows_per_repetition=3, device="gpu")
     assert verdict_ok.accepted is True
+
+
+def test_arc185_criterio_de_potencia_reemplaza_al_piso_de_utilizacion(tmp_path):
+    # Kernel con potencia claramente sobre la linea de reposo: 120 mW de
+    # exceso contra un margen de 50 mW -- debe contar como usable aunque
+    # gpu_util_pct venga bajo (el criterio de potencia ignora esa columna).
+    rows = [
+        {
+            "quality_status": "gpu_telemetry", "phase_label_train": "compute_bound",
+            "gpu_util_pct": "1", "gpu_freq_level_id": "F4", "gpu_power_mw": "180000",
+        }
+        for _ in range(5)
+    ]
+    windows_path = _write_windows_csv(tmp_path / "windows.csv", rows)
+    verdict = validation.validate_windows(
+        windows_path, target_windows_per_repetition=5, device="gpu",
+        gpu_idle_power_mw_by_level={"F4": 60000.0},
+        gpu_active_power_margin_mw=50000.0,
+    )
+    assert verdict.accepted is True
+
+
+def test_arc185_criterio_de_potencia_rechaza_kernel_ocioso_pese_a_util_alto(tmp_path):
+    # ARC-129 aceptaba esto por gpu_util_pct alto. El punto de ARC-185 es
+    # que la potencia real es la magnitud que no miente: sin exceso sobre
+    # el reposo, la ventana no cuenta, sin importar lo que diga util_pct.
+    rows = [
+        {
+            "quality_status": "gpu_telemetry", "phase_label_train": "compute_bound",
+            "gpu_util_pct": "50", "gpu_freq_level_id": "F4", "gpu_power_mw": "60500",
+        }
+        for _ in range(5)
+    ]
+    windows_path = _write_windows_csv(tmp_path / "windows.csv", rows)
+    verdict = validation.validate_windows(
+        windows_path, target_windows_per_repetition=5, device="gpu",
+        gpu_idle_power_mw_by_level={"F4": 60000.0},
+        gpu_active_power_margin_mw=50000.0,
+    )
+    assert verdict.accepted is False
+    assert "0 ventanas" in verdict.message
+
+
+def test_arc185_criterio_de_potencia_es_invariante_al_nivel_de_reloj(tmp_path):
+    # La misma prueba en dos niveles con lineas de reposo DISTINTAS: el
+    # mismo exceso real sobre el reposo (120 mW) debe contar en ambos, a
+    # diferencia del piso de utilizacion que crecia al bajar el reloj.
+    rows = [
+        {
+            "quality_status": "gpu_telemetry", "phase_label_train": "compute_bound",
+            "gpu_util_pct": "0", "gpu_freq_level_id": "F0", "gpu_power_mw": "180000",
+        }
+        for _ in range(3)
+    ] + [
+        {
+            "quality_status": "gpu_telemetry", "phase_label_train": "compute_bound",
+            "gpu_util_pct": "3", "gpu_freq_level_id": "F4", "gpu_power_mw": "108000",
+        }
+        for _ in range(3)
+    ]
+    windows_path = _write_windows_csv(tmp_path / "windows.csv", rows)
+    verdict = validation.validate_windows(
+        windows_path, target_windows_per_repetition=6, device="gpu",
+        gpu_idle_power_mw_by_level={"F0": 60000.0, "F4": -12000.0},
+        gpu_active_power_margin_mw=50000.0,
+    )
+    assert verdict.accepted is True
+
+
+def test_arc185_nivel_sin_linea_de_reposo_medida_falla_cerrado(tmp_path):
+    rows = [
+        {
+            "quality_status": "gpu_telemetry", "phase_label_train": "compute_bound",
+            "gpu_util_pct": "80", "gpu_freq_level_id": "F2", "gpu_power_mw": "300000",
+        }
+        for _ in range(5)
+    ]
+    windows_path = _write_windows_csv(tmp_path / "windows.csv", rows)
+    verdict = validation.validate_windows(
+        windows_path, target_windows_per_repetition=5, device="gpu",
+        # Solo F4 tiene linea de reposo medida; F2 no cuenta, no se asume 0.
+        gpu_idle_power_mw_by_level={"F4": 60000.0},
+        gpu_active_power_margin_mw=50000.0,
+    )
+    assert verdict.accepted is False
+
+
+def test_arc185_sin_parametros_de_potencia_preserva_el_comportamiento_anterior(tmp_path):
+    # Sin los dos parametros nuevos, el resultado debe ser identico al piso
+    # de utilizacion de ARC-129 -- ninguna campana ya en cola cambia de
+    # comportamiento por este cambio.
+    rows = [
+        {"quality_status": "gpu_telemetry", "phase_label_train": "compute_bound", "gpu_util_pct": "2"}
+        for _ in range(5)
+    ]
+    windows_path = _write_windows_csv(tmp_path / "windows.csv", rows)
+    verdict = validation.validate_windows(windows_path, target_windows_per_repetition=5, device="gpu")
+    assert verdict.accepted is False

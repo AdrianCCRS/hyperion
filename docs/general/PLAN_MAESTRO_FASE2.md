@@ -843,3 +843,97 @@ datos del pre-vuelo que ya está en cola.
 
 **Y un cambio de diseño para las campañas nuevas:** `grace_seconds` y
 `tail_grace_seconds` deben expresarse como fracción del tiempo de corrida.
+
+---
+
+# ANEXO C — T2.3: criterio de actividad GPU invariante a la frecuencia (ARC-185)
+
+## C.1 Motivación medida
+
+`gpu_util_pct` de NVML es una fracción de TIEMPO (cuánto del intervalo de
+muestreo hubo algún kernel corriendo). Con reloj más lento el mismo trabajo
+tarda más, así que un kernel genuinamente ocioso puede cruzar cualquier
+piso fijo en los niveles bajos sin haber hecho más trabajo real (F3 del
+inventario: `rodinia_lud`, ocioso por diseño de esa prueba, pasaba de
+0.0 % en REF/F0 a 3.5 % en F4).
+
+## C.2 Potencia de reposo medida en vivo (job 6447, paccaA100, 20 s/nivel)
+
+| nivel | MHz | potencia media | mín | máx |
+|---|---|---|---|---|
+| F0 | 1410 | 53.82 W | 47.38 W | 54.45 W |
+| F1 | 1110 | 40.11 W | 39.52 W | 56.39 W |
+| F2 | 810 | 36.23 W | 35.95 W | 36.71 W |
+| F3 | 510 | 34.50 W | 34.33 W | 34.91 W |
+| F4 | 210 | 33.80 W | 33.64 W | 34.03 W |
+
+La potencia de reposo **varía 1.59×** entre F4 y F0 (33.8 W → 53.8 W), así
+que un piso único de potencia sería tan defectuoso como el piso de
+utilización único. Confirma que la línea de reposo debe medirse **por
+nivel**, como ya proponía el plan.
+
+El máximo de F1 (56.39 W) es un valor atípico aislado (rango 39.5–56.4 W
+frente a una media de 40.1 W) — probablemente un pico transitorio durante
+la transición de reloj, capturado por estar al inicio de la ventana de
+muestreo. No afecta la mediana ni el criterio, que usa la media.
+
+## C.3 Implementación
+
+`orchestrator/validation.py::validate_windows()` y
+`classifier/features/load.py::filter_gpu_trainable()` aceptan ahora
+`idle_power_mw_by_level` + `active_power_margin_mw` (opcionales). Cuando se
+proveen, el criterio pasa a ser:
+
+```
+gpu_power_mw - idle_power_mw(nivel) >= margen
+```
+
+en vez del piso de utilización fijo. **Sin esos dos parámetros el
+comportamiento es idéntico al anterior** — ninguna campaña ya en cola
+cambia. Un nivel sin línea de reposo medida falla cerrado (no se asume 0).
+
+Enrutado end-to-end: `manifest.gpu.idle_power_mw_by_level` /
+`manifest.gpu.active_power_margin_mw` → `campaign.py` → `validate_windows()`.
+9 tests nuevos (4 en `test_validation.py`, 3 en `test_load.py`), todos
+verdes junto con los 92 preexistentes.
+
+## C.4 Margen recomendado
+
+Con la dispersión medida (máx 56.39, mín 33.64 mW·1000), un margen de
+**≥ 15 000 mW (15 W)** deja el falso-positivo del pico atípico de F1 fuera:
+56.39 − 40.11 ≈ 16.3 W de ruido máximo observado en un solo nivel. Se
+propone `active_power_margin_mw: 20000` (20 W) como valor inicial,
+conservador sobre el ruido medido.
+
+## C.5 Pendiente para activar el criterio en campañas reales
+
+Añadir al bloque `gpu:` de los manifiestos GPU:
+
+```yaml
+gpu:
+  enabled: true
+  idle_power_mw_by_level:
+    F0: 53820.7
+    F1: 40105.9
+    F2: 36225.1
+    F3: 34500.9
+    F4: 33804.0
+  active_power_margin_mw: 20000
+```
+
+Estos valores son de **20 s por nivel**, suficientes para decidir el
+criterio pero no para fijarlos en el catálogo final: antes de una campaña
+GPU completa, remedir con una ventana más larga (~60 s) y con más
+repeticiones por nivel, siguiendo el mismo criterio de "no lanzar sin
+pre-vuelo" del resto del plan.
+
+## C.6 Lo que queda abierto en el eje GPU (F1, F2, F3 restantes)
+
+- **F1/F2** (`rodinia_lud`/`rodinia_heartwall` con `success_check:
+  {type: exit_code}`, no validan CUDA): no atacado en esta sesión. El
+  riesgo está parcialmente mitigado en la práctica porque los manifiestos
+  fijan `--nodelist=paccaA100 --gres=gpu:1`, así que Slurm ya impide
+  ejecutar sin GPU real — pero sigue sin haber una verificación positiva de
+  que el kernel corrió en el dispositivo.
+- El eje de compilación de `gpu_phasic.cu` (E5) sigue pendiente de nvcc en
+  paccaA100.

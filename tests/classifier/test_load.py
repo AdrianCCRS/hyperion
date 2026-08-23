@@ -97,3 +97,47 @@ def test_filter_gpu_trainable_exige_piso_de_utilizacion_inclusive():
 
     assert len(result) == 1
     assert result.iloc[0]["gpu_util_pct"] == "5.0"
+
+
+def test_filter_gpu_trainable_criterio_de_potencia_reemplaza_al_piso_de_utilizacion():
+    # ARC-185: espejo de validate_windows() -- con las lineas de reposo
+    # provistas, gpu_util_pct deja de decidir. La fila con util alto pero
+    # sin exceso real de potencia se descarta; la de util bajo con exceso
+    # real se conserva.
+    df = pd.DataFrame([
+        {"quality_status": "gpu_telemetry", "gpu_util_pct": "50", "gpu_freq_level_id": "F4",
+         "gpu_power_mw": "60500", "phase_label_train": "compute_bound"},
+        {"quality_status": "gpu_telemetry", "gpu_util_pct": "1", "gpu_freq_level_id": "F4",
+         "gpu_power_mw": "180000", "phase_label_train": "compute_bound"},
+    ])
+
+    result = load.filter_gpu_trainable(
+        df, idle_power_mw_by_level={"F4": 60000.0}, active_power_margin_mw=50000.0,
+    )
+
+    assert len(result) == 1
+    assert result.iloc[0]["gpu_power_mw"] == "180000"
+
+
+def test_filter_gpu_trainable_nivel_sin_linea_de_reposo_se_descarta():
+    df = pd.DataFrame([
+        {"quality_status": "gpu_telemetry", "gpu_util_pct": "80", "gpu_freq_level_id": "F2",
+         "gpu_power_mw": "300000", "phase_label_train": "compute_bound"},
+    ])
+
+    result = load.filter_gpu_trainable(
+        df, idle_power_mw_by_level={"F4": 60000.0}, active_power_margin_mw=50000.0,
+    )
+
+    assert len(result) == 0
+
+
+def test_filter_gpu_trainable_sin_parametros_preserva_el_piso_de_utilizacion():
+    df = pd.DataFrame([
+        {"quality_status": "gpu_telemetry", "gpu_util_pct": "5.0", "phase_label_train": "compute_bound"},
+        {"quality_status": "gpu_telemetry", "gpu_util_pct": "4.9", "phase_label_train": "compute_bound"},
+    ])
+
+    result = load.filter_gpu_trainable(df)
+
+    assert len(result) == 1

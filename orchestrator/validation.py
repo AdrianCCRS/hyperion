@@ -438,6 +438,8 @@ def validate_windows(
     *,
     target_windows_per_repetition: int,
     device: str,
+    gpu_idle_power_mw_by_level: Mapping[str, float] | None = None,
+    gpu_active_power_margin_mw: float | None = None,
 ) -> Verdict:
     """VAL-09 (ARC-94): segunda etapa de aceptación, DESPUÉS de que
     postprocess.py escribió windows.csv -- validate_run() por sí solo solo
@@ -473,17 +475,55 @@ def validate_windows(
     Las filas GPU no tienen esta columna poblada (permanecen sin cambios,
     ver ``build_windows()``) -- esta condición nunca se aplica a
     ``device=="gpu"``.
+
+    ARC-185: el piso de ``gpu_util_pct`` tiene sesgo dependiente de la
+    frecuencia -- ``utilization.gpu`` de NVML es una FRACCIÓN DE TIEMPO
+    (cuánto del intervalo de muestreo hubo algún kernel corriendo), y con
+    reloj más lento el mismo trabajo tarda más, así que un kernel
+    genuinamente ocioso puede cruzar el piso del 5 % en los niveles bajos
+    sin haber hecho más trabajo real. Medido en vivo: rodinia_lud (ocioso
+    por diseño de la prueba) pasa de 0.0 % en REF/F0 a 3.5 % en F4.
+
+    Cuando se proveen ``gpu_idle_power_mw_by_level`` y
+    ``gpu_active_power_margin_mw``, el criterio pasa a ser potencia sobre
+    la línea de reposo (vatios reales de NVML, no una fracción de tiempo
+    con ruido de muestreo): ``gpu_power_mw - idle(nivel) >= margen``. Un
+    kernel ocioso da ~0 W de exceso en CUALQUIER nivel de reloj, así que
+    este criterio es invariante a la frecuencia por construcción. La línea
+    de reposo se mide por nivel (no un solo valor para toda la campaña)
+    porque la potencia de reposo de la GPU también depende del reloj
+    fijado.
+
+    Sin esos dos parámetros (``None``, el default) el comportamiento es
+    IDÉNTICO al anterior -- piso de utilización fijo -- para no alterar
+    ninguna campaña ya en cola que no declare el campo nuevo del
+    manifiesto.
     """
     with open(windows_path, newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
     usable_status = "gpu_telemetry" if device == "gpu" else "ok"
     usable_rows = [row for row in rows if row.get("quality_status") == usable_status]
     if device == "gpu":
-        def _has_gpu_signal(row: Mapping[str, Any]) -> bool:
-            try:
-                return float(row.get("gpu_util_pct") or "nan") >= _GPU_UTIL_NOISE_FLOOR_PCT
-            except ValueError:
-                return False
+        use_power_criterion = (
+            gpu_idle_power_mw_by_level is not None and gpu_active_power_margin_mw is not None
+        )
+        if use_power_criterion:
+            def _has_gpu_signal(row: Mapping[str, Any]) -> bool:
+                level = row.get("gpu_freq_level_id")
+                idle = gpu_idle_power_mw_by_level.get(level) if level else None
+                if idle is None:
+                    return False  # nivel sin línea de reposo medida: fail-closed, no se asume 0
+                try:
+                    power = float(row.get("gpu_power_mw") or "nan")
+                except ValueError:
+                    return False
+                return (power - idle) >= gpu_active_power_margin_mw
+        else:
+            def _has_gpu_signal(row: Mapping[str, Any]) -> bool:
+                try:
+                    return float(row.get("gpu_util_pct") or "nan") >= _GPU_UTIL_NOISE_FLOOR_PCT
+                except ValueError:
+                    return False
         usable_rows = [row for row in usable_rows if _has_gpu_signal(row)]
     else:
         usable_rows = [
