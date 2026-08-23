@@ -26,5 +26,18 @@ mkdir -p "$output_dir"
 
 "$nvcc" -O3 -arch=sm_80 -o "$output_dir/gpu_phasic" "$repo_dir/kernels/phase/gpu_phasic.cu"
 
-echo "OK  gpu_phasic construido"
+# ARC-186: nvcc NO produce binarios reproducibles byte a byte -- comprobado
+# en vivo, dos builds consecutivos de la MISMA fuente con los MISMOS flags
+# en el MISMO nodo dan sha256 distintos (diferían desde el byte 897688).
+# Es su pipeline de compilacion en varias etapas (cudafe/ptxas) el que
+# incrusta nombres de archivo temporal aleatorios en metadatos de depuracion
+# -- el codigo ejecutable en si es identico: tras "strip --strip-all" las
+# dos build dieron el MISMO sha256. binary_checksum en el catalogo (C02)
+# compara el archivo que de verdad se ejecuta, asi que hay que despojar el
+# binario ANTES de calcular el checksum, no solo antes de publicarlo --
+# de lo contrario el checksum del catalogo nunca coincidiria con una
+# reconstruccion legitima futura.
+strip --strip-all "$output_dir/gpu_phasic"
+
+echo "OK  gpu_phasic construido y despojado (checksum reproducible)"
 sha256sum "$output_dir/gpu_phasic"
