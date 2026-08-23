@@ -277,6 +277,16 @@ def check_uncore_required_for_cpu_dataset(entries: Iterable[Any], uncore_enabled
     No aplica a una campaña puramente de GPU: las filas GPU nunca dependen
     de esta señal (`usable_status="gpu_telemetry"` en `validate_windows()`),
     así que un catálogo sin ningún kernel de CPU nunca dispara este chequeo.
+
+    ARC-191: `entries` debe ser SOLO `manifest.kernels` (role=="dataset"),
+    nunca incluir `manifest.calibration`. Las corridas de calibración
+    (STREAM/ERT) nunca pasan por `postprocess_run()`/`validate_windows()`
+    -- `calibration.py` las ejecuta con `run_single()` directo y lee su
+    ancho de banda/FLOPs del propio stdout, nunca de `uncore_imc` -- así
+    que no están sujetas al riesgo que este chequeo previene. Como MAN-07
+    exige declarar `stream_official`/`ert_probe` (`device=="cpu"`) en
+    `calibration:` en TODA campaña, incluirlas aquí habría bloqueado
+    incluso una campaña 100% GPU.
     """
     has_cpu_kernel = any(_value(entry, "device", "cpu") != "gpu" for entry in entries)
     passed = not has_cpu_kernel or uncore_enabled
@@ -736,7 +746,25 @@ def run_campaign_preflight(
     ))
     refs = tuple(_value(manifest, "calibration", ())) + tuple(_value(manifest, "kernels", ()))
     entries = [catalog[reference] for reference in refs]
-    results.append(check_uncore_required_for_cpu_dataset(entries, uncore_enabled))
+    # ARC-191: E12 debe mirar solo `kernels:` (role=="dataset"), NO
+    # `calibration:`. Las corridas de calibración (STREAM/ERT) nunca pasan
+    # por postprocess_run()/validate_windows() -- calibration.py las
+    # ejecuta con run_single() directo y lee su ancho de banda/FLOPs del
+    # propio stdout (bandwidth_stdout_pattern/flops_stdout_pattern), nunca
+    # de uncore_imc. E12 existe para blindar contra "corrida de CPU en la
+    # MATRIZ que nunca llega a quality_status=ok" (ARC-123); una entrada de
+    # calibración jamás pasa por esa matriz, así que incluirla en
+    # has_cpu_kernel exigía uncore.enabled=True incluso en una campaña sin
+    # NINGÚN kernel de CPU en el dataset -- MAN-07 obliga a declarar
+    # stream_official/ert_probe en `calibration:` SIEMPRE (son la única
+    # fuente de ancho de banda/FLOPs para I_ridge de CPU), así que antes de
+    # esta corrección ninguna campaña, ni siquiera una 100% GPU, podía
+    # desactivar uncore. `entries` (arriba, combinado) se sigue usando tal
+    # cual para los demás chequeos (binario/checksum/success_check/memoria),
+    # que sí aplican por igual a calibración y a dataset.
+    dataset_refs = tuple(_value(manifest, "kernels", ()))
+    dataset_entries = [catalog[reference] for reference in dataset_refs]
+    results.append(check_uncore_required_for_cpu_dataset(dataset_entries, uncore_enabled))
     # E13 va junto a E12 a propósito: E12 comprueba que el manifiesto PIDA
     # uncore, E13 que el nodo pueda DARLO. Los dos fallan igual aguas abajo
     # (toda ventana de CPU en intensity_undefined) pero por causas

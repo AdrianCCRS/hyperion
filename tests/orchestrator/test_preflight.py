@@ -610,3 +610,98 @@ def test_arc184_e13_no_aplica_sin_uncore():
     resultado = preflight.check_uncore_readable(False)
     assert resultado.passed
     assert not resultado.blocking
+
+
+def test_arc191_e12_ignora_calibracion_cpu_en_campana_100pct_gpu(tmp_path, env):
+    """El caso real que motiva ARC-191: MAN-07 exige que `calibration:`
+    declare stream_official/ert_probe (device=cpu) SIEMPRE, porque son la
+    unica fuente de ancho de banda/FLOPs para I_ridge de CPU -- incluso en
+    una campana cuyo `kernels:` (dataset) es 100% GPU. Antes de este fix,
+    E12 contaba esas entradas de calibracion como "hay CPU" y exigia
+    uncore.enabled=True sin importar que ningun kernel de CPU fuera a pasar
+    por validate_windows() -- lo que disparaba E13 (ARC-184, CAP_PERFMON
+    roto) incluso para una campana puramente de GPU. Con uncore.enabled en
+    false y SOLO kernels GPU en `kernels:`, E12 debe pasar."""
+    binary = tmp_path / "kernel"
+    binary.write_text("#!/bin/sh\nexit 0\n")
+    binary.chmod(0o755)
+    checksum = f"sha256:{hashlib.sha256(binary.read_bytes()).hexdigest()}"
+    cal_entry = SimpleNamespace(
+        exec_path=binary, binary_checksum=checksum, success_check={"type": "exit_code"},
+        estimated_memory_bytes=1, device="cpu",
+    )
+    gpu_entry = SimpleNamespace(
+        exec_path=binary, binary_checksum=checksum, success_check={"type": "exit_code"},
+        estimated_memory_bytes=1, device="gpu",
+    )
+    output = tmp_path / "nueva-campana-gpu"
+    manifest = {
+        "cores": {"delegated_cpus": [2, 3]},
+        "smt_policy": "all_threads",
+        "rapl": {"enabled": False},
+        "gpu": {"enabled": True},
+        "uncore": {"enabled": False},  # el punto del fix: puede ir en false
+        "output_dir": output,
+        "overwrite": False,
+        "calibration": ["stream_official", "ert_probe"],  # exigido por MAN-07, son CPU
+        "kernels": ["gpu_dataset"],  # 100% GPU
+        "projected_campaign_bytes": 0,
+        "remaining_core_hours": 1.0,
+        "projected_core_hours": 0.5,
+    }
+    results = preflight.run_campaign_preflight(
+        manifest, env,
+        {"stream_official": cal_entry, "ert_probe": cal_entry, "gpu_dataset": gpu_entry},
+        sysfs=SysfsPaths.from_base(tmp_path / "sys"),
+        node_profile=SimpleNamespace(pmc_count=10),
+        gpu_inspector=SimpleNamespace(
+            active_processes=lambda: [], persistence_mode=lambda: True, mig_configuration=lambda: None,
+        ),
+        # No se inyecta uncore_probe: con uncore.enabled=False, E13 pasa
+        # trivialmente sin necesitar sondear perf en absoluto.
+    )
+    e12 = next(r for r in results if r.factor_id == "E12")
+    e13 = next(r for r in results if r.factor_id == "E13")
+    assert e12.passed is True, e12.message
+    assert e13.passed is True, e13.message
+
+
+def test_arc191_e12_sigue_bloqueando_si_hay_kernel_de_cpu_real_en_dataset(tmp_path, env):
+    """Blindaje del fix: si `kernels:` SI tiene un kernel de CPU real, E12
+    debe seguir exigiendo uncore -- ARC-191 acota el chequeo a `kernels:`,
+    no lo desactiva."""
+    binary = tmp_path / "kernel"
+    binary.write_text("#!/bin/sh\nexit 0\n")
+    binary.chmod(0o755)
+    checksum = f"sha256:{hashlib.sha256(binary.read_bytes()).hexdigest()}"
+    cal_entry = SimpleNamespace(
+        exec_path=binary, binary_checksum=checksum, success_check={"type": "exit_code"},
+        estimated_memory_bytes=1, device="cpu",
+    )
+    cpu_dataset_entry = SimpleNamespace(
+        exec_path=binary, binary_checksum=checksum, success_check={"type": "exit_code"},
+        estimated_memory_bytes=1, device="cpu",
+    )
+    output = tmp_path / "nueva-campana-cpu"
+    manifest = {
+        "cores": {"delegated_cpus": [2, 3]},
+        "smt_policy": "all_threads",
+        "rapl": {"enabled": False},
+        "gpu": {"enabled": False},
+        "uncore": {"enabled": False},
+        "output_dir": output,
+        "overwrite": False,
+        "calibration": ["stream_official", "ert_probe"],
+        "kernels": ["cpu_dataset"],
+        "projected_campaign_bytes": 0,
+        "remaining_core_hours": 1.0,
+        "projected_core_hours": 0.5,
+    }
+    results = preflight.run_campaign_preflight(
+        manifest, env,
+        {"stream_official": cal_entry, "ert_probe": cal_entry, "cpu_dataset": cpu_dataset_entry},
+        sysfs=SysfsPaths.from_base(tmp_path / "sys"),
+        node_profile=SimpleNamespace(pmc_count=10),
+    )
+    e12 = next(r for r in results if r.factor_id == "E12")
+    assert e12.passed is False
