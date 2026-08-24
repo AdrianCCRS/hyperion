@@ -106,7 +106,7 @@ frecuencia", y eso ya está en todas las tablas medidas.
    catálogo de CPU**, buscando kernels más memory-bound que los 9
    actuales. Esto **no necesita CAP_PERFMON** — el tamizaje mide solo
    tiempo y energía RAPL a distintos `scaling_min/max_freq` pineados
-   (permiso P1, ya concedido y en uso).
+   (permiso P1, ya concedido y en uso). **En marcha, ver §6.**
 2. **`npb_mg` es la única señal real del catálogo actual** — es el
    equivalente CPU de `lavamd`/`dwt2d` en GPU: el candidato con margen
    genuino, a estudiar primero.
@@ -121,7 +121,33 @@ frecuencia", y eso ya está en todas las tablas medidas.
    ya redactada): ampliar el dataset con los kernels nuevos que sobrevivan
    el tamizaje, con etiqueta de verdad completa.
 
-## 6. Reconciliación honesta con la variación intra-kernel (Objetivo 2 literal)
+## 6. Impulso nuevo: RAJAPerf ya está en pacca, casi sin usar
+
+Comparando cuántos kernels usa cada paper ya citado para llegar a sus
+resultados: `Guerreiro2019` 35, `Calore2017` **2** (una sola app, y aun
+así resultado real y modesto pero citable), `Hebbar2022` 43 (SPEC
+CPU2017, pero es licencia paga — no reproducible por nosotros sin
+comprarla), `Antici2024` producción a escala Fugaku. El número no es lo
+que decide — es la **diversidad de régimen** cubierta.
+
+El catálogo CPU actual (9 kernels) tiene exactamente **un** candidato
+memory-bound real (`npb_mg`). Revisando qué había disponible en pacca sin
+compilar nada nuevo: **RAJAPerf (LLNL RAJA Performance Suite) ya está
+descargado y compilado**, y de él el catálogo usa **1 kernel** de los
+~13 de Polybench + ~42 de `apps/` disponibles. El binario
+(`raja-perf.exe`) corre cualquier kernel con `-k NOMBRE -v Base_OpenMP` —
+sin compilar de nuevo, checksum ya verificado.
+
+**Job 6473, encolado**: tamizaje de α sobre 7 candidatos de Polybench
+elegidos por conocimiento algorítmico clásico (stencils y productos
+matriz-vector: `JACOBI_1D`, `JACOBI_2D`, `HEAT_3D`, `FDTD_2D`, `ATAX`,
+`GESUMMV`, `MVT` — bajo el mismo criterio de OI no medida-pero-declarada
+que ya se usó para tamizar GPU). Script
+`scripts/pacca/screen_rajaperf_cpu_alpha.sh`: bypasea el orquestador por
+diseño (solo tiempo de pared + RAPL, sin `perf`/uncore), así que corre
+hoy sin esperar CAP_PERFMON.
+
+## 7. Reconciliación honesta con la variación intra-kernel (Objetivo 2 literal)
 
 No toda la evidencia apunta a "cero variación intra-kernel". La misma
 tabla de `resultados_compuertas_fase2.md` que mostró que el óptimo casi
@@ -142,12 +168,12 @@ mecanismo secundario para los casos donde sí hay mezcla real
 (`npb_bt`/`npb_lu`/`npb_mg` a frecuencias bajas) — sin inventar una
 arquitectura nueva, solo priorizando la que el dato mismo respalda.
 
-## 7. Mapeo explícito a los Objetivos Específicos
+## 8. Mapeo explícito a los Objetivos Específicos
 
 | Objetivo | Estado | Evidencia |
 |---|---|---|
-| 1. Caracterizar comportamiento y consumo bajo distintos estados de frecuencia (Perf+RAPL) | **Cumplido** (424/540 corridas válidas) | `pacca_cpu_final_attempt03_20260820_arc174` |
-| 2. Clasificador ML de fases desde telemetría, en vivo, baja latencia | Arquitectura sin cambios; features ya libres de uncore (`train_phase.py`); alternancia real documentada en 2/9 kernels a frecuencias bajas | §1, §6 |
+| 1. Caracterizar comportamiento y consumo bajo distintos estados de frecuencia (Perf+RAPL) | **Cumplido** (424/540 corridas válidas), ampliándose vía RAJAPerf | `pacca_cpu_final_attempt03_20260820_arc174`; §6 |
+| 2. Clasificador ML de fases desde telemetría, en vivo, baja latencia | Arquitectura sin cambios; features ya libres de uncore (`train_phase.py`); alternancia real documentada en 2/9 kernels a frecuencias bajas | §1, §7 |
 | 3. Daemon de espacio de usuario, inferencia + política DVFS proactiva | **No bloqueado por CAP_PERFMON** — el runtime del modelo nunca dependió de uncore; el mecanismo de actuación (`scaling_min/max_freq`) ya tiene permiso P1 | §1 |
 | 4. Evaluación por EDP contra gobernador nativo | `REF` (gobernador nativo, sin pinear) ya es la comparación pedida — no requiere el permiso de `scaling_governor` que fue denegado | §4 |
 
@@ -155,16 +181,20 @@ arquitectura nueva, solo priorizando la que el dato mismo respalda.
 
 ## Riesgos abiertos, declarados sin adornar
 
-1. El margen de 0.33 puntos es sobre el catálogo actual; no se sabe
-   todavía si un tamizaje por α encontrará kernels CPU con margen real
-   comparable al de GPU.
-2. `powersave` como baseline dinámico queda descartado por permiso — si
+1. El margen de 0.33 puntos es sobre el catálogo actual; el job 6473
+   (§6) todavía no reporta resultado — no se sabe todavía si el tamizaje
+   encontrará kernels CPU con margen real comparable al de GPU.
+2. Los 7 candidatos de RAJAPerf se eligieron por conocimiento algorítmico
+   (stencils/matriz-vector suelen ser memory-bound), no por OI medida —
+   el mismo tipo de aproximación declarada que ya se usó para tamizar
+   GPU, con el mismo riesgo: puede que alguno no lo sea en la práctica.
+3. `powersave` como baseline dinámico queda descartado por permiso — si
    se considera valioso, requiere una solicitud nueva a administración,
    explícitamente sobre `scaling_governor`/EPP (nunca pedida hasta hoy).
-3. CAP_PERFMON sigue sin fecha de resolución — el plan de §5 avanza sin
+4. CAP_PERFMON sigue sin fecha de resolución — el plan de §5 avanza sin
    esperarlo, pero la ampliación de dataset con etiqueta de verdad
    completa sigue condicionada a él.
-4. El modelo entrenado con la arquitectura corregida (predicción por
+5. El modelo entrenado con la arquitectura corregida (predicción por
    carga) todavía no se ha corrido — es el paso inmediato siguiente, no
    un resultado ya obtenido.
 

@@ -166,11 +166,35 @@ recorte de tiempo arbitrario tomado de otra plataforma.
    medida con `ncu` — no se usa como feature del modelo (evita CAT-10 por
    diseño), pero está documentado en el catálogo para no ocultarlo.
 
-## 8. Mapeo explícito a los Objetivos Específicos
+## 8. Impulso nuevo: el banco de kernels es más grande de lo que se estaba usando
+
+Se comparó cuántos kernels usa cada paper ya citado para llegar a sus
+resultados: `Guerreiro2019` 35 (5 suites), `Calore2017` **2** (una sola
+app, y aun así resultado real), `Hebbar2022` 43 (SPEC CPU2017, clasificados
+en 3 grupos), `Antici2024` producción a escala Fugaku. El rango es
+enorme — el número de kernels en sí no es lo que decide, sino la
+**diversidad de régimen** cubierta.
+
+Contra ese criterio, el catálogo GPU actual (7-11 kernels) está sesgado
+hacia compute/balanced, con 1-2 candidatos memory-bound reales
+(`lavamd`, `dwt2d`). Revisando qué hay ya disponible en pacca sin
+compilar nada nuevo: **RAJAPerf (LLNL RAJA Performance Suite) ya está
+descargado, y de sus ~13 kernels de Polybench + ~42 de `apps/` + otros,
+el catálogo usa exactamente 1** (`rajaperf_polybench_3mm_omp`). El
+binario (`raja-perf.exe`) corre cualquier kernel con `-k NOMBRE -v
+Base_Cuda`/`Base_OpenMP` — agregar un kernel nuevo no exige compilar de
+nuevo, solo un wrapper que seleccione el kernel.
+
+**Para GPU específicamente** falta compilar la variante CUDA de RAJAPerf
+(hoy solo existe la OpenMP) — es un build nuevo, no gratis pero de bajo
+riesgo (mismo procedimiento ya usado para `gpu_phasic`: verificar
+reproducibilidad, despojar el binario, fijar checksum).
+
+## 9. Mapeo explícito a los Objetivos Específicos
 
 | Objetivo | Estado | Evidencia |
 |---|---|---|
-| 1. Caracterizar comportamiento y consumo bajo distintos estados de frecuencia (NVML) | **Cumplido**, ampliándose | Jobs 6462/6463/6471/6472 |
+| 1. Caracterizar comportamiento y consumo bajo distintos estados de frecuencia (NVML) | **Cumplido**, ampliándose (RAJAPerf abre ~50+ kernels adicionales) | Jobs 6462/6463/6471/6472; §8 |
 | 2. Clasificador ML de fases desde telemetría, en vivo, baja latencia | **Reinterpretado a granularidad de carga/kernel**, con precedente publicado triple (Guerreiro/Calore/Antici) | Anexo K.8, §3 de este documento |
 | 3. Daemon de espacio de usuario, inferencia + política DVFS proactiva | Sin cambios de diseño; pendiente de implementación sobre el modelo de §4 | — |
 | 4. Evaluación por EDP contra gobernador nativo | **EDP ya es la métrica primaria del análisis** (§5); GPU no tiene gobernador nativo en el sentido de CPU — el "nativo" es `native_governor`/REF, ya incluido en todas las tablas | Anexo K.2, `gpu_policy_headroom.py` |
