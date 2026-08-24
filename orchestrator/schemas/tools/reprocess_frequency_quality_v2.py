@@ -163,7 +163,7 @@ def reprocess_run(run_dir: Path, *, manifest, catalog, derived_root: Path) -> di
         roofline = calibration_module.load_calibration(manifest.output_dir, freq_level_id)
         profile = node_profile_module.load_node_profile(manifest.output_dir)
         context = postprocess_module.WindowContext(
-            run_id=run_id, repetition=metadata.get("repetition", 1), kernel_ref=kernel_ref,
+            run_id=run_id, repetition=metadata.get("repetition_index", 1), kernel_ref=kernel_ref,
             node_id=metadata.get("node_id", ""), phase_label_hint=getattr(entry, "phase_label_hint", None),
             freq_level_id=freq_level_id,
             freq_khz_requested=metadata.get("freq_khz_requested"),
