@@ -60,3 +60,6 @@ Thumbs.db
 *.out
 *.run.xml
 *.bcf
+
+# Local copies of large experimental datasets (never commit)
+/local_datasets/
