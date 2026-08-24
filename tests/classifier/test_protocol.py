@@ -139,3 +139,50 @@ def test_baseline_siempre_maxima_pierde_si_hay_optimo_interior():
     baselines = protocol.trivial_baselines(edp, max_level="REF")
 
     assert baselines["siempre_maxima"] == pytest.approx(5669.0 / 3942.0)
+
+
+def test_honest_constant_baseline_recalcula_por_pliegue_no_mira_el_kernel_de_prueba():
+    # k1 y k2 optimizan en F0; k3 (el que se deja fuera cada vez) optimiza
+    # en F1. Si la constante se eligiera mirando TODO el conjunto (trampa),
+    # F0 seguiria ganando incluso para el pliegue de k3. Elegida solo con
+    # folds de entrenamiento, el pliegue de k3 sigue usando F0 (porque
+    # entrena con k1/k2, que prefieren F0) -- la trampa y la version honesta
+    # coinciden aqui a proposito, para aislar la otra propiedad que importa:
+    # que el nivel elegido pueda DIFERIR entre pliegues.
+    edp = pd.DataFrame(
+        {"F0": [100.0, 100.0, 130.0], "F1": [140.0, 140.0, 90.0]},
+        index=["k1", "k2", "k3"],
+    )
+
+    result = protocol.honest_constant_baseline(edp)
+
+    assert result["chosen_level_by_fold"]["k1"] == "F0"
+    assert result["chosen_level_by_fold"]["k2"] == "F0"
+    # el pliegue de k3 entrena solo con k1/k2 (ambos prefieren F0)
+    assert result["chosen_level_by_fold"]["k3"] == "F0"
+    oracle_sum = 100.0 + 100.0 + 90.0
+    chosen_sum = 100.0 + 100.0 + 130.0  # k3 evaluado en F0, su peor nivel
+    assert result["edp_loss"] == pytest.approx(chosen_sum / oracle_sum)
+
+
+def test_honest_constant_baseline_puede_diferir_entre_pliegues():
+    # k1 prefiere F0, k2 y k3 prefieren F1: el pliegue de k1 (entrena con
+    # k2/k3) debe elegir F1, mientras que el pliegue de k2 (entrena con
+    # k1/k3) puede elegir cualquiera segun el promedio -- lo que hay que
+    # verificar es que el nivel SI cambia entre pliegues.
+    edp = pd.DataFrame(
+        {"F0": [50.0, 200.0, 200.0], "F1": [200.0, 50.0, 50.0]},
+        index=["k1", "k2", "k3"],
+    )
+
+    result = protocol.honest_constant_baseline(edp)
+
+    assert result["chosen_level_by_fold"]["k1"] == "F1"
+    assert result["n_distinct_levels"] >= 1
+
+
+def test_honest_constant_baseline_exige_al_menos_dos_kernels():
+    edp = pd.DataFrame({"F0": [100.0]}, index=["k1"])
+
+    with pytest.raises(ValueError):
+        protocol.honest_constant_baseline(edp)

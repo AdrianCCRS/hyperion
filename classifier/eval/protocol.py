@@ -136,3 +136,40 @@ def trivial_baselines(
             edp_by_level.mean(axis=1).to_numpy(), oracle
         )
     return out
+
+
+def honest_constant_baseline(edp_by_level: pd.DataFrame) -> dict[str, object]:
+    """V6/C7: EDP loss de "la mejor frecuencia constante única", elegida
+    de forma honesta -- para cada kernel dejado fuera, la constante se
+    calcula únicamente con los kernels de entrenamiento del pliegue LOKO
+    correspondiente.
+
+    Este es el rival que de verdad hay que vencer, no ``siempre_maxima``:
+    es la línea base que ``gpu_policy_headroom.py``/``cpu_policy_headroom.py``
+    ya calculan mirando TODO el conjunto -- lo cual hace trampa si se usa
+    para evaluar un modelo, porque incorpora información del propio kernel
+    de prueba. Aquí se recalcula por pliegue para que la comparación con un
+    modelo entrenado bajo LOKO sea justa.
+
+    ``edp_by_level`` tiene una fila por kernel (índice = nombre del
+    kernel) y una columna por nivel de frecuencia, con el EDP que ese
+    kernel habría obtenido en cada uno.
+    """
+    kernels = list(edp_by_level.index)
+    if len(kernels) < 2:
+        raise ValueError(f"hacen falta al menos 2 kernels, hay {len(kernels)}")
+
+    oracle = edp_by_level.min(axis=1)
+    chosen = pd.Series(index=kernels, dtype=float)
+    chosen_level = {}
+    for test_kernel in kernels:
+        train = edp_by_level.drop(index=test_kernel)
+        level = train.mean(axis=0).idxmin()
+        chosen[test_kernel] = edp_by_level.loc[test_kernel, level]
+        chosen_level[test_kernel] = level
+
+    return {
+        "edp_loss": edp_loss(chosen.to_numpy(), oracle.to_numpy()),
+        "chosen_level_by_fold": chosen_level,
+        "n_distinct_levels": len(set(chosen_level.values())),
+    }
