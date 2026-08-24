@@ -1,0 +1,153 @@
+# Prueba V4 (docs/general/Estrategia_GPU_Fase2.md §10): ¿existe alternancia
+# de fases intra-corrida EXPLOTABLE en GPU?
+#
+# EL HUECO QUE CIERRA. La Estrategia GPU §3 sostiene que la granularidad
+# correcta del modelo es la carga/kernel, no la ventana. El argumento se
+# apoya en que el óptimo de corrida completa es constante por kernel
+# (Anexo K). Pero de ahí NO se sigue que no exista alternancia dentro de la
+# corrida: es precisamente lo que la instrumentación de GPU no puede
+# observar (CAT-10 -- la intensidad operacional es estática por kernel,
+# medida offline con ncu, porque los contadores de tráfico DRAM viven en la
+# Profiling API de CUPTI, que exige replay del kernel). Afirmar la ausencia
+# de un fenómeno que no se puede medir es circular.
+#
+# ESTA CAMPAÑA ROMPE LA CIRCULARIDAD. `gpu_phasic` alterna dos regímenes
+# extremos POR CONSTRUCCIÓN (compute_phase = FMA sin tráfico de memoria;
+# memory_phase = persecución de punteros sin FLOPs) y emite marcas de
+# verdad en stdout (`PHASE`, `T0_MONOTONIC_NS`). Eso permite cruzar OFFLINE
+# la fase real contra `gpu_power_mw`/`gpu_sm_clock_mhz` por ventana, sin
+# depender del etiquetado automático que CAT-10 rompe.
+#
+# CRITERIO DE LECTURA (declarado antes de ver el dato, a propósito):
+#   - Si las dos fases son distinguibles en potencia Y su nivel óptimo
+#     difiere -> hay alternancia explotable; la granularidad por ventana
+#     tiene sustento y hay que revisar §3.
+#   - Si NO son distinguibles, o lo son pero el óptimo no difiere ->
+#     la granularidad por carga queda confirmada CON EVIDENCIA POSITIVA,
+#     no por ausencia de medición. Este es el resultado que la Estrategia
+#     GPU espera, pero se mide en vez de asumirse.
+#
+# LIMITACIÓN CONOCIDA, no un descuido: `phase_label_train` saldrá CONSTANTE
+# en todas las filas (CAT-10, ver el comentario de gpu_phasic_p010 en el
+# catálogo). El dataset de esta campaña NO sirve para entrenar el
+# clasificador directamente; sirve para el cruce offline descrito arriba.
+#
+# `gpu_phasic_p010` (período 10 ms) es sospechoso de aportar poco: el
+# muestreo de NVML es de ~100 ms (gpu_interval_ns=5 ms aquí, pero el sensor
+# físico refresca mucho más lento), así que un período de 10 ms queda por
+# debajo de la resolución del instrumento. Se incluye igual para MEDIR ese
+# límite en vez de suponerlo -- es el control negativo de la prueba.
+#
+# COSTO. 3 kernels x 6 niveles GPU x 1 nivel CPU x 3 rep = 54 corridas.
+
+campaign_id: pacca_gpu_phase_probe_20260824
+environment_tier: hpc_sc3
+seed: 20260806
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_gpu_phase_probe_20260824
+overwrite: true
+
+catalog_path: ../kernels/catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: gpu_phasic_p010
+  - kernel_ref: gpu_phasic_p100
+  - kernel_ref: gpu_phasic_p1000
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+
+gpu_frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F0, mode: fixed, fraction: 1.0}
+  - {id: F1, mode: fixed, fraction: 0.75}
+  - {id: F2, mode: fixed, fraction: 0.5}
+  - {id: F3, mode: fixed, fraction: 0.25}
+  - {id: F4, mode: fixed, fraction: 0.0}
+
+repetitions_per_combination: 3
+target_windows_per_repetition: 5
+interval_ns: 1000000
+gpu_interval_ns: 5000000
+
+running_ratio_min: 0.90
+
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+  grace_seconds: 0.05
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+
+rapl:
+  enabled: true
+
+# ARC-191: dataset 100% GPU, así que E12 no exige uncore.
+uncore:
+  enabled: false
+
+turbo:
+  require_disabled: true
+
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+
+gpu:
+  enabled: true
+  calibration:
+    - gpu_stream_bw
+    - gpu_ert_probe_fp32
+    - gpu_ert_probe_fp64
+  # Márgenes MEDIDOS del Anexo I (los 6 niveles estándar), sin interpolar.
+  idle_power_mw_by_level:
+    REF: 33654.0
+    F0: 53621.8
+    F1: 39856.8
+    F2: 36084.9
+    F3: 34441.0
+    F4: 33677.6
+  active_power_margin_mw:
+    REF: 800
+    F0: 4000
+    F1: 2000
+    F2: 1200
+    F3: 900
+    F4: 800
+
+# gpu_phasic corre --total-seconds 20 por diseño; en F4 el reloj va
+# recortado 6.7x pero el kernel está acotado por TIEMPO, no por trabajo,
+# así que no se alarga. 300 s cubre con holgura amplia.
+timeouts_seconds:
+  ready: 15
+  run: 300
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 480000000000
+
+projected_campaign_bytes: 200000000
+remaining_core_hours: 1000.0
+projected_core_hours: 2.0

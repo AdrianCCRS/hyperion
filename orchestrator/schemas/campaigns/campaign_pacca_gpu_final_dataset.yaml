@@ -1,0 +1,170 @@
+# CORRIDA FINAL GPU -- dataset consolidado de entrenamiento.
+#
+# ENCOLADA POR ANTICIPADO, CON DEPENDENCIA. Se somete con
+# `--dependency=afterok:<6471>:<6472>` para que no arranque si alguna de
+# las dos campañas de prueba falla. Motivo: el nodo se comparte con otro
+# proyecto y perder el puesto en la cola cuesta días. Si las pruebas salen
+# mal, esta corrida se cancela con `scancel`; si salen bien, arranca sola
+# sin volver a hacer fila.
+#
+# ADVERTENCIA SOBRE EL ALCANCE DE LA DEPENDENCIA. `afterok` solo verifica
+# el CÓDIGO DE SALIDA de las campañas previas. NO detecta el modo de fallo
+# que más importa aquí: que los márgenes de potencia interpolados de los 4
+# niveles nuevos (G1-G4) estén mal puestos, lo que produce rechazo masivo
+# I10 (0 ventanas `gpu_telemetry`) y BORRA la energía de GPU -- hoy la
+# métrica primaria. Ese caso da exit 0 igual. **Antes de dejar correr esta
+# campaña hay que revisar los rechazos por nivel del job 6471** (prueba V1
+# de docs/general/Estrategia_GPU_Fase2.md §10). Si G1-G4 salen con rechazo
+# masivo: cancelar esta, remedir la línea de reposo con sonda fina, y
+# reencolar con márgenes medidos.
+#
+# QUÉ CONSOLIDA. Los 11 puntos de carga GPU disponibles, sobre la grilla
+# fina completa, con 5 repeticiones (vs. 3 de las campañas de prueba) para
+# darle poder estadístico al leave-one-kernel-out del modelo:
+#   - 7 kernels reales del catálogo GPU
+#   - 4 variantes de tamaño de dwt2d (192/2048/4096/8192 px)
+#
+# CPU=REF ÚNICAMENTE. El Anexo K.5 midió que fijar la CPU al mínimo empeora
+# la energía TOTAL entre 5.2% y 215% en los 4 kernels probados, y el §4 de
+# la Estrategia CPU midió que la frecuencia de CPU mueve su potencia solo
+# 0.7-3.8%. El eje CPU sale de la matriz GPU: es medida confirmada, no
+# hipótesis, y ahorra la mitad de las corridas sin perder información.
+#
+# COSTO. 11 puntos x 10 niveles GPU x 1 nivel CPU x 5 rep = 550 corridas.
+# Referencia de ritmo: job 6462 hizo 144 corridas en 61 min (~0.42 min por
+# corrida), pero los niveles bajos son más lentos -> se presupuestan 6 h.
+
+campaign_id: pacca_gpu_final_dataset_20260824
+environment_tier: hpc_sc3
+seed: 20260806
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_gpu_final_dataset_20260824
+overwrite: true
+
+catalog_path: ../kernels/catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: rodinia_gaussian
+  - kernel_ref: gpu_dgemm_n4096
+  - kernel_ref: rodinia_heartwall
+  - kernel_ref: rodinia_lavamd
+  - kernel_ref: rodinia_myocyte
+  - kernel_ref: rodinia_backprop
+  - kernel_ref: rodinia_dwt2d
+  - kernel_ref: rodinia_dwt2d_s192
+  - kernel_ref: rodinia_dwt2d_s2048
+  - kernel_ref: rodinia_dwt2d_s4096
+  - kernel_ref: rodinia_dwt2d_s8192
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+
+# Grilla fina: los 4 escalones intermedios (G1-G4) cubren el salto de
+# 300 MHz entre F0 y F1, que es donde el Anexo M midió que vive todo el
+# margen de ahorro (15-25%) y donde el presupuesto de degradación estricto
+# se vuelve o no alcanzable.
+gpu_frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F0, mode: fixed, fraction: 1.0}      # 1410 MHz
+  - {id: G1, mode: fixed, fraction: 0.95}     # 1350 MHz
+  - {id: G2, mode: fixed, fraction: 0.90}     # 1290 MHz
+  - {id: G3, mode: fixed, fraction: 0.85}     # 1230 MHz
+  - {id: G4, mode: fixed, fraction: 0.80}     # 1170 MHz
+  - {id: F1, mode: fixed, fraction: 0.75}     # 1110 MHz
+  - {id: F2, mode: fixed, fraction: 0.5}      # 810 MHz
+  - {id: F3, mode: fixed, fraction: 0.25}     # 510 MHz
+  - {id: F4, mode: fixed, fraction: 0.0}      # 210 MHz
+
+repetitions_per_combination: 5
+target_windows_per_repetition: 5
+interval_ns: 1000000
+gpu_interval_ns: 5000000
+
+running_ratio_min: 0.90
+
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+  grace_seconds: 0.05
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+
+rapl:
+  enabled: true
+
+# ARC-191: dataset 100% GPU, E12 no exige uncore. Necesario mientras
+# CAP_PERFMON siga roto (ARC-184).
+uncore:
+  enabled: false
+
+turbo:
+  require_disabled: true
+
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+
+gpu:
+  enabled: true
+  calibration:
+    - gpu_stream_bw
+    - gpu_ert_probe_fp32
+    - gpu_ert_probe_fp64
+  # G1-G4 INTERPOLADOS entre los valores medidos de F0 y F1 -- ver la
+  # advertencia del encabezado. El resto son medidos (Anexo I, ARC-194).
+  idle_power_mw_by_level:
+    REF: 33654.0
+    F0: 53621.8
+    G1: 50868.8   # INTERPOLADO
+    G2: 48115.8   # INTERPOLADO
+    G3: 45362.8   # INTERPOLADO
+    G4: 42609.8   # INTERPOLADO
+    F1: 39856.8
+    F2: 36084.9
+    F3: 34441.0
+    F4: 33677.6
+  active_power_margin_mw:
+    REF: 800
+    F0: 4000
+    G1: 3600      # INTERPOLADO
+    G2: 3200      # INTERPOLADO
+    G3: 2800      # INTERPOLADO
+    G4: 2400      # INTERPOLADO
+    F1: 2000
+    F2: 1200
+    F3: 900
+    F4: 800
+
+timeouts_seconds:
+  ready: 15
+  run: 300
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 480000000000
+
+projected_campaign_bytes: 900000000
+remaining_core_hours: 1000.0
+projected_core_hours: 12.0
