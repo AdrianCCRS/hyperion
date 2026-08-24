@@ -5,6 +5,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
+#SBATCH --mem=1G
 #SBATCH --time=00:05:00
 #SBATCH --output=/home/latorresn/hyperion-results/analysis/uncore_probe_%j.out
 #SBATCH --error=/home/latorresn/hyperion-results/analysis/uncore_probe_%j.err
@@ -36,11 +37,20 @@
 # invalida P_pico y el ridge. Esta sonda no fija ningún nivel ni mide
 # tiempo ni energía -- solo pregunta si un contador se puede abrir.
 #
-# NO pide --gres=gpu ni --exclusive a propósito: con OverSubscribe=YES:4
-# en la partición GPU, así puede entrar junto al job que ocupa el nodo en
-# vez de hacer fila detrás de la batería de GPU ya encolada. La exclusividad
-# que exige E11 es para la VALIDEZ de la medida de ancho de banda, no para
-# la disponibilidad del contador, que es lo único que aquí se pregunta.
+# NO pide --gres=gpu ni --exclusive a propósito: la exclusividad que exige
+# E11 es para la VALIDEZ de la medida de ancho de banda, no para la
+# disponibilidad del contador, que es lo único que aquí se pregunta.
+#
+# `--mem=1G` NO es cosmético. `DefMemPerNode=UNLIMITED` en esta partición
+# hace que un job sin `--mem` pida la memoria ENTERA del nodo (257 GB), lo
+# que lo vuelve inplanificable junto a cualquier otro job por pequeño que
+# sea. La versión original de esta sonda tenía ese defecto.
+#
+# AUN ASÍ NO BASTA para correr junto a otro job: `OverSubscribe=YES:4` es
+# opt-in por job, así que compartir núcleo exigiría además `--oversubscribe`.
+# Se deja deliberadamente FUERA. Si el job que ocupa el nodo es un benchmark
+# de rendimiento, meterle un competidor de núcleo le contamina la medición
+# -- y si es una campaña propia, contamina la nuestra y dispara E08.
 #
 # Uso: sbatch probe_uncore_in_job.sbatch
 set -e -o pipefail
