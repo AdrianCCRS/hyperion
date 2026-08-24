@@ -1916,3 +1916,154 @@ ICPP 2019, "Predictable GPUs Frequency Scaling for Energy and
 Performance"; arXiv:1610.01784 — survey y estudio de medición de DVFS en
 GPU; ACM (2023) — escalado consciente de la aplicación, 26.7% V100 /
 20.2% A100.
+
+---
+
+# ANEXO N — Matriz experimental actualizada, CPU y GPU (2026-08-24)
+
+**Supersede al Anexo F.** F se escribió antes de K/L/M (métrica de
+energía corregida) y antes de la campaña 6462. La estructura de F
+(núcleo/tamaño/rejilla/fase) ya no aplica igual; esta versión refleja lo
+que realmente corrió, lo que está en cola, y lo que es condicional a un
+tamizaje pendiente — sin inventar resultados que todavía no llegaron.
+
+Formato: **CONFIRMADO** (dato real en disco) / **EN COLA** (manifiesto
+válido, corriendo o esperando nodo) / **CONDICIONAL** (depende de que un
+tamizaje pendiente pase un umbral).
+
+## N.1 Matriz GPU
+
+### Núcleo activo — CONFIRMADO (job 6462)
+
+| kernel | tamaño | niveles GPU | CPU | reps | corridas |
+|---|---|---|---|---|---|
+| rodinia_gaussian | 4096×4096 | 6 (REF,F0-F4) | REF,F4 | 3 | 36 |
+| gpu_dgemm_n4096 | N=4096 | 6 | REF,F4 | 3 | 36 |
+| rodinia_heartwall | 1000 cuadros | 6 | REF,F4 | 3 | 36 |
+| rodinia_lavamd | boxes1d=70 | 6 | REF,F4 | 3 | 36 |
+| **Total** | | | | | **144** |
+
+Resultado (Anexo M, energía de GPU vía NVML): ahorro real de 7.7–25.1%
+en `lavamd`/`heartwall`/`gaussian`/`myocyte` a F1, `lavamd`@F1 gana 17.6%
+de EDP. `dgemm_n4096` y `dwt2d` sin ahorro en esta grilla.
+
+**Decisión que toma esta matriz, respecto a F**: el eje CPU=F4 se
+**elimina** hacia adelante. K.5 midió que CPU al mínimo empeora la
+energía total 5.2–215% en los 4 kernels — confirmado, no una hipótesis.
+Todo lo que sigue usa **CPU=REF únicamente**, la mitad de corridas por
+kernel sin perder información real.
+
+### Grilla fina — EN COLA (job 6471)
+
+| kernel | niveles GPU | CPU | reps | corridas |
+|---|---|---|---|---|
+| gaussian, dgemm_n4096, heartwall, lavamd, myocyte, backprop, dwt2d (7) | 10 (REF,F0,4 intermedios 1170-1350MHz,F1-F4) | REF | 3 | 210 |
+
+Responde si el margen de 15-25% cabe dentro de un presupuesto de
+degradación ≤4-10% (hoy solo cabe sin límite o con EDP). Márgenes de
+potencia de los 4 niveles nuevos **interpolados**, riesgo declarado en
+`campaign_pacca_gpu_fine_grid_dataset.yaml`.
+
+### Diversidad de carga (dwt2d) — EN COLA (job 6472)
+
+| kernel | tamaños | niveles GPU | CPU | reps | corridas |
+|---|---|---|---|---|---|
+| rodinia_dwt2d_s192/s2048/s4096/s8192 + rodinia_dwt2d (16384) | 5 | 6 | REF | 3 | 90 |
+
+### Candidatos memory-bound tamizados — CONFIRMADO, resultado negativo (job 6463)
+
+`rodinia_myocyte`, `rodinia_backprop`, `rodinia_dwt2d` (16384): el ajuste
+de α resultó **inválido** (r²=0.53-0.63, Anexo L.1) por el piso de
+potencia estática — no se usa como filtro por sí solo. Con la métrica
+GPU-only corregida (Anexo M), `myocyte` sí muestra 7.66% de ahorro real
+en F1; los otros dos no. **Ya están en la grilla fina (arriba)**, no se
+proponen corridas nuevas.
+
+### RAJAPerf CUDA — CONDICIONAL, sin build todavía
+
+~55 kernels adicionales disponibles en RAJAPerf (Polybench+apps), pero
+la variante CUDA nunca se compiló en pacca (solo existe la OpenMP). Antes
+de cualquier corrida GPU: build nuevo (`ENABLE_CUDA=On`), verificar
+reproducibilidad, despojar y fijar checksum — mismo procedimiento que
+`gpu_phasic`. **No hay pre-vuelo diseñado todavía.**
+
+### Matriz GPU total, si todo confirma
+
+| eje | estado | corridas |
+|---|---|---|
+| Núcleo activo | confirmado | 144 |
+| Grilla fina | en cola | 210 |
+| Diversidad dwt2d | en cola | 90 |
+| RAJAPerf CUDA | condicional, sin build | — |
+| **Total medido/en cola** | | **444** |
+
+## N.2 Matriz CPU
+
+### Núcleo — CONFIRMADO (dataset `arc174`, previo a esta sesión)
+
+| kernel | suite | tamaño | niveles | reps |
+|---|---|---|---|---|
+| npb_bt, npb_mg, npb_cg, npb_sp, npb_ft, npb_lu | NPB-OMP | clase B | REF,F0-F4 | 10 |
+| dgemm_n2048 | DGEMM-OpenBLAS | N=2048 | REF,F0-F4 | 10 |
+| rodinia_lavamd_omp | Rodinia-OpenMP | boxes1d=24 | REF,F0-F4 | 10 |
+| rajaperf_polybench_3mm_omp | RAJAPerf-OpenMP | `--repfact 10` | REF,F0-F4 | 10 |
+| **Total** | | | | **540 (424 aceptadas)** |
+
+Resultado (`cpu_policy_headroom.py`, esta sesión): margen del modelo
+sobre la mejor constante = **0.33 puntos**. `npb_mg` es la única señal
+real (+2.71% en F1). Causa física: núcleo y memoria comparten dominio de
+reloj en CPU (a diferencia de GPU) — no es un problema de grilla.
+
+### Tamizaje RAJAPerf/Polybench — EN COLA (job 6473)
+
+| candidato | fuente | por qué |
+|---|---|---|
+| Polybench_JACOBI_1D, JACOBI_2D | stencil 1D/2D | bajo reuso de dato, clásico memory-bound |
+| Polybench_HEAT_3D, FDTD_2D | stencil 3D/2D con tiempo | ídem |
+| Polybench_ATAX, GESUMMV, MVT | matriz-vector | O(n²) trabajo sobre O(n²) datos, AI baja |
+
+5 niveles (F0-F4, mismos MHz que el dataset base) × tiempo+RAPL, sin
+uncore. Criterio de paso: **α < 0.226** (mismo umbral derivado del modelo
+de potencia real de CPU, Anexo A.1 de este documento). Bypasea el
+orquestador — `scripts/pacca/screen_rajaperf_cpu_alpha.sh`, reusa el
+binario `raja-perf.exe` ya compilado y con checksum verificado, cero
+compilación nueva.
+
+**Sin resultado todavía** — job 6473 pendiente en cola SLURM.
+
+### Si el tamizaje pasa — CONDICIONAL, matriz de seguimiento
+
+Para cada candidato con α < 0.226: catalogar como kernel `device: cpu`
+(exec_path=`raja-perf.exe`, `-k <NOMBRE> -v Base_OpenMP`), correr
+6 niveles × 10 rep (mismo protocolo que el núcleo, para comparabilidad
+directa con `arc174`). Costo por kernel sobreviviente: 60 corridas.
+
+**Bloqueo real para esta parte**: aunque el tamizaje puede correr hoy sin
+uncore, la campaña de dataset completa (con `phase_label_train` real)
+para cualquier candidato que pase **sí exige uncore** (E12/E13, CAP_PERFMON)
+porque son kernels `device: cpu` reales, no bypasea como GPU (ARC-191 solo
+exime datasets 100% GPU). Esta etapa queda condicionada al permiso, aunque
+el tamizaje que decide si vale la pena no lo esté.
+
+### Matriz CPU total, si todo confirma
+
+| eje | estado | corridas |
+|---|---|---|
+| Núcleo | confirmado | 540 (424 aceptadas) |
+| Tamizaje RAJAPerf | en cola, sin uncore | ~35×7=245 mediciones de tiempo/energía (no "corridas" en el sentido de dataset) |
+| Ampliación con sobrevivientes | condicional a tamizaje Y a CAP_PERFMON | 60×N sobrevivientes |
+
+## N.3 Lo que cambió respecto al Anexo F, resumido
+
+1. **CPU=F4 sale de la matriz GPU** — confirmado que empeora, no solo
+   sospechado.
+2. **La rejilla fina de CPU (T1.4 en F) se reemplaza por el tamizaje de
+   catálogo (N.2)** — el hallazgo de esta sesión es que el problema de
+   CPU no es resolución de grilla (a diferencia de GPU), es diversidad de
+   catálogo. Insistir en más resolución sobre los mismos 9 kernels no
+   tiene sustento nuevo.
+3. **El eje de fase sintética (`phasic`/`gpu_phasic`, T1.1/T1.3 de F)
+   sigue en pie sin cambios** — no lo tocó nada de esta sesión.
+4. **RAJAPerf pasa de "1 kernel usado" a "banco de ~55 disponibles,
+   parcialmente tamizado"** — el hallazgo nuevo más grande de esta
+   sesión en términos de matriz.
