@@ -54,6 +54,7 @@ trap cleanup EXIT
   -DCMAKE_CXX_COMPILER=/opt/ohpc/pub/compiler/gcc/12.4.0/bin/g++ \
   -DCMAKE_CUDA_COMPILER="$nvcc" \
   -DCMAKE_CUDA_ARCHITECTURES=80 \
+  -DCUDA_TOOLKIT_ROOT_DIR="$cuda_root" \
   -DCMAKE_BUILD_TYPE=Release \
   -DENABLE_OPENMP=Off \
   -DENABLE_CUDA=On \
