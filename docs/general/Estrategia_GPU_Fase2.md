@@ -274,15 +274,27 @@ nosotros) el 2026-08-25; toda la batería encolada corrió y terminó.
    número reportable para esos casos.
 6. **La variante CUDA de RAJAPerf no está compilada** — el impulso de §8
    requiere un build nuevo antes de rendir en GPU.
-7. **Nuevo (2026-08-25): energía y tiempo de `dwt2d` en F0 no varían con
-   el tamaño declarado**, en un rango de 42× (192 a 8192 px, job 6472).
-   Descartadas dos causas obvias (archivo de entrada truncado, argumento
-   de tamaño mal pasado). Sin aislar si es overhead fijo del arnés
-   dominando sobre un cómputo genuinamente rápido, o algo propio del
-   binario. Mientras no se explique, la estrategia de "diversidad de
-   carga por tamaño" (Anexo N) no puede darse por confirmada para este
-   kernel — los 4 tamaños podrían no representar 4 regímenes distintos
-   para el modelo, contrario a la premisa de §8.
+7. ~~Energía y tiempo de `dwt2d` en F0 no varían con el tamaño~~
+   **CAUSA RAÍZ ENCONTRADA (2026-08-25).** Cruzando `gpu_util_pct` por
+   ventana contra el reloj de pared: incluso el `rodinia_dwt2d` original
+   (16384×16384, el que sí muestra actividad real, hasta 93% de
+   utilización) tiene su ráfaga de trabajo GPU genuino en solo **0.17 s,
+   al final de una ventana total de 4.49 s** — más de 4.3 s son overhead
+   de host (decodificar el bitmap, inicialización de CUDA) antes de que
+   el kernel arranque. Para los 4 tamaños del barrido (192–8192 px, la
+   mitad o menos del original), esa ráfaga real es tan corta que nunca
+   se ve con claridad en el muestreo de NVML (utilización máxima
+   6–33%, nunca un plateau limpio). **Consecuencia: las 4 variantes de
+   tamaño no aportan la diversidad de carga que se buscaba** — miden,
+   en la práctica, el mismo overhead de host disfrazado de 4 kernels
+   distintos, el mismo modo de falla ya encontrado y tratado para
+   `rodinia_lud` (GPU en reposo, excluido del catálogo). No se
+   recomienda contarlas como 4 regímenes distintos en el análisis de
+   margen ni en el conteo de diversidad de §8 — mismo tratamiento que
+   ya recibe `rodinia_backprop` (excluido de `gpu_policy_headroom.py`
+   por energía despreciable): excluir de análisis de margen, no del
+   dataset físico (el job 6477 ya las está corriendo; no hace falta
+   cancelarlo, solo no contarlas como señal real al analizar).
 
 ## 8. Impulso: el banco de kernels disponible es mayor que el usado
 
