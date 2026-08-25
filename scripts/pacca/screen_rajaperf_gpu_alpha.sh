@@ -85,9 +85,20 @@ sample_power_bg() {
   done >> "$out"
 }
 
+# SIZEFACT: primer intento (job 6514, tamano por defecto) dio r^2=0.31-0.53
+# en los 6 candidatos -- inservible. Diagnostico (2026-08-25): a tamano por
+# defecto el binario completo tarda ~441ms, de los cuales ~378ms son
+# arranque de contexto CUDA fijo, no computo del kernel (medido variando
+# --sizefact vs --repfact por separado). Mismo problema de fondo que dwt2d
+# (Estrategia_GPU_Fase2.md riesgo 6): la ventana medida queda dominada por
+# overhead de proceso, no por el kernel. Con --sizefact 100 el computo pasa
+# a ser ~94% del tiempo total (378ms fijo + ~6.25s de computo), suficiente
+# para que la frecuencia de GPU se refleje limpio en el tiempo.
+SIZEFACT=100
+
 run_kernel() {
   local kernel="$1"
-  "$BINARY" -k "$kernel" -v Base_CUDA >/dev/null 2>&1
+  "$BINARY" -k "$kernel" -v Base_CUDA --sizefact "$SIZEFACT" >/dev/null 2>&1
   return $?
 }
 
