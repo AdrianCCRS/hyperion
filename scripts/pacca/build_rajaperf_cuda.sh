@@ -1,6 +1,31 @@
 #!/bin/bash
 # Construye RAJAPerf v2025.12.1 con la variante CUDA (Base_CUDA), la misma
 # fuente ya fijada por commit que la variante OpenMP
+#
+# CORRER SIEMPRE EN paccaA100, NUNCA en pacca01/pacca-normal. Los CPUs de
+# ambas particiones son distintos (pacca01: Xeon Gold 5320 @2.20GHz;
+# paccaA100: Xeon Gold 5315Y @3.20GHz) -- el binario se ejecutara despues
+# en paccaA100, y aunque este build no usa -march=native (verificado: no
+# aparece en CMakeLists.txt de RAJAPerf/RAJA/BLT), compilar y correr en
+# nodos distintos es un riesgo que no vale la pena asumir cuando el nodo
+# correcto esta disponible. 2026-08-25: un primer intento se corrio por
+# error en pacca01 y se descarto explicitamente por esta razon antes de
+# instalarlo.
+#
+# ADEMAS, paccaA100 y pacca01 tienen PAQUETES DE SISTEMA DIVERGENTES, no
+# solo CPUs distintos: `module load cmake/4.3.4` funciona en pacca01 pero
+# falla en paccaA100 con "libjsoncpp.so.19: cannot open shared object
+# file" -- el paquete libjsoncpp esta instalado en pacca01 (/usr/lib64/
+# libjsoncpp.so.19) pero no en paccaA100. Workaround verificado: copiar
+# esa .so a un directorio NFS compartido y exportar LD_LIBRARY_PATH antes
+# de invocar cmake en paccaA100:
+#   srun -p normal -w pacca01 ... cp /usr/lib64/libjsoncpp.so.19 \
+#     /usr/lib64/libjsoncpp.so.1.8.4 ~/yacacerest/libs_pacca01/
+#   export LD_LIBRARY_PATH=~/yacacerest/libs_pacca01:$LD_LIBRARY_PATH
+# antes de "module load cmake/4.3.4" en el job de paccaA100. Es solo una
+# libreria (no codigo objeto ni instrucciones de CPU), asi que copiarla
+# entre nodos no reintroduce el riesgo de arquitectura que motiva correr
+# el build entero en paccaA100.
 # (build_rajaperf_polybench_3mm_omp.sh) -- ahora con ENABLE_CUDA=On en vez
 # de Off. Es el "impulso" de kernels de GPU que quedó pendiente en
 # Estrategia_GPU_Fase2.md (riesgo 6): sin esto, el catálogo GPU sigue
