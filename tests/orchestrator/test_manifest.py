@@ -393,8 +393,38 @@ def test_man_t11_tamano_de_matriz_y_log_baseline(tmp_path, monkeypatch, catalogo
     caplog.set_level("INFO", logger="orchestrator.manifest")
     resultado = cargar(tmp_path, monkeypatch, catalogo, campaign)
     assert manifest.compute_matrix_size(resultado) == 60
-    assert "×2 por baseline" in caplog.text
+    assert resultado.baseline_repetition_indices is None
+    assert "60 con baseline" in caplog.text
     assert "120 corridas" in caplog.text
+
+
+def test_baseline_repetition_indices_ausente_por_defecto(tmp_path, monkeypatch, catalogo, campaign):
+    resultado = cargar(tmp_path, monkeypatch, catalogo, campaign)
+    assert resultado.baseline_repetition_indices is None
+
+
+def test_baseline_repetition_indices_restringe_el_conteo_del_log(tmp_path, monkeypatch, catalogo, campaign, caplog):
+    caplog.set_level("INFO", logger="orchestrator.manifest")
+    campaign["baseline_repetition_indices"] = [1]
+    resultado = cargar(tmp_path, monkeypatch, catalogo, campaign)
+    assert resultado.baseline_repetition_indices == (1,)
+    # 60 combinaciones totales / 5 repeticiones por combinacion (fixture
+    # campaign) * 1 indice permitido = 12 corridas de baseline.
+    assert "12 con baseline" in caplog.text
+    assert "72 corridas" in caplog.text
+
+
+def test_baseline_repetition_indices_rechaza_lista_vacia(tmp_path, monkeypatch, catalogo, campaign):
+    campaign["baseline_repetition_indices"] = []
+    with pytest.raises(manifest.ManifestValidationError, match="baseline_repetition_indices"):
+        cargar(tmp_path, monkeypatch, catalogo, campaign)
+
+
+def test_baseline_repetition_indices_rechaza_valor_fuera_de_rango(tmp_path, monkeypatch, catalogo, campaign):
+    # fixture campaign usa repetitions_per_combination=5
+    campaign["baseline_repetition_indices"] = [1, 99]
+    with pytest.raises(manifest.ManifestValidationError, match="baseline_repetition_indices"):
+        cargar(tmp_path, monkeypatch, catalogo, campaign)
 
 
 def test_arc88_gpu_interval_ns_ausente_por_defecto(tmp_path, monkeypatch, catalogo, campaign):

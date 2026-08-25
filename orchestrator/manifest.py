@@ -142,6 +142,19 @@ class Manifest:
     # monotono con el tiempo esperado (8s asento limpio, 12s inmediatamente
     # despues fallo peor que 8s), asi que una pausa ciega no es confiable.
     frequency_settle: Mapping[str, Any] = field(default_factory=dict)
+    # 2026-08-25: CAM-04 medía overhead de instrumentación (baseline sin
+    # perf vs. telemetry) en TODAS las repeticiones de TODAS las
+    # combinaciones -- duplica el número de procesos lanzados en cada
+    # campaña. Con 540 pares ya medidos (arc174), el overhead está
+    # caracterizado con potencia de sobra (media 1.95%, estable entre
+    # kernels, varía sobre todo por nivel de frecuencia -- ver
+    # docs/general/Estrategia_CPU_Fase2.md). None (default) preserva el
+    # comportamiento de siempre -- ningún manifiesto existente cambia de
+    # costo sin declararlo explícitamente. Un valor no vacío restringe el
+    # baseline a las repeticiones listadas (p.ej. (1,) = solo la primera de
+    # cada combinación), como vigilancia de que el overhead no se desvió,
+    # no como medición completa de nuevo.
+    baseline_repetition_indices: tuple[int, ...] | None = None
 
 
 def _error(rule_id: str, field: str, message: str) -> None:
@@ -526,6 +539,25 @@ def load(path: str | Path) -> Manifest:
     if float(temperature_min_c) >= float(temperature_max_c):
         _error("MAN-00", "temperature", "minimum_c debe ser menor que maximum_c")
 
+    baseline_reps_raw = document.get("baseline_repetition_indices")
+    baseline_repetition_indices: tuple[int, ...] | None = None
+    if baseline_reps_raw is not None:
+        if (
+            not isinstance(baseline_reps_raw, list)
+            or not baseline_reps_raw
+            or any(isinstance(v, bool) or not isinstance(v, int) or v < 1 for v in baseline_reps_raw)
+        ):
+            _error(
+                "MAN-00", "baseline_repetition_indices",
+                "debe ser una lista no vacía de enteros >= 1, o ausente para medir siempre",
+            )
+        if any(v > repetitions for v in baseline_reps_raw):
+            _error(
+                "MAN-00", "baseline_repetition_indices",
+                f"no puede referenciar una repetición > repetitions_per_combination ({repetitions})",
+            )
+        baseline_repetition_indices = tuple(sorted(set(baseline_reps_raw)))
+
     manifest = Manifest(
         campaign_id, tier, seed, output_dir, overwrite, catalog_path, calibration, kernels,
         frequency_levels, repetitions, target_windows, interval_ns, float(running_ratio),
@@ -533,13 +565,22 @@ def load(path: str | Path) -> Manifest:
         hardware_datasheet, projected_campaign_bytes, remaining_core_hours, projected_core_hours,
         load_threshold, gpu_interval_ns_raw, dict(uncore_raw), gpu_frequency_levels,
         dict(turbo_raw), dict(frequency_validation_raw), dict(temperature_raw),
-        dict(frequency_settle_raw),
+        dict(frequency_settle_raw), baseline_repetition_indices,
     )
     matrix_size = compute_matrix_size(manifest)
-    # MAN-03: cada combinación tiene baseline y telemetry, por eso se duplica.
+    if baseline_repetition_indices is None:
+        # MAN-03: cada combinación tiene baseline y telemetry, por eso se duplica.
+        n_baseline = matrix_size
+    else:
+        # Solo las repeticiones listadas emparejan baseline -- ver
+        # schedule_runs()/CAM-04. matrix_size ya incluye todas las
+        # repeticiones, así que se prorratea por cuántas de ellas están
+        # en baseline_repetition_indices.
+        n_baseline = matrix_size * len(baseline_repetition_indices) // repetitions
     logger.info(
-        "Matriz de campaña: %d combinaciones (×2 por baseline: %d corridas)",
+        "Matriz de campaña: %d combinaciones (%d con baseline: %d corridas)",
         matrix_size,
-        matrix_size * 2,
+        n_baseline,
+        matrix_size + n_baseline,
     )
     return manifest

@@ -358,6 +358,36 @@ def test_cam04_schedule_runs_empareja_baseline_y_telemetry(tmp_path):
         assert scheduled[i].combination == scheduled[i + 1].combination
 
 
+def test_schedule_runs_sin_baseline_repetition_indices_mide_siempre(tmp_path):
+    manifest = _manifest(tmp_path, repetitions_per_combination=3)
+    combinations = campaign.build_matrix(manifest, seed=1)
+
+    scheduled = campaign.schedule_runs(combinations, None)
+
+    baseline_reps = sorted(
+        item.combination.repetition_index for item in scheduled if item.mode == "baseline"
+    )
+    assert baseline_reps == [1, 2, 3]
+
+
+def test_schedule_runs_con_baseline_repetition_indices_solo_las_listadas(tmp_path):
+    manifest = _manifest(tmp_path, repetitions_per_combination=3)
+    combinations = campaign.build_matrix(manifest, seed=1)
+
+    scheduled = campaign.schedule_runs(combinations, (1,))
+
+    baseline_reps = sorted(
+        item.combination.repetition_index for item in scheduled if item.mode == "baseline"
+    )
+    telemetry_reps = sorted(
+        item.combination.repetition_index for item in scheduled if item.mode == "telemetry"
+    )
+    assert baseline_reps == [1]
+    # telemetry SIEMPRE corre para las 3 repeticiones -- solo el par de
+    # medicion de overhead se restringe, nunca la corrida real de dataset.
+    assert telemetry_reps == [1, 2, 3]
+
+
 def test_campana_completa_corre_baseline_telemetry_y_postprocesa(tmp_path):
     manifest = _manifest(tmp_path)
     catalog = _catalog(tmp_path)

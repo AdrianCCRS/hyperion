@@ -373,14 +373,28 @@ def build_matrix(
     return combinations
 
 
-def schedule_runs(combinations: Sequence[Combination]) -> list[ScheduledRun]:
+def schedule_runs(
+    combinations: Sequence[Combination],
+    baseline_repetition_indices: Sequence[int] | None = None,
+) -> list[ScheduledRun]:
     """CAM-04: baseline and telemetry form an atomic pair. Each combination
     becomes two adjacent entries (baseline immediately before telemetry) so
     the randomized order over combinations never separates them.
+
+    2026-08-25: `baseline_repetition_indices` (manifest field, None by
+    default) restricts which repetitions actually pair a baseline run --
+    None means every repetition, preserving the original behavior. With
+    instrumentation overhead already characterized over 540 pairs (mean
+    1.95%, stable across kernels, varies mainly by frequency level -- see
+    Estrategia_CPU_Fase2.md), a future campaign can declare e.g. `(1,)` to
+    keep only a spot-check against silent drift instead of doubling every
+    run of every combination again.
     """
+    allowed = set(baseline_repetition_indices) if baseline_repetition_indices is not None else None
     scheduled: list[ScheduledRun] = []
     for combination in combinations:
-        scheduled.append(ScheduledRun(combination, "baseline"))
+        if allowed is None or combination.repetition_index in allowed:
+            scheduled.append(ScheduledRun(combination, "baseline"))
         scheduled.append(ScheduledRun(combination, "telemetry"))
     return scheduled
 
@@ -988,7 +1002,9 @@ def run_campaign(
             }
 
             baseline_elapsed_seconds: float | None = None
-            for item in schedule_runs([combination]):  # CAM-04: atomic baseline+telemetry pair
+            for item in schedule_runs(
+                [combination], manifest.baseline_repetition_indices
+            ):  # CAM-04: atomic baseline+telemetry pair
                 run_id = _run_id_for(manifest, item)
                 active_manifest = manifest if item.mode == "telemetry" else baseline_manifest
                 result = run_single(
