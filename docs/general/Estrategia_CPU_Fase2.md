@@ -116,8 +116,14 @@ bajo carga, se comporta como "siempre máxima frecuencia".
 comparación contra **el gobernador nativo activo** sin necesitar ningún
 permiso nuevo. **No** cubre `powersave`, que es el otro gobernador nativo
 disponible y el que la línea de `Hebbar2022` sugiere que sería el rival
-interesante. Cerrar esa mitad exige una solicitud de permiso sobre
-`scaling_governor`/EPP que **nunca se pidió** (riesgo 3).
+interesante. Cerrar esa mitad exigía una solicitud de permiso sobre
+`scaling_governor`/EPP que nunca se había pedido (riesgo 3) — **el
+administrador la concedió el 2026-08-25** (`sudo /usr/local/bin/set_cpu_gov
+<gobernador> <epp>`, restringido a los cores 0-5). El permiso ya no es el
+bloqueador; **queda pendiente de verificación empírica antes de usarse en
+una campaña real** (riesgo 3, actualizado), tema abierto hasta que haga
+falta para la comparación de la Fase 4 — no bloquea nada de lo que corre
+hoy.
 
 ## 5. El plan concreto
 
@@ -210,7 +216,7 @@ nueva: es priorizar la que el dato respalda, sin descartar la otra.
 | 1. Caracterizar comportamiento y consumo bajo distintos estados de frecuencia (Perf+RAPL) | **Cumplido** (424/540 válidas), ampliándose vía RAJAPerf | `..._arc174`; §2, §6 |
 | 2. Clasificador ML en vivo, baja latencia | Features ya libres de uncore; granularidad primaria = carga, secundaria = ventana en los 3 kernels con mezcla real | §1, §7 |
 | 3. Daemon de espacio de usuario con política DVFS | **No bloqueado por CAP_PERFMON**: el runtime nunca dependió de uncore, y la actuación (`scaling_min/max_freq`) ya tiene permiso P1 | §1 |
-| 4. Evaluación por EDP contra gobernador nativo | **Parcial**: `REF` cubre el gobernador nativo *activo* (`performance`) sin permisos nuevos; `powersave` queda fuera por permiso denegado | §4; riesgo 3 |
+| 4. Evaluación por EDP contra gobernador nativo | **Parcial**: `REF` cubre el gobernador nativo *activo* (`performance`) sin permisos nuevos; permiso para `powersave` concedido (2026-08-25), pendiente de verificación empírica antes de usarse | §4; riesgo 3 |
 
 ## 9. Lista de pruebas — cómo verificar o refutar esta propuesta
 
@@ -237,9 +243,25 @@ nueva: es priorizar la que el dato respalda, sin descartar la otra.
 2. **Los 7 candidatos se eligieron por conocimiento algorítmico**, no por
    OI medida — misma aproximación declarada que se usó en GPU, con el
    mismo riesgo de que alguno no sea memory-bound en la práctica.
-3. **`powersave` queda fuera por permiso denegado** (§4). Cubrir el
-   Objetivo 4 completo contra *ambos* gobernadores nativos requiere una
-   solicitud nueva sobre `scaling_governor`/EPP, **nunca pedida hasta hoy**.
+3. **`powersave` — el permiso ya se concedió (2026-08-25), pero no está
+   verificado.** El administrador entregó `set_cpu_gov <gobernador> <epp>`,
+   restringido a los cores 0-5 y sin parámetro de rango de CPUs. Su propio
+   correo argumenta que exclusividad + *pinning* de la carga (ya
+   implementados en el runner, `--exclusive` + `sched_setaffinity` vía
+   `--pin-workload-cpus`) bastan para neutralizar la interferencia de los
+   hermanos SMT (16-21). **Nuestra propia Prueba A de ARC-162 contradice
+   esa conclusión para `scaling_min_freq`/`scaling_max_freq`**: con la
+   carga ya confinada a 0-5 por `taskset` (la misma receta), el reloj
+   físico no escaló (razón F0/F4 = 0.995) hasta que el candado de
+   frecuencia se aplicó TAMBIÉN a los hermanos 16-21 (razón = 3.78,
+   ARC-163). Si el mismo mecanismo de coordinación de P-state aplica a
+   gobernador/EPP, `set_cpu_gov` sobre 0-5 podría no bajar el reloj físico
+   compartido — y el script entregado no permite aplicarlo también a
+   16-21. **Pendiente una prueba tipo Prueba A/B antes de usarlo en
+   cualquier campaña real** (`ert_probe` bajo `powersave power`, medir
+   `scaling_cur_freq`/potencia real). Abierto a propósito hasta que haga
+   falta para la comparación de la Fase 4 contra ambos gobernadores
+   nativos — no bloquea ninguna corrida ni prueba en curso hoy.
 4. **CAP_PERFMON sigue sin fecha.** El plan de §5 avanza sin esperarlo,
    pero **la ampliación del dataset con etiqueta de verdad sí depende de
    él**: el bypass ARC-191 exime solo datasets 100% GPU, no kernels
