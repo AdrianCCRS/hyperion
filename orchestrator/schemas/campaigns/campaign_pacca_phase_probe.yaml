@@ -75,6 +75,15 @@ frequency_levels:
   - {id: F4,    mode: fixed, fraction: 0.0}            #  800 MHz
 
 repetitions_per_combination: 10
+# 2026-08-25: baseline_repetition_indices=[1] -- el par baseline/telemetry
+# (CAM-04, mide overhead de instrumentacion) ya no se repite en cada
+# repeticion. Con 540 pares CPU (media 1.95%, estable entre kernels) y 486
+# pares GPU (media ~0%) ya medidos, se conserva solo como vigilancia contra
+# desvio del instrumento en la primera repeticion, no como remedicion
+# completa. Ver docs/general/Estrategia_CPU_Fase2.md §5 y
+# docs/justifications/report/sections/repetitions_edp.tex.
+baseline_repetition_indices: [1]
+
 target_windows_per_repetition: 50
 interval_ns: 1000000  # 1 ms
 
