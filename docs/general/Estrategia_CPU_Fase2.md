@@ -141,7 +141,17 @@ hoy.
    falló bajo LOKO (`resultados_compuertas_fase2.md` §5.bis: F1 macro
    0.393 del mejor modelo vs. 0.371 del predictor trivial).
 4. **Cuando CAP_PERFMON se repare**: ampliar el dataset con los kernels
-   que sobrevivan el tamizaje, con etiqueta de verdad completa.
+   que sobrevivan el tamizaje, con etiqueta de verdad completa. Protocolo
+   actualizado (2026-08-25), evidencia-basado y no heredado sin más del
+   núcleo: **6 niveles × 6 repeticiones** (no 10 — ver
+   `docs/justifications/report/sections/repetitions_edp.tex`, análisis de
+   convergencia de CV% de EDP sobre las 54 celdas de `arc174` corregido;
+   n=6 conserva la misma cobertura a umbral 2% que n=3 y n=10, 40% menos
+   costo). El par baseline/telemetry que mide overhead de instrumentación
+   ya no se repite en cada corrida — con 540 pares medidos (media 1.95%,
+   estable entre kernels) el número ya está caracterizado; el manifiesto
+   nuevo declara `baseline_repetition_indices: [1]` como vigilancia contra
+   desvío del instrumento, no medición completa de nuevo.
 
 ## 6. Impulso: RAJAPerf ya está en pacca, casi sin usar
 
