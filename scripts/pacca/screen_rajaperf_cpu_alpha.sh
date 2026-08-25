@@ -54,6 +54,54 @@ DELEGATED_CPUS=(0 1 2 3 4 5)
 RAPL_PKG=/sys/class/powercap/intel-rapl/intel-rapl:0/energy_uj
 RAPL_DRAM=/sys/class/powercap/intel-rapl/intel-rapl:0/intel-rapl:0:0/energy_uj
 
+# 2026-08-25, ARC-162 REPRODUCIDO AQUI: la corrida 6475 salio con
+# freq_within_5pct=NO en 33/35 combinaciones -- la frecuencia nunca se
+# movio del entorno de 3200MHz sin importar el nivel pedido. Causa: este
+# script escribia scaling_min/max_freq SOLO en DELEGATED_CPUS (0-5), nunca
+# en sus hermanos SMT (16-21, mismo nucleo fisico, confirmado con
+# `lscpu -e` en ARC-162). `intel_pstate` coordina el P-state a nivel de
+# NUCLEO FISICO, no de hilo logico -- un hermano sin restringir deja que
+# el reloj compartido se vaya al limite que ESE hermano permite, pase lo
+# que pase con el candado del delegado. Es el mismo mecanismo que
+# `orchestrator/freqctl.py::_expand_with_smt_siblings` (ARC-163) ya
+# corrige para el runner en vivo -- este script bypasea el orquestador a
+# proposito (ver cabecera) y por eso nunca heredo ese fix.
+#
+# Los datos de 6475 quedan invalidados por este bug: sin variacion real
+# de frecuencia no hay nada de lo que alpha pueda dar cuenta. No se
+# reprocesan -- se descartan y se vuelve a correr con el fix.
+smt_siblings_for() {
+  local cpu="$1"
+  local siblings_path="/sys/devices/system/cpu/cpu${cpu}/topology/thread_siblings_list"
+  if [[ -r "$siblings_path" ]]; then
+    tr ',' '\n' < "$siblings_path" | tr '-' '\n'
+  fi
+}
+
+# Union de DELEGATED_CPUS con sus hermanos SMT reales, leida en vivo (nunca
+# hardcodeada) -- mismo criterio que environment.py: ausente/vacio (SMT
+# deshabilitado) no cambia el comportamiento anterior.
+declare -a FREQ_CPUS
+_expand_with_smt_siblings() {
+  local -A seen=()
+  FREQ_CPUS=()
+  for cpu in "${DELEGATED_CPUS[@]}"; do
+    if [[ -z "${seen[$cpu]:-}" ]]; then
+      FREQ_CPUS+=("$cpu")
+      seen[$cpu]=1
+    fi
+    while read -r sib; do
+      [[ -z "$sib" ]] && continue
+      if [[ -z "${seen[$sib]:-}" ]]; then
+        FREQ_CPUS+=("$sib")
+        seen[$sib]=1
+      fi
+    done < <(smt_siblings_for "$cpu")
+  done
+}
+_expand_with_smt_siblings
+echo "CPUs de frecuencia (delegados + hermanos SMT): ${FREQ_CPUS[*]}" >&2
+
 # id:khz -- mismos 5 niveles fijos que la campaña de CPU ya validada
 # (pacca_cpu_final_attempt03_20260820_arc174).
 LEVELS=(F0:3200000 F1:2600000 F2:2000000 F3:1400000 F4:800000)
@@ -76,7 +124,7 @@ fi
 
 set_freq() {
   local target_khz="$1"
-  for cpu in "${DELEGATED_CPUS[@]}"; do
+  for cpu in "${FREQ_CPUS[@]}"; do
     local base="/sys/devices/system/cpu/cpu${cpu}/cpufreq"
     # Mismo orden protegido que freqctl.py::_write_range_safe (ARC-94):
     # nunca escribir max < min vigente en un paso intermedio.
@@ -94,7 +142,7 @@ set_freq() {
 }
 
 restore_freq() {
-  for cpu in "${DELEGATED_CPUS[@]}"; do
+  for cpu in "${FREQ_CPUS[@]}"; do
     local base="/sys/devices/system/cpu/cpu${cpu}/cpufreq"
     local min max
     min="$(cat "${base}/cpuinfo_min_freq")"
@@ -112,6 +160,13 @@ trap restore_freq EXIT
 # bajo tarda SEGUNDOS, y que scaling_cur_freq leído en reposo NO refleja el
 # pineo (se calcula del ratio APERF/MPERF, que en un núcleo inactivo no
 # puede mostrar el candado alto). Por eso hay que muestrear BAJO CARGA.
+#
+# 2026-08-25: intervalo bajado de 0.2s a 0.02s. Con 0.2s, los candidatos
+# mas cortos de 6475 (ATAX/GESUMMV/MVT, ~50-70ms de corrida real) solo
+# alcanzaban a capturar UNA tanda de lecturas -- la del arranque del bucle
+# `while`, antes de que OMP siquiera repartiera el trabajo en los 6 hilos,
+# no una muestra real de frecuencia bajo carga sostenida. Con 0.02s, un
+# kernel de 50ms deja tiempo para ~2-3 tandas reales.
 sample_freq_bg() {
   local out="$1"
   : > "$out"
@@ -119,7 +174,7 @@ sample_freq_bg() {
     for cpu in "${DELEGATED_CPUS[@]}"; do
       cat "/sys/devices/system/cpu/cpu${cpu}/cpufreq/scaling_cur_freq" 2>/dev/null
     done
-    sleep 0.2
+    sleep 0.02
   done >> "$out"
 }
 
