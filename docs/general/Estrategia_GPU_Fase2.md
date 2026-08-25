@@ -105,6 +105,38 @@ kernels.
 > único que puede cerrar este hueco, usando `gpu_phasic` — que alterna
 > fases por construcción y emite marcas de verdad (`PHASE`,
 > `T0_MONOTONIC_NS`) cruzables offline contra `gpu_power_mw`.
+>
+> **Resultado de V4 (job 6476, 2026-08-25).** Cruzando offline las marcas
+> reales contra `gpu_power_mw` por ventana: a período de fase de 1 s las
+> dos fases **sí son distinguibles en potencia**, con una diferencia
+> grande y consistente en los cuatro niveles fijos (F1: −23.05%, F2:
+> −29.20%, F3: −27.47%, F4: −18.72%; la fase de memoria consume *más*
+> potencia que la de cómputo — coherente con que la persecución de
+> punteros en SIMT mantiene miles de hilos concurrentes saturando el
+> controlador de memoria, mientras que el FMA sin tráfico puede no
+> alcanzar la misma ocupación). A 100 ms la diferencia ya es débil
+> (0.5–8%, sin dirección consistente) y a 10 ms prácticamente
+> desaparece (−0.9% a +7.9%) — exactamente lo que predice el límite de
+> muestreo de NVML (~100 ms), confirmando el control negativo por
+> diseño.
+>
+> **La segunda mitad del criterio declarado (¿el nivel óptimo difiere
+> entre fases?) no se pudo evaluar con este instrumento, y es una
+> limitación de diseño, no un dato faltante**: `gpu_phasic` fija la
+> duración de cada fase **por tiempo**, no por trabajo (sección
+> `sec:resultados-multifasico` del libro) — precisamente para poder
+> comparar la proporción cómputo/memoria entre niveles de frecuencia sin
+> que un recuento fijo de iteraciones se alargue de forma desigual. Esa
+> misma decisión de diseño hace que la duración de una fase **no
+> responda a la frecuencia por construcción**, así que no hay señal de
+> tiempo por fase de la que derivar un óptimo por fase, solo potencia.
+> **Conclusión:** hay evidencia positiva de alternancia real y detectable
+> en potencia (cierra el hueco lógico de arriba), pero no evidencia —ni
+> en un sentido ni en el otro— sobre si esa alternancia sería
+> aprovechable por una política de frecuencia; medirlo exigiría un
+> microbenchmark cuya fase termine por trabajo, no por tiempo, lo que
+> reintroduciría el problema de comparabilidad entre niveles que el
+> diseño actual evita a propósito.
 
 **La granularidad elegida es la que usa la literatura publicada:**
 
@@ -166,25 +198,55 @@ Lectura honesta: con la grilla de 6 niveles, **una sola constante (F1)
 captura el 68% del oráculo**, y bajo un presupuesto estricto de 4% el
 margen aprovechable es de apenas 0.58 puntos.
 
-**Hipótesis en prueba (no resultado):** que la causa sea la resolución de
-la grilla y no la física — el salto F0→F1 es de 300 MHz y cuesta 10–33%
-de tiempo, así que bajo presupuesto estricto casi ningún nivel es
-elegible. **Esto lo decide el job 6471, todavía sin correr** (V2, §10).
-Si la grilla fina no abre margen, la conclusión correcta es que el
-presupuesto de 4% es inalcanzable en esta plataforma y que la evaluación
-debe reportarse por EDP — donde `lavamd@F1` ya gana 17.6%.
+**Hipótesis puesta a prueba: la causa era la resolución de la grilla, no
+la física — CONFIRMADA (job 6471, 210/210 aceptadas, V1 y V2, §10).** Con
+los 4 escalones nuevos entre F0 y F1 (G1–G4, 60 MHz de paso en vez de
+300), sobre los mismos 6 kernels con energía medible:
 
-## 6. Encolado (esperando nodo)
+| presupuesto de degradación | mejor constante | oráculo | margen del modelo |
+|---|---|---|---|
+| ≤4% | REF → 0.56% | 2.36% | **1.80 pts** (antes 0.58) |
+| ≤10% | REF → 0.56% | 9.62% | **9.06 pts** |
+| ≤15% | G1 → 4.51% | 10.08% | **5.57 pts** (antes 4.76) |
+| sin límite | G3 → 8.00% | 12.33% | **4.33 pts** (antes 3.70) |
 
-Los tres jobs están **PENDING** detrás de un job ajeno que lleva ~15 h
-ocupando el nodo. Los manifiestos están validados y encolados; lo que
-falta es turno de máquina, no diseño.
+El margen no solo mejoró — **el mayor margen de todo el proyecto hasta
+hoy aparece en ≤10%** (9.06 puntos), justo donde antes no había ni
+siquiera un punto de medición. Ahí los óptimos por kernel divergen de
+verdad: `heartwall`/`gaussian` prefieren G2, `lavamd` G4, `myocyte` G2,
+mientras que `dgemm_n4096` y `dwt2d` casi no se mueven de REF/F0 — es
+exactamente el patrón de "diferentes cargas quieren diferentes niveles"
+que justifica entrenar un modelo en vez de fijar una constante. Un
+hallazgo colateral no anticipado: en los presupuestos más estrictos
+(≤4%, ≤10%) **la mejor constante única es `REF`** (gobernador nativo),
+no ningún nivel fijo — el autoboost del driver ya se acerca más al óptimo
+bajo esas condiciones que cualquier candado fijo.
 
-- **Job 6471** — grilla fina, 210 corridas: 4 escalones nuevos entre F0
-  (1410 MHz) y F1 (1110 MHz). Márgenes de potencia de esos 4 niveles
-  **interpolados, no medidos** (V1, §10).
-- **Job 6472** — barrido de tamaño de `dwt2d`, 90 corridas: 5 tamaños
-  (192–16384 px), mismo binario y checksum, márgenes **medidos**.
+## 6. Estado de las corridas (2026-08-25, actualizado tras terminar)
+
+El job ajeno que ocupaba el nodo ~15 h terminó (`CANCELLED`, no por
+nosotros) el 2026-08-25; toda la batería encolada corrió y terminó.
+
+- **Job 6471** — grilla fina, 210/210 aceptadas. **V1 pasa limpio**: los
+  márgenes de potencia interpolados de G1-G4 no causaron rechazo masivo
+  (21/21 en los 10 niveles, incluidos los 4 interpolados). **V2 confirma
+  la hipótesis de §5**: la rejilla fina abre margen real, con el hallazgo
+  más grande del proyecto hasta hoy en ≤10% (9.06 pts).
+- **Job 6472** — barrido de tamaño de `dwt2d`, completado. **Hallazgo sin
+  cerrar, no un resultado**: energía y tiempo de GPU en F0 salen
+  prácticamente idénticos entre los 5 tamaños (192 a 8192 px, 42× de
+  rango; energía 271-281 J, tiempo 5.0-5.5 s los 5). Se descartó un
+  archivo de entrada truncado (tamaños de archivo verificados: 110 KB a
+  201 MB, proporción correcta) y un argumento mal pasado (el binario
+  reporta la dimensión correcta en `stdout.txt`). Queda sin aislar si el
+  tiempo medido está dominado por overhead fijo del arnés (inicialización
+  CUDA, sincronización del colector) sobre un cómputo DWT que en sí
+  podría ser rapidísimo en una A100 — **no se reporta todavía como "la
+  energía de dwt2d no depende del tamaño"**, es una pregunta abierta.
+- **Job 6476** — cruce de fases `gpu_phasic` (V4), resultado en §3.
+- **Job 6474** — reloj de memoria (V8), **NEGATIVO confirmado**: la A100
+  expone un único reloj de memoria (1215 MHz). Riesgo 2 cerrado con
+  evidencia (ver más abajo).
 - **Instrumento de tamizaje ya validado** (Anexo K.4): `nvidia-smi -lgc`
   escala solo el reloj de SM, no el de memoria, así que el margen debería
   vivir en kernels limitados por ancho de banda. Verificado gratis con la
@@ -193,12 +255,14 @@ falta es turno de máquina, no diseño.
 
 ## 7. Riesgos abiertos, sin adornar
 
-1. **Márgenes interpolados del job 6471** — si están mal, el síntoma es
-   rechazo masivo I10 (0 ventanas `gpu_telemetry`), que además **borra la
-   energía de GPU**, hoy la métrica primaria. Detectable, no silencioso.
-2. **El reloj de memoria nunca se probó** como segundo mando. `Fan2020` y
-   `Guerreiro2019` lo escalan junto al de núcleo; podría ser el mando
-   relevante para `dwt2d`/`stream_bw`, que no respondieron al de SM (V8).
+1. ~~Márgenes interpolados del job 6471~~ **CERRADO (2026-08-25)**: V1
+   pasó limpio, 210/210 aceptadas, 21/21 en cada uno de los 10 niveles.
+2. ~~El reloj de memoria nunca se probó~~ **CERRADO, NEGATIVO (job 6474,
+   V8, 2026-08-25)**: la A100 expone un único reloj de memoria soportado
+   (1215 MHz). No hay segundo mando de DVFS en este hardware — la línea
+   de trabajo de `Fan2020`/`Guerreiro2019` (escalar núcleo y memoria
+   juntos) no es aplicable aquí, se cierra con evidencia y no queda
+   pendiente.
 3. **Con 7–11 kernels el LOKO entrena sobre 6–10** — es un piloto, no un
    resultado estadísticamente robusto.
 4. **La OI de los 3 tamaños intermedios de `dwt2d` está interpolada**, no
@@ -210,6 +274,15 @@ falta es turno de máquina, no diseño.
    número reportable para esos casos.
 6. **La variante CUDA de RAJAPerf no está compilada** — el impulso de §8
    requiere un build nuevo antes de rendir en GPU.
+7. **Nuevo (2026-08-25): energía y tiempo de `dwt2d` en F0 no varían con
+   el tamaño declarado**, en un rango de 42× (192 a 8192 px, job 6472).
+   Descartadas dos causas obvias (archivo de entrada truncado, argumento
+   de tamaño mal pasado). Sin aislar si es overhead fijo del arnés
+   dominando sobre un cómputo genuinamente rápido, o algo propio del
+   binario. Mientras no se explique, la estrategia de "diversidad de
+   carga por tamaño" (Anexo N) no puede darse por confirmada para este
+   kernel — los 4 tamaños podrían no representar 4 regímenes distintos
+   para el modelo, contrario a la premisa de §8.
 
 ## 8. Impulso: el banco de kernels disponible es mayor que el usado
 
@@ -246,7 +319,7 @@ reproducibilidad, despojar, fijar checksum).
 
 | Objetivo | Estado | Evidencia |
 |---|---|---|
-| 1. Caracterizar comportamiento y consumo bajo distintos estados de frecuencia (NVML) | **Cumplido** (198 corridas, 0 rechazos), ampliándose | §1; jobs 6462/6463; 6471/6472 encolados |
+| 1. Caracterizar comportamiento y consumo bajo distintos estados de frecuencia (NVML) | **Cumplido** (198+210+90+54 corridas, 0 rechazos) | §1, §6; jobs 6462/6463/6471/6472/6476 |
 | 2. Clasificador ML en vivo, baja latencia | **Granularidad reinterpretada a carga/kernel**, con precedente publicado triple | §3, §4; Anexo K |
 | 3. Daemon de espacio de usuario con política DVFS | Sin cambios de diseño; pendiente de implementar sobre el modelo de §4 | V7 mide su presupuesto de latencia |
 | 4. Evaluación por EDP contra gobernador nativo | EDP es métrica primaria (§5). En GPU el "nativo" es el autoboost del driver (`native_governor`/REF), incluido en todas las tablas | §5; `gpu_policy_headroom.py` |
