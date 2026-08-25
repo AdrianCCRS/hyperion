@@ -94,12 +94,17 @@ def main() -> int:
                 n_runs_used += 1
                 for row in rows:
                     try:
-                        t_mid = (int(row["t_start_ns"]) + int(row["t_end_ns"])) / 2
+                        # Filas GPU son passthrough (ARC-70): t_start_ns
+                        # viene vacio, solo t_end_ns esta poblado -- es la
+                        # marca real de esta lectura NVML, mismo dominio
+                        # CLOCK_MONOTONIC que T0_MONOTONIC_NS (verificado:
+                        # ambos ~1.21e15 en la misma corrida).
+                        t_end = int(row["t_end_ns"])
                         power_mw = float(row["gpu_power_mw"])
                         clock_mhz = float(row["gpu_sm_clock_mhz"])
                     except (KeyError, ValueError, TypeError):
                         continue
-                    offset_s = (t_mid - t0) / 1e9
+                    offset_s = (t_end - t0) / 1e9
                     if offset_s < 0:
                         continue
                     label = label_at(offset_s, phases)
