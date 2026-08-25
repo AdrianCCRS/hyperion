@@ -295,6 +295,14 @@ nosotros) el 2026-08-25; toda la batería encolada corrió y terminó.
    por energía despreciable): excluir de análisis de margen, no del
    dataset físico (el job 6477 ya las está corriendo; no hace falta
    cancelarlo, solo no contarlas como señal real al analizar).
+   **Verificado en las 3 repeticiones de cada tamaño, no solo la
+   primera** (el patrón es idéntico: `s192` 6% en las tres, `s8192`
+   32–33% en las tres, el original 82–100% con la ventana activa
+   siempre en el último medio segundo de la corrida) — no es ruido de
+   una corrida particular. **Decisión operativa para el pipeline de
+   entrenamiento:** excluir estos 4 kernels del LOKO y del cálculo de
+   margen (`gpu_policy_headroom.py`/`pair_dataset.py`) cuando se
+   construya el dataset final sobre los datos de 6477.
 
 ## 8. Impulso: el banco de kernels disponible es mayor que el usado
 
