@@ -1,0 +1,87 @@
+\subsection{Convergencia de CV\% de EDP -- la laguna declarada en la sección anterior}
+
+La sección anterior dejó explícitamente sin resolver una pregunta:
+\emph{"no hay evidencia todavía de que tres repeticiones sean suficientes
+para estimar el EDP con la misma confianza"} que el tiempo de ejecución.
+Este apartado la cierra, usando el dataset final de CPU ya corregido
+(\texttt{arc174}, tras el fix de \texttt{repetition\_index} del
+2026-08-25) en vez del barrido dedicado: 9 kernels $\times$ 6 niveles de
+frecuencia $\times$ 10 repeticiones reales, EDP $=$ energía $\times$
+tiempo por repetición, mismo estimador (CV\% con desviación poblacional)
+y mismo protocolo (orden fijo $n=3,6,10$ más la distribución combinatoria
+completa sobre $\binom{10}{3}=120$ tríos) que la Sección anterior.
+
+\textbf{La convergencia de EDP es peor que la de tiempo, no igual.} De las
+54 celdas (kernel, nivel), 48 ya son estables (CV\%$<$2\,\%) desde $n=3$ y
+se mantienen así hasta $n=10$ -- estas replican el patrón ya visto para
+tiempo. Pero dos celdas revelan varianza real que ni siquiera $n=10$
+termina de resolver:
+
+\begin{itemize}
+  \item \textbf{\texttt{npb\_ft@REF}}: CV\% =1{,}57\,\% a $n=6$, pero
+    \textbf{sube a 6{,}46\,\% a $n=10$} -- el CV\% no converge de forma
+    monótona, sino que una repetición más tardía revela dispersión que
+    las primeras seis no mostraban. El mismo patrón se repite en
+    \texttt{npb\_ft@F0} y \texttt{npb\_ft@F1}.
+  \item \textbf{\texttt{rodinia\_lavamd\_omp@F1}}: CV\% =1{,}26\,\% a
+    $n=3$ (orden fijo), salta a 8{,}08\,\% a $n=6$ y se estabiliza en
+    6{,}63\,\% a $n=10$ -- con solo tres repeticiones esta dispersión
+    real nunca se habría observado, el mismo modo de falla ya documentado
+    para \texttt{rodinia\_lud} en la sección de tiempo.
+\end{itemize}
+
+El peor caso sobre la distribución combinatoria completa a $n=3$ (no solo
+el orden fijo) es \texttt{rodinia\_lavamd\_omp@F1} con un percentil 95 de
+10{,}06\,\% -- es decir, un trío con mala suerte de tres repeticiones
+detectaría una dispersión de EDP de dos dígitos, mientras que el trío que
+efectivamente se habría ejecutado primero (orden fijo) la habría ocultado
+casi por completo.
+
+\begin{table}[H]
+\centering
+\caption{Cobertura acumulada: número de las 54 celdas (kernel, nivel) con CV\% de EDP por debajo de un umbral, según $n$.}
+\label{tab:edp-convergence-coverage}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+\textbf{Umbral} & \textbf{n=3 (fijo)} & \textbf{n=6 (fijo)} & \textbf{n=10} \\
+\midrule
+CV\% $<$ 2\,\%  & 48/54 & 48/54 & 45/54 \\
+CV\% $<$ 5\,\%  & 52/54 & 50/54 & 50/54 \\
+CV\% $<$ 10\,\% & 54/54 & 54/54 & 54/54 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Que la cobertura a umbral 2\,\% \emph{empeore} de $n=3$ (48/54) a $n=10$
+(45/54) no es una regresión del instrumento: es la misma advertencia de
+la sección anterior, confirmada aquí con más fuerza. Una muestra pequeña
+subestima sistemáticamente la varianza real; agregar repeticiones no
+"introduce" dispersión, la \emph{revela}. El costo de esa revelación es
+que ninguna $n$ fija y pequeña puede prometerse suficiente para todos los
+kernels: \texttt{npb\_ft} todavía no muestra señales claras de haber
+convergido en $n=10$, el máximo disponible en este dataset.
+
+\textbf{Conclusión operativa, distinta de "usar más repeticiones para
+todos".} La mayoría del catálogo (48 de 54 celdas, el 89\,\%) no necesita
+diez repeticiones para estimar su EDP con confianza -- $n=6$ conserva
+exactamente la misma cobertura a umbral 2\,\% que $n=3$ y $n=10$ (48/54),
+por un 40\,\% menos de costo que diez. El problema no está distribuido
+uniformemente: está concentrado en dos kernels (\texttt{npb\_ft},
+\texttt{rodinia\_lavamd\_omp} en niveles intermedios), que exhiben
+varianza de EDP genuina y no completamente caracterizada ni siquiera con
+el máximo $n$ disponible. Forzar $n=10$ para las 54 celdas para blindar
+dos de ellas es más caro que necesario; recortar a $n=3$ para todas
+ocultaría exactamente la dispersión que estas dos ya demostraron tener.
+
+\textbf{Recomendación para la ampliación del catálogo CPU (kernels
+sobrevivientes del tamizaje RAJAPerf, ver Anexo N.2 del plan maestro de
+Fase 2):} usar $n=6$ como protocolo por defecto -- evidencia-basado, no
+heredado sin más de Fase 1 ni recortado a ciegas por presión de tiempo -- y
+tratar cualquier kernel nuevo cuyo CV\% de tiempo u OI durante el
+tamizaje ya sugiera comportamiento inestable (I/O significativo,
+dependencia de datos, saturación temprana) como candidato a repeticiones
+adicionales dirigidas, en vez de inflar el protocolo completo. Para
+\texttt{npb\_ft} y \texttt{rodinia\_lavamd\_omp} específicamente, que ya
+forman parte del catálogo confirmado, esta varianza no resuelta se declara
+como limitación conocida del dataset, no se oculta ni se promete resuelta
+con más repeticiones sin evidencia de que eso funcione.

@@ -2035,8 +2035,17 @@ compilación nueva.
 
 Para cada candidato con α < 0.226: catalogar como kernel `device: cpu`
 (exec_path=`raja-perf.exe`, `-k <NOMBRE> -v Base_OpenMP`), correr
-6 niveles × 10 rep (mismo protocolo que el núcleo, para comparabilidad
-directa con `arc174`). Costo por kernel sobreviviente: 60 corridas.
+6 niveles × **6 rep** (2026-08-25: bajado de 10 a 6, no heredado sin más
+del núcleo — ver `docs/justifications/report/sections/repetitions_edp.tex`,
+análisis de convergencia de CV% de EDP sobre las 54 celdas de `arc174`
+corregido: n=6 conserva la misma cobertura a umbral 2% que n=3 y n=10
+(48/54 celdas) por 40% menos costo. Los dos kernels que sí muestran
+varianza de EDP real y no resuelta ni a n=10 —`npb_ft`, `rodinia_lavamd`—
+ya son parte del catálogo confirmado, no de este tamizaje; cualquier
+sobreviviente cuyo propio tamizaje ya sugiera comportamiento inestable
+debe tratarse como candidato a repeticiones adicionales dirigidas, no
+forzar n=10 para todo el catálogo ampliado). Costo por kernel
+sobreviviente: 36 corridas (72 con el par baseline/telemetry).
 
 **Bloqueo real para esta parte**: aunque el tamizaje puede correr hoy sin
 uncore, la campaña de dataset completa (con `phase_label_train` real)
@@ -2051,7 +2060,7 @@ el tamizaje que decide si vale la pena no lo esté.
 |---|---|---|
 | Núcleo | confirmado | 540 (424 aceptadas) |
 | Tamizaje RAJAPerf | en cola, sin uncore | ~35×7=245 mediciones de tiempo/energía (no "corridas" en el sentido de dataset) |
-| Ampliación con sobrevivientes | condicional a tamizaje Y a CAP_PERFMON | 60×N sobrevivientes |
+| Ampliación con sobrevivientes | condicional a tamizaje Y a CAP_PERFMON | 36×N sobrevivientes (n=6, ver justificación EDP) |
 
 ## N.3 Lo que cambió respecto al Anexo F, resumido
 
