@@ -35,7 +35,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import io
 import os
 import subprocess
 import sys
@@ -77,8 +76,26 @@ def list_kernels() -> list[str]:
 def parse_ncu(csv_text: str) -> dict[str, float]:
     """Suma `gpu__time_duration` y promedia los throughputs pesando por esa
     duracion. Promediar sin pesar mezclaria un kernel de arranque trivial
-    con el kernel real de trabajo y correria el resultado hacia el ruido."""
-    rows = list(csv.DictReader(io.StringIO(csv_text)))
+    con el kernel real de trabajo y correria el resultado hacia el ruido.
+
+    SALTAR EL PREAMBULO ES OBLIGATORIO. `ncu --csv` emite lineas de banner
+    ("==PROF== Connected to process...") ANTES de la cabecera real, que es
+    la primera que empieza con '"ID"'. La version original de esta funcion
+    le pasaba la salida entera a DictReader, asi que el banner quedaba
+    como cabecera, todas las columnas tomaban nombres basura y
+    `row.get("Metric Name")` devolvia None -- el job 6539 reporto
+    SIN_METRICAS en los 79 kernels por esto, sin ningun error visible.
+    `parse_ncu_csv_totals()` en docs/justifications/scripts/
+    ncu_gpu_precision.py ya hacia el salto correctamente; no reutilizarlo
+    fue el error.
+    """
+    lines = csv_text.splitlines()
+    header_idx = next(
+        (i for i, line in enumerate(lines) if line.startswith('"ID"')), None
+    )
+    if header_idx is None:
+        return {}
+    rows = list(csv.DictReader(lines[header_idx:]))
     if not rows:
         return {}
 
@@ -133,6 +150,7 @@ def main() -> int:
     print("kernel,dram_pct,sm_pct,total_kernel_time_ns,n_launches,veredicto", flush=True)
 
     results = []
+    diagnosed = False  # el diagnostico crudo se imprime UNA vez, no 79
     for kernel in kernels:
         cmd = [
             "ncu", "--metrics", ",".join(METRICS), "--launch-count", "10", "--csv",
@@ -151,7 +169,21 @@ def main() -> int:
 
         parsed = parse_ncu(completed.stdout)
         if not parsed:
+            # NO fallar en silencio: el job 6539 imprimio SIN_METRICAS en
+            # los 79 kernels sin dejar rastro de por que, y costo una
+            # campaña de GPU cancelada por nada. Si el parseo no da
+            # metricas, hay que poder ver la salida cruda de ncu.
             print(f"{kernel},,,,,SIN_METRICAS", flush=True)
+            if not diagnosed:
+                diagnosed = True
+                print("--- DIAGNOSTICO (primer fallo de parseo) ---", flush=True)
+                print(f"--- stdout de ncu (primeras 25 lineas) ---", flush=True)
+                for line in completed.stdout.splitlines()[:25]:
+                    print(f"    {line}", flush=True)
+                print(f"--- stderr de ncu (ultimas 15 lineas) ---", flush=True)
+                for line in completed.stderr.splitlines()[-15:]:
+                    print(f"    {line}", flush=True)
+                print("--- fin del diagnostico ---", flush=True)
             continue
 
         dram, sm = parsed["dram_pct"], parsed["sm_pct"]
