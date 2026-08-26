@@ -360,35 +360,52 @@ def check_uncore_readable(
 
 
 def _probe_uncore_counters(timeout_seconds: float = 5.0) -> tuple[bool, str]:
-    """Lee un intervalo real de `uncore_imc_0/cas_count_read/`.
+    """Lee un intervalo real del evento `cas_count_read` de `uncore_imc_0`.
 
     Se mide contra el PMU de verdad y no contra `perf_event_paranoid` a
     secas porque CAP_PERFMON en el binario de perf también habilita la
     lectura con paranoid alto: mirar solo el sysctl daría un falso negativo
     en un nodo correctamente configurado por capacidades.
 
-    Bug encontrado el 2026-08-25: esta sonda invocaba `perf stat` SIN
-    `-I` (modo intervalo) y con separador ',' -- un modo de invocación
-    distinto al que usa el lector de producción (`uncore_reader.cpp`,
-    que siempre pasa `-a -I <ms> -x ';'`). Sin `-I`, perf emite el
-    formato de RESUMEN final, que antepone un valor YA ESCALADO con
-    unidad ("0.23,MiB,uncore_imc_0/cas_count_read/,102712278,100.00,,":
-    el campo 0 es la magnitud legible, no un conteo entero) -- el chequeo
-    original solo miraba el campo 0 y esperaba un entero puro, así que
-    fallaba SIEMPRE con este formato pese a que el conteo crudo (campo 3)
-    era real. Eso produjo falsos negativos de E13 indistinguibles de una
-    pérdida real de permiso (jobs 6431/6484), cuando en ambos casos
-    CAP_PERFMON seguía presente (`getcap /usr/bin/perf` lo confirmó).
-    Corregido invocando perf EXACTAMENTE como producción (`-I`/`;`) y
-    parseando el mismo campo (índice 1, "interval-time;value;unit;...")
-    que `parse_perf_stat_csv_line` en `uncore_reader.cpp`.
+    Dos bugs apilados, encontrados y corregidos el 2026-08-25 verificando
+    en vivo contra `paccaA100` con CAP_PERFMON confirmado presente
+    (`getcap /usr/bin/perf`) y la sonda aun así fallando:
+
+    1. Faltaba `-I` (modo intervalo): sin él, perf emite el resumen final
+       en vez de líneas de intervalo, formato que ni siquiera el parche
+       de abajo entiende.
+    2. **El alias simbólico `cas_count_read` trae metadato de unidad
+       ("bytes") en la tabla de eventos de perf, y ESO activa autoescalado
+       incluso en modo intervalo** ("0.301...;0.02;MiB;uncore_imc_0/
+       cas_count_read/;771713;100.00;;" -- el campo 1 sigue escalado a
+       MiB, no es el conteo crudo). `uncore_reader.cpp` (producción) nunca
+       usa el alias: arma el evento desde
+       `/sys/bus/event_source/devices/uncore_imc_0/events/cas_count_read`
+       (`event=0x04,umask=0x0f` en este nodo), un identificador crudo sin
+       metadato de unidad, así que perf nunca lo autoescala y el campo 1
+       es siempre un entero. La sonda ahora replica exactamente esa
+       construcción -- mismo archivo sysfs, mismo formato de evento --, en
+       vez del alias legible que solo parecía más simple.
+
+    Jobs 6431/6484 fueron probablemente bloqueados por estos bugs de la
+    sonda, no por una pérdida real de permiso.
     """
     import subprocess
+
+    raw_format_path = Path(
+        "/sys/bus/event_source/devices/uncore_imc_0/events/cas_count_read"
+    )
+    try:
+        raw_format = raw_format_path.read_text().strip()
+    except OSError as error:
+        return False, f"no se pudo leer {raw_format_path}: {error}"
+    if not raw_format:
+        return False, f"{raw_format_path} vacío"
 
     try:
         completed = subprocess.run(
             ["perf", "stat", "-a", "-I", "100", "-x", ";",
-             "-e", "uncore_imc_0/cas_count_read/", "sleep", "0.3"],
+             "-e", f"uncore_imc_0/{raw_format}/", "sleep", "0.3"],
             capture_output=True, text=True, timeout=timeout_seconds,
         )
     except (OSError, subprocess.SubprocessError) as error:
@@ -396,6 +413,9 @@ def _probe_uncore_counters(timeout_seconds: float = 5.0) -> tuple[bool, str]:
 
     # perf escribe el informe en stderr; formato por línea de intervalo:
     # "interval-time;value;unit;event;time-running;percent-running[,...]".
+    # Con un evento crudo (sin alias) el campo unit queda vacío y value es
+    # siempre un entero -- exactamente lo que `parse_perf_stat_csv_line`
+    # asume en `uncore_reader.cpp`.
     output = (completed.stderr or "") + (completed.stdout or "")
     for line in output.strip().splitlines():
         fields = line.split(";")
