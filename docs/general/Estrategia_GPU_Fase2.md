@@ -279,13 +279,81 @@ nosotros) el 2026-08-25; toda la batería encolada corrió y terminó.
    ("en GPU el argumento es más débil… se ha establecido que no puede
    medirse"), documentado aquí explícitamente unido al riesgo 3 en vez de
    por separado.
-4. **La arquitectura reformulada de §4 (regresión pair-level + LOKO)
-   nunca se ha entrenado ni evaluado**, ni en CPU ni en GPU. El código
-   existe (`classifier/features/pair_dataset.py`,
-   `classifier/eval/protocol.py`), pero todo el trabajo de esta sesión es
-   preparación y diagnóstico de datos, no el modelo que pide el
-   Objetivo 2. Es el paso más grande que falta antes de poder afirmar que
-   el enfoque funciona, no solo que los datos lo permiten.
+4. ~~La arquitectura reformulada de §4 nunca se ha entrenado ni
+   evaluado~~ **EJECUTADO (2026-08-25, job 6532,
+   `classifier/analysis/loko_pilot.py`) — RESULTADO NEGATIVO, y es el
+   hallazgo más importante de la sesión.** El modelo **pierde contra no
+   hacer nada** en ambos ejes:
+
+   | política (EDP loss, 1.0 = óptimo) | GPU (6 kernels) | CPU (9 kernels) |
+   |---|---:|---:|
+   | oráculo (techo) | 1.0000 | 1.0000 |
+   | **trivial: siempre a F0** | **1.0507** | **1.0010** |
+   | modelo aprendido (LOKO) | 1.0925 | 1.0027 |
+   | mejor constante honesta (V6) | 1.0940 | 1.0010 |
+   | **margen del modelo vs. trivial** | **−0.0418** | **−0.0017** |
+
+   Dos lecturas, que **no deben mezclarse**:
+
+   - **CPU: el techo mismo es 0.1%.** Un oráculo *perfecto* solo mejora
+     0.0010 sobre no hacer nada. No es que el modelo falle: no hay nada
+     que ganar con este catálogo. Es un resultado reportable y cierra la
+     pregunta del lado CPU. (Los números bajaron de 1.0070 a 1.0010 al
+     corregir un bug propio del piloto que metía `stream_official` y
+     `ert_probe` —kernels de calibración— como pliegues del LOKO;
+     `stream_official`, el único con α bajo el umbral, aportaba casi todo
+     el margen aparente.)
+   - **GPU: hay 5.07 pts de techo real y el modelo no captura ninguno.**
+     El modo de fallo es concreto: elige G2 para `dwt2d` (EDP real
+     1.2071, un 20% *peor* que no tocar nada) y F1 para `heartwall`
+     (1.0630 cuando G2 daba 0.9361). Con 6 kernels, LOKO entrena sobre 5
+     — es el riesgo 3 materializado y ahora cuantificado.
+
+   **Corrección metodológica que este resultado obliga:** V6 comparaba
+   contra la mejor constante honesta, pero **esa no es rival suficiente**.
+   La constante honesta se elige por pliegue y puede salir PEOR que
+   quedarse quieto (en el pliegue de `dwt2d` la media de entrenamiento
+   favorece G2, que ese kernel detesta): 1.0940 contra 1.0507 del trivial.
+   Un modelo que le gana a ella (+0.0015, ruido) pero pierde contra "no
+   hacer nada" (−0.0418) **no justifica existir**, y reportar solo la
+   primera comparación habría hecho pasar por logro justo lo contrario.
+   El margen contra el trivial es ahora el número titular del piloto.
+
+   **Variante con umbral de acción (job 6533): acota la pérdida a cero,
+   no produce ganancia — y su diagnóstico explica todo lo anterior.**
+   Regla: desviarse de F0 solo si la mejora predicha supera el RMSE del
+   propio modelo, calculado únicamente sobre pliegues de entrenamiento
+   (honesto por construcción, no sintonizado contra el test). Resultado:
+   el umbral **nunca se dispara** y la política degenera exactamente en el
+   trivial — GPU 1.0507, CPU 1.0010, ambos idénticos a no hacer nada.
+
+   La razón está en la propia magnitud del umbral, y es **el número que
+   explica el fracaso**:
+
+   | eje | RMSE del modelo | techo disponible | razón |
+   |---|---:|---:|---:|
+   | GPU | 0.2755 | 0.0507 | error **5.4×** mayor que el premio |
+   | CPU | 0.0916 | 0.0010 | error **92×** mayor que el premio |
+
+   El modelo no puede encontrar una ganancia de 5% cuando su propia barra
+   de error sobre el EDP es de 27.5%. **No es un problema de
+   hiperparámetros ni de elección de regresor: la incertidumbre del modelo
+   supera al fenómeno que intenta explotar.** Dos causas plausibles, aún
+   sin separar: (a) N pequeño (riesgo 3), y (b) el objetivo abarca un
+   rango de 0.85 a 12.4 —F3/F4 son órdenes de magnitud peores— así que el
+   error cuadrático se concentra en niveles extremos que a la política no
+   le importan, mientras la región accionable (EDP≈1) queda mal resuelta.
+
+   Lo único aprovechable hoy: **la regla de umbral es un mecanismo de
+   seguridad válido para el daemon del Objetivo 3** — convierte una
+   pérdida de 4.18 pts en un empate, es decir, garantiza no empeorar
+   respecto del gobernador nativo aunque el modelo se equivoque.
+
+   Pendientes de este hilo, en orden de valor esperado: (1) repetir el
+   piloto sobre el dataset de 17 kernels del job 6529, que duplica los
+   pliegues (6 → 12 tras exclusiones) y ataca la causa (a); (2) predecir
+   en espacio logarítmico o restringir los niveles candidatos a la región
+   accionable, que ataca la causa (b).
 5. **La OI de los 3 tamaños intermedios de `dwt2d` está interpolada**, no
    medida con `ncu`. No se usa como feature del modelo (evita CAT-10 por
    diseño), pero está declarado en el catálogo.
