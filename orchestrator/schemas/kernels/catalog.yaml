@@ -1153,3 +1153,125 @@ kernels:
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
       pacca-a100: "sha256:7b1ffe1c3914baa48c3bb55cec0fc6f4ebb84b8ac55a9ef07b5786644a954481"
+
+  # --- 2026-08-25: impulso RAJAPerf-CUDA (Estrategia_GPU_Fase2.md §8) ----
+  # 6 candidatos sobrevivientes del tamizaje de alpha
+  # (screen_rajaperf_gpu_alpha.sh, job 6517 tras corregir el bug de
+  # sizefact): 4 con ajuste limpio (Stream_COPY/TRIAD, Polybench_JACOBI_2D/
+  # HEAT_3D) y 2 con alpha bajo pero ajuste de Amdahl ruidoso
+  # (Basic_REDUCE3_INT r2=0.749, Basic_INDEXLIST_3LOOP r2=0.575) --
+  # incluidos igual (decision 2026-08-25, Estrategia_GPU_Fase2.md riesgo
+  # 6): su alpha (0.010/0.013) esta muy por debajo del umbral GPU (0.639),
+  # el ruido esta en el AJUSTE, no necesariamente en que sean poco
+  # sensibles al reloj.
+  #
+  # Cada wrapper (bin/gpu_rajaperf_*) fija --sizefact 100: a tamano por
+  # defecto el binario esta dominado por arranque de contexto CUDA
+  # (~380ms fijos, medido 2026-08-25), no por el kernel -- mismo bug ya
+  # corregido en el propio tamizaje. runner.py inyecta LD_PRELOAD del shim
+  # de blocking-sync y LD_LIBRARY_PATH de CUDA antes de invocar el
+  # wrapper (device: gpu), no hace falta repetirlo en el script.
+  #
+  # operational_intensity_flops_per_byte/gpu_precision: PENDIENTES DE
+  # MEDIR CON ncu (CAT-10 los exige para role: dataset, catalog.py:132-137
+  # falla el catalogo entero si faltan). Job 6525
+  # (scripts/pacca/measure_gpu_rajaperf_oi.py) encolado, esperando a que
+  # 6524 (rejilla fina CPU) libere paccaA100. NO llenar con un valor
+  # provisional: mejor que el catalogo falle a cargar (fail closed) que
+  # aceptar una campana con OI inventado.
+
+  - id: gpu_rajaperf_stream_copy
+    suite: RAJAPerf-CUDA
+    role: dataset
+    device: gpu
+    exec_path: bin/gpu_rajaperf_stream_copy
+    phase_label_hint: memory_bound  # confirmado: OI=0.0061 << ridge fp64 (3.36), mismo linaje que gpu_stream_bw
+    operational_intensity_flops_per_byte: 0.0061  # ncu, job 6528 (20 lanzamientos, --sizefact 100)
+    gpu_precision: fp64
+    size_variant: sizefact100
+    expected_runtime_seconds: 20  # medido F4=9.10s (tamizaje 6517), margen ~2x
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 2147483648  # 2 GiB, aproximado por comparacion con gpu_stream_bw -- sin RSS medido
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:c40f0a46fe8e10a07b0f59b24192f09d1ba705c443bd98cd7f80888ccba1eb8e"
+
+  - id: gpu_rajaperf_stream_triad
+    suite: RAJAPerf-CUDA
+    role: dataset
+    device: gpu
+    exec_path: bin/gpu_rajaperf_stream_triad
+    phase_label_hint: memory_bound  # confirmado: OI=0.0831 << ridge fp64 (3.36)
+    operational_intensity_flops_per_byte: 0.0831  # ncu, job 6528
+    gpu_precision: fp64
+    size_variant: sizefact100
+    expected_runtime_seconds: 18  # medido F4=7.90s (tamizaje 6517), margen ~2x
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 2147483648
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:559c2541884c32a28fae61685e5105076484ea12bb48364914919eb891d28186"
+
+  - id: gpu_rajaperf_reduce3_int
+    suite: RAJAPerf-CUDA
+    role: dataset
+    device: gpu
+    exec_path: bin/gpu_rajaperf_reduce3_int
+    phase_label_hint: memory_bound  # tamizaje: r2=0.749, alpha bajo pero ajuste ruidoso, ver nota de cabecera
+    operational_intensity_flops_per_byte: 0.0  # ncu, job 6528: reduccion de ENTEROS, sin FLOPs de punto flotante medibles (real, no fallo de medicion)
+    gpu_precision: fp64  # ver nota: sin FLOPs medibles, OI=0.0 esta por debajo de ambos ridges (fp32=7.28, fp64=3.36) sin importar cual se elija -- fp64 por consistencia con el resto del catalogo GPU
+    size_variant: sizefact100
+    expected_runtime_seconds: 20  # medido F4=8.82s (tamizaje 6517), margen ~2x
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 2147483648
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:d319ba1d4c7b278a915dc6b3e578fa3c50b59db909e5058da47c723fb15af46c"
+
+  - id: gpu_rajaperf_indexlist_3loop
+    suite: RAJAPerf-CUDA
+    role: dataset
+    device: gpu
+    exec_path: bin/gpu_rajaperf_indexlist_3loop
+    phase_label_hint: memory_bound  # confirmado: OI=0.0089 << ridge fp64 (3.36); tamizaje r2=0.575 (alpha bajo, ajuste ruidoso, ver nota de cabecera)
+    operational_intensity_flops_per_byte: 0.0089  # ncu, job 6528
+    gpu_precision: fp64
+    size_variant: sizefact100
+    expected_runtime_seconds: 30  # medido F4=14.77s (tamizaje 6517), margen ~2x
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 2147483648
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:a87fd6ae82d235e87803e8a2c4ec47c642802bb2150c04b8c6c4481cdcc7948c"
+
+  - id: gpu_rajaperf_jacobi_2d
+    suite: RAJAPerf-CUDA
+    role: dataset
+    device: gpu
+    exec_path: bin/gpu_rajaperf_jacobi_2d
+    phase_label_hint: intermedio  # OI=0.2949, stencil: falla el umbral CPU (alpha=0.714) pero pasa en GPU (alpha=0.123)
+    operational_intensity_flops_per_byte: 0.2949  # ncu, job 6528
+    gpu_precision: fp64
+    size_variant: sizefact100
+    expected_runtime_seconds: 40  # medido F4=18.90s (tamizaje 6517), margen ~2x
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 2147483648
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:0de6ae7c3c98df550f457a4a0b84767149f345938eac9b2a70fddf5f983c3319"
+
+  - id: gpu_rajaperf_heat_3d
+    suite: RAJAPerf-CUDA
+    role: dataset
+    device: gpu
+    exec_path: bin/gpu_rajaperf_heat_3d
+    phase_label_hint: intermedio  # OI=0.7458, stencil: falla el umbral CPU (alpha=0.852) pero pasa en GPU (alpha=0.085)
+    operational_intensity_flops_per_byte: 0.7458  # ncu, job 6528
+    gpu_precision: fp64
+    size_variant: sizefact100
+    expected_runtime_seconds: 22  # medido F4=10.55s (tamizaje 6517), margen ~2x
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 2147483648
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:c14771c18cfb8604611f7eda88f5520bc65b54b5b6481a977d442ca5468b1768"
