@@ -263,18 +263,44 @@ nosotros) el 2026-08-25; toda la batería encolada corrió y terminó.
    de trabajo de `Fan2020`/`Guerreiro2019` (escalar núcleo y memoria
    juntos) no es aplicable aquí, se cierra con evidencia y no queda
    pendiente.
-3. **Con 7–11 kernels el LOKO entrena sobre 6–10** — es un piloto, no un
-   resultado estadísticamente robusto.
-4. **La OI de los 3 tamaños intermedios de `dwt2d` está interpolada**, no
+3. **Con 7–13 kernels el LOKO entrena sobre 6–12** — es un piloto, no un
+   resultado estadísticamente robusto. **Conectado con la limitación de
+   granularidad de §3 (CAT-10), no independiente de ella (2026-08-25):**
+   el modelo trata cada kernel como una unidad de OI estática (§4), así
+   que la variabilidad intra-kernel no puede compensar el N pequeño
+   aunque exista físicamente. Y existe: la potencia dentro de una sola
+   corrida REF/REF varía con CV=51.6% en `lavamd`, 25.4% en `dgemm_n4096`,
+   19.5% en `gaussian`, 11.3% en `heartwall`, 1.4% en `myocyte` (coherente
+   con que `myocyte` sea el kernel de menor ahorro, §2) — pero sin marcas
+   de verdad como las de `gpu_phasic`, esa variación no se puede atribuir
+   a alternancia de régimen explotable vs. transitorios de arranque/cierre
+   (mismo problema que `dwt2d`, riesgo 8). No es una arista nueva: es
+   exactamente el límite que `main.tex` §discusión-granularidad ya declara
+   ("en GPU el argumento es más débil… se ha establecido que no puede
+   medirse"), documentado aquí explícitamente unido al riesgo 3 en vez de
+   por separado.
+4. **La arquitectura reformulada de §4 (regresión pair-level + LOKO)
+   nunca se ha entrenado ni evaluado**, ni en CPU ni en GPU. El código
+   existe (`classifier/features/pair_dataset.py`,
+   `classifier/eval/protocol.py`), pero todo el trabajo de esta sesión es
+   preparación y diagnóstico de datos, no el modelo que pide el
+   Objetivo 2. Es el paso más grande que falta antes de poder afirmar que
+   el enfoque funciona, no solo que los datos lo permiten.
+5. **La OI de los 3 tamaños intermedios de `dwt2d` está interpolada**, no
    medida con `ncu`. No se usa como feature del modelo (evita CAT-10 por
    diseño), pero está declarado en el catálogo.
-5. **El ajuste de α resultó inválido para los kernels del tamizaje**
+6. **El ajuste de α resultó inválido para los kernels del tamizaje**
    (r²=0.53–0.63, Anexo L.1): el modelo de Amdahl no describe kernels que
    saturan a bajo reloj. α sirve como tamiz cualitativo, **no** como
-   número reportable para esos casos.
-6. **La variante CUDA de RAJAPerf no está compilada** — el impulso de §8
-   requiere un build nuevo antes de rendir en GPU.
-7. ~~Energía y tiempo de `dwt2d` en F0 no varían con el tamaño~~
+   número reportable para esos casos. Mismo patrón se repitió en el
+   tamizaje RAJAPerf-CUDA (§8): 4/6 candidatos con r²>0.97, pero
+   `Basic_REDUCE3_INT`/`Basic_INDEXLIST_3LOOP` con r²=0.75/0.58 — incluidos
+   igual en el catálogo final (decisión 2026-08-25), con la misma reserva:
+   α cualitativo, no reportable como número preciso para esos dos.
+7. ~~La variante CUDA de RAJAPerf no está compilada~~ **CERRADO
+   (2026-08-25).** Compilada y verificada en `paccaA100`
+   (`build_rajaperf_cuda.sh`), tamizaje corrido (§8).
+8. ~~Energía y tiempo de `dwt2d` en F0 no varían con el tamaño~~
    **CAUSA RAÍZ ENCONTRADA (2026-08-25).** Cruzando `gpu_util_pct` por
    ventana contra el reloj de pared: incluso el `rodinia_dwt2d` original
    (16384×16384, el que sí muestra actividad real, hasta 93% de
@@ -292,17 +318,18 @@ nosotros) el 2026-08-25; toda la batería encolada corrió y terminó.
    recomienda contarlas como 4 regímenes distintos en el análisis de
    margen ni en el conteo de diversidad de §8 — mismo tratamiento que
    ya recibe `rodinia_backprop` (excluido de `gpu_policy_headroom.py`
-   por energía despreciable): excluir de análisis de margen, no del
-   dataset físico (el job 6477 ya las está corriendo; no hace falta
-   cancelarlo, solo no contarlas como señal real al analizar).
+   por energía despreciable): excluir de análisis de margen, no
+   necesariamente del dataset físico.
    **Verificado en las 3 repeticiones de cada tamaño, no solo la
    primera** (el patrón es idéntico: `s192` 6% en las tres, `s8192`
    32–33% en las tres, el original 82–100% con la ventana activa
    siempre en el último medio segundo de la corrida) — no es ruido de
    una corrida particular. **Decisión operativa para el pipeline de
    entrenamiento:** excluir estos 4 kernels del LOKO y del cálculo de
-   margen (`gpu_policy_headroom.py`/`pair_dataset.py`) cuando se
-   construya el dataset final sobre los datos de 6477.
+   margen (`gpu_policy_headroom.py`/`pair_dataset.py`) en el dataset
+   final. (Nota: el job 6477, que originalmente correría estos datos,
+   fue cancelado el 2026-08-25 en favor del impulso de RAJAPerf-CUDA de
+   §8 — el dataset final que reemplaza a 6477 aún no se ha lanzado.)
 
 ## 8. Impulso: el banco de kernels disponible es mayor que el usado
 
@@ -330,10 +357,35 @@ el conteo anterior estaba inflado al doble):
 | **total** | **85** |
 
 `raja-perf.exe` corre cualquiera con `-k NOMBRE -v <variante>`: agregar un
-kernel es un wrapper, no una compilación. **Pero para GPU falta compilar
-la variante CUDA** (hoy solo existe la OpenMP): build nuevo, de bajo
-riesgo pero no gratis (mismo procedimiento que `gpu_phasic`: verificar
-reproducibilidad, despojar, fijar checksum).
+kernel es un wrapper, no una compilación.
+
+**Resultado del impulso (2026-08-25).** Variante CUDA compilada y
+verificada en `paccaA100` (riesgo 7, cerrado). Tamizaje sobre 6
+candidatos elegidos por familia de acceso no cubierta (`Stream_COPY`,
+`Stream_TRIAD` — ancho de banda, control positivo; `Basic_REDUCE3_INT`,
+`Basic_INDEXLIST_3LOOP` — reducción/compactación; `Polybench_JACOBI_2D`,
+`Polybench_HEAT_3D` — stencils, que en CPU fallaron el umbral pero en GPU
+no tienen por qué):
+
+| kernel | α | r² | veredicto |
+|---|---:|---:|---|
+| `Stream_TRIAD` | 0.027 | 0.999 | claro |
+| `Stream_COPY` | 0.061 | 0.992 | claro |
+| `Polybench_HEAT_3D` | 0.085 | 0.999 | claro |
+| `Polybench_JACOBI_2D` | 0.123 | 0.973 | claro |
+| `Basic_REDUCE3_INT` | 0.010 | 0.749 | α bajo, ajuste ruidoso |
+| `Basic_INDEXLIST_3LOOP` | 0.013 | 0.575 | α bajo, ajuste ruidoso |
+
+Los dos stencils son el hallazgo más interesante: fallan el tamizaje CPU
+(§ correspondiente en `Estrategia_CPU_Fase2.md`, α 0.71–0.85) pero pasan
+aquí — confirma que el rango dinámico de potencia distinto entre
+dispositivos (sección 1145 de `main.tex`) cambia la viabilidad, no solo
+la magnitud.
+
+**Decisión de catálogo (2026-08-25): los 6 entran**, incluidos los 2 con
+ajuste ruidoso — su α es bajo (0.010–0.013, muy por debajo del umbral
+0.639) aunque el ajuste de Amdahl no lo describa con precisión (riesgo 6).
+El catálogo GPU pasa de 7 a 13 kernels reales.
 
 ## 9. Mapeo a los Objetivos Específicos
 
