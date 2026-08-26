@@ -212,14 +212,196 @@ márgen amplio, así que no cambia el veredicto):
 | `JACOBI_2D` | 0.714 | 0.989 | no | OK |
 | `HEAT_3D` | 0.852 | 0.999 | no | OK |
 
-**El catálogo CPU se queda en sus 9 kernels.** No es un artefacto de
-tamaño de problema como el mismo tipo de bug encontrado después en GPU
-(§6517 más abajo en `Estrategia_GPU_Fase2.md`): el tamaño por defecto de
-RAJAPerf para estos kernels ya mueve ~32 MB/rep (verificado con
-`--dryrun` en `JACOBI_1D`), más grande que L2 y del orden de L3 — no es
-un caso trivialmente cache-resident. Es un resultado real: la suite
-Polybench de RAJAPerf, a tamaño por defecto, es demasiado compute-bound
-para este umbral.
+> ### ⚠️ ESTE VEREDICTO ESTÁ RETIRADO (2026-08-25, mismo día)
+>
+> La versión anterior de esta sección concluía «el catálogo CPU se queda
+> en sus 9 kernels» y argumentaba explícitamente que **no** era un
+> artefacto de tamaño de problema, razonando que los ~32 MB/rep son «más
+> grande que L2 y del orden de L3». Ese razonamiento era erróneo y la
+> conclusión no se sostiene:
+>
+> **La L3 de este nodo son 39 MB** (39936 KiB, leído de
+> `/sys/devices/system/cpu/cpu0/cache/index3/size`). Con 32 MB/rep,
+> **el conjunto de trabajo CABÍA EN CACHE**. Los 7 candidatos nunca
+> tocaron DRAM de forma significativa: se estaban midiendo contra L3,
+> cuya latencia y ancho de banda escalan mucho mejor con el reloj del
+> núcleo que los de memoria principal. Que salieran «compute-bound» es
+> una propiedad del tamaño elegido, no de los kernels.
+>
+> «Del orden de L3» no era una defensa: para quedar limitado por DRAM
+> hace falta EXCEDER la LLC con holgura, no aproximarse a ella por
+> debajo.
+>
+> Es la misma clase de error ya encontrada y corregida en el eje GPU
+> (job 6514→6517, donde `--sizefact 100` cambió r² de 0.31–0.53 a >0.97).
+> Se detectó aquí solo al revisar la literatura: Hebbar & Milenković
+> reportan que `649.fotonik3d` —electromagnetismo por FDTD, **un
+> stencil**— hace *plateau* a 1.7 GHz de 4.3 GHz. `Polybench_FDTD_2D` es
+> uno de nuestros 7 candidatos y fue **el mejor de todos** (α = 0.331).
+> Que un stencil funcione en la literatura y falle aquí apuntaba al
+> tamaño, no al kernel.
+>
+> **Rehecho en `screen_rajaperf_cpu_alpha_v2.sh`**, con dos cambios:
+> `--memory-touched` fijado a **10× la LLC real del nodo** (~400 MB) en
+> vez de tamaño por defecto, y **los ~79 kernels** en vez de 7 elegidos a
+> mano. Se usa `--memory-touched` y no `--sizefact` porque un mismo
+> multiplicador no escala igual sobre un kernel 1D que sobre uno 3D:
+> dejaría a unos dentro y a otros fuera de cache, que es exactamente la
+> variable que hay que controlar.
+>
+> Los números de la tabla de arriba se conservan como registro de lo que
+> se midió, **no como veredicto sobre los kernels**.
+
+## 6.bis ¿Se frena la memoria al bajar el reloj del núcleo? Medido
+
+Es la premisa sobre la que descansa todo el eje CPU: si una carga está
+limitada por memoria, bajar el reloj no debería alargarla. Hasta el
+2026-08-25 solo se había observado el **síntoma** (el tiempo), nunca la
+**causa**. `stream_official` satura el ancho de banda al 100% y aun así
+mide α = 0.154, no 0 — a 800 MHz tarda 46% más que a 3200 MHz *pese a
+estar completamente limitado por memoria*. Esa brecha había que
+explicarla.
+
+**Job 6542** (`scripts/pacca/measure_cpu_memory_vs_frequency.sh`) mide la
+frecuencia real del controlador de memoria por sus propios ticks
+(`uncore_imc_0/clockticks` sobre reloj de pared conocido) mientras se
+varía la del núcleo. Necesario porque `current_freq_khz` del driver
+`intel_uncore_frequency` es ilegible sin root en este nodo — pero ese
+mismo sysfs confirma que **el uncore es un dominio de frecuencia
+separado** (800–2400 MHz) del de los núcleos (800–3200 MHz).
+
+| nivel de núcleo | reloj IMC (STREAM) | reloj IMC (`ptrchase`) | BW alcanzado (STREAM) |
+|---|---:|---:|---:|
+| F0 (3200 MHz) | 2.755 GHz | 2.886 GHz | 20.8 GB/s |
+| F1 (2600) | 2.722 | 2.886 | 20.4 |
+| F2 (2000) | 2.685 | 2.889 | 19.2 |
+| F3 (1400) | 2.776 | 2.853 | 18.1 |
+| F4 (800) | 2.804 | 2.824 | **14.6** |
+
+**El controlador de memoria NO se frena** — su reloj se mantiene en
+2.75–2.89 GHz (variación ~2%) mientras el núcleo cae 4×. La hipótesis de
+que el uncore baja con los núcleos queda **descartada con medida**.
+
+**Pero el ancho de banda alcanzado sí cae un 30%.** La memoria va a plena
+velocidad y el núcleo lento no consigue alimentarla: emite menos accesos
+en vuelo y no sostiene el paralelismo de memoria necesario. Ojo con el
+signo: si el límite fuera puramente el núcleo, el BW habría caído 4×
+como el reloj; cayó 1.43×. **La memoria sigue siendo el limitante
+dominante**; el núcleo solo deja de saturarla del todo en el extremo bajo.
+
+**Consecuencia para la tesis:** la premisa es correcta en lo esencial
+(la memoria no se ralentiza) pero incompleta — un núcleo lento no
+mantiene saturada a una memoria que sí va rápido. Eso es un límite de la
+**carga y su paralelismo de memoria**, no de la plataforma, y por tanto
+es atacable eligiendo mejor los kernels.
+
+**Caveat declarado:** el control compute-bound (`ert_probe`) no sirvió en
+esta corrida — dura 0.15 s, demasiado corto, y su frecuencia no llegó a
+estabilizarse (`freq_within_5pct = NO` en 4 de 5 niveles). Sin un control
+negativo limpio el argumento no queda cerrado del todo. Lo que sí
+discrimina el instrumento: STREAM mueve 20.8 GB/s y `ptrchase` 0.53 GB/s
+—40× de diferencia— exactamente lo esperable entre saturar ancho de banda
+y estar limitado por latencia.
+
+## 6.ter α depende de la VENTANA de frecuencia sobre la que se ajusta
+
+Hallazgo del job 6543 (`classifier/analysis/alpha_by_frequency_window.py`),
+motivado al revisar la literatura. α **no es invariante** al rango sobre
+el que se ajusta: si el subsistema de memoria se degrada en el extremo
+bajo, ese efecto entra en el ajuste y lo infla, aunque en la ventana alta
+el kernel sea insensible al reloj.
+
+| kernel | F0-F1 (1.23×) | F0-F2 (1.60×) | F0-F3 (2.29×) | F0-F4 (4.00×) |
+|---|---:|---:|---:|---:|
+| `stream_official` | 0.103 | 0.106 | 0.121 | 0.154 |
+| **`npb_mg`** | **0.171** | **0.227** | 0.296 | 0.385 |
+| `npb_sp` | 0.376 | 0.402 | 0.434 | 0.491 |
+| `npb_cg` | 0.600 | 0.655 | 0.700 | 0.760 |
+| `npb_ft` | 0.733 | 0.739 | 0.750 | 0.771 |
+| `npb_lu` | 0.776 | 0.810 | 0.820 | 0.840 |
+| `npb_bt` | 0.861 | 0.860 | 0.875 | 0.902 |
+| `dgemm_n2048` | 0.874 | 0.889 | 0.902 | 0.931 |
+| `3mm_omp` | 0.986 | 0.975 | 0.985 | 1.007 |
+| `lavamd_omp` | 1.068 | 1.012 | 1.015 | 1.027 |
+
+**`npb_mg` da α = 0.171 en la ventana F0–F1, por debajo del umbral
+0.226.** La afirmación «ningún kernel del catálogo baja del umbral» era un
+artefacto de ajustar α incluyendo F4 (800 MHz) — una región que la
+política nunca visitaría, porque su EDP es pésimo para todos los kernels.
+**En la ventana que la política usaría de verdad, `npb_mg` sí es viable**,
+y eso justifica de forma independiente la campaña de rejilla fina
+3200–2600 (`campaign_pacca_cpu_fine_grid.yaml`).
+
+Segundo kernel viable, de la misma tanda: **`ptrchase`** (job 6542) va de
+4.733 s en F0 a 6.771 s en F4, lo que da **α ≈ 0.144 en rango completo y
+≈ 0.096 en F0–F1** — bajo el umbral en ambas ventanas. Es el sujeto
+latency-bound que faltaba, y ya está compilado y en el catálogo.
+
+**Regla metodológica que se deriva:** la ventana correcta para ajustar α
+es la que cubre los niveles que la política usaría. Reportar α sobre
+F0–F4 mete en el número una región inalcanzable y sesga la decisión de
+catálogo hacia el rechazo.
+
+## 6.quater Qué dice la literatura, y en qué nos diferenciamos
+
+Revisión de los dos trabajos de CPU citados (2026-08-25).
+
+**Hebbar & Milenković 2022** (`\cite{Hebbar2022}`), Core i7-8700K de
+escritorio, 0.8–4.3 GHz, SPEC CPU2017. Dos aportes directos:
+
+- Confirman explícitamente el mecanismo que medimos en §6.bis: *«uncore
+  frequency scaling (UFS), enabling the processor to control the frequency
+  of the uncore components (e.g., last-level caches) **independently** of
+  the core frequencies. […] The uncore frequency has a significant impact
+  on on-die cache-line transfer speeds as well as **on memory
+  bandwidth**»*.
+- Encuentran *plateaus* reales: `649.fotonik3d` deja de mejorar por encima
+  de **1.7 GHz** y `628.pop2` de 2.7 GHz. Ambos son códigos de stencil /
+  diferencias finitas sobre mallas grandes — el tipo de carga que nuestro
+  tamizaje descartó por correrla en cache (ver el aviso de §6).
+- Mejoras de eficiencia energética de 44–92% frente al gobernador
+  `ondemand`, y 121–183% en la clase memory-intensive. **No comparable
+  directo con nuestro EDP**: su métrica y su línea base son otras, y el
+  procesador es de escritorio.
+
+**Calore et al. 2017** (`\cite{Calore2017}`), Xeon E5-2630v3 de servidor,
+rango explorado ~1.2–2.4 GHz. Es el más comparable con nuestro nodo:
+
+| rutina | ahorro de energía (CPU) | coste en tiempo |
+|---|---:|---:|
+| `propagate` (memory-bound) | **9%** | 3% |
+| `collide` (compute-bound) | 4% | 4% |
+| código completo | 7% | 8% |
+
+- Usan como diagnóstico `f · T_s` frente a `f`: memory-bound ⟹ `T_s`
+  constante ⟹ el producto crece lineal. Con eso identifican `propagate`
+  (paso de *streaming* de Lattice Boltzmann) como memory-bound con `T_s`
+  prácticamente constante en todo su rango.
+- Su 3% de coste sobre 1.41× de reducción implica **α ≈ 0.073**, pero
+  medido solo en la ventana alta — lo que refuerza la regla de §6.ter:
+  su α y nuestro α medido sobre 4× **no son comparables sin fijar la
+  ventana**.
+- Reportan que el gobernador `powersave` *«has an adverse effect on both
+  TS and ES»* **incluso en el kernel memory-bound**. Bajar demasiado
+  también les perjudicaba.
+- Su conclusión: *«fair energy savings are possible by tuning the
+  processor clock to lower values in all cases in which the code is
+  memory-bound»* — ganancias **modestas pero reales**, consistente con
+  que nuestro margen sea pequeño y no con que sea inexistente.
+
+**Dónde estamos frente a ellos, sin adornar.** Calore obtuvo 9%/3% en un
+Xeon de servidor con un rango de frecuencia **más estrecho** que el
+nuestro. Así que el resultado no es inalcanzable por hardware. Lo que sí
+es una restricción real y propia de este nodo es el **rango dinámico de
+potencia de 1.40×** (116.5 W → 83.4 W), del que sale el umbral 0.226; con
+un rango más ancho, kernels que aquí fallan pasarían. Las tres cosas son
+distintas y conviene no confundirlas:
+
+1. **La velocidad de la memoria NO nos perjudica** (medido, §6.bis).
+2. **El rango de potencia de 1.40× SÍ nos perjudica** (medido, es la
+   restricción estructural del eje CPU).
+3. **El catálogo está mal elegido** (medido: 7 de 9 kernels con α > 0.6,
+   y el intento de ampliarlo se corrió en cache).
 
 ## 7. Reconciliación con la variación intra-kernel (Objetivo 2 literal)
 
@@ -259,7 +441,7 @@ nueva: es priorizar la que el dato respalda, sin descartar la otra.
 
 | Objetivo | Estado | Evidencia |
 |---|---|---|
-| 1. Caracterizar comportamiento y consumo bajo distintos estados de frecuencia (Perf+RAPL) | **Cumplido** (424/540 válidas). El tamizaje RAJAPerf no amplió el catálogo (0/7 sobrevivientes, §6); la rejilla fina (7 niveles, npb_mg) sigue el único frente abierto, bloqueado por E13 | `..._arc174`; §2, §5, §6 |
+| 1. Caracterizar comportamiento y consumo bajo distintos estados de frecuencia (Perf+RAPL) | **Cumplido** (424/540 válidas) y **ampliándose por tres frentes reabiertos**: rejilla fina 3200–2600 (E13 ya destrabado), tamizaje v2 con conjunto de trabajo 10× la LLC, y `ptrchase`/`phasic_*` en curso | `..._arc174`; §2, §5, §6, §6.bis, §6.ter |
 | 2. Clasificador ML en vivo, baja latencia | Features ya libres de uncore; granularidad primaria = carga, secundaria = ventana en los 3 kernels con mezcla real | §1, §7 |
 | 3. Daemon de espacio de usuario con política DVFS | **No bloqueado por CAP_PERFMON**: el runtime nunca dependió de uncore, y la actuación (`scaling_min/max_freq`) ya tiene permiso P1 | §1 |
 | 4. Evaluación por EDP contra gobernador nativo | **Parcial**: `REF` cubre el gobernador nativo *activo* (`performance`) sin permisos nuevos; permiso para `powersave` concedido (2026-08-25), pendiente de verificación empírica antes de usarse | §4; riesgo 3 |
@@ -268,7 +450,9 @@ nueva: es priorizar la que el dato respalda, sin descartar la otra.
 
 | # | Qué verifica | Cómo | Pasa si | Si falla |
 |---|---|---|---|---|
-| **C1** | ¿El tamizaje encuentra margen en CPU? (§5.1, §6) | Job 6483: ajustar α por candidato sobre tiempo medido | ≥1 candidato con α < 0.226 **y** r² > 0.95 | **FALLÓ (2026-08-25): 0/7 sobrevivientes** (α 0.331-0.852). El catálogo CPU no tiene margen accesible: reportado como resultado negativo cuantificado, sin insistir con más resolución de la misma suite |
+| **C1** | ¿El tamizaje encuentra margen en CPU? (§5.1, §6) | Job 6483: ajustar α por candidato sobre tiempo medido | ≥1 candidato con α < 0.226 **y** r² > 0.95 | **VEREDICTO RETIRADO (2026-08-25).** El 0/7 de 6483 midió el tamaño del problema, no los kernels: 32 MB/rep contra 39 MB de L3, todo en cache. Rehecho con `--memory-touched` a 10× la LLC y sobre los ~79 kernels (`screen_rajaperf_cpu_alpha_v2.sh`) — ver el aviso de §6 |
+| **C1b** | ¿Hay margen en el catálogo ACTUAL, con la ventana correcta? (§6.ter) | Reajustar α por ventana de frecuencia (job 6543) | ≥1 kernel con α < 0.226 en la ventana que la política usaría | **PASA (2026-08-25): 2 kernels.** `npb_mg` α=0.171 en F0–F1; `ptrchase` α=0.096 en F0–F1 / 0.144 en rango completo |
+| **C1c** | ¿Se frena la memoria al bajar el reloj? (§6.bis) | Medir `uncore_imc_0/clockticks` sobre reloj de pared a cada nivel (job 6542) | El reloj del IMC cae junto con el del núcleo | **NO SE CUMPLE, y es buena noticia:** el IMC se mantiene en 2.75–2.89 GHz mientras el núcleo cae 4×. La memoria no se ralentiza; lo que cae es el BW alcanzado (−30%) porque el núcleo lento no la satura |
 | **C2** | **El pineo de frecuencia se sostuvo bajo carga** (riesgo 6) | Muestrear `scaling_cur_freq` *durante* la corrida, no antes | Media observada dentro de 5% del objetivo en los 6 CPUs | **PASÓ en 5/7** tras corregir el bug de hermanos SMT (job 6483); `ATAX`/`GESUMMV` fallan pero ya fallan C1 con margen amplio, no cambia el veredicto |
 | **C3** | El tamizaje no está contaminado por I/O (lección `myocyte`, Anexo L.1) | Verificar tamaño de los archivos que RAJAPerf escribe por corrida | Salida despreciable frente al tiempo de cómputo | Un α bajo puede ser costo fijo de I/O, no memory-boundness: descontarlo antes de aceptar el candidato |
 | **C4** | Robustez de la conclusión de 0.33 pts (§2) | Reejecutar `cpu_policy_headroom.py` optimizando **EDP** en vez de energía | La conclusión no cambia cualitativamente | Si bajo EDP aparece margen, la métrica —no la física— era la limitante, igual que pasó en GPU (Anexo M) |
@@ -283,16 +467,26 @@ nueva: es priorizar la que el dato respalda, sin descartar la otra.
 
 ## Riesgos abiertos, sin adornar
 
-1. **RESUELTO (2026-08-25).** El margen de 0.33 pts es sobre el catálogo
-   actual y se queda así: job 6483 completado, 0/7 candidatos sobreviven
-   (α 0.331-0.852, todos sobre el umbral 0.226 con r² 0.975-0.999). El
-   tamizaje CPU no encontró margen comparable al de GPU — reportado como
-   resultado negativo cuantificado, sin insistir con más candidatos de la
-   misma suite (§9, contingencia C1 ya prevista).
-2. **RESUELTO, mismo cierre que el 1.** Los 7 candidatos se eligieron por
-   conocimiento algorítmico, no por OI medida — el riesgo se materializó
-   parcialmente (2 de los 7 también fallan C2), pero no cambia el
-   veredicto: los 5 que sí pasan C2 igual fallan C1 por márgen amplio.
+1. **REABIERTO (2026-08-25, mismo día en que se había cerrado).** Se dio
+   por cerrado con el 0/7 del job 6483, pero ese veredicto está retirado:
+   los candidatos se corrieron con un conjunto de trabajo de 32 MB contra
+   una L3 de 39 MB, es decir **dentro de cache** (ver el aviso de §6).
+   Sigue abierto hasta que corra `screen_rajaperf_cpu_alpha_v2.sh`.
+   **Lección propia, no ajena:** el texto retirado argumentaba
+   explícitamente que *no* era un artefacto de tamaño, razonando que
+   32 MB es «del orden de L3». Aproximarse a la LLC por debajo no es
+   excederla; la comprobación correcta era leer el tamaño real de la
+   cache, y costaba un `cat` de sysfs.
+2. **REABIERTO, mismo motivo.** Los 7 candidatos se eligieron por
+   conocimiento algorítmico y no por OI medida. La v2 elimina ese sesgo
+   tamizando los ~79 kernels de la suite en vez de 7 elegidos a mano —
+   mismo criterio que ya se aplicó en el eje GPU.
+2.bis **NUEVO, y es el hallazgo que reabre el eje CPU:** hay **dos**
+   kernels que sí cumplen el umbral en la ventana que la política usaría
+   — `npb_mg` (α=0.171 en F0–F1) y `ptrchase` (α=0.096 en F0–F1). El
+   catálogo CPU **no** está vacío de sujetos viables; lo estaba el
+   análisis, por ajustar α sobre una ventana que incluye niveles
+   inalcanzables (§6.ter).
 3. **`powersave` — el permiso ya se concedió (2026-08-25), pero no está
    verificado.** El administrador entregó `set_cpu_gov <gobernador> <epp>`,
    restringido a los cores 0-5 y sin parámetro de rango de CPUs. Su propio
