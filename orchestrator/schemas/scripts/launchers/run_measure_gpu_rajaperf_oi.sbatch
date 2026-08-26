@@ -16,7 +16,11 @@
 # canal de E/S porque el proceso local que lo lanzo se mato a los 90s
 # mientras esperaba recursos en cola) -- sbatch con --output explicito
 # no depende de que el proceso que lo somete siga vivo.
-set -o pipefail
+set -eo pipefail
+# ARC-153 aplica a "module load" (rompe con -u), no a set -e: sin esto,
+# la corrida 6527 crasheo con TypeError a mitad de los 6 kernels y el
+# job igual reporto exit 0 (echo final corrio de todas formas) -- el
+# fallo paso desapercibido hasta revisar el .out a mano.
 source ~/hyperion-venv/bin/activate
 python3 /home/latorresn/hyperion/scripts/pacca/measure_gpu_rajaperf_oi.py
 echo OI_MEASUREMENT_DONE

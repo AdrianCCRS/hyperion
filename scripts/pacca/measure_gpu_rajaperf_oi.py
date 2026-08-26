@@ -71,16 +71,31 @@ for kernel in KERNELS:
     totals, n_launches = parse_ncu_csv_totals(completed.stdout)
     result = compute_gpu_precision_result(totals, n_launches)
     results[kernel] = result
+    # operational_intensity/fraction_fp32/fraction_fp64 son None cuando
+    # dram_bytes<=0 o flops_total<=0 (ver ncu_gpu_precision.py) -- kernels
+    # de reduccion/compactacion INT (Basic_REDUCE3_INT,
+    # Basic_INDEXLIST_3LOOP) no ejecutan FP FMA/ADD/MUL, asi que esto es
+    # un resultado real esperado, no un fallo de medicion. print() sin
+    # format spec en vez de :.4f -- el bug real de esta corrida (job
+    # 6527) fue crashear aqui con TypeError y que el sbatch wrapper (sin
+    # set -e) igual reportara exit 0.
     print(
-        f"{kernel:<28} n_launches={n_launches:<5} "
-        f"OI={result.operational_intensity:.4f} FLOP/byte "
-        f"dram_bytes={result.dram_bytes:.3e} "
-        f"flops_fp32={result.flops_fp32:.3e} flops_fp64={result.flops_fp64:.3e} "
-        f"frac_fp32={result.fraction_fp32:.3f} frac_fp64={result.fraction_fp64:.3f}"
+        f"{kernel:<28} n_launches={n_launches} "
+        f"totals_keys={sorted(totals.keys())} "
+        f"OI={result.operational_intensity} FLOP/byte "
+        f"dram_bytes={result.dram_bytes} "
+        f"flops_fp32={result.flops_fp32} flops_fp64={result.flops_fp64} "
+        f"frac_fp32={result.fraction_fp32} frac_fp64={result.fraction_fp64}"
     )
 
 print()
 print("=== RESUMEN (para catalog.yaml) ===")
 for kernel, result in results.items():
-    precision = "fp64" if result.fraction_fp64 >= result.fraction_fp32 else "fp32"
+    if result.operational_intensity is None:
+        print(f"{kernel}: OI=None (dram_bytes={result.dram_bytes}, flops_total={result.flops_fp32 + result.flops_fp64}) -- revisar manualmente, no automatico")
+        continue
+    if result.fraction_fp32 is None or result.fraction_fp64 is None:
+        precision = "sin_flops_fp"  # kernel entero/logico, sin FLOPs de punto flotante medibles
+    else:
+        precision = "fp64" if result.fraction_fp64 >= result.fraction_fp32 else "fp32"
     print(f"{kernel}: operational_intensity_flops_per_byte={result.operational_intensity:.4f}  gpu_precision={precision}")
