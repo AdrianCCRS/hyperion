@@ -338,22 +338,57 @@ nosotros) el 2026-08-25; toda la batería encolada corrió y terminó.
    El modelo no puede encontrar una ganancia de 5% cuando su propia barra
    de error sobre el EDP es de 27.5%. **No es un problema de
    hiperparámetros ni de elección de regresor: la incertidumbre del modelo
-   supera al fenómeno que intenta explotar.** Dos causas plausibles, aún
-   sin separar: (a) N pequeño (riesgo 3), y (b) el objetivo abarca un
-   rango de 0.85 a 12.4 —F3/F4 son órdenes de magnitud peores— así que el
-   error cuadrático se concentra en niveles extremos que a la política no
-   le importan, mientras la región accionable (EDP≈1) queda mal resuelta.
+   supera al fenómeno que intenta explotar.**
+
+   **CAUSA RAÍZ, medida (job 6535,
+   `classifier/analysis/loko_feature_diagnostic.py`): el N efectivo no es
+   el número de filas, es el número de KERNELS.** Las features son
+   promedios de la corrida de referencia, así que apenas varían entre
+   repeticiones del mismo kernel — su CV intra-kernel es de 0.5–5% frente
+   a 30–297% entre kernels (razón 17× a 64×). Las repeticiones son
+   réplicas del mismo punto, no muestras nuevas:
+
+   | | GPU | CPU |
+   |---|---:|---:|
+   | filas del dataset por par | 162 | 450 |
+   | **vectores de features distintos** | **18** | **90** |
+   | kernels = pliegues LOKO | 6 | 9 |
+   | **puntos efectivos de entrenamiento** | **5** | **8** |
+   | features del modelo | 2 | 7 (6 útiles) |
+   | componentes para el 90% de la señal | 2 de 2 | 5 de 7 |
+
+   En GPU son **2 features generalizando desde 5 puntos a un sexto**; con
+   eso, RMSE=0.2755 no es una anomalía a diagnosticar sino lo esperable.
+   En CPU el problema es de otra forma: **7 features para 8 puntos**
+   (p≈n), sobreajuste garantizado por construcción — y una de ellas,
+   `ref_running_ratio`, tiene **varianza cero** (constante intra y entre
+   kernels): ocupa un grado de libertad sin aportar nada y debe quitarse.
+
+   Causa secundaria, aún sin aislar: el objetivo abarca de 0.85 a 12.4
+   —F3/F4 son órdenes de magnitud peores— así que el error cuadrático se
+   concentra en niveles extremos que a la política no le importan,
+   mientras la región accionable (EDP≈1) queda mal resuelta.
 
    Lo único aprovechable hoy: **la regla de umbral es un mecanismo de
    seguridad válido para el daemon del Objetivo 3** — convierte una
    pérdida de 4.18 pts en un empate, es decir, garantiza no empeorar
    respecto del gobernador nativo aunque el modelo se equivoque.
 
-   Pendientes de este hilo, en orden de valor esperado: (1) repetir el
-   piloto sobre el dataset de 17 kernels del job 6529, que duplica los
-   pliegues (6 → 12 tras exclusiones) y ataca la causa (a); (2) predecir
-   en espacio logarítmico o restringir los niveles candidatos a la región
-   accionable, que ataca la causa (b).
+   Pendientes de este hilo, en orden de valor esperado:
+   1. **Repetir el piloto sobre el dataset de 17 kernels del job 6529**
+      (12 pliegues tras exclusiones → 11 puntos efectivos, más del doble
+      que hoy). Ataca la causa raíz. Honestidad sobre su alcance: pasar de
+      5 a 11 puntos **ayuda, no transforma** — sigue siendo un piloto, que
+      es exactamente lo que el riesgo 3 ya declaraba.
+   2. **Quitar `ref_running_ratio`** (varianza cero) y, en CPU, reducir la
+      dimensionalidad para que p < n en vez de p≈n.
+   3. Predecir en espacio logarítmico o restringir los niveles candidatos
+      a la región accionable, que ataca la causa secundaria.
+   4. **Enriquecer las features sin cambiar de granularidad**: hoy solo se
+      usa la media de la corrida de referencia. Percentiles y dispersión
+      de la misma telemetría (p10/p50/p90, CV) añadirían dimensiones sin
+      necesitar más kernels ni etiqueta por ventana — atacan el N efectivo
+      por el lado de la riqueza del punto, no del número de puntos.
 5. **La OI de los 3 tamaños intermedios de `dwt2d` está interpolada**, no
    medida con `ncu`. No se usa como feature del modelo (evita CAT-10 por
    diseño), pero está declarado en el catálogo.
