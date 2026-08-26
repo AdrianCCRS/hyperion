@@ -53,10 +53,31 @@ pie — nada de esto la cambia todavía.
 
 ## Jobs terminados — resultados
 
-**6412 (`ptrchase` + `phasic_*`)**: 320/320 aceptadas. Resultado numérico
-(α de `ptrchase`) pendiente de recalcular sobre esta campaña — la sonda
-rápida previa (job 6542) ya había dado α≈0.096–0.144, por confirmar con
-estos datos reales.
+**6412 (`ptrchase` + `phasic_*`)**: 320/320 aceptadas. Dos resultados
+reales, distintos entre sí:
+
+*`ptrchase` confirma el umbral, con datos de campaña completa (no la
+sonda rápida):*
+
+| ventana | α | r² |
+|---|---:|---:|
+| F0–F4 completo | 0.122 | 0.990 |
+| F0–F1 (la que la política usaría) | **0.097** | 1.000 |
+
+Ambos por debajo de 0.226. Confirma lo que la sonda de 6542 ya sugería,
+ahora con 10 repeticiones por nivel y ajuste r²≈1 en la ventana estrecha.
+**Es el segundo kernel viable del catálogo**, junto a `npb_mg`.
+
+*`phasic_p010/p100/p1000` son un resultado de OTRO tipo — no compiten por
+el umbral, lo pulverizan:* EDP/F0 cae a **0.82–0.83** en F4 (17–18% de
+ahorro), con α≈0.002–0.003. Pero ojo: **duración casi constante en las
+tres variantes de periodo de fase** (20.27→20.42–20.47 s, <1% de
+variación entre F0 y F4) — es exactamente el diseño del kernel (fase fija
+por *tiempo*, no por trabajo, ver `Estrategia_CPU_Fase2.md`), así que su
+α bajo es por construcción, no evidencia de que cargas reales se
+comporten así. Útil como referencia/control de que el instrumento
+detecta memory-boundness limpio cuando existe, no como candidato de
+catálogo.
 
 **6530 (rejilla fina CPU, 3200→2000 MHz)**: 638/720 aceptadas (82
 saltadas, 0 rechazadas). **Confirma la hipótesis que motivó la campaña**:

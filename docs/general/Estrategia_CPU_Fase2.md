@@ -403,6 +403,47 @@ distintas y conviene no confundirlas:
 3. **El catálogo está mal elegido** (medido: 7 de 9 kernels con α > 0.6,
    y el intento de ampliarlo se corrió en cache).
 
+## 6.quinquies Confirmado con campaña completa: `npb_mg` y `ptrchase` son viables
+
+Jobs 6412 y 6530 (2026-08-26), campaña completa con 10 repeticiones por
+nivel — ya no sondas rápidas. **Dos kernels quedan confirmados por debajo
+del umbral 0.226, con datos limpios:**
+
+**`npb_mg` (rejilla fina 3200→2000 MHz, 638/720 corridas aceptadas).**
+Su óptimo de EDP cae en **S3000 (3000 MHz)**, EDP/F0 = 0.9927 (−0.73%) —
+un mínimo real y no monótono, con S3100 y S2900 subiendo de nuevo a
+ambos lados. **Es el único de los 9 kernels del catálogo original con un
+óptimo fuera de F0**; los otros 8 (`npb_bt`, `npb_cg`, `npb_sp`,
+`npb_ft`, `npb_lu`, `dgemm_n2048`, `rodinia_lavamd_omp`,
+`rajaperf_polybench_3mm_omp`) degradan su EDP monótonamente al bajar la
+frecuencia, sin excepción, en toda la rejilla nueva.
+
+**`ptrchase` (sonda de fases, 320/320 aceptadas, 10 reps/nivel).**
+
+| ventana | α | r² |
+|---|---:|---:|
+| F0–F4 completo | 0.122 | 0.990 |
+| F0–F1 (la que usaría la política) | **0.097** | 1.000 |
+
+Confirma con datos de campaña completa lo que la sonda rápida (job 6542)
+ya sugería. Es el sujeto latency-bound que el catálogo no tenía.
+
+**`phasic_p010/p100/p1000`: resultado de otro tipo, no un tercer
+candidato de catálogo.** EDP/F0 cae a 0.82–0.83 en F4 (17–18% de ahorro),
+con α≈0.002–0.003 — muy por debajo incluso de `ptrchase`. Pero su
+duración es casi constante entre F0 y F4 (<1% de variación, 20.27→20.4 s)
+por **diseño**: la fase dura un tiempo fijo, no un trabajo fijo (ver §7).
+Su α bajo es una propiedad del microbenchmark, no evidencia de que una
+carga real se comporte así — sirve como control de que el instrumento
+detecta memory-boundness limpio cuando existe, no como sujeto adicional
+del catálogo final.
+
+**Balance: el catálogo pasa de 9 kernels con 0 viables a 11 con 2
+viables** (`npb_mg`, `ptrchase`), antes incluso de que termine el
+tamizaje v2 sobre los ~79 de RAJAPerf (job 6575, en cola). Confirma
+directamente la lectura de §6.quater: el problema era el catálogo, no la
+plataforma — con kernels mejor elegidos, sí hay margen.
+
 ## 7. Reconciliación con la variación intra-kernel (Objetivo 2 literal)
 
 No toda la evidencia apunta a "cero variación intra-kernel". La tabla de
@@ -451,7 +492,7 @@ nueva: es priorizar la que el dato respalda, sin descartar la otra.
 | # | Qué verifica | Cómo | Pasa si | Si falla |
 |---|---|---|---|---|
 | **C1** | ¿El tamizaje encuentra margen en CPU? (§5.1, §6) | Job 6483: ajustar α por candidato sobre tiempo medido | ≥1 candidato con α < 0.226 **y** r² > 0.95 | **VEREDICTO RETIRADO (2026-08-25).** El 0/7 de 6483 midió el tamaño del problema, no los kernels: 32 MB/rep contra 39 MB de L3, todo en cache. Rehecho con `--memory-touched` a 10× la LLC y sobre los ~79 kernels (`screen_rajaperf_cpu_alpha_v2.sh`) — ver el aviso de §6 |
-| **C1b** | ¿Hay margen en el catálogo ACTUAL, con la ventana correcta? (§6.ter) | Reajustar α por ventana de frecuencia (job 6543) | ≥1 kernel con α < 0.226 en la ventana que la política usaría | **PASA (2026-08-25): 2 kernels.** `npb_mg` α=0.171 en F0–F1; `ptrchase` α=0.096 en F0–F1 / 0.144 en rango completo |
+| **C1b** | ¿Hay margen en el catálogo ACTUAL, con la ventana correcta? (§6.ter) | Reajustar α por ventana de frecuencia (job 6543, sonda); confirmado con campaña completa 10 reps/nivel (jobs 6412/6530, §6.quinquies) | ≥1 kernel con α < 0.226 en la ventana que la política usaría | **PASA, confirmado con campaña completa (2026-08-26): 2 kernels.** `npb_mg` óptimo real en S3000 (EDP/F0=0.9927, −0.73%); `ptrchase` α=0.097 en F0–F1 (r²=1.000) / 0.122 en rango completo |
 | **C1c** | ¿Se frena la memoria al bajar el reloj? (§6.bis) | Medir `uncore_imc_0/clockticks` sobre reloj de pared a cada nivel (job 6542) | El reloj del IMC cae junto con el del núcleo | **NO SE CUMPLE, y es buena noticia:** el IMC se mantiene en 2.75–2.89 GHz mientras el núcleo cae 4×. La memoria no se ralentiza; lo que cae es el BW alcanzado (−30%) porque el núcleo lento no la satura |
 | **C2** | **El pineo de frecuencia se sostuvo bajo carga** (riesgo 6) | Muestrear `scaling_cur_freq` *durante* la corrida, no antes | Media observada dentro de 5% del objetivo en los 6 CPUs | **PASÓ en 5/7** tras corregir el bug de hermanos SMT (job 6483); `ATAX`/`GESUMMV` fallan pero ya fallan C1 con margen amplio, no cambia el veredicto |
 | **C3** | El tamizaje no está contaminado por I/O (lección `myocyte`, Anexo L.1) | Verificar tamaño de los archivos que RAJAPerf escribe por corrida | Salida despreciable frente al tiempo de cómputo | Un α bajo puede ser costo fijo de I/O, no memory-boundness: descontarlo antes de aceptar el candidato |
