@@ -454,6 +454,49 @@ tamizaje v2 sobre los ~79 de RAJAPerf (job 6575, en cola). Confirma
 directamente la lectura de §6.quater: el problema era el catálogo, no la
 plataforma — con kernels mejor elegidos, sí hay margen.
 
+## 6.sexies GAP Benchmark Suite: el hueco de acceso irregular, y por qué `pacca01` sirve para triage aquí
+
+Ni STREAM/Polybench (ancho de banda, acceso regular) ni `ptrchase`
+(latencia pura, sin estructura de algoritmo) cubren acceso **irregular
+dependiente del dato** — el patrón de recorrer una lista de adyacencia,
+donde el próximo salto de memoria no se conoce hasta resolver el actual.
+GAP Benchmark Suite (Beamer et al., arXiv:1508.03619) es la suite
+académica estándar para eso: BFS, PageRank, componentes conexas, camino
+más corto, betweenness centrality, triángulos. El propio paper documenta
+que estos algoritmos sufren latencias de memoria largas en SMP porque la
+jerarquía de caché está optimizada para acceso local y contiguo — lo
+opuesto de lo que hacen.
+
+**Por qué el triage inicial corre en `pacca01` y no en `paccaA100`,
+excepción deliberada a la regla de no comparar los dos nodos.** La razón
+por la que `paccaA100` está reservado para números finales sigue
+intacta (compilación cruzada, umbral de α específico de su modelo de
+potencia — ver la nota de integridad de §6). Pero hay una comparación
+que **sí** es válida entre ambos: la **L3 por núcleo es idéntica, 1.50
+MB** (12 MB / 8 núcleos en `paccaA100`; 39 MB / 26 núcleos en `pacca01`)
+— mismo punto de diseño, misma generación de microarquitectura
+(Ice Lake-SP), mismos flags AVX-512. Eso hace que el comportamiento
+*cualitativo* de un kernel de un solo hilo contra la caché sea
+extrapolable: si un kernel de GAP no muestra NINGUNA sensibilidad al
+reloj en `pacca01`, es muy poco probable que la muestre en `paccaA100`.
+
+**Lo que NO es extrapolable, y por qué ningún número de aquí es
+citable**: el umbral 0.226 sale del modelo de potencia de `paccaA100`
+específicamente; `pacca01` tiene otro (no medido, turbo activo por
+convención de ese nodo). Y 26 núcleos/socket contra 8 cambia la
+contención real de ancho de banda por núcleo activo. `pacca01` responde
+"¿este kernel responde al reloj en absoluto?" (sí/no cualitativo) — no
+"¿cruza 0.226?". Cualquier candidato que pase el triage se remide en
+`paccaA100` antes de entrar al catálogo o citarse en cualquier
+documento.
+
+Scripts: `scripts/pacca/build_gap_benchmark.sh` (clona y compila, sin
+checksum pineado a propósito — es triage, no un kernel de catálogo),
+`scripts/pacca/screen_gap_alpha_pacca01.sh` (BFS y PageRank primero, los
+dos más usados en la literatura de GAP; grafo Kronecker sintético
+2²²≈4.2M vértices, sin descargar los 275 GB de grafos reales), lanzados
+por `run_gap_triage_pacca01.sbatch`.
+
 ## 7. Reconciliación con la variación intra-kernel (Objetivo 2 literal)
 
 No toda la evidencia apunta a "cero variación intra-kernel". La tabla de
