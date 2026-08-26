@@ -197,6 +197,32 @@ def read_gpu_run(run_dir: Path, feature_cols: list[str]) -> dict | None:
     return record
 
 
+def calibration_kernel_ids() -> set[str]:
+    """Ids del catalogo con `role: calibration`.
+
+    Se derivan del catalogo y no se listan a mano: la primera version de
+    este script no los excluia y metio `ert_probe` y `stream_official`
+    como pliegues del LOKO de CPU. No son sujetos del dataset -- son los
+    probes que fijan el ridge de Roofline (P_pico y BW_pico), y ademas
+    MAN-07 obliga a declararlos en toda campaña, asi que aparecen como
+    directorios de corrida en todas ellas. Incluirlos anade dos pliegues
+    que el modelo nunca vera en produccion y, peor, mete a
+    `stream_official` -- la unica carga del proyecto con alpha bajo el
+    umbral (0.154) -- como si fuera una carga real del catalogo.
+    """
+    from orchestrator.catalog import load_catalog
+
+    catalog_path = (
+        Path(__file__).resolve().parents[2]
+        / "orchestrator/schemas/kernels/catalog.yaml"
+    )
+    catalog = load_catalog(catalog_path)
+    return {
+        entry_id for entry_id, entry in catalog.items()
+        if getattr(entry, "role", None) == "calibration"
+    }
+
+
 def collect_runs(base: Path, axis: str, feature_cols: list[str]) -> pd.DataFrame:
     """Recorre los directorios de corrida y arma una fila por
     (kernel, repeticion, nivel). Los `__baseline` se saltan: son el par de
@@ -357,11 +383,14 @@ def main() -> int:
     if args.axis == "gpu":
         base, ref_level = GPU_BASE, GPU_REF_LEVEL
         feature_cols = list(pair_dataset.GPU_FEATURES)
-        exclude = GPU_EXCLUDE
+        exclude = set(GPU_EXCLUDE)
     else:
         base, ref_level = CPU_BASE, CPU_REF_LEVEL
         feature_cols = list(pair_dataset.CPU_FEATURES)
         exclude = set()
+    # Los kernels de calibracion nunca son pliegues del LOKO -- ver
+    # calibration_kernel_ids() para por que aparecen en el directorio.
+    exclude |= calibration_kernel_ids()
 
     print(f"=== V5/C6 anti-fuga de objetivo ===")
     print(check_v5_anti_leak())
@@ -397,19 +426,33 @@ def main() -> int:
     print()
 
     honest = result["honest_constant"]
+    trivial = result["always_ref_edp_loss"]
     print("=== VEREDICTO (EDP loss: 1.0 = tan bueno como el oraculo) ===")
-    print(f"  oraculo (techo)                 : 1.0000")
-    print(f"  MODELO aprendido (LOKO)         : {result['model_edp_loss']:.4f}")
-    print(f"  mejor constante honesta (V6/C7) : {honest['edp_loss']:.4f}")
-    print(f"  siempre en la referencia        : {result['always_ref_edp_loss']:.4f}")
+    print(f"  oraculo (techo inalcanzable)          : 1.0000")
+    print(f"  MODELO aprendido (LOKO)               : {result['model_edp_loss']:.4f}")
+    print(f"  mejor constante honesta (V6/C7)       : {honest['edp_loss']:.4f}")
+    print(f"  TRIVIAL: siempre a {ref_level} (max reloj){'':<3}: {trivial:.4f}")
     print()
     print(f"  niveles distintos que elige la constante honesta por pliegue: "
           f"{honest['n_distinct_levels']}")
     print(f"  nivel elegido por el modelo, por kernel: {result['model_chosen_level']}")
     print()
     margen = honest["edp_loss"] - result["model_edp_loss"]
-    print(f"  MARGEN del modelo sobre la constante honesta: {margen:+.4f}")
-    print(f"  ({'el modelo GANA' if margen > 0 else 'el modelo NO gana'} a la mejor constante)")
+    print(f"  margen del modelo sobre la constante honesta: {margen:+.4f}")
+    print()
+    # El rival que de verdad hay que vencer no es la constante honesta sino
+    # el TRIVIAL de no hacer nada: la constante honesta se elige por
+    # pliegue y puede salir PEOR que quedarse quieto (pasa cuando la media
+    # de entrenamiento favorece un nivel que el kernel excluido detesta).
+    # Un modelo que le gana a la constante honesta pero pierde contra "no
+    # hacer nada" no justifica existir, y reportar solo la primera
+    # comparacion haria pasar por logro justo lo contrario.
+    margen_trivial = trivial - result["model_edp_loss"]
+    print(f"  MARGEN DEL MODELO SOBRE EL TRIVIAL (el que decide): {margen_trivial:+.4f}")
+    if margen_trivial > 0:
+        print(f"  -> el modelo GANA a no hacer nada: justifica existir")
+    else:
+        print(f"  -> el modelo PIERDE contra no hacer nada: NO justifica existir todavia")
     print()
     print(f"=== V7/C9 latencia de inferencia ===")
     print(f"  p50: {result['latency_p50_us']:.1f} us   p99: {result['latency_p99_us']:.1f} us")
