@@ -212,45 +212,55 @@ márgen amplio, así que no cambia el veredicto):
 | `JACOBI_2D` | 0.714 | 0.989 | no | OK |
 | `HEAT_3D` | 0.852 | 0.999 | no | OK |
 
-> ### ⚠️ ESTE VEREDICTO ESTÁ RETIRADO (2026-08-25, mismo día)
+> ### ⚠️ NOTA DE INTEGRIDAD (2026-08-26): la sección de abajo tenía un
+> ### número mal atribuido — corregido aquí, no reescrito en silencio
 >
-> La versión anterior de esta sección concluía «el catálogo CPU se queda
-> en sus 9 kernels» y argumentaba explícitamente que **no** era un
-> artefacto de tamaño de problema, razonando que los ~32 MB/rep son «más
-> grande que L2 y del orden de L3». Ese razonamiento era erróneo y la
-> conclusión no se sostiene:
+> La versión anterior de este aviso decía «la L3 de este nodo son 39 MB»
+> y concluía que los 32 MB/rep de `JACOBI_1D` cabían en cache. **Ese
+> número (39 MB / 39936 KiB) es la L3 de `pacca01` (Xeon Gold 5320),
+> leída con un `srun -p normal -w pacca01` — no la de `paccaA100`, que es
+> donde corrió de verdad el job 6483.** Error de atribución cruzada entre
+> nodos, exactamente el tipo de comparación que el proyecto tiene
+> documentado como peligrosa
+> (`pacca01-vs-paccaA100-node-divergence.md`) y que aun así se cometió
+> aquí.
 >
-> **La L3 de este nodo son 39 MB** (39936 KiB, leído de
-> `/sys/devices/system/cpu/cpu0/cache/index3/size`). Con 32 MB/rep,
-> **el conjunto de trabajo CABÍA EN CACHE**. Los 7 candidatos nunca
-> tocaron DRAM de forma significativa: se estaban midiendo contra L3,
-> cuya latencia y ancho de banda escalan mucho mejor con el reloj del
-> núcleo que los de memoria principal. Que salieran «compute-bound» es
-> una propiedad del tamaño elegido, no de los kernels.
+> **La L3 real de `paccaA100` (Xeon Gold 5315Y) es 12 MB**
+> (`cache_llc_kb: 12288` en `node_profile.json`, consistente con la
+> especificación pública de Intel para ese modelo — 8 núcleos, 12 MB de
+> caché). Con ese número, los 7 candidatos **sí exceden la LLC real**, no
+> caben:
 >
-> «Del orden de L3» no era una defensa: para quedar limitado por DRAM
-> hace falta EXCEDER la LLC con holgura, no aproximarse a ella por
-> debajo.
+> | kernel | tamaño por defecto | LLC real (12 MB) | veces la LLC |
+> |---|---:|---:|---:|
+> | `ATAX` | 16.0 MB | 12 MB | 1.3× |
+> | `GESUMMV` | 16.0 MB | 12 MB | 1.3× |
+> | `MVT` | 16.0 MB | 12 MB | 1.3× |
+> | `JACOBI_1D` | 32.0 MB | 12 MB | 2.7× |
+> | `JACOBI_2D` | 32.1 MB | 12 MB | 2.7× |
+> | `HEAT_3D` | 33.0 MB | 12 MB | 2.7× |
+> | `FDTD_2D` | 79.9 MB | 12 MB | 6.7× |
 >
-> Es la misma clase de error ya encontrada y corregida en el eje GPU
-> (job 6514→6517, donde `--sizefact 100` cambió r² de 0.31–0.53 a >0.97).
-> Se detectó aquí solo al revisar la literatura: Hebbar & Milenković
-> reportan que `649.fotonik3d` —electromagnetismo por FDTD, **un
-> stencil**— hace *plateau* a 1.7 GHz de 4.3 GHz. `Polybench_FDTD_2D` es
-> uno de nuestros 7 candidatos y fue **el mejor de todos** (α = 0.331).
-> Que un stencil funcione en la literatura y falle aquí apuntaba al
-> tamaño, no al kernel.
+> **Lectura honesta, sin sobrecorregir en la otra dirección:** que
+> excedan la LLC no prueba que el 0/7 original fuera válido — 1.3-2.7×
+> es un exceso moderado, no una holgura clara, y con asociatividad de
+> caché y prefetching agresivo (todos son accesos con patrón regular,
+> stride constante) es plausible que una fracción sustancial del tráfico
+> siga sirviéndose desde L3 en vez de DRAM. El diagnóstico de tamaño
+> **no está descartado, pero tampoco está probado con el margen que
+> antes se afirmaba** — queda en un terreno intermedio, y es exactamente
+> lo que el tamizaje v2 (`--memory-touched` a 10× la LLC real, ~120 MB,
+> excedente inequívoco) está diseñado para zanjar sin ambigüedad.
 >
-> **Rehecho en `screen_rajaperf_cpu_alpha_v2.sh`**, con dos cambios:
-> `--memory-touched` fijado a **10× la LLC real del nodo** (~400 MB) en
-> vez de tamaño por defecto, y **los ~79 kernels** en vez de 7 elegidos a
-> mano. Se usa `--memory-touched` y no `--sizefact` porque un mismo
-> multiplicador no escala igual sobre un kernel 1D que sobre uno 3D:
-> dejaría a unos dentro y a otros fuera de cache, que es exactamente la
-> variable que hay que controlar.
+> Lo que SÍ sigue en pie sin cambios: el hallazgo de Hebbar sobre
+> `649.fotonik3d` (un stencil real haciendo *plateau* en la literatura),
+> y que `--memory-touched` (que lee la LLC en vivo del nodo donde
+> realmente corre, nunca hardcodeada) es la forma correcta de zanjarlo —
+> eso no dependía del número erróneo.
 >
-> Los números de la tabla de arriba se conservan como registro de lo que
-> se midió, **no como veredicto sobre los kernels**.
+> Los números de la tabla de arriba (α por kernel) se conservan como
+> registro de lo medido; el veredicto sobre SI ese α refleja al kernel o
+> al tamaño queda abierto hasta el resultado del tamizaje v2 (job 6575).
 
 ## 6.bis ¿Se frena la memoria al bajar el reloj del núcleo? Medido
 
@@ -508,16 +518,26 @@ nueva: es priorizar la que el dato respalda, sin descartar la otra.
 
 ## Riesgos abiertos, sin adornar
 
-1. **REABIERTO (2026-08-25, mismo día en que se había cerrado).** Se dio
-   por cerrado con el 0/7 del job 6483, pero ese veredicto está retirado:
-   los candidatos se corrieron con un conjunto de trabajo de 32 MB contra
-   una L3 de 39 MB, es decir **dentro de cache** (ver el aviso de §6).
-   Sigue abierto hasta que corra `screen_rajaperf_cpu_alpha_v2.sh`.
-   **Lección propia, no ajena:** el texto retirado argumentaba
-   explícitamente que *no* era un artefacto de tamaño, razonando que
-   32 MB es «del orden de L3». Aproximarse a la LLC por debajo no es
-   excederla; la comprobación correcta era leer el tamaño real de la
-   cache, y costaba un `cat` de sysfs.
+1. **REABIERTO (2026-08-25), y el número que lo reabrió se corrigió al
+   día siguiente (2026-08-26).** Se dio por cerrado con el 0/7 del job
+   6483; el veredicto se retiró razonando que los 32 MB/rep de
+   `JACOBI_1D` cabían en una L3 de 39 MB. **Ese 39 MB era la L3 de
+   `pacca01`, leída por error en vez de la de `paccaA100`** (donde 6483
+   corrió de verdad) — la real es 12 MB. Con el número correcto, los 7
+   candidatos exceden la LLC entre 1.3× y 6.7×, no caben claramente pero
+   tampoco la exceden con holgura (ver aviso corregido de §6). El
+   diagnóstico de tamaño sigue siendo la hipótesis más plausible —
+   ninguno de los 7 estaba realmente lejos de la LLC — pero ya no está
+   *probado* con el margen que se afirmó. Sigue abierto hasta
+   `screen_rajaperf_cpu_alpha_v2.sh` (job 6575, `--memory-touched` a
+   ~120 MB, 10× excedente inequívoco).
+   **Lección propia, dos veces en el mismo hilo:** la primera vez por no
+   verificar el tamaño de cache en absoluto; la segunda por verificarlo
+   en el nodo equivocado — el mismo tipo de comparación cruzada
+   `pacca01`/`paccaA100` que este proyecto ya tiene documentada como
+   peligrosa y que se cometió de todos modos. La próxima vez que un
+   número de hardware entre en un argumento, verificar `hostname` en el
+   mismo comando que lo lee.
 2. **REABIERTO, mismo motivo.** Los 7 candidatos se eligieron por
    conocimiento algorítmico y no por OI medida. La v2 elimina ese sesgo
    tamizando los ~79 kernels de la suite en vez de 7 elegidos a mano —
