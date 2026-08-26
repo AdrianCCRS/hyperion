@@ -523,6 +523,31 @@ por `run_gap_triage_pacca01.sbatch`.
 > saltando el paso de triage por completo, con un número citable desde
 > el principio, porque ahí sí hay permiso de escritura de frecuencia
 > confirmado funcionando (jobs 6412/6530/6575).
+>
+> **Sí sirve otra vía a frecuencia nativa, sin el permiso bloqueado**:
+> `perf stat` (lectura, permiso distinto al de escritura de frecuencia)
+> a un solo reloj, comparando la huella de fallos de caché de `bfs`/`pr`
+> contra `stream_official` y `ert_probe` como anclas conocidas.
+>
+> | kernel | IPC | % fallos de caché | % fallos de LLC |
+> |---|---:|---:|---:|
+> | `bfs` | 0.89 | 23.4% | 10.4% |
+> | `pr` | 0.86 | 11.7% | 3.5% |
+> | `stream_official` (α=0.154) | 0.23 | 98.0% | 99.8% |
+> | `ert_probe` (compute-bound) | 1.73 | 1.8% | 1.5% |
+>
+> **Templa la expectativa, no la descarta.** Los fallos de LLC de
+> BFS/PageRank quedan mucho más cerca del extremo compute-bound que del
+> memory-bound puro — no es el caso claro que STREAM. Explicación
+> plausible: el grafo a escala 2²² pesa ~570 MB (muy por encima de los
+> 12 MB de L3), pero BFS toca solo el *frontier* activo por nivel y
+> PageRank re-toca el mismo vector de rank por iteración — localidad
+> temporal real del algoritmo, no un artefacto de tamaño. Un 10% de
+> fallos de LLC aún puede dominar el tiempo (cada fallo cuesta ~100×
+> más ciclos que un acierto, coherente con el IPC de 0.86-0.89 frente al
+> 1.73 de cómputo puro), así que esto NO descarta a GAP — deja el
+> candidato en un terreno genuinamente incierto, no en una apuesta
+> segura como se esperaba. Vale medirlo en `paccaA100` de todas formas.
 
 ## 7. Reconciliación con la variación intra-kernel (Objetivo 2 literal)
 
