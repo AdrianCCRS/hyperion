@@ -46,7 +46,7 @@ después, entra detrás.
 | — | **6579** | Pre-vuelo Clase C: `npb_cg`/`npb_mg` B vs C (8× memoria) | PENDING (Priority), detrás de los ajenos |
 | — | **6575** | Tamizaje CPU v2: ~79 kernels, `--memory-touched` 10× LLC | PENDING (Priority), detrás de 6579 |
 | — | **6571** | Clasificación cuello de botella GPU (`ncu` DRAM% vs SM%) | PENDING (Priority), detrás de 6575 |
-| en paralelo | **6583** | Triage GAP Benchmark (BFS/PR) en **pacca01** — no compite por `paccaA100` | RUNNING |
+| — | **6583** | Triage GAP Benchmark (BFS/PR) en **pacca01** | ❌ **COMPLETED sin señal útil** — bloqueado por falta de permiso de escritura de frecuencia en pacca01 (`Permission denied`, no es un resultado sobre los kernels). Binarios sí quedaron compilados en `~/hyperion-kernels/libexec/gapbs/`. Plan: tamizar `bfs`/`pr` directo en `paccaA100` cuando se libere, sin pasar por pacca01 |
 | — | *(jobs ajenos)* | `mixed_precision_stencil` | uno RUNNING (6552), resto PENDING |
 
 **Decisión aprobada 2026-08-26**: esperar a que termine 6571 antes de
