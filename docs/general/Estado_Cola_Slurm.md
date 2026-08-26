@@ -43,9 +43,11 @@ después, entra detrás.
 |---|---|---|---|
 | — | **6412** | `ptrchase` + `phasic_*` | ✅ **COMPLETED**, 320/320 aceptadas, 0 rechazos |
 | — | **6530** | Rejilla fina CPU, 7 niveles nuevos | ✅ **COMPLETED**, 638 aceptadas / 82 saltadas / 0 rechazadas |
-| ahora | **6575** | Tamizaje CPU v2: ~79 kernels, `--memory-touched` 10× LLC | PENDING (Priority), detrás de los 25 ajenos |
-| después | **6571** | Clasificación cuello de botella GPU (`ncu` DRAM% vs SM%) | PENDING (Priority), detrás de 6575 |
-| — | *(jobs ajenos)* | `mixed_precision_stencil` | uno RUNNING (6547), resto PENDING |
+| — | **6579** | Pre-vuelo Clase C: `npb_cg`/`npb_mg` B vs C (8× memoria) | PENDING (Priority), detrás de los ajenos |
+| — | **6575** | Tamizaje CPU v2: ~79 kernels, `--memory-touched` 10× LLC | PENDING (Priority), detrás de 6579 |
+| — | **6571** | Clasificación cuello de botella GPU (`ncu` DRAM% vs SM%) | PENDING (Priority), detrás de 6575 |
+| en paralelo | **6583** | Triage GAP Benchmark (BFS/PR) en **pacca01** — no compite por `paccaA100` | RUNNING |
+| — | *(jobs ajenos)* | `mixed_precision_stencil` | uno RUNNING (6552), resto PENDING |
 
 **Decisión aprobada 2026-08-26**: esperar a que termine 6571 antes de
 decidir el catálogo final de GPU y lanzar la campaña de dataset. Sigue en
