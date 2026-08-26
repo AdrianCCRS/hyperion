@@ -363,6 +363,17 @@ prueba correspondiente falla.
 | **V9** | Sanidad de la energía de GPU | `gpu_energy_valid == 1` en todas las filas `gpu_telemetry` | 100% válidas (ya verificado en 6462/6463) | La métrica primaria pierde piso: no reportar ahorros hasta resolverlo |
 | **V10** | Consistencia documento↔dato | Reejecutar `gpu_policy_headroom.py` y comparar contra las tablas de §2/§5 | Coinciden | Actualizar el documento: los números del papel deben salir siempre del script, nunca copiarse a mano |
 
+**V3 — PASA (2026-08-25).** Recalculado con el mismo método en ambas
+corridas (suma de `gpu_energy_delta_mj` con `gpu_energy_valid==1`, 3 reps
+c/u, CPU=REF/GPU=F1 vs CPU=REF/GPU=REF): job 6462 → 28.15%, job 6471 →
+26.71%. Diferencia **1.44 pts**, dentro del CV declarado (≈1-3%) — el
+ahorro de `lavamd@F1` reproduce entre campañas independientes. Nota
+aparte: ambos valores difieren del 25.11% citado en §2 por 1.6-3 pts —
+el número original de §2 salió de un método de cómputo distinto (no
+identificado); no invalida la reproducibilidad entre 6462 y 6471, que es
+lo que V3 pregunta, pero §2 debería recalcularse con el mismo método
+antes de seguir citándose (dejar como pendiente de V10).
+
 ---
 
 ## Referencias
