@@ -94,8 +94,20 @@ def main() -> int:
     print()
 
     print("=== 3. Rango efectivo de la matriz de features ===")
-    centered = feats.to_numpy() - feats.to_numpy().mean(axis=0)
-    singular = np.linalg.svd(centered, compute_uv=False)
+    # ESTANDARIZAR, no solo centrar. La primera version de este script solo
+    # centraba, y en CPU el resultado salio inservible: `ref_ips` vive en
+    # ~1e11 mientras `ref_ipc` vive en ~1, asi que el primer valor singular
+    # se comia el 100% de la "varianza" por pura escala y el diagnostico
+    # reportaba rango 1 -- un artefacto de unidades, no una colinealidad
+    # real. Dividir por la desviacion tipica de cada columna hace que el
+    # numero mida estructura compartida entre features, que es lo que se
+    # queria medir. (Al regresor de arboles la escala no le afecta; a este
+    # diagnostico si.)
+    values = feats.to_numpy()
+    centered = values - values.mean(axis=0)
+    scale = centered.std(axis=0)
+    scale[scale == 0] = 1.0  # columna constante: se deja en cero, no NaN
+    singular = np.linalg.svd(centered / scale, compute_uv=False)
     total = singular.sum()
     print(f"  valores singulares: {np.round(singular, 4).tolist()}")
     if total > 0:
