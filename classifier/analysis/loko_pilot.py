@@ -310,6 +310,9 @@ def run_loko(
 
     chosen_by_model: dict[str, float] = {}
     chosen_level_by_model: dict[str, str] = {}
+    chosen_by_gated: dict[str, float] = {}
+    chosen_level_by_gated: dict[str, str] = {}
+    thresholds: list[float] = []
     latencies_us: list[float] = []
 
     for idx_train, idx_test, held_out in protocol.leave_one_kernel_out(pairs):
@@ -322,6 +325,30 @@ def run_loko(
         time_model = GradientBoostingRegressor(random_state=20260806)
         energy_model.fit(x_train, train["energy_ratio"].to_numpy(dtype=float))
         time_model.fit(x_train, train["time_ratio"].to_numpy(dtype=float))
+
+        # UMBRAL DE ACCION, calculado SOLO con datos de entrenamiento.
+        # El modelo sin umbral se compromete con su argmin aunque la
+        # ventaja predicha sea menor que su propio error de prediccion --
+        # ese es el modo de fallo medido el 2026-08-25 en GPU (elige G2
+        # para dwt2d, EDP real 1.2071, peor que no tocar nada). Aqui se
+        # exige que la mejora predicha supere el RMSE del propio modelo
+        # sobre su conjunto de entrenamiento: no actuar sobre una
+        # diferencia mas chica que la propia barra de error.
+        #
+        # HONESTO POR CONSTRUCCION: el umbral sale del ajuste en los
+        # pliegues de entrenamiento, nunca del kernel excluido -- no es un
+        # hiperparametro sintonizado mirando el test, que seria
+        # exactamente la trampa que V6 existe para impedir.
+        edp_train_pred = (
+            energy_model.predict(x_train) * time_model.predict(x_train)
+        )
+        edp_train_true = (
+            train["energy_ratio"].to_numpy(dtype=float)
+            * train["time_ratio"].to_numpy(dtype=float)
+        )
+        action_threshold = float(
+            np.sqrt(np.mean((edp_train_pred - edp_train_true) ** 2))
+        )
 
         # Politica: para el kernel excluido, predecir EDP en cada nivel
         # candidato y quedarse con el minimo. Se usa la PRIMERA repeticion
@@ -352,10 +379,25 @@ def run_loko(
         chosen_by_model[held_out] = float(real_edp)
         chosen_level_by_model[held_out] = best_level
 
+        # Variante con umbral: solo desviarse de la referencia si la mejora
+        # PREDICHA supera el error propio del modelo.
+        gain = 1.0 - per_level_pred[best_level]
+        gated_level = best_level if gain > action_threshold else ref_level
+        gated_real = edp_table.loc[held_out, gated_level]
+        if not pd.isna(gated_real):
+            chosen_by_gated[held_out] = float(gated_real)
+            chosen_level_by_gated[held_out] = gated_level
+        thresholds.append(action_threshold)
+
     common = [k for k in chosen_by_model if k in oracle.index]
     model_loss = protocol.edp_loss(
         np.array([chosen_by_model[k] for k in common]),
         oracle.loc[common].to_numpy(),
+    )
+    common_gated = [k for k in chosen_by_gated if k in oracle.index]
+    gated_loss = protocol.edp_loss(
+        np.array([chosen_by_gated[k] for k in common_gated]),
+        oracle.loc[common_gated].to_numpy(),
     )
     honest = protocol.honest_constant_baseline(edp_table)
 
@@ -363,6 +405,9 @@ def run_loko(
         "edp_table": edp_table,
         "model_edp_loss": model_loss,
         "model_chosen_level": chosen_level_by_model,
+        "gated_edp_loss": gated_loss,
+        "gated_chosen_level": chosen_level_by_gated,
+        "action_threshold_mean": float(np.mean(thresholds)) if thresholds else float("nan"),
         "honest_constant": honest,
         "oracle_edp_loss": 1.0,
         "always_ref_edp_loss": protocol.edp_loss(
@@ -430,8 +475,13 @@ def main() -> int:
     print("=== VEREDICTO (EDP loss: 1.0 = tan bueno como el oraculo) ===")
     print(f"  oraculo (techo inalcanzable)          : 1.0000")
     print(f"  MODELO aprendido (LOKO)               : {result['model_edp_loss']:.4f}")
+    print(f"  MODELO + umbral de accion             : {result['gated_edp_loss']:.4f}")
     print(f"  mejor constante honesta (V6/C7)       : {honest['edp_loss']:.4f}")
     print(f"  TRIVIAL: siempre a {ref_level} (max reloj){'':<3}: {trivial:.4f}")
+    print()
+    print(f"  umbral de accion medio (RMSE del modelo en entrenamiento): "
+          f"{result['action_threshold_mean']:.4f}")
+    print(f"  nivel elegido con umbral, por kernel: {result['gated_chosen_level']}")
     print()
     print(f"  niveles distintos que elige la constante honesta por pliegue: "
           f"{honest['n_distinct_levels']}")
@@ -448,11 +498,13 @@ def main() -> int:
     # hacer nada" no justifica existir, y reportar solo la primera
     # comparacion haria pasar por logro justo lo contrario.
     margen_trivial = trivial - result["model_edp_loss"]
-    print(f"  MARGEN DEL MODELO SOBRE EL TRIVIAL (el que decide): {margen_trivial:+.4f}")
-    if margen_trivial > 0:
-        print(f"  -> el modelo GANA a no hacer nada: justifica existir")
-    else:
-        print(f"  -> el modelo PIERDE contra no hacer nada: NO justifica existir todavia")
+    margen_gated = trivial - result["gated_edp_loss"]
+    print(f"  MARGEN SOBRE EL TRIVIAL (el que decide)")
+    print(f"    modelo sin umbral : {margen_trivial:+.4f}  "
+          f"({'GANA' if margen_trivial > 0 else 'PIERDE'} contra no hacer nada)")
+    print(f"    modelo con umbral : {margen_gated:+.4f}  "
+          f"({'GANA' if margen_gated > 0 else 'PIERDE'} contra no hacer nada)")
+    print(f"  techo disponible (trivial - oraculo): {trivial - 1.0:+.4f}")
     print()
     print(f"=== V7/C9 latencia de inferencia ===")
     print(f"  p50: {result['latency_p50_us']:.1f} us   p99: {result['latency_p99_us']:.1f} us")
