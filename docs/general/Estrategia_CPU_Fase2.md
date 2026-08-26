@@ -497,6 +497,33 @@ dos más usados en la literatura de GAP; grafo Kronecker sintético
 2²²≈4.2M vértices, sin descargar los 275 GB de grafos reales), lanzados
 por `run_gap_triage_pacca01.sbatch`.
 
+> ### ⚠️ El triage en `pacca01` está BLOQUEADO por permisos, no dio señal (2026-08-26)
+>
+> Job 6583 completó (exit 0) pero **sin ningún dato utilizable**: el
+> `.err` está lleno de `Permission denied` al escribir
+> `scaling_max_freq`/`scaling_min_freq` en los cores de `pacca01`. Nunca
+> se concedió permiso de escritura de frecuencia en ese nodo — el
+> permiso `set_cpu_gov` que sí existe es específico de cores de
+> `paccaA100`. Consecuencia: el reloj se quedó fijo en ~3.39–3.40 GHz en
+> los 5 "niveles" pedidos (F0 pasa por casualidad de estar cerca del
+> máximo; F1–F4 marcan `freq_within_5pct=NO`), y `bfs`/`pr` dieron
+> tiempo prácticamente plano (4.88 s y 5.70 s respectivamente, sin
+> variación real). **Eso NO es evidencia de que GAP sea insensible al
+> reloj — es un instrumento que nunca movió la variable independiente**,
+> el mismo modo de fallo de ARC-162 (tiempo plano por candado roto, no
+> por el kernel).
+>
+> **No se persigue el permiso de `pacca01`**: repetir el ciclo de
+> solicitud al administrador (como costó días con `set_cpu_gov` en
+> `paccaA100`) no vale la pena para un nodo que solo iba a servir de
+> triage. Lo aprovechable del intento: **los binarios ya están
+> compilados** (`~/hyperion-kernels/libexec/gapbs/`: `bfs`, `pr`, `cc`,
+> `cc_sv`, `sssp`, `tc`, `bc`, `pr_spmv`; commit real `2972aeb2`). Cuando
+> `paccaA100` se libere, `bfs`/`pr` se tamizan ahí directamente —
+> saltando el paso de triage por completo, con un número citable desde
+> el principio, porque ahí sí hay permiso de escritura de frecuencia
+> confirmado funcionando (jobs 6412/6530/6575).
+
 ## 7. Reconciliación con la variación intra-kernel (Objetivo 2 literal)
 
 No toda la evidencia apunta a "cero variación intra-kernel". La tabla de
