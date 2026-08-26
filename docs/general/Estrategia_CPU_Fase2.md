@@ -140,8 +140,18 @@ hoy.
    dataset ya válido**, sin esperar nada. Es el reintento del trabajo que
    falló bajo LOKO (`resultados_compuertas_fase2.md` §5.bis: F1 macro
    0.393 del mejor modelo vs. 0.371 del predictor trivial).
-4. **Cuando CAP_PERFMON se repare**: ampliar el dataset con los kernels
-   que sobrevivan el tamizaje, con etiqueta de verdad completa. Protocolo
+4. **El tamizaje (job 6483) no dejó kernels que ampliar** (§6: 0/7
+   sobrevivientes) — este paso queda cerrado sin dataset nuevo que
+   construir. Lo que sí sigue pendiente y sin correr es la **campaña de
+   rejilla fina** (`campaign_pacca_cpu_fine_grid.yaml`, 7 niveles × 9
+   kernels × 10 reps, diseñada para cerrar el hueco 3200-2600 MHz nunca
+   muestreado — motivada por `npb_mg`, el único kernel cuyo óptimo de
+   energía no cae en frecuencia máxima). Preparada desde 2026-08-21, **sin
+   ejecutar todavía**: su preflight de verificación uncore falló dos veces
+   (jobs 6431 y 6484, mismo patrón E13 intermitente) y quedó bloqueada
+   detrás de eso, no por falta de prioridad.
+5. **Cuando CAP_PERFMON se repare**: la etiqueta de verdad completa queda
+   disponible para la rejilla fina de arriba. Protocolo
    actualizado (2026-08-25), evidencia-basado y no heredado sin más del
    núcleo: **6 niveles × 6 repeticiones** (no 10 — ver
    `docs/justifications/report/sections/repetitions_edp.tex`, análisis de
@@ -177,13 +187,39 @@ pacca**, y el catálogo usa **1** de sus kernels. Conteo verificado
 un kernel es un wrapper, **no una compilación** — mismo binario, checksum
 ya verificado.
 
-**Job 6473 — encolado, PENDING** detrás de un job ajeno que lleva ~15 h
-ocupando el nodo. Tamiza 7 candidatos de Polybench elegidos por
-conocimiento algorítmico clásico (stencils y productos matriz-vector:
-`JACOBI_1D`, `JACOBI_2D`, `HEAT_3D`, `FDTD_2D`, `ATAX`, `GESUMMV`, `MVT`).
-Script `scripts/pacca/screen_rajaperf_cpu_alpha.sh`: bypasea el
-orquestador por diseño (solo tiempo + RAPL, sin `perf`/uncore), así que no
-espera a CAP_PERFMON.
+**Job 6483 — COMPLETADO (2026-08-25), resultado negativo cuantificado.**
+Tamiza 7 candidatos de Polybench elegidos por conocimiento algorítmico
+clásico (stencils y productos matriz-vector: `JACOBI_1D`, `JACOBI_2D`,
+`HEAT_3D`, `FDTD_2D`, `ATAX`, `GESUMMV`, `MVT`). Script
+`scripts/pacca/screen_rajaperf_cpu_alpha.sh`: bypasea el orquestador por
+diseño (solo tiempo + RAPL, sin `perf`/uncore), así que no espera a
+CAP_PERFMON. (El primer intento, job 6475, corrió con un bug de pineo —
+ver riesgo 6 abajo, ya cerrado — y se descartó sin usar sus datos.)
+
+**Ningún candidato sobrevive.** α medido entre 0.331 (`FDTD_2D`) y 0.852
+(`HEAT_3D`), todos muy por encima del umbral 0.226; ajuste de Amdahl
+confiable (r² = 0.975–0.999 en los 7); pineo de frecuencia verificado bajo
+carga en 5/7 (C2 falla en `ATAX` y `GESUMMV`, pero ambos ya fallan C1 por
+márgen amplio, así que no cambia el veredicto):
+
+| kernel | α | r² | C1 | C2 |
+|---|---:|---:|---|---|
+| `FDTD_2D` | 0.331 | 0.977 | no | OK |
+| `GESUMMV` | 0.534 | 0.987 | no | no |
+| `JACOBI_1D` | 0.599 | 0.975 | no | OK |
+| `ATAX` | 0.635 | 0.999 | no | no |
+| `MVT` | 0.652 | 0.999 | no | OK |
+| `JACOBI_2D` | 0.714 | 0.989 | no | OK |
+| `HEAT_3D` | 0.852 | 0.999 | no | OK |
+
+**El catálogo CPU se queda en sus 9 kernels.** No es un artefacto de
+tamaño de problema como el mismo tipo de bug encontrado después en GPU
+(§6517 más abajo en `Estrategia_GPU_Fase2.md`): el tamaño por defecto de
+RAJAPerf para estos kernels ya mueve ~32 MB/rep (verificado con
+`--dryrun` en `JACOBI_1D`), más grande que L2 y del orden de L3 — no es
+un caso trivialmente cache-resident. Es un resultado real: la suite
+Polybench de RAJAPerf, a tamaño por defecto, es demasiado compute-bound
+para este umbral.
 
 ## 7. Reconciliación con la variación intra-kernel (Objetivo 2 literal)
 
@@ -223,7 +259,7 @@ nueva: es priorizar la que el dato respalda, sin descartar la otra.
 
 | Objetivo | Estado | Evidencia |
 |---|---|---|
-| 1. Caracterizar comportamiento y consumo bajo distintos estados de frecuencia (Perf+RAPL) | **Cumplido** (424/540 válidas), ampliándose vía RAJAPerf | `..._arc174`; §2, §6 |
+| 1. Caracterizar comportamiento y consumo bajo distintos estados de frecuencia (Perf+RAPL) | **Cumplido** (424/540 válidas). El tamizaje RAJAPerf no amplió el catálogo (0/7 sobrevivientes, §6); la rejilla fina (7 niveles, npb_mg) sigue el único frente abierto, bloqueado por E13 | `..._arc174`; §2, §5, §6 |
 | 2. Clasificador ML en vivo, baja latencia | Features ya libres de uncore; granularidad primaria = carga, secundaria = ventana en los 3 kernels con mezcla real | §1, §7 |
 | 3. Daemon de espacio de usuario con política DVFS | **No bloqueado por CAP_PERFMON**: el runtime nunca dependió de uncore, y la actuación (`scaling_min/max_freq`) ya tiene permiso P1 | §1 |
 | 4. Evaluación por EDP contra gobernador nativo | **Parcial**: `REF` cubre el gobernador nativo *activo* (`performance`) sin permisos nuevos; permiso para `powersave` concedido (2026-08-25), pendiente de verificación empírica antes de usarse | §4; riesgo 3 |
@@ -232,8 +268,8 @@ nueva: es priorizar la que el dato respalda, sin descartar la otra.
 
 | # | Qué verifica | Cómo | Pasa si | Si falla |
 |---|---|---|---|---|
-| **C1** | ¿El tamizaje encuentra margen en CPU? (§5.1, §6) | Job 6473: ajustar α por candidato sobre tiempo medido | ≥1 candidato con α < 0.226 **y** r² > 0.95 | El catálogo CPU no tiene margen accesible: reportar como resultado negativo cuantificado, no insistir con más resolución |
-| **C2** | **El pineo de frecuencia se sostuvo bajo carga** (riesgo 6) | Muestrear `scaling_cur_freq` *durante* la corrida, no antes | Media observada dentro de 5% del objetivo en los 6 CPUs | Los tiempos del tamizaje son inválidos: repetir con verificación bajo carga (lección CAL-07/ARC-164) |
+| **C1** | ¿El tamizaje encuentra margen en CPU? (§5.1, §6) | Job 6483: ajustar α por candidato sobre tiempo medido | ≥1 candidato con α < 0.226 **y** r² > 0.95 | **FALLÓ (2026-08-25): 0/7 sobrevivientes** (α 0.331-0.852). El catálogo CPU no tiene margen accesible: reportado como resultado negativo cuantificado, sin insistir con más resolución de la misma suite |
+| **C2** | **El pineo de frecuencia se sostuvo bajo carga** (riesgo 6) | Muestrear `scaling_cur_freq` *durante* la corrida, no antes | Media observada dentro de 5% del objetivo en los 6 CPUs | **PASÓ en 5/7** tras corregir el bug de hermanos SMT (job 6483); `ATAX`/`GESUMMV` fallan pero ya fallan C1 con margen amplio, no cambia el veredicto |
 | **C3** | El tamizaje no está contaminado por I/O (lección `myocyte`, Anexo L.1) | Verificar tamaño de los archivos que RAJAPerf escribe por corrida | Salida despreciable frente al tiempo de cómputo | Un α bajo puede ser costo fijo de I/O, no memory-boundness: descontarlo antes de aceptar el candidato |
 | **C4** | Robustez de la conclusión de 0.33 pts (§2) | Reejecutar `cpu_policy_headroom.py` optimizando **EDP** en vez de energía | La conclusión no cambia cualitativamente | Si bajo EDP aparece margen, la métrica —no la física— era la limitante, igual que pasó en GPU (Anexo M) |
 | **C5** | `REF` ≡ gobernador nativo activo (§4) | Leer `scaling_governor` en cada corrida, no asumirlo | `performance` en los 6 CPUs delegados | La comparación del Objetivo 4 no es contra lo que se afirma: corregir antes de reportar |
@@ -247,12 +283,16 @@ nueva: es priorizar la que el dato respalda, sin descartar la otra.
 
 ## Riesgos abiertos, sin adornar
 
-1. **El margen de 0.33 pts es sobre el catálogo actual**; el job 6473
-   sigue PENDING, sin resultado. No se sabe si el tamizaje encontrará
-   kernels CPU con margen comparable al de GPU.
-2. **Los 7 candidatos se eligieron por conocimiento algorítmico**, no por
-   OI medida — misma aproximación declarada que se usó en GPU, con el
-   mismo riesgo de que alguno no sea memory-bound en la práctica.
+1. **RESUELTO (2026-08-25).** El margen de 0.33 pts es sobre el catálogo
+   actual y se queda así: job 6483 completado, 0/7 candidatos sobreviven
+   (α 0.331-0.852, todos sobre el umbral 0.226 con r² 0.975-0.999). El
+   tamizaje CPU no encontró margen comparable al de GPU — reportado como
+   resultado negativo cuantificado, sin insistir con más candidatos de la
+   misma suite (§9, contingencia C1 ya prevista).
+2. **RESUELTO, mismo cierre que el 1.** Los 7 candidatos se eligieron por
+   conocimiento algorítmico, no por OI medida — el riesgo se materializó
+   parcialmente (2 de los 7 también fallan C2), pero no cambia el
+   veredicto: los 5 que sí pasan C2 igual fallan C1 por márgen amplio.
 3. **`powersave` — el permiso ya se concedió (2026-08-25), pero no está
    verificado.** El administrador entregó `set_cpu_gov <gobernador> <epp>`,
    restringido a los cores 0-5 y sin parámetro de rango de CPUs. Su propio
@@ -278,16 +318,17 @@ nueva: es priorizar la que el dato respalda, sin descartar la otra.
    `device: cpu` reales.
 5. **El modelo con la arquitectura corregida todavía no se ha corrido** —
    es el paso siguiente, no un resultado obtenido.
-6. **Riesgo nuevo, detectado al auditar el propio script de tamizaje
-   (`screen_rajaperf_cpu_alpha.sh`):** pinea `min=max` y espera 1 s fijo,
-   pero **no verifica la frecuencia real bajo carga**. ARC-160/164
-   documentó que bajo `intel_pstate`+HWP con EPP=`performance` el
-   decaimiento hacia un techo más bajo tarda **segundos**, y que
-   `scaling_cur_freq` leído en reposo no refleja el pineo. Si el
-   transitorio contamina el arranque de cada corrida, los tiempos —y por
-   lo tanto α— quedan sesgados. **La prueba C2 existe para detectarlo**;
-   hasta que pase, los resultados del job 6473 deben leerse como
-   provisionales.
+6. **RESUELTO (2026-08-25).** El script de tamizaje original (job 6475)
+   solo pineaba los cores delegados (0-5), no sus hermanos SMT (16-21) —
+   mismo bug de coordinación de P-state que ARC-162/163: bajo
+   `intel_pstate`, el reloj físico compartido no baja hasta que el candado
+   se aplica también a los hermanos. Corregido en
+   `screen_rajaperf_cpu_alpha.sh` con expansión de topología SMT en vivo
+   (`smt_siblings_for()`/`_expand_with_smt_siblings()`, leyendo
+   `/sys/.../thread_siblings_list`); relanzado como job 6483, verificado
+   con variación de frecuencia real (r² 0.975-0.999 en los 7 candidatos,
+   frente al bug original que producía frecuencia plana). Los resultados
+   del job 6483 (§6) ya no son provisionales.
 
 ---
 
