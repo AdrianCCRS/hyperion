@@ -366,27 +366,46 @@ def _probe_uncore_counters(timeout_seconds: float = 5.0) -> tuple[bool, str]:
     secas porque CAP_PERFMON en el binario de perf también habilita la
     lectura con paranoid alto: mirar solo el sysctl daría un falso negativo
     en un nodo correctamente configurado por capacidades.
+
+    Bug encontrado el 2026-08-25: esta sonda invocaba `perf stat` SIN
+    `-I` (modo intervalo) y con separador ',' -- un modo de invocación
+    distinto al que usa el lector de producción (`uncore_reader.cpp`,
+    que siempre pasa `-a -I <ms> -x ';'`). Sin `-I`, perf emite el
+    formato de RESUMEN final, que antepone un valor YA ESCALADO con
+    unidad ("0.23,MiB,uncore_imc_0/cas_count_read/,102712278,100.00,,":
+    el campo 0 es la magnitud legible, no un conteo entero) -- el chequeo
+    original solo miraba el campo 0 y esperaba un entero puro, así que
+    fallaba SIEMPRE con este formato pese a que el conteo crudo (campo 3)
+    era real. Eso produjo falsos negativos de E13 indistinguibles de una
+    pérdida real de permiso (jobs 6431/6484), cuando en ambos casos
+    CAP_PERFMON seguía presente (`getcap /usr/bin/perf` lo confirmó).
+    Corregido invocando perf EXACTAMENTE como producción (`-I`/`;`) y
+    parseando el mismo campo (índice 1, "interval-time;value;unit;...")
+    que `parse_perf_stat_csv_line` en `uncore_reader.cpp`.
     """
     import subprocess
 
     try:
         completed = subprocess.run(
-            ["perf", "stat", "-a", "-x", ",", "-e", "uncore_imc_0/cas_count_read/",
-             "sleep", "0.05"],
+            ["perf", "stat", "-a", "-I", "100", "-x", ";",
+             "-e", "uncore_imc_0/cas_count_read/", "sleep", "0.3"],
             capture_output=True, text=True, timeout=timeout_seconds,
         )
     except (OSError, subprocess.SubprocessError) as error:
         return False, f"no se pudo ejecutar perf: {error}"
 
-    # perf escribe el informe en stderr; el conteo es el primer campo.
+    # perf escribe el informe en stderr; formato por línea de intervalo:
+    # "interval-time;value;unit;event;time-running;percent-running[,...]".
     output = (completed.stderr or "") + (completed.stdout or "")
-    lowered = output.lower()
-    if "not supported" in lowered or "not counted" in lowered:
-        return False, output.strip().splitlines()[-1][:200] if output.strip() else "sin salida"
     for line in output.strip().splitlines():
-        first = line.split(",", 1)[0].strip()
-        if first.isdigit():
-            return True, f"cas_count_read={first}"
+        fields = line.split(";")
+        if len(fields) < 2:
+            continue
+        value_field = fields[1].strip()
+        if not value_field or value_field.startswith("<"):
+            continue
+        if value_field.isdigit():
+            return True, f"cas_count_read={value_field}"
     return False, output.strip().splitlines()[-1][:200] if output.strip() else "sin salida"
 
 

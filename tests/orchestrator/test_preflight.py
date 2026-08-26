@@ -604,6 +604,46 @@ def test_arc184_e13_pasa_cuando_el_contador_responde():
     assert resultado.passed
 
 
+def test_arc184b_probe_uncore_counters_usa_formato_de_produccion(monkeypatch):
+    """Bug real (2026-08-25): la sonda invocaba `perf stat` SIN `-I` y con
+    separador ',', un modo distinto al que usa `uncore_reader.cpp` en
+    producción (`-a -I <ms> -x ';'`). Sin `-I`, perf emite el resumen final
+    con el campo 0 YA ESCALADO ("0.23,MiB,...,102712278,100.00,,"), así que
+    el chequeo original (que exigía `field[0].isdigit()`) fallaba SIEMPRE
+    con ese formato aunque el conteo crudo (campo 3) fuera real -- E13
+    rechazó campañas válidas (jobs 6431/6484) con CAP_PERFMON presente.
+    Verifica que la sonda ahora invoca `-I`/`;` como producción y parsea el
+    mismo campo (índice 1) que `parse_perf_stat_csv_line`."""
+    captured_args = {}
+
+    def fake_run(args, **kwargs):
+        captured_args["args"] = args
+        return SimpleNamespace(
+            stdout="",
+            stderr="0.100000;409600;;uncore_imc_0/cas_count_read/;100.00;\n",
+        )
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    readable, detail = preflight._probe_uncore_counters()
+
+    assert readable
+    assert detail == "cas_count_read=409600"
+    assert "-I" in captured_args["args"]
+    assert ";" in captured_args["args"]
+
+
+def test_arc184b_probe_uncore_counters_rechaza_not_counted(monkeypatch):
+    monkeypatch.setattr(
+        "subprocess.run",
+        lambda args, **kwargs: SimpleNamespace(
+            stdout="",
+            stderr="0.100000;<not counted>;;uncore_imc_0/cas_count_read/;100.00;\n",
+        ),
+    )
+    readable, _ = preflight._probe_uncore_counters()
+    assert not readable
+
+
 def test_arc184_e13_no_aplica_sin_uncore():
     """Una campaña puramente de GPU no depende de uncore, igual que en E11 y
     E12: el chequeo no debe bloquearla."""
