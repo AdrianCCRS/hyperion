@@ -7,8 +7,9 @@ y qué falta ni siquiera encolar. Este documento se actualiza cada vez que
 cambia el estado — no es un registro histórico como
 `Registro_Cambios_Fuera_Plan_Original.md`, es el estado actual.
 
-**Última actualización: 2026-08-26**, tras aprobar esperar a 6571 antes de
-lanzar el dataset final de GPU.
+**Última actualización: 2026-08-26** (mañana) — 6412 y 6530 terminaron
+limpios de madrugada, antes de que arrancara el primer job ajeno (6547,
+09:xx). Resultados en §"Jobs terminados" abajo.
 
 ---
 
@@ -38,17 +39,40 @@ después, entra detrás.
 
 ## Jobs propios, orden real de ejecución
 
-| orden | job | qué hace | depende de | estado a 2026-08-26 |
-|---|---|---|---|---|
-| 1 | **6412** | `ptrchase` + `phasic_*` — ¿es α≤0.224 alcanzable?, fases con etiqueta de verdad | E13 (uncore) ya arreglado | RUNNING, ~5h restantes de presupuesto |
-| 2 | **6530** | Rejilla fina CPU, 7 niveles nuevos entre 3200–2600 y 2600–2000 MHz | ninguno | PENDING, entra antes que los 25 jobs ajenos (ID menor) |
-| 3 | **6575** | Tamizaje CPU v2: ~79 kernels de RAJAPerf con `--memory-touched` a 10× la LLC real | ninguno | PENDING, detrás de los ajenos (ID mayor) |
-| 4 | **6571** | Clasificación de cuello de botella GPU: `ncu` DRAM% vs SM% sobre los 79 kernels CUDA | `afterany:6412:6530` | PENDING, detrás de los ajenos |
-| — | *(25 jobs ajenos)* | `mixed_precision_stencil`, 6544–6568 | — | PENDING, prioridad igual, ID menor que 6575/6571 |
+| orden | job | qué hace | estado a 2026-08-26 (mañana) |
+|---|---|---|---|
+| — | **6412** | `ptrchase` + `phasic_*` | ✅ **COMPLETED**, 320/320 aceptadas, 0 rechazos |
+| — | **6530** | Rejilla fina CPU, 7 niveles nuevos | ✅ **COMPLETED**, 638 aceptadas / 82 saltadas / 0 rechazadas |
+| ahora | **6575** | Tamizaje CPU v2: ~79 kernels, `--memory-touched` 10× LLC | PENDING (Priority), detrás de los 25 ajenos |
+| después | **6571** | Clasificación cuello de botella GPU (`ncu` DRAM% vs SM%) | PENDING (Priority), detrás de 6575 |
+| — | *(jobs ajenos)* | `mixed_precision_stencil` | uno RUNNING (6547), resto PENDING |
 
 **Decisión aprobada 2026-08-26**: esperar a que termine 6571 antes de
-decidir el catálogo final de GPU y lanzar la campaña de dataset. Ver
-sección siguiente.
+decidir el catálogo final de GPU y lanzar la campaña de dataset. Sigue en
+pie — nada de esto la cambia todavía.
+
+## Jobs terminados — resultados
+
+**6412 (`ptrchase` + `phasic_*`)**: 320/320 aceptadas. Resultado numérico
+(α de `ptrchase`) pendiente de recalcular sobre esta campaña — la sonda
+rápida previa (job 6542) ya había dado α≈0.096–0.144, por confirmar con
+estos datos reales.
+
+**6530 (rejilla fina CPU, 3200→2000 MHz)**: 638/720 aceptadas (82
+saltadas, 0 rechazadas). **Confirma la hipótesis que motivó la campaña**:
+`npb_mg` es el único de los 9 kernels con un óptimo de EDP fuera de F0.
+
+| kernel | mejor nivel | EDP/F0 | lectura |
+|---|---|---:|---|
+| **`npb_mg`** | **S3000 (3000 MHz)** | **0.9927** | único con mínimo real fuera de F0, −0.73% |
+| los otros 8 | F0 (3200 MHz) | 1.0000 (monótono creciente al bajar) | ninguno se beneficia de bajar el reloj |
+
+Margen pequeño (0.73%) pero real y no monótono — no es ruido de medición,
+es un mínimo genuino en S3000, con S3100 y S2900 a ambos lados subiendo
+de nuevo. Todos los demás kernels (npb_bt, npb_cg, npb_sp, npb_ft, npb_lu,
+dgemm_n2048, rodinia_lavamd_omp, rajaperf_polybench_3mm_omp) degradan
+monótonamente su EDP al bajar frecuencia — sin excepción, ninguno se
+acerca a un óptimo distinto de F0 en esta ventana.
 
 ---
 
