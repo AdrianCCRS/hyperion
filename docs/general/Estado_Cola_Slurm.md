@@ -37,7 +37,14 @@ después, entra detrás.
 
 ---
 
-## Jobs propios, orden real de ejecución
+## Jobs propios, orden real de ejecución (actualizado, tarde 2026-08-26)
+
+| orden | job | qué hace | estado |
+|---|---|---|---|
+| corriendo | **6594** | Campaña completa (etiqueta de verdad real) sobre los 9 sobrevivientes del tamizaje CPU v2 — 270 corridas | RUNNING en `paccaA100` |
+| detrás, automático | **6595** | Tamizaje α GPU v2 — 43 candidatos memory-bound de la clasificación DRAM%/SM% (job 6571), no 6 elegidos a mano | PENDING, `--dependency=afterany:6594`, arranca solo sin intervención |
+
+## Jobs propios, orden real de ejecución (histórico, mañana 2026-08-26)
 
 | orden | job | qué hace | estado a 2026-08-26 (mañana) |
 |---|---|---|---|
