@@ -44,7 +44,8 @@ después, entra detrás.
 | — | **6594** | Campaña completa (etiqueta de verdad real) sobre los 9 sobrevivientes del tamizaje CPU v2 — 324 corridas | ✅ **COMPLETED**, 324/324 aceptadas, 0 rechazos. **7 de 9 kernels con margen real de EDP** (hasta −7.09%) — ver `Estrategia_CPU_Fase2.md` §6.octies |
 | **en pausa a propósito** | **6600** (era 6595) | Tamizaje α GPU v2 — 43 candidatos | **CANCELADO (2026-08-26 noche), decisión de alcance, no de nodo.** C8 (§7.bis de `Estrategia_CPU_Fase2.md`) mostró que el clasificador de fase por ventana SÍ funciona donde hay mezcla real (F1=0.538 vs 0.170 trivial) — la vía para mejorarlo más es ampliar el catálogo CPU con kernels que produzcan esa mezcla, no seguir el eje GPU en paralelo. **GPU queda en standby**; se retoma cuando el frente CPU cierre o se agote su margen |
 | — | **6601** | Tamizaje α GAP (`bfs`/`pr`) directo en `paccaA100` | ✅ **COMPLETED**, 10/10, frecuencia dentro de 5% en las 10. **Resultado negativo**: `bfs` α=0.738, `pr` α=0.690 — muy por encima del umbral 0.226, no candidato de catálogo por margen de EDP. Ver nota resuelta en `Estrategia_CPU_Fase2.md` §6.sexies |
-| corriendo | **6612** | Tamizaje α LULESH+HPCG, directo en `paccaA100` — compilados limpio (commits `3e01c40`/`1146024`), 2do y 3er candidato del pivote de catálogo tras GAP | PENDING/RUNNING, ~45 min de presupuesto |
+| — | **6612** | Tamizaje α LULESH+HPCG | ✅ **COMPLETED**, 10/10, frecuencia dentro de 5% en las 10. **Resultado positivo**: LULESH α=0.533 r²=0.998, HPCG α=0.324 r²=0.903 — ambos en la banda intermedia (0.18–0.6) que faltaba |
+| corriendo | **6615** | Campaña completa LULESH+HPCG (etiqueta real, uncore) — 72 corridas, 2do/3er candidato del pivote de catálogo | PENDING/RUNNING, ~5h de presupuesto (LULESH domina el tiempo, hasta 237.8s/corrida en F4) |
 
 ## Jobs propios, orden real de ejecución (histórico, mañana 2026-08-26)
 
