@@ -1425,8 +1425,10 @@ kernels:
     warmup_seconds: 0.5
     estimated_memory_bytes: 200000000
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    # C02 hashea exec_path (el wrapper), no el binario lulesh2.0 -- error
+    # cometido y corregido en el primer intento (job 6615, FAILED en 4s).
     binary_checksum:
-      pacca-a100: "sha256:ca5f7a03e9bad3846c283b7ff170d5305c651aed276526d9e213f21a2fe0a737"
+      pacca-a100: "sha256:7c97289292e85c61f47303ae108722f59720247c38c0235be41573442af962b4"
 
   - id: cpu_hpcg
     suite: HPCG
@@ -1444,4 +1446,4 @@ kernels:
     estimated_memory_bytes: 200000000
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
-      pacca-a100: "sha256:785008b650b8e31da92d23a2779398bf9afa64af5c35e0b40f96990afd84c888"
+      pacca-a100: "sha256:008adcadba7842d23df221144068ea7b212642e27ed505cca90918d907d21107"
