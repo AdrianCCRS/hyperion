@@ -7,7 +7,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --exclusive
 #SBATCH --mem=8G
-#SBATCH --time=01:30:00
+#SBATCH --time=03:00:00
 #SBATCH --output=/home/latorresn/hyperion-results/campaigns/cpu_cholmod_%j.out
 #SBATCH --error=/home/latorresn/hyperion-results/campaigns/cpu_cholmod_%j.err
 #
@@ -31,6 +31,6 @@ python3 -m orchestrator.cli run-campaign \
   --node-id pacca-a100 \
   --hostname "$(hostname)" \
   --reference-kernel-ref cpu_cholmod \
-  --campaign-timeout-seconds 5400
+  --campaign-timeout-seconds 10200
 '
 echo CAMPAIGN_SCRIPT_DONE
