@@ -7,6 +7,14 @@ algo relevante — no dejar que se desactualice como pasó con
 **No mezclar los dos ejes al leer esto** — son catálogos, umbrales y
 modelos independientes.
 
+> **GPU en standby a propósito (2026-08-26 noche).** Job 6600 (tamizaje
+> α GPU v2) cancelado sin correr — no por el nodo, por alcance. C8
+> (`Estrategia_CPU_Fase2.md` §7.bis) mostró que el clasificador de fase
+> por ventana funciona donde hay mezcla real; el camino para mejorarlo
+> más es ampliar el catálogo CPU con kernels que produzcan esa mezcla
+> (GAP → LULESH → HPCG, §6.septies), no seguir el eje GPU en paralelo con
+> el tiempo que queda. Se retoma cuando el frente CPU cierre.
+
 ---
 
 ## MODELO CPU

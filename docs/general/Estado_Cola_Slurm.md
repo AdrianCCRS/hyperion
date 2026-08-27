@@ -42,7 +42,7 @@ después, entra detrás.
 | orden | job | qué hace | estado |
 |---|---|---|---|
 | — | **6594** | Campaña completa (etiqueta de verdad real) sobre los 9 sobrevivientes del tamizaje CPU v2 — 324 corridas | ✅ **COMPLETED**, 324/324 aceptadas, 0 rechazos. **7 de 9 kernels con margen real de EDP** (hasta −7.09%) — ver `Estrategia_CPU_Fase2.md` §6.octies |
-| detrás de los compañeros | **6600** (relanzado, era 6595) | Tamizaje α GPU v2 — 43 candidatos memory-bound de la clasificación DRAM%/SM% (job 6571), no 6 elegidos a mano | PENDING `(Priority)`, detrás de `mixed_precision_gemm` (6598 RUNNING, 6599 PENDING) — 6595 se canceló a propósito para cederles el nodo, 6600 se reencoló sin dependencia |
+| **en pausa a propósito** | **6600** (era 6595) | Tamizaje α GPU v2 — 43 candidatos | **CANCELADO (2026-08-26 noche), decisión de alcance, no de nodo.** C8 (§7.bis de `Estrategia_CPU_Fase2.md`) mostró que el clasificador de fase por ventana SÍ funciona donde hay mezcla real (F1=0.538 vs 0.170 trivial) — la vía para mejorarlo más es ampliar el catálogo CPU con kernels que produzcan esa mezcla, no seguir el eje GPU en paralelo. **GPU queda en standby**; se retoma cuando el frente CPU cierre o se agote su margen |
 
 ## Jobs propios, orden real de ejecución (histórico, mañana 2026-08-26)
 

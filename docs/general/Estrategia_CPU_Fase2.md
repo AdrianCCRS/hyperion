@@ -651,9 +651,34 @@ que capturar y un modelo que lo hace sin arriesgar una regresión — el
 Objetivo 2 tiene, por primera vez, un resultado que reportar en lugar de
 solo un diagnóstico de por qué no funcionaba.
 
-## 6.septies Estudio de candidatos futuros para llenar el hueco de diversidad (2026-08-26, sin lanzar)
+## 6.septies Estudio de candidatos futuros para llenar el hueco de diversidad (2026-08-26)
 
-**Motivo.** Los 9 sobrevivientes del tamizaje v2 (§6) no son tan variables
+> **Reprioridad (2026-08-26 noche, tras C8 §7.bis).** Esta sección se
+> escribió pensando en llenar el hueco de α intermedio (EDP). C8 cambió
+> el objetivo principal: ahora se busca **kernels que produzcan mezcla
+> real de fase intra-corrida** (el mismo fenómeno de `npb_lu`/`npb_bt`/
+> `3mm_omp`), no solo α intermedio — son preguntas relacionadas pero no
+> idénticas. Con ese criterio, el orden de prioridad cambia:
+>
+> 1. **GAP (`bfs`/`pr`)** — ya compilado, cero costo de compilación.
+>    Acceso dependiente del dato con *frontier* que crece y encoge por
+>    nivel del grafo: candidato natural a fases genuinamente distintas
+>    dentro de una sola corrida, no solo régimen constante. Primer paso.
+> 2. **LULESH** — física explícita por *timestep*: cálculo de tensiones
+>    (compute) alternado con actualización de malla no estructurada
+>    (memoria dependiente del dato) **por diseño del algoritmo**, no por
+>    artefacto de tamaño. El candidato más directo a mezcla real después
+>    de GAP.
+> 3. **HPCG** — el ciclo multigrid alterna SpMV, suavizado y
+>    restricción/prolongación, cada uno con intensidad distinta:
+>    candidato razonable, un escalón por debajo de LULESH porque su
+>    alternancia es más regular (mismo ciclo repetido) que multifásica.
+> 4. **GUPS** y **PARSEC/`canneal`** — bajan de prioridad para este
+>    objetivo específico: GUPS es acceso uniforme sin fases por diseño
+>    (buen candidato para α, malo para mezcla), y PARSEC sigue con
+>    licencia sin confirmar.
+
+**Motivo original.** Los 9 sobrevivientes del tamizaje v2 (§6) no son tan variables
 entre sí como parece a primera vista: todos son bucles de un solo paso
 dominados por ancho de banda regular (familia STREAM/LCALS/Polybench de
 stencil simple), con α agrupado en 0.078–0.178. El catálogo original tiene
