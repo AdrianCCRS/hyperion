@@ -66,7 +66,7 @@ CPU_BASES = [
     CAMPAIGNS / "pacca_cpu_screen_v2_survivors_20260826",
     CAMPAIGNS / "pacca_cpu_lulesh_hpcg_20260827",
     CAMPAIGNS / "pacca_cpu_gap_20260827",
-    # CHOLMOD (job 6626, corriendo) se agrega cuando termine.
+    CAMPAIGNS / "pacca_cpu_cholmod_20260827",
 ]
 CPU_REF_LEVEL = "F0"
 
