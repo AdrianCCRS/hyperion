@@ -1410,3 +1410,38 @@ kernels:
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
       pacca-a100: "sha256:6f876f5d61f408f68720581b9b0fdff8388d541a78bd179a395b7c4ae0b635f2"
+
+  - id: cpu_lulesh
+    suite: LULESH
+    role: dataset
+    exec_path: bin/cpu_lulesh
+    # Fases fisicas explicitas por timestep (calculo de tensiones,
+    # compute-bound, alternado con actualizacion de malla no estructurada,
+    # memoria dependiente del dato) POR DISEÑO del algoritmo -- candidato
+    # de banda intermedia (Estrategia_CPU_Fase2.md §6.septies/§7.bis).
+    phase_label_hint: intermedio # alpha=0.533, r2=0.998 (tamizaje, job 6612) -- que lo diga la medicion real
+    size_variant: cube120_iter300
+    expected_runtime_seconds: 300  # medido F4=237.8s, margen ~1.25x
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 200000000
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:ca5f7a03e9bad3846c283b7ff170d5305c651aed276526d9e213f21a2fe0a737"
+
+  - id: cpu_hpcg
+    suite: HPCG
+    role: dataset
+    exec_path: bin/cpu_hpcg
+    # Ciclo multigrid alterna SpMV, suavizado y restriccion/prolongacion,
+    # cada etapa con intensidad distinta -- candidato de banda intermedia,
+    # ajuste mas ruidoso que LULESH (r2=0.903, tiempo no monotono F0-F2)
+    # posiblemente por variacion en el conteo de iteraciones de CG entre
+    # corridas, no necesariamente ruido de medicion.
+    phase_label_hint: intermedio # alpha=0.324, r2=0.903 (tamizaje, job 6612) -- que lo diga la medicion real
+    size_variant: cube80_rt5
+    expected_runtime_seconds: 60  # medido F4=38.8s, margen ~1.5x
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 200000000
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:785008b650b8e31da92d23a2779398bf9afa64af5c35e0b40f96990afd84c888"
