@@ -109,8 +109,13 @@ timeouts_seconds:
   shutdown: 15
 
 hardware_datasheet:
+  # p_pico medido directo (2026-08-27): ert_probe con 6 hilos (delegated_cpus
+  # de esta campaña) da 135.781 GFLOP/s -- el valor 480e9 copiado de
+  # campaign_pacca_gpu_dvfs.yaml no aplica aqui, corresponde a otra cuenta de
+  # hilos (ARC-125 documenta 404.6 GFLOP/s con 8 hilos). bw_pico_bytes_per_s
+  # si paso D03 con el valor heredado -- se deja igual.
   bw_pico_bytes_per_s: 59500000000
-  p_pico_flops_per_s: 480000000000
+  p_pico_flops_per_s: 135781000000
 
 projected_campaign_bytes: 100000000
 remaining_core_hours: 1000.0
