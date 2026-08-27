@@ -548,6 +548,22 @@ por `run_gap_triage_pacca01.sbatch`.
 > 1.73 de cómputo puro), así que esto NO descarta a GAP — deja el
 > candidato en un terreno genuinamente incierto, no en una apuesta
 > segura como se esperaba. Vale medirlo en `paccaA100` de todas formas.
+>
+> **RESUELTO con número real (job 6601, 2026-08-26 noche).** Tamizaje de
+> α directo en `paccaA100` (mismo método que `screen_rajaperf_cpu_alpha_v2.sh`,
+> escritura de frecuencia P1, 10/10 corridas, frecuencia dentro de 5% del
+> objetivo en las 10): **`bfs` α=0.738, r²=1.000; `pr` α=0.690, r²=1.000**
+> — muy por encima del umbral 0.226. La incertidumbre de arriba queda
+> despejada: GAP se comporta como compute-bound en la métrica agregada de
+> corrida completa, coherente con la huella de caché ya medida en
+> `pacca01`. **No es candidato de catálogo por margen de EDP.** Sigue sin
+> descartarse del todo como fuente de *mezcla de fase intra-corrida*
+> (pregunta distinta, motivada por C8, §7.bis) — un α agregado alto no
+> excluye que existan ventanas minoritarias memory-bound, como pasa en
+> `npb_bt`/`npb_lu` a frecuencias bajas — pero confirmarlo exige una
+> campaña completa con uncore, un costo mayor que este tamizaje. Dado el
+> resultado negativo de α, no se prioriza: ver §6.septies para el orden
+> de los siguientes candidatos (LULESH, HPCG).
 
 ## 6.octies Campaña real sobre los 9 sobrevivientes: 7 de 9 tienen margen (job 6594, 2026-08-26)
 

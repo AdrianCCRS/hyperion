@@ -43,7 +43,7 @@ después, entra detrás.
 |---|---|---|---|
 | — | **6594** | Campaña completa (etiqueta de verdad real) sobre los 9 sobrevivientes del tamizaje CPU v2 — 324 corridas | ✅ **COMPLETED**, 324/324 aceptadas, 0 rechazos. **7 de 9 kernels con margen real de EDP** (hasta −7.09%) — ver `Estrategia_CPU_Fase2.md` §6.octies |
 | **en pausa a propósito** | **6600** (era 6595) | Tamizaje α GPU v2 — 43 candidatos | **CANCELADO (2026-08-26 noche), decisión de alcance, no de nodo.** C8 (§7.bis de `Estrategia_CPU_Fase2.md`) mostró que el clasificador de fase por ventana SÍ funciona donde hay mezcla real (F1=0.538 vs 0.170 trivial) — la vía para mejorarlo más es ampliar el catálogo CPU con kernels que produzcan esa mezcla, no seguir el eje GPU en paralelo. **GPU queda en standby**; se retoma cuando el frente CPU cierre o se agote su margen |
-| corriendo | **6601** | Tamizaje α GAP (`bfs`/`pr`) directo en `paccaA100` — primer paso del pivote de catálogo motivado por C8, salta el bloqueo de permisos de `pacca01` | PENDING/RUNNING, ~1h de presupuesto |
+| — | **6601** | Tamizaje α GAP (`bfs`/`pr`) directo en `paccaA100` | ✅ **COMPLETED**, 10/10, frecuencia dentro de 5% en las 10. **Resultado negativo**: `bfs` α=0.738, `pr` α=0.690 — muy por encima del umbral 0.226, no candidato de catálogo por margen de EDP. Ver nota resuelta en `Estrategia_CPU_Fase2.md` §6.sexies |
 
 ## Jobs propios, orden real de ejecución (histórico, mañana 2026-08-26)
 
