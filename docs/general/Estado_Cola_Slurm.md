@@ -43,9 +43,9 @@ después, entra detrás.
 |---|---|---|---|
 | — | **6412** | `ptrchase` + `phasic_*` | ✅ **COMPLETED**, 320/320 aceptadas, 0 rechazos |
 | — | **6530** | Rejilla fina CPU, 7 niveles nuevos | ✅ **COMPLETED**, 638 aceptadas / 82 saltadas / 0 rechazadas |
-| — | **6579** | Pre-vuelo Clase C: `npb_cg`/`npb_mg` B vs C (8× memoria) | PENDING (Priority), detrás de los ajenos |
-| — | **6575** | Tamizaje CPU v2: ~79 kernels, `--memory-touched` 10× LLC | PENDING (Priority), detrás de 6579 |
-| — | **6571** | Clasificación cuello de botella GPU (`ncu` DRAM% vs SM%) | PENDING (Priority), detrás de 6575 |
+| — | **6579** | Pre-vuelo Clase C: `npb_cg`/`npb_mg` B vs C (8× memoria) | ✅ **COMPLETED**, 36/36. α baja en ambos (cg 0.765→0.530, mg 0.409→0.335) pero ninguno cruza 0.226 — "el eje de tamaño funciona" según criterio pre-registrado, sin cruzar el umbral en Clase C |
+| — | **6575** | Tamizaje CPU v2: ~79 kernels, `--memory-touched` 10× LLC | ✅ **COMPLETED**. **9 sobrevivientes** (de 0 en v1): `Stream_MUL/TRIAD/ADD`, `Lcals_FIRST_SUM/TRIDIAG_ELIM`, `Polybench_JACOBI_1D/FDTD_2D`, `Basic_DAXPY/INIT3` — ver tabla completa en el reporte |
+| — | **6571** | Clasificación cuello de botella GPU (`ncu` DRAM% vs SM%) | ✅ **COMPLETED**, parser corregido. **43 de 75 kernels MEMORY_BOUND** (DRAM%>SM%, DRAM%≥30%) — ver lista completa en el reporte |
 | — | **6583** | Triage GAP Benchmark (BFS/PR) en **pacca01** | ❌ **COMPLETED sin señal útil** — bloqueado por falta de permiso de escritura de frecuencia en pacca01 (`Permission denied`, no es un resultado sobre los kernels). Binarios sí quedaron compilados en `~/hyperion-kernels/libexec/gapbs/`. Plan: tamizar `bfs`/`pr` directo en `paccaA100` cuando se libere, sin pasar por pacca01 |
 | — | *(jobs ajenos)* | `mixed_precision_stencil` | uno RUNNING (6552), resto PENDING |
 
