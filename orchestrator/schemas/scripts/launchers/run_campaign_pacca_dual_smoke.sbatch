@@ -30,6 +30,12 @@ module load gnu12/12.4.0 devtools/nvidia/hpc_sdk/nvhpc/23.1 openblas/0.3.21 2>&1
 export LD_LIBRARY_PATH="/opt/ohpc/pub/libs/gnu12/openblas/0.3.21/lib:/opt/ohpc/pub/libs/gnu12/openmpi4/fftw/3.3.10/lib:${LD_LIBRARY_PATH:-}"
 source ~/hyperion-venv/bin/activate
 cd ~/hyperion-kernels
+# Reset defensivo ANTES de que el orquestador capture su propio snapshot
+# "original" -- ver scripts/pacca/reset_cpu_freq_range.sh: un job previo
+# crasheado puede haber dejado cpu0-5/16-21 pinneados en un rango angosto,
+# que de otro modo se propagaria en silencio como el "original" de ESTA
+# corrida.
+bash ~/hyperion/scripts/pacca/reset_cpu_freq_range.sh
 export HYPERION_GPU_FREQ_WRITE_CAPABLE=1
 python3 -m orchestrator.cli run-campaign \
   --manifest ~/hyperion/orchestrator/schemas/campaigns/campaign_pacca_dual_smoke.yaml \

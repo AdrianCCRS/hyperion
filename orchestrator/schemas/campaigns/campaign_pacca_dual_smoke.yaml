@@ -109,13 +109,18 @@ timeouts_seconds:
   shutdown: 15
 
 hardware_datasheet:
-  # p_pico medido directo (2026-08-27): ert_probe con 6 hilos (delegated_cpus
-  # de esta campaña) da 135.781 GFLOP/s -- el valor 480e9 copiado de
-  # campaign_pacca_gpu_dvfs.yaml no aplica aqui, corresponde a otra cuenta de
-  # hilos (ARC-125 documenta 404.6 GFLOP/s con 8 hilos). bw_pico_bytes_per_s
-  # si paso D03 con el valor heredado -- se deja igual.
+  # CORREGIDO 2026-08-27 (segunda vez): la medicion anterior (135.781
+  # GFLOP/s) se tomo con el nodo CONTAMINADO -- un job previo (6651) crasheo
+  # dentro de la calibracion y dejo scaling_min_freq=scaling_max_freq=800000
+  # pinneado en cpu0-5 y sus pares SMT (16-21), un estado que el
+  # `finally: restore_original_state()` del job siguiente "restauro"
+  # fielmente porque lo capturo como su propio snapshot "original" al
+  # arrancar -- la corrupcion se propaga en silencio de job en job. Reparado
+  # a mano (rango completo 800000-3200000, turbo permanece desactivado por
+  # convencion del nodo) y verificado: ert_probe nativo en 6 hilos da 509.083
+  # GFLOP/s, coincidiendo con la medicion F0 (503.2) del intento anterior.
   bw_pico_bytes_per_s: 59500000000
-  p_pico_flops_per_s: 135781000000
+  p_pico_flops_per_s: 509083000000
 
 projected_campaign_bytes: 100000000
 remaining_core_hours: 1000.0
