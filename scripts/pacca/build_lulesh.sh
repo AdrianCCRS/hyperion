@@ -44,8 +44,12 @@ build_dir="$src_dir/build"
 rm -rf "$build_dir"
 mkdir -p "$build_dir"
 cd "$build_dir"
+# -DCMAKE_POLICY_VERSION_MINIMUM=3.5: el CMakeLists.txt de LULESH declara
+# un cmake_minimum_required viejo, incompatible por defecto con cmake
+# 4.3.4 del cluster.
 cmake -DCMAKE_BUILD_TYPE=Release -DWITH_MPI=Off -DWITH_OPENMP=On \
-      -DCMAKE_CXX_COMPILER="$CXX" ..
+      -DCMAKE_CXX_COMPILER="$CXX" \
+      -DCMAKE_POLICY_VERSION_MINIMUM=3.5 ..
 make -j4
 
 mkdir -p "$output_root/libexec/lulesh"
