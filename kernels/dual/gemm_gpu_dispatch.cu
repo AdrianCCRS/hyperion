@@ -140,6 +140,13 @@ int main(int argc, char** argv) {
             expected += h_a[(size_t)i + (size_t)k * n] * h_b[(size_t)k + (size_t)j * n];
         }
         double got = h_c[(size_t)i + (size_t)j * n];
+        /* isfinite explicito: con NaN toda comparacion es falsa, incluida
+         * `rel_error > max_rel_error`, asi que sin este chequeo el bench
+         * reportaria SUCCESSFUL precisamente cuando el resultado esta roto. */
+        if (!std::isfinite(got)) {
+            max_rel_error = INFINITY;
+            break;
+        }
         double denom = std::fabs(expected) > 1e-9 ? std::fabs(expected) : 1.0;
         double rel_error = std::fabs(got - expected) / denom;
         if (rel_error > max_rel_error) max_rel_error = rel_error;

@@ -102,6 +102,14 @@ int main(int argc, char **argv) {
 
     double t0 = now_seconds();
     for (int rep = 0; rep < iterations; ++rep) {
+        /* Cada iteracion parte de datos frescos, por dos razones. La primera
+         * es de correctitud: el plan es in-place, asi que encadenar directas
+         * sobre el mismo buffer calcularia FFT(FFT(...)) y los valores
+         * desbordarian. La segunda es de simetria con el lado GPU, que en cada
+         * despacho vuelve a subir h_original -- si aqui no se pagara el costo
+         * de traer los datos, la comparacion CPU/GPU estaria sesgada a favor
+         * de la CPU justo en el termino que decide la frontera. */
+        memcpy(data, original, sizeof(fftw_complex) * elems);
         fftw_execute(forward);
     }
     double t1 = now_seconds();
@@ -112,20 +120,33 @@ int main(int argc, char **argv) {
      * FFTW no normaliza. */
     fftw_execute(backward);
     const double norm = (double)elems;
-    double max_rel_error = 0.0;
+    /* Error ABSOLUTO, no relativo: los datos son uniformes en [-1,1], asi que
+     * la magnitud tipica es O(1) y un error absoluto es directamente
+     * interpretable. El error relativo era una trampa -- al dividir por un
+     * |valor| que puede caer cerca de cero, un error de redondeo normal se
+     * inflaba por encima de la tolerancia.
+     *
+     * El chequeo isfinite es obligatorio y NO redundante: si un valor sale
+     * inf, la resta da NaN, y toda comparacion con NaN es falsa, incluida
+     * `rel_error > max_error`. Sin este chequeo max_error se quedaba en 0 y el
+     * bench reportaba SUCCESSFUL justo en los casos mas rotos. */
+    double max_abs_error = 0.0;
     for (int s = 0; s < verify_samples; ++s) {
         size_t idx = (size_t)(next_uniform() * (double)elems);
         if (idx >= elems) idx = elems - 1;
         double got_re = creal(data[idx]) / norm;
         double got_im = cimag(data[idx]) / norm;
-        double exp_re = creal(original[idx]);
-        double exp_im = cimag(original[idx]);
-        double denom = fabs(exp_re) + fabs(exp_im);
-        if (denom < 1e-9) denom = 1.0;
-        double rel_error = (fabs(got_re - exp_re) + fabs(got_im - exp_im)) / denom;
-        if (rel_error > max_rel_error) max_rel_error = rel_error;
+        if (!isfinite(got_re) || !isfinite(got_im)) {
+            max_abs_error = INFINITY;
+            break;
+        }
+        double abs_error = fabs(got_re - creal(original[idx]))
+                         + fabs(got_im - cimag(original[idx]));
+        if (abs_error > max_abs_error) max_abs_error = abs_error;
     }
-    const int ok = max_rel_error < 1e-8;
+    /* FFT de M puntos acumula error ~ eps*log2(M); con M=16.7M (N=4096) eso es
+     * ~5e-15. La tolerancia de 1e-9 deja seis ordenes de margen. */
+    const int ok = max_abs_error < 1e-9;
 
     /* Estimacion estandar para FFT compleja: 5*M*log2(M) con M = N*N. */
     double m = (double)elems;

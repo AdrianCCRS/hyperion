@@ -116,20 +116,25 @@ int main(int argc, char** argv) {
     CUDA_CHECK(cudaDeviceSynchronize());
 
     const double norm = (double)elems;
-    double max_rel_error = 0.0;
+    /* Mismo criterio que la contraparte de CPU (fft_cpu_bench.c): error
+     * absoluto sobre datos de magnitud O(1), y chequeo isfinite explicito --
+     * sin el, un inf produce NaN en la resta y toda comparacion con NaN es
+     * falsa, con lo que el bench reportaria SUCCESSFUL en el caso mas roto. */
+    double max_abs_error = 0.0;
     for (int s = 0; s < verify_samples; ++s) {
         size_t idx = (size_t)(next_uniform() * (double)elems);
         if (idx >= elems) idx = elems - 1;
         double got_re = h_data[idx].x / norm;
         double got_im = h_data[idx].y / norm;
-        double exp_re = h_original[idx].x;
-        double exp_im = h_original[idx].y;
-        double denom = std::fabs(exp_re) + std::fabs(exp_im);
-        if (denom < 1e-9) denom = 1.0;
-        double rel_error = (std::fabs(got_re - exp_re) + std::fabs(got_im - exp_im)) / denom;
-        if (rel_error > max_rel_error) max_rel_error = rel_error;
+        if (!std::isfinite(got_re) || !std::isfinite(got_im)) {
+            max_abs_error = INFINITY;
+            break;
+        }
+        double abs_error = std::fabs(got_re - h_original[idx].x)
+                         + std::fabs(got_im - h_original[idx].y);
+        if (abs_error > max_abs_error) max_abs_error = abs_error;
     }
-    const bool ok = max_rel_error < 1e-8;
+    const bool ok = max_abs_error < 1e-9;
 
     double m = (double)elems;
     double total_flops = (double)iterations * 5.0 * m * std::log2(m);
