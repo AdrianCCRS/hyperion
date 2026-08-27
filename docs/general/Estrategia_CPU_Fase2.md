@@ -549,6 +549,13 @@ por `run_gap_triage_pacca01.sbatch`.
 > candidato en un terreno genuinamente incierto, no en una apuesta
 > segura como se esperaba. Vale medirlo en `paccaA100` de todas formas.
 >
+> **CERRADO por completo con campaña real (job 6621, 2026-08-27):**
+> 72/72 aceptadas, 0 rechazadas. **Mezcla de fase 0.00% en los seis
+> niveles, en `bfs` y en `pr`** — más homogéneo aún que LULESH/HPCG
+> (§7.ter). EDP sin margen (monótono, óptimo en F0), coherente con el
+> α agregado. El hueco que el tamizaje dejó sin contestar (¿hay ventanas
+> minoritarias pese al α alto?) ya tiene respuesta: no.
+>
 > **RESUELTO con número real (job 6601, 2026-08-26 noche).** Tamizaje de
 > α directo en `paccaA100` (mismo método que `screen_rajaperf_cpu_alpha_v2.sh`,
 > escritura de frecuencia P1, 10/10 corridas, frecuencia dentro de 5% del

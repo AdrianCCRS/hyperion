@@ -48,7 +48,9 @@ después, entra detrás.
 | — | **6615** | Campaña completa LULESH+HPCG, primer intento | ❌ **FAILED en 4s**: C02 (checksum) — el catálogo tenía el checksum del binario (`lulesh2.0`/`xhpcg`), pero `check_binary_checksum()` hashea `exec_path` (el wrapper). Corregido, relanzado como 6616 |
 | — | **6616** | Campaña completa LULESH+HPCG, 72 corridas | ⚠️ **FAILED por timeout INTERNO** (CAM-06, 16200s=4.5h), no por Slurm (tenía 5h) ni por rechazo de dato: **62/72 aceptadas, 0 rechazadas** antes del corte |
 | — | **6617** | Reanudación automática de 6616 (ARC-142) | ✅ **COMPLETED**, 10/10 restantes, 0 rechazadas — **matriz 72/72 completa**. Resultado: mezcla de fase negativa en ambos (0.00–0.08%), pero `cpu_hpcg` da −9.18% EDP en F2, el mayor margen del catálogo. Ver `Estrategia_CPU_Fase2.md` §7.ter |
-| corriendo | **6621** | Campaña completa GAP (`bfs`/`pr`), etiqueta real con uncore — cierra el hueco de mezcla de fase que el tamizaje (6601) nunca contestó | RUNNING en `paccaA100`, ~2h de presupuesto |
+| — | **6621** | Campaña completa GAP (`bfs`/`pr`) | ✅ **COMPLETED**, 72/72, 0 rechazadas. **Negativo total**: 0.00% mezcla de fase en los 6 niveles (ambos), sin margen de EDP (monótono, óptimo en F0) |
+| — | **6622** | Build CHOLMOD (SuiteSparse) en `paccaA100` | ✅ **COMPLETED**, compiló limpio (commit `4d40960`), smoke test OK (N=70 Laplaciano 3D, 6.5s nativo, 2042 MB pico) |
+| corriendo | **6626** | Campaña completa CHOLMOD — 4to y último candidato del pivote de catálogo (bloques BLAS3 densos embebidos en trabajo disperso, mismo patrón que `3mm_omp`) | RUNNING en `paccaA100`, ~1.5h de presupuesto |
 
 ## Jobs propios, orden real de ejecución (histórico, mañana 2026-08-26)
 
