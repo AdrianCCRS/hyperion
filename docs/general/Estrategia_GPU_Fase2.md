@@ -490,6 +490,29 @@ ajuste ruidoso — su α es bajo (0.010–0.013, muy por debajo del umbral
 0.639) aunque el ajuste de Amdahl no lo describa con precisión (riesgo 6).
 El catálogo GPU pasa de 7 a 13 kernels reales.
 
+## 8.bis Estudio de suites adicionales para GPU (2026-08-26, sin lanzar)
+
+**Motivo.** El catálogo actual (13 confirmados + los 43 candidatos del
+tamizaje DRAM%/SM% de §"Impulso") viene solo de RAJAPerf-CUDA y Rodinia.
+Vale mirar qué usó la propia literatura con la que este eje se compara,
+en vez de improvisar una tercera suite a ciegas.
+
+`Guerreiro2019` — el trabajo con el que más se compara este eje (§4, §8) —
+valida su modelo con **35 kernels de Rodinia + Polybench + Parboil + SHOC
++ CUDA SDK**, no solo RAJAPerf. Dos de esas suites no se han tocado aquí:
+
+| suite | qué llena | por qué | licencia / esfuerzo |
+|---|---|---|---|
+| **Parboil** (Stratton et al., UIUC) | mezcla real compute/memoria por diseño — 11 apps de imagenología, biomolecular, dinámica de fluidos y astronomía (CUTCP, MRI-Gridding, SpMV, histograma), no solo streaming | open source, CUDA+OpenCL, sin licencia paga | por verificar tiempo de compilación en `paccaA100` |
+| **SHOC** (Danalis et al., ORNL) | diseñada explícitamente para cubrir el espectro compute↔memoria: micro + apps (FFT, MD, Scan, Sort, **SpMV, Stencil2D**, Triad, S3D) — SpMV/Stencil2D son justo la banda intermedia que RAJAPerf-CUDA cubre poco | open source (BSD), CUDA+OpenCL+MPI | por verificar tiempo de compilación |
+
+Ambas, a diferencia de `Hebbar2022` (SPEC CPU2017, licencia paga), son
+libres y reproducibles — mismo criterio de licencia que ya rige todo el
+catálogo actual. **No se lanza nada todavía**: es candidatera para cuando
+el tamizaje de los 43 candidatos (job 6595) cierre el catálogo actual y
+se decida si hace falta diversidad que RAJAPerf-CUDA no tiene, no un
+reemplazo de lo que ya está en cola.
+
 ## 9. Mapeo a los Objetivos Específicos
 
 | Objetivo | Estado | Evidencia |

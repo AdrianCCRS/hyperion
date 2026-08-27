@@ -549,6 +549,36 @@ por `run_gap_triage_pacca01.sbatch`.
 > candidato en un terreno genuinamente incierto, no en una apuesta
 > segura como se esperaba. Vale medirlo en `paccaA100` de todas formas.
 
+## 6.septies Estudio de candidatos futuros para llenar el hueco de diversidad (2026-08-26, sin lanzar)
+
+**Motivo.** Los 9 sobrevivientes del tamizaje v2 (§6) no son tan variables
+entre sí como parece a primera vista: todos son bucles de un solo paso
+dominados por ancho de banda regular (familia STREAM/LCALS/Polybench de
+stencil simple), con α agrupado en 0.078–0.178. El catálogo original tiene
+7 kernels con α>0.6 (NPB, `dgemm`, `lavamd`, `3mm`). **Falta la banda
+intermedia (α≈0.18–0.6) y patrones de acceso distintos al streaming
+regular** — el mismo criterio de §6 ("no decide el número, decide la
+diversidad de régimen") aplicado hacia adelante, no solo hacia atrás.
+
+Búsqueda dirigida a esos dos huecos, no a "más kernels" en general:
+
+| suite | qué llena | por qué | licencia / esfuerzo |
+|---|---|---|---|
+| **GAP Benchmark** (ya en curso, §6.sexies) | irregular dependiente del dato (grafos) | BFS/PageRank ya compilados, bloqueados solo por triage en `pacca01`; pendiente medir directo en `paccaA100` | académica, ya resuelta |
+| **GUPS/RandomAccess** (HPC Challenge, `github.com/technion-csl/gups`) | acceso disperso **sin** dependencia secuencial — complementa a `ptrchase`, que es una cadena de punteros (un salto a la vez) | un solo fichero, compilación trivial (`make`), sin dependencias externas | libre, sin registro |
+| **HPCG** (`hpcg-benchmark.org`, Dongarra et al.) | banda intermedia real: matriz dispersa CSR con **reutilización genuina** (multigrid, no solo streaming) mezclada con acceso indirecto | estándar HPC, open source, MPI+OpenMP, compilación con `make` estándar | libre |
+| **LULESH** (LLNL, DOE proxy app) | malla no estructurada, accesos dependientes del dato, reducciones — un régimen que ningún kernel actual cubre | open source, CMake, versión serial/OpenMP sin exigir MPI | libre |
+| **PARSEC** (Bienia et al., Princeton) — en particular `canneal` | el kernel de la literatura descrito como el más irregular/memory-bound de esa suite (punteros dispersos sobre un netlist), ya usado en estudios de DVFS de CPU publicados | requiere descarga/registro desde Princeton — **verificar licencia antes de comprometer tiempo**, a diferencia de las demás | por confirmar |
+
+**Nada de esto se ha tocado en el nodo — es investigación de escritorio.**
+Antes de comprometer tiempo de `paccaA100`: verificar que compila ahí (no
+en `pacca01`, misma lección de §6/riesgo 1), que el tamaño de trabajo
+puede fijarse a un múltiplo inequívoco de la LLC real (12 MB) con el mismo
+criterio que corrigió el tamizaje v1→v2, y que no arrastra I/O pesado
+(lección `myocyte`, Anexo L.1, ya citada en C3 de §9). El paso siguiente,
+si se decide perseguir esto, es el mismo patrón ya validado: tamizaje
+barato de α con tiempo/RAPL antes de cualquier campaña completa.
+
 ## 7. Reconciliación con la variación intra-kernel (Objetivo 2 literal)
 
 No toda la evidencia apunta a "cero variación intra-kernel". La tabla de

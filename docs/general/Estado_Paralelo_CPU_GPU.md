@@ -86,6 +86,28 @@ reentrenado — pendiente del catálogo final (tamizaje de los 43 + dataset).
 - Ningún modelo se ha reentrenado desde los hallazgos de esta sesión —
   ambos esperan a que cierre la ampliación de catálogo respectiva.
 
+## Candidatos de catálogo futuro (estudio 2026-08-26, sin lanzar)
+
+Investigación de escritorio, ningún kernel tocado en el nodo todavía.
+Detalle completo en `Estrategia_CPU_Fase2.md` §6.septies y
+`Estrategia_GPU_Fase2.md` §8.bis.
+
+**CPU** — llenar la banda de α intermedia (0.18–0.6, vacía hoy) y
+patrones de acceso más allá del streaming regular de los 9 nuevos:
+GUPS/RandomAccess (irregular puro, complementa a `ptrchase`), HPCG
+(dispersa con reutilización real, candidato natural de banda intermedia),
+LULESH (malla no estructurada), PARSEC/`canneal` (licencia por
+confirmar). GAP Benchmark ya está en curso, ver §"Bloqueado" arriba.
+
+**GPU** — mismas suites que ya usa `Guerreiro2019` (35 kernels, el
+trabajo con el que más se compara este eje) y que aquí nunca se tocaron:
+Parboil (mezcla compute/memoria por diseño) y SHOC (SpMV/Stencil2D como
+banda intermedia). Ambas libres, sin licencia paga.
+
+**Condición antes de comprometer nodo en cualquiera de las dos**: esperar
+a que cierren 6594 (CPU) y 6595 (GPU) y ver si el catálogo ampliado
+resultante ya alcanza — no partir de "más kernels" sin esa evidencia.
+
 ## Hallazgos transversales (aplican a ambos ejes o los conectan)
 
 - **La memoria de CPU no se ralentiza con el reloj de núcleo** (medido,
