@@ -46,13 +46,21 @@ de escritura de frecuencia en `pacca01`. Huella de caché a reloj nativo
 (`perf`) da resultado incierto. Pendiente de tamizar directo en
 `paccaA100`.
 
-**El modelo** (piloto LOKO, dataset viejo, 8 kernels): pierde contra no
-hacer nada (EDP loss 1.0027 vs trivial 1.0010). Causa raíz medida: N
-efectivo = kernels de entrenamiento, no filas; RMSE 92× el margen
-disponible. **La campaña que faltaba para atacarlo ya está lista**
-(job 6594, 17 kernels con etiqueta real) — pendiente el reentrenamiento
-con features corregidas (quitar `ref_running_ratio`), primer intento
-real desde el diagnóstico de causa raíz.
+**El modelo — PRIMER RESULTADO POSITIVO DEL PROYECTO (2026-08-26).**
+Reentrenado sobre 17 kernels (arc174 + job 6594), sin `ref_running_ratio`
+(varianza cero) y con el umbral de acción restringido a la región REF–F2
+(evita que F3/F4, hasta 12× peor, infle el RMSE del umbral). Resultado:
+
+| política | EDP loss | vs. trivial |
+|---|---:|---:|
+| modelo sin umbral | 1.0045 | **gana +0.0077** |
+| modelo + umbral (región accionable) | 1.0072 | **gana +0.0050** |
+| trivial (siempre F0) | 1.0122 | — |
+
+Captura 41-63% de los 1.22 puntos de margen disponible. Alcance honesto:
+margen modesto (10 de 17 kernels sin ganancia real), pero por primera vez
+hay algo que ganar y un modelo que lo hace sin arriesgar una regresión —
+detalle completo en `Estrategia_CPU_Fase2.md` §6.nonies.
 
 ---
 
@@ -84,11 +92,16 @@ reentrenado — pendiente del catálogo final (tamizaje de los 43 + dataset).
 
 - Mismo diagnóstico raíz en los dos ejes: N efectivo pequeño (kernels, no
   filas) es la causa del fracaso del modelo, no un problema de ajuste.
-- Mejoras de features identificadas y sin hacer en ninguno: quitar
-  `ref_running_ratio` (varianza cero en CPU), enriquecer con
-  percentiles/dispersión en vez de solo la media, predecir en espacio log.
-- Ningún modelo se ha reentrenado desde los hallazgos de esta sesión —
-  ambos esperan a que cierre la ampliación de catálogo respectiva.
+- **CPU ya se reentrenó (2026-08-26) y gana al trivial** — ver arriba.
+  Mejoras aplicadas: quitar `ref_running_ratio`, restringir el umbral de
+  acción a la región REF–F2. Pendiente en GPU (no aplicable todavía: no
+  tiene `ref_running_ratio` como feature, pero sí podría beneficiarse de
+  restringir niveles accionables una vez tenga catálogo final).
+- Mejora identificada y sin hacer en ninguno de los dos: enriquecer con
+  percentiles/dispersión de la corrida de referencia en vez de solo la
+  media (ataca N efectivo por el lado de la riqueza del punto, más
+  relevante en GPU con solo 2 features).
+- **GPU sigue sin reentrenarse** — espera el catálogo final (job 6600).
 
 ## Candidatos de catálogo futuro (estudio 2026-08-26, sin lanzar)
 

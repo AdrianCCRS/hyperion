@@ -603,6 +603,54 @@ identificadas (quitar `ref_running_ratio`, sin varianza; reconsiderar
 dimensionalidad). Es el primer intento real desde el diagnóstico de causa
 raíz de `loko_feature_diagnostic.py`.
 
+## 6.nonies Primer resultado positivo del modelo (2026-08-26): gana al trivial en ambas variantes
+
+Con los dos arreglos ya identificados en el riesgo 4 de
+`Estrategia_GPU_Fase2.md` aplicados por primera vez — quitar
+`ref_running_ratio` (varianza cero) y combinar las dos campañas CPU
+(17 kernels efectivos en vez de 8) — el piloto LOKO (`loko_pilot.py`)
+**le gana al trivial por primera vez en todo el proyecto**, en cualquiera
+de los dos ejes:
+
+| política | EDP loss | margen sobre trivial |
+|---|---:|---:|
+| oráculo (techo) | 1.0000 | — |
+| **modelo sin umbral** | **1.0045** | **+0.0077 (gana)** |
+| **modelo + umbral de acción, región REF–F2** | **1.0072** | **+0.0050 (gana)** |
+| mejor constante honesta | 1.0173 | −0.0051 (pierde) |
+| trivial (siempre F0) | 1.0122 | — |
+
+**El umbral de seguridad, que antes nunca se disparaba, necesitó un tercer
+arreglo.** El RMSE de entrenamiento (0.112) estaba inflado por F3/F4 —
+`dgemm`/`npb_bt`/`lavamd`/`3mm_omp` llegan a EDP=8×–12× ahí — y ninguna
+ganancia real de unos pocos puntos porcentuales lo superaba nunca, así
+que la política con umbral degeneraba exactamente al trivial (margen
+0.0000). Se agregó `--action-levels` a `loko_pilot.py`: restringe qué
+niveles se ofrecen como opción real (oráculo, constante honesta, cálculo
+del propio umbral) a REF–F2 — los regresores siguen entrenando con todo
+el rango, pero el umbral ya no se mide contra una región que ninguna
+política sensata visitaría. Con eso el RMSE baja a 0.048 y el umbral se
+dispara en 4 de 17 kernels (`Basic_INIT3`, `Lcals_FIRST_SUM`,
+`Stream_MUL` → F1 correcto; `Stream_ADD` → F1, un error real frente al
+óptimo F0 de ese kernel, absorbido por las otras tres ganancias).
+
+**Por qué la variante con umbral es la que importa para el Objetivo 3,
+no la variante sin umbral.** Sin umbral el modelo se compromete con su
+argmin siempre, incluso cuando su propia incertidumbre es mayor que la
+ganancia — el modo de fallo que ya costó 4.18 puntos en GPU (§7, riesgo 4
+de `Estrategia_GPU_Fase2.md`, caso `dwt2d`). Con umbral, cuando el modelo
+no está seguro simplemente no actúa (cae a F0, empata al trivial para ese
+kernel) — es la política segura por diseño que un daemon real puede
+desplegar sin arriesgar empeorar respecto del gobernador nativo.
+
+**Alcance honesto, sin sobrevender:** 1.22 puntos de margen disponible es
+modesto (el catálogo sigue teniendo 10 de 17 kernels sin ningún margen
+real, dominados por NPB/`dgemm`/`lavamd`/`3mm`), y el umbral solo captura
+41% de ese margen (0.0050 de 0.0122). Pero es la primera vez que hay algo
+que capturar y un modelo que lo hace sin arriesgar una regresión — el
+Objetivo 2 tiene, por primera vez, un resultado que reportar en lugar de
+solo un diagnóstico de por qué no funcionaba.
+
 ## 6.septies Estudio de candidatos futuros para llenar el hueco de diversidad (2026-08-26, sin lanzar)
 
 **Motivo.** Los 9 sobrevivientes del tamizaje v2 (§6) no son tan variables
