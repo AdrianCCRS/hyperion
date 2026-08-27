@@ -1477,3 +1477,22 @@ kernels:
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
       pacca-a100: "sha256:91961924f09aae059f485b8ac04604c3bf60e29d2a925e2b932d235f3bbeb60f"
+
+  - id: cpu_cholmod
+    suite: SuiteSparse-CHOLMOD
+    role: dataset
+    exec_path: bin/cpu_cholmod
+    # Factorizacion supernodal: bloques densos (BLAS3/LAPACK) embebidos en
+    # trabajo disperso (ordenamiento, ensamblaje) -- mismo patron que hace
+    # a rajaperf_polybench_3mm_omp el unico kernel con mezcla real a
+    # frecuencia nativa (Estrategia_CPU_Fase2.md §7.ter). Matriz: SPD
+    # sintetica, Laplaciano 3D de 7 puntos, N=70 (343000 filas, 57x de
+    # relleno en L) -- gen_laplacian3d_mtx.py, no descargada.
+    phase_label_hint: intermedio # que lo diga la medicion real
+    size_variant: laplacian3d_N70
+    expected_runtime_seconds: 40  # medido ~6.5s nativo, margen amplio para F4
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 2200000000  # medido: peak 2042 MB
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:a1fdd3973a2e2a9c7662cefac309d57490b26d3c45fc4d425dc50fcfa6f7b29c"
