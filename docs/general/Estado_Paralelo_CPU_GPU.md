@@ -11,57 +11,68 @@ modelos independientes.
 
 ## MODELO CPU
 
-**Catálogo**: 9 kernels originales (Clase B) + 2 confirmados viables.
+**Catálogo**: 9 kernels originales (Clase B) + **11 confirmados viables**
+(2 de campaña completa + 9 del tamizaje v2, α<0.226, aún sin campaña
+propia).
 
-| viable | resultado |
-|---|---|
-| `npb_mg` | óptimo real en S3000, EDP/F0=0.9927 (rejilla fina, 638/720 aceptadas) |
-| `ptrchase` | α=0.097 (F0–F1, r²=1.000), campaña completa 320/320 |
+| viable | α / resultado | fuente |
+|---|---:|---|
+| `npb_mg` | óptimo real en S3000, EDP/F0=0.9927 | campaña completa, 638/720 |
+| `ptrchase` | 0.097 (F0–F1, r²=1.000) | campaña completa, 320/320 |
+| `Stream_MUL` | 0.078 | tamizaje v2 |
+| `Lcals_FIRST_SUM` | 0.113 | tamizaje v2 |
+| `Lcals_TRIDIAG_ELIM` | 0.125 | tamizaje v2 |
+| `Stream_TRIAD` | 0.128 | tamizaje v2 |
+| `Stream_ADD` | 0.147 | tamizaje v2 |
+| `Polybench_JACOBI_1D` | 0.148 | tamizaje v2 (v1 fallaba: 0.599, tamaño incorrecto) |
+| `Basic_DAXPY` | 0.161 | tamizaje v2 |
+| `Polybench_FDTD_2D` | 0.175 | tamizaje v2 (v1 fallaba: 0.331, tamaño incorrecto) |
+| `Basic_INIT3` | 0.178 | tamizaje v2 |
 
-Los otros 7 originales son compute-bound genuinos — no artefacto de
-tamaño: superan la L3 real de `paccaA100` (12 MB) entre 5× y 43×, pero
-reutilizan datos intensamente (DGEMM, N-cuerpos, solvers implícitos ADI).
-`npb_mg` es la excepción porque su intensidad operacional es baja por
-diseño del algoritmo (stencil), no por tamaño.
+Los 9 del tamizaje v2 **todavía no tienen campaña propia** — el tamizaje
+solo mide α con tiempo/RAPL, falta la campaña completa con etiqueta de
+verdad para confirmarlos como `npb_mg`/`ptrchase`.
 
-**En cola en `paccaA100`** (detrás de trabajos ajenos):
-- **6579** — Clase C: ¿8× tamaño cruza el umbral en `npb_cg`/`npb_mg`?
-- **6575** — tamizaje v2: ~79 kernels RAJAPerf a tamaño correcto (10× LLC
-  real = ~120 MB); incluye 12 candidatos de alta confianza (familia
-  STREAM, sin reutilización posible por construcción)
+Los otros 7 originales + 70 del tamizaje v2 son compute-bound genuinos —
+no artefacto de tamaño ya corregido (10× LLC real). Excepción parcial:
+`npb_cg`/`npb_mg` en Clase C (8× memoria) bajan de α pero no cruzan el
+umbral (0.765→0.530 y 0.409→0.335) — el eje de tamaño funciona en
+dirección, no alcanza a esa escala.
 
 **Bloqueado**: GAP Benchmark (`bfs`/`pr`) — binarios listos, sin permiso
 de escritura de frecuencia en `pacca01`. Huella de caché a reloj nativo
-(`perf`) da resultado incierto (LLC-miss 3.5–10.4%, ni claramente
-memory-bound ni claramente compute-bound). Pendiente de tamizar directo
-en `paccaA100`.
+(`perf`) da resultado incierto. Pendiente de tamizar directo en
+`paccaA100`.
 
-**El modelo** (piloto LOKO, dataset viejo): pierde contra no hacer nada
-(EDP loss 1.0027 vs trivial 1.0010). Causa raíz medida: N efectivo = 8
-kernels de entrenamiento, no filas; RMSE 92× el margen disponible. No se
-ha reentrenado con `npb_mg`/`ptrchase` — pendiente del tamizaje v2.
+**El modelo** (piloto LOKO, dataset viejo, 8 kernels): pierde contra no
+hacer nada (EDP loss 1.0027 vs trivial 1.0010). Causa raíz medida: N
+efectivo = kernels de entrenamiento, no filas; RMSE 92× el margen
+disponible. No se ha reentrenado — pendiente de construir campaña sobre
+los 9 nuevos candidatos.
 
 ---
 
 ## MODELO GPU
 
-**Catálogo**: 7 originales + 6 nuevos RAJAPerf-CUDA = 13, OI real medida
-por `ncu` (job 6528), checksum verificado.
+**Catálogo confirmado**: 7 originales + 6 RAJAPerf-CUDA con OI real medida
+por `ncu` (job 6528) = 13, checksum verificado. Manifiesto de 17 kernels
+listo, **todavía no lanzado**.
 
-**Manifiesto final (17 kernels) listo, NO lanzado a propósito** — espera
-el resultado de:
+**Clasificación de cuello de botella (job 6571, corregido tras el fallo
+silencioso de 6539) completada: 43 de 75 kernels CUDA son MEMORY_BOUND**
+(DRAM%>SM%, DRAM%≥30%) — salto grande frente a los 6 tamizados a mano
+antes. Los más extremos: `Lcals_TRIDIAG_ELIM` (91.5% DRAM), `Apps_PRESSURE`
+(90.3%), `Stream_ADD/TRIAD` (~90%), varios `Lcals_*`/`Algorithm_MEMCPY`
+`/MEMSET` (~88%). **Esto es DRAM% vs SM%, no α** — clasifica candidatos,
+no los confirma; falta el tamizaje de α con reloj variable sobre estos 43
+antes de decidir el catálogo final, paso caro (~43×5 corridas) sin
+lanzar todavía.
 
-**En cola en `paccaA100`**: **6571** — clasificación de cuello de botella
-(`ncu` DRAM% vs SM%) sobre los 79 kernels CUDA. Decide si el catálogo
-final necesita más candidatos antes de gastar ~10-11h de dataset. (Primer
-intento, 6539, falló en silencio por bug propio de parseo — corregido.)
-
-**El modelo** (mismo piloto LOKO, dataset viejo de 6 kernels): pierde
-contra no hacer nada, peor que CPU (EDP loss 1.0925 vs trivial 1.0507,
-−4.18 pts). Margen real disponible: 5.07 pts. RMSE 5.4× el margen (menos
-grave que CPU). Umbral de acción acota la pérdida a cero, no da ganancia.
-No se ha reentrenado — pendiente del catálogo final de 6571 y el dataset
-de 17 kernels.
+**El modelo** (piloto LOKO, dataset viejo de 6 kernels): pierde contra no
+hacer nada, peor que CPU (EDP loss 1.0925 vs trivial 1.0507, −4.18 pts).
+Margen real disponible: 5.07 pts. RMSE 5.4× el margen (menos grave que
+CPU). Umbral de acción acota la pérdida a cero, no da ganancia. No se ha
+reentrenado — pendiente del catálogo final (tamizaje de los 43 + dataset).
 
 ---
 
