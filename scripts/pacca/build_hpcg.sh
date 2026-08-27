@@ -15,7 +15,8 @@
 # compilador del cluster.
 #
 # Uso: bash build_hpcg.sh [dir_salida]
-set -euo pipefail
+set -eo pipefail
+# ARC-126: sin "-u" a proposito (rompe module load / Lmod).
 
 output_root="${1:-/home/latorresn/hyperion-kernels}"
 src_dir="$output_root/src/hpcg"

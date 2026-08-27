@@ -16,12 +16,13 @@
 # catalogo CPU).
 #
 # Uso: bash build_lulesh.sh [dir_salida]
-set -euo pipefail
+set -eo pipefail
+# ARC-126: sin "-u" a proposito (rompe module load / Lmod).
 
 output_root="${1:-/home/latorresn/hyperion-kernels}"
 src_dir="$output_root/src/lulesh"
 
-module load gnu12/12.4.0 cmake 2>&1 || true
+module load gnu12/12.4.0 cmake/4.3.4 2>&1 || true
 export CXX=/opt/ohpc/pub/compiler/gcc/12.4.0/bin/g++
 export CC=/opt/ohpc/pub/compiler/gcc/12.4.0/bin/gcc
 
