@@ -1275,3 +1275,138 @@ kernels:
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
       pacca-a100: "sha256:c14771c18cfb8604611f7eda88f5520bc65b54b5b6481a977d442ca5468b1768"
+
+  # --- 2026-08-26: 9 sobrevivientes del tamizaje CPU v2 --------------------
+  # (screen_rajaperf_cpu_alpha_v2.sh, job 6575, 79 kernels de RAJAPerf a
+  # --memory-touched = 10x la LLC real de paccaA100 = 125829120 B, corrige
+  # el bug de tamaño del tamizaje v1 -- ver Estrategia_CPU_Fase2.md §6
+  # aviso de integridad y §6.quinquies). Todos con alpha < 0.226 y r2 > 0.95
+  # en el tamizaje; ESTA campaña es la que produce su etiqueta de verdad
+  # real (RAPL por ventana, no solo tiempo total). El wrapper fija
+  # --memory-touched al MISMO valor que el tamizaje, no un multiplicador
+  # recalculado en vivo -- el tamaño que se mide debe ser el que se tamizo.
+  - id: cpu_rajaperf_stream_mul
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_stream_mul
+    phase_label_hint: memory_bound  # tamizaje v2: alpha=0.078, r2=0.984
+    size_variant: memtouched_10xLLC
+    expected_runtime_seconds: 12  # medido F4=5.62s (tamizaje 6575), margen ~2x
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 157286400  # 150 MiB, margen sobre 125829120 B objetivo
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:ebb2d8a33910c426bb7d6b2cd37f816aa7b599effd272e39aed3002baee7f97b"
+
+  - id: cpu_rajaperf_stream_triad
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_stream_triad
+    phase_label_hint: memory_bound  # tamizaje v2: alpha=0.128, r2=0.982
+    size_variant: memtouched_10xLLC
+    expected_runtime_seconds: 7  # medido F4=3.07s, margen ~2x
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 157286400
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:16cad78ea30c5441ff092dcaeee8639f7409930153d42a8772bc69be62f85846"
+
+  - id: cpu_rajaperf_stream_add
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_stream_add
+    phase_label_hint: memory_bound  # tamizaje v2: alpha=0.147, r2=0.989
+    size_variant: memtouched_10xLLC
+    expected_runtime_seconds: 7  # medido F4=3.14s, margen ~2x
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 157286400
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:0514cbd6bcf79a84442ac5008f68053b365f4e40be4ea03e50f98db5bdeb015e"
+
+  - id: cpu_rajaperf_lcals_first_sum
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_lcals_first_sum
+    phase_label_hint: memory_bound  # tamizaje v2: alpha=0.113, r2=0.958
+    size_variant: memtouched_10xLLC
+    expected_runtime_seconds: 13  # medido F4=6.41s, margen ~2x
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 157286400
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:fae8e302d98204d6869fb27aa45132e4e667d1b399a118748cab27df1b117e1d"
+
+  - id: cpu_rajaperf_lcals_tridiag_elim
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_lcals_tridiag_elim
+    phase_label_hint: memory_bound  # tamizaje v2: alpha=0.125, r2=0.980
+    size_variant: memtouched_10xLLC
+    expected_runtime_seconds: 6  # medido F4=2.93s, margen ~2x
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 157286400
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:8a366a0ff0c611ec4b3fbaebd35cc642de46f7d2d6e104fec24f57e03fc0dd42"
+
+  - id: cpu_rajaperf_polybench_jacobi_1d
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_polybench_jacobi_1d
+    # OI=0.148 -- este mismo kernel fallo el tamizaje v1 (alpha=0.599,
+    # tamano por defecto dentro de la LLC de 39 MB de pacca01, comparado
+    # por error contra el nodo equivocado). A tamano correcto (10x LLC
+    # real de paccaA100) si cruza el umbral -- ver Estrategia_CPU_Fase2.md
+    # nota de integridad de §6.
+    phase_label_hint: memory_bound  # tamizaje v2: alpha=0.148, r2=0.970
+    size_variant: memtouched_10xLLC
+    expected_runtime_seconds: 11  # medido F4=5.42s, margen ~2x
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 157286400
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:809163331fad4ddfbfdb3691d29afc211fc278d5a790ac9ec020281ff7301145"
+
+  - id: cpu_rajaperf_polybench_fdtd_2d
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_polybench_fdtd_2d
+    # Mismo caso que JACOBI_1D arriba: fallo v1 (alpha=0.331, tamano
+    # incorrecto), pasa v2 (alpha=0.175). Es ademas el stencil que Hebbar
+    # & Milenkovic (649.fotonik3d) reportan con plateau real en la
+    # literatura -- coherente con que responda bien a tamano correcto.
+    phase_label_hint: memory_bound  # tamizaje v2: alpha=0.175, r2=0.976
+    size_variant: memtouched_10xLLC
+    expected_runtime_seconds: 5  # medido F4=1.11s, margen ~2x con piso razonable
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 157286400
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:04b614e2bad022ce27a22f2b455d181cb3434ca1234c04d94ad9396572f1c701"
+
+  - id: cpu_rajaperf_basic_daxpy
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_basic_daxpy
+    phase_label_hint: memory_bound  # tamizaje v2: alpha=0.161, r2=0.972
+    size_variant: memtouched_10xLLC
+    expected_runtime_seconds: 4  # medido F4=1.94s, margen ~2x
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 157286400
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:721280dad7639eeed6ba9673a500bb17944fcd712b30a658b999717cf288811a"
+
+  - id: cpu_rajaperf_basic_init3
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_basic_init3
+    phase_label_hint: memory_bound  # tamizaje v2: alpha=0.178, r2=0.963
+    size_variant: memtouched_10xLLC
+    expected_runtime_seconds: 5  # medido F4=2.18s, margen ~2x
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 157286400
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:6f876f5d61f408f68720581b9b0fdff8388d541a78bd179a395b7c4ae0b635f2"
