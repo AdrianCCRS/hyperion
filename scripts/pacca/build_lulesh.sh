@@ -22,6 +22,10 @@ set -eo pipefail
 output_root="${1:-/home/latorresn/hyperion-kernels}"
 src_dir="$output_root/src/lulesh"
 
+# cmake en paccaA100 necesita libjsoncpp.so.19, presente en pacca01 pero
+# no en paccaA100 (paquetes de sistema divergentes -- misma lección que
+# build_rajaperf_cuda.sh). Se usa la copia ya cacheada.
+export LD_LIBRARY_PATH="$HOME/yacacerest/libs_pacca01:${LD_LIBRARY_PATH:-}"
 module load gnu12/12.4.0 cmake/4.3.4 2>&1 || true
 export CXX=/opt/ohpc/pub/compiler/gcc/12.4.0/bin/g++
 export CC=/opt/ohpc/pub/compiler/gcc/12.4.0/bin/gcc
