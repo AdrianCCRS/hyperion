@@ -78,6 +78,13 @@ class KernelEntry:
     # calibradores (gpu_ert_probe_fp32/fp64) es -- ninguno de los dos se
     # puede inferir del resto del catálogo, así que se declara explícito.
     gpu_precision: str | None = None
+    # Selector CPU/GPU (pivote 2026-08-27): identifica la MISMA configuracion
+    # logica (operacion + dimensiones) entre su par cpu y su par gpu, p.ej.
+    # "gemm_M1024_N1024_K1024" para dual_gemm_M1024_cpu Y dual_gemm_M1024_gpu.
+    # No lo consume el orquestador (que ya despacha por device via el campo
+    # `device` de arriba); es el join key que usa el analisis posterior para
+    # armar el dataset nivel 2 (argmin EDP sobre {device}x{freq_level}).
+    config_id: str | None = None
 
     def __post_init__(self):
         if self.device not in ("cpu", "gpu"):
@@ -217,6 +224,7 @@ def load_catalog(catalog_path: str) -> dict[str, KernelEntry]:
             device=kernel.get("device", "cpu"),
             operational_intensity_flops_per_byte=kernel.get("operational_intensity_flops_per_byte"),
             gpu_precision=kernel.get("gpu_precision"),
+            config_id=kernel.get("config_id"),
         )
         if not isinstance(entry.exec_args, str):
             raise ValueError(f"CAT-06: exec_args de {entry.id!r} debe ser un string")

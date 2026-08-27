@@ -1,13 +1,17 @@
 #!/bin/bash
-# Compila los CUATRO binarios del selector CPU/GPU: cada operacion (GEMM, FFT)
-# con una implementacion de CPU y una de GPU, mismos parametros de CLI
-# (--size/--iterations) y mismo formato de salida, para que las campañas de
-# ambos lados sean comparables fila a fila.
+# Compila los OCHO binarios del selector CPU/GPU: cuatro operaciones (GEMM,
+# FFT, AXPY, Stencil Jacobi 2D) con una implementacion de CPU y una de GPU
+# cada una, mismos parametros de CLI (--size/--iterations) y mismo formato de
+# salida, para que las campañas de ambos lados sean comparables fila a fila.
 #
-#   gemm_cpu  <- kernels/dgemm/dgemm_bench.c        (OpenBLAS)
-#   gemm_gpu  <- kernels/dual/gemm_gpu_dispatch.cu  (cuBLAS + transferencias)
-#   fft_cpu   <- kernels/dual/fft_cpu_bench.c       (FFTW)
-#   fft_gpu   <- kernels/dual/fft_gpu_dispatch.cu   (cuFFT + transferencias)
+#   gemm_cpu     <- kernels/dgemm/dgemm_bench.c           (OpenBLAS)
+#   gemm_gpu     <- kernels/dual/gemm_gpu_dispatch.cu     (cuBLAS + transferencias)
+#   fft_cpu      <- kernels/dual/fft_cpu_bench.c          (FFTW)
+#   fft_gpu      <- kernels/dual/fft_gpu_dispatch.cu      (cuFFT + transferencias)
+#   axpy_cpu     <- kernels/dual/axpy_cpu_bench.c         (OpenBLAS BLAS-1)
+#   axpy_gpu     <- kernels/dual/axpy_gpu_dispatch.cu     (cuBLAS + transferencias)
+#   stencil_cpu  <- kernels/dual/stencil_cpu_bench.c      (OpenMP, kernel propio)
+#   stencil_gpu  <- kernels/dual/stencil_gpu_dispatch.cu  (CUDA, kernel propio)
 #
 # Los binarios *_gpu miden H2D+computo+D2H DENTRO de la ventana a proposito
 # (ver el comentario de cabecera de gemm_gpu_dispatch.cu): sin el costo de
@@ -57,11 +61,36 @@ echo "== fft_gpu (cuFFT) =="
     -o "$DEST/fft_gpu" \
     -lcufft
 
+echo "== axpy_cpu (OpenBLAS BLAS-1) =="
+gcc -O3 -march=native \
+    -I"$OPENBLAS_ROOT/include" \
+    kernels/dual/axpy_cpu_bench.c \
+    -o "$DEST/axpy_cpu" \
+    -L"$OPENBLAS_ROOT/lib" -lopenblas -lm
+
+echo "== axpy_gpu (cuBLAS) =="
+"$NVCC" -O3 -arch=$GPU_ARCH \
+    kernels/dual/axpy_gpu_dispatch.cu \
+    -o "$DEST/axpy_gpu" \
+    -lcublas
+
+echo "== stencil_cpu (OpenMP) =="
+gcc -O3 -march=native -fopenmp \
+    kernels/dual/stencil_cpu_bench.c \
+    -o "$DEST/stencil_cpu" \
+    -lm
+
+echo "== stencil_gpu (CUDA) =="
+"$NVCC" -O3 -arch=$GPU_ARCH \
+    kernels/dual/stencil_gpu_dispatch.cu \
+    -o "$DEST/stencil_gpu"
+
 echo
 echo "== binarios en $DEST =="
 ls -l "$DEST"
 echo
 echo "== checksums (para binary_checksum de los wrappers) =="
-sha256sum "$DEST"/gemm_cpu "$DEST"/gemm_gpu "$DEST"/fft_cpu "$DEST"/fft_gpu
+sha256sum "$DEST"/gemm_cpu "$DEST"/gemm_gpu "$DEST"/fft_cpu "$DEST"/fft_gpu \
+          "$DEST"/axpy_cpu "$DEST"/axpy_gpu "$DEST"/stencil_cpu "$DEST"/stencil_gpu
 echo
 echo BUILD_DUAL_DONE
