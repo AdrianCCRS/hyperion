@@ -32,10 +32,21 @@ con campaña completa, 8 con margen real de EDP confirmado**.
 | `Polybench_JACOBI_1D` | REF | 0.9681 (−1.37%) | campaña completa, job 6594 |
 | `npb_mg` | S3000 | 0.9927 (−0.73%) | campaña completa, 638/720 |
 | `Basic_DAXPY` | REF | 0.9932 (−0.21%) | campaña completa, job 6594 |
+| **`cpu_hpcg`** | **F2** | **0.9082 (−9.18%)** | campaña completa, jobs 6616+6617, 72/72. **Mayor margen del catálogo** — óptimo no monótono como `npb_mg` |
 | `ptrchase` | — | α=0.097 (F0–F1, r²=1.000) | campaña completa, 320/320 (sujeto latency-bound, no EDP tabulado igual) |
 
 `Stream_TRIAD`/`Stream_ADD` completaron campaña sin margen (EDP/F0=1.0,
-óptimo en F0) — confirmados sin viabilidad, no pendientes.
+óptimo en F0) — confirmados sin viabilidad, no pendientes. **`cpu_lulesh`
+igual** (EDP/F0≈1.0, óptimo en F0/REF).
+
+**Pivote de catálogo motivado por C8 (GAP → LULESH → HPCG): cerrado,
+negativo en mezcla de fase.** Los tres candidatos elegidos por criterio
+algorítmico (frontier de grafo, fases físicas por timestep, ciclo
+multigrid) salen prácticamente homogéneos en ventana (0.00–0.08% de
+mezcla, frente a 11.8–19.0% de `npb_bt`/`npb_lu`). El subconjunto con
+mezcla real aprovechable sigue siendo el mismo de siempre. **Sí produjo
+un resultado colateral valioso**: `cpu_hpcg` da el mayor margen de EDP
+del catálogo (−9.18%), aunque no por la razón que motivó buscarlo.
 
 **Hallazgo importante de esta campaña**: el α del tamizaje **no ordena**
 el ahorro real de EDP (`Stream_MUL`, el α más bajo, no es el de mayor

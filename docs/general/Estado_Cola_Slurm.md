@@ -47,7 +47,7 @@ después, entra detrás.
 | — | **6612** | Tamizaje α LULESH+HPCG | ✅ **COMPLETED**, 10/10, frecuencia dentro de 5% en las 10. **Resultado positivo**: LULESH α=0.533 r²=0.998, HPCG α=0.324 r²=0.903 — ambos en la banda intermedia (0.18–0.6) que faltaba |
 | — | **6615** | Campaña completa LULESH+HPCG, primer intento | ❌ **FAILED en 4s**: C02 (checksum) — el catálogo tenía el checksum del binario (`lulesh2.0`/`xhpcg`), pero `check_binary_checksum()` hashea `exec_path` (el wrapper). Corregido, relanzado como 6616 |
 | — | **6616** | Campaña completa LULESH+HPCG, 72 corridas | ⚠️ **FAILED por timeout INTERNO** (CAM-06, 16200s=4.5h), no por Slurm (tenía 5h) ni por rechazo de dato: **62/72 aceptadas, 0 rechazadas** antes del corte |
-| corriendo | **6617** | Reanudación automática de 6616 (ARC-142: detecta las 62 corridas ya aceptadas, solo ejecuta las 10 que faltan) | RUNNING en `paccaA100`, mismo directorio de salida, nada se perdió |
+| — | **6617** | Reanudación automática de 6616 (ARC-142) | ✅ **COMPLETED**, 10/10 restantes, 0 rechazadas — **matriz 72/72 completa**. Resultado: mezcla de fase negativa en ambos (0.00–0.08%), pero `cpu_hpcg` da −9.18% EDP en F2, el mayor margen del catálogo. Ver `Estrategia_CPU_Fase2.md` §7.ter |
 
 ## Jobs propios, orden real de ejecución (histórico, mañana 2026-08-26)
 

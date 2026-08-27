@@ -756,6 +756,52 @@ como **mecanismo secundario** para los casos con mezcla real —
 `npb_lu`, `npb_bt` y `rajaperf_polybench_3mm_omp`. No es una arquitectura
 nueva: es priorizar la que el dato respalda, sin descartar la otra.
 
+## 7.ter LULESH y HPCG: negativo en mezcla de fase, pero HPCG da el mayor margen de EDP del catálogo (job 6616+6617, 2026-08-27)
+
+Campaña completa, 72/72 corridas aceptadas (62 en el primer intento, 0
+rechazadas; 10 restantes tras que el timeout INTERNO de la campaña
+—4.5h, no el de Slurm— cortara antes de tiempo; reanudación automática
+del orquestador, ARC-142, completó el resto sin repetir nada).
+
+**Mezcla de fase intra-corrida: NEGATIVO, con número.** Ambos kernels
+salen prácticamente homogéneos en los seis niveles — fracción de ventana
+minoritaria entre 0.00% y 0.08%, muy por debajo del 11.8%/19.0% real de
+`npb_bt`/`npb_lu` (§7). Ni las fases físicas explícitas de LULESH (por
+diseño del algoritmo) ni el ciclo multigrid de HPCG (SpMV/suavizado/
+restricción) producen alternancia de régimen aprovechable con estas
+features. **Con esto, GAP + LULESH + HPCG — los tres candidatos del
+pivote de catálogo motivado por C8 — cierran negativo en el objetivo que
+los motivó**: el subconjunto con mezcla real aprovechable sigue siendo
+`npb_lu`/`npb_bt`/`rajaperf_polybench_3mm_omp`, tal como ya lo confirmó
+C8 (§7.bis). No es un resultado menor: tres intentos deliberados,
+dirigidos por criterio algorítmico razonado (frontier de grafo, fases
+físicas por timestep, ciclo multigrid), y ninguno reprodujo el fenómeno
+— refuerza que la mezcla real de fase es una propiedad específica de
+esos tres kernels y del desplazamiento del ridge a bajo reloj (ARC-175),
+no algo que cualquier kernel "complejo" produzca por tener múltiples
+etapas algorítmicas.
+
+**Margen de EDP: mixto, con el mejor resultado del catálogo hasta hoy.**
+
+| kernel | mejor nivel | EDP/F0 | lectura |
+|---|---|---:|---|
+| **`cpu_hpcg`** | **F2** | **0.9082 (−9.18%)** | óptimo real no monótono (F1 peor que F0, F2 mucho mejor) — mismo patrón que `npb_mg`, pero el margen más grande confirmado en el catálogo |
+| `cpu_lulesh` | REF/F0 | 0.9999–1.0000 | sin margen, degrada monótono como la mayoría del catálogo original |
+
+Confirma otra vez el hallazgo de §6.octies: **el α de tamizaje no predice
+la magnitud ni siquiera la existencia del margen real de EDP.** LULESH
+tenía el α más alto de los dos candidatos (0.533 vs 0.324 de HPCG) y
+terminó sin ningún margen; HPCG, con α más bajo y ajuste más ruidoso
+(r²=0.903), dio el mejor resultado del catálogo. El tamizaje separa
+candidatos de compute-bound puro, no ordena cuáles tendrán mínimo real.
+
+**Balance del catálogo CPU tras este resultado**: 9 kernels con margen
+real de EDP confirmado (`npb_mg`, los 6 de RAJAPerf v2 con margen,
+`cpu_hpcg`), de 19 con campaña completa. `ptrchase` sigue aparte como
+sujeto latency-bound (α bajo umbral, no tabulado en EDP de la misma
+forma). `cpu_lulesh`, `Stream_TRIAD`, `Stream_ADD` y los 7 originales
+compute-bound completan la lista sin margen.
+
 ## 7.bis El clasificador de ventana SÍ funciona donde hay fase real (C8, 2026-08-26)
 
 Pregunta directa, motivada por el texto literal del Objetivo 2 ("clasificar
