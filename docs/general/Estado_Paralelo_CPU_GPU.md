@@ -11,27 +11,29 @@ modelos independientes.
 
 ## MODELO CPU
 
-**Catálogo**: 9 kernels originales (Clase B) + **11 confirmados viables**
-(2 de campaña completa + 9 del tamizaje v2, α<0.226, aún sin campaña
-propia).
+**Catálogo**: 9 kernels originales (Clase B) + 9 del tamizaje v2, **17
+con campaña completa, 8 con margen real de EDP confirmado**.
 
-| viable | α / resultado | fuente |
-|---|---:|---|
-| `npb_mg` | óptimo real en S3000, EDP/F0=0.9927 | campaña completa, 638/720 |
-| `ptrchase` | 0.097 (F0–F1, r²=1.000) | campaña completa, 320/320 |
-| `Stream_MUL` | 0.078 | tamizaje v2 |
-| `Lcals_FIRST_SUM` | 0.113 | tamizaje v2 |
-| `Lcals_TRIDIAG_ELIM` | 0.125 | tamizaje v2 |
-| `Stream_TRIAD` | 0.128 | tamizaje v2 |
-| `Stream_ADD` | 0.147 | tamizaje v2 |
-| `Polybench_JACOBI_1D` | 0.148 | tamizaje v2 (v1 fallaba: 0.599, tamaño incorrecto) |
-| `Basic_DAXPY` | 0.161 | tamizaje v2 |
-| `Polybench_FDTD_2D` | 0.175 | tamizaje v2 (v1 fallaba: 0.331, tamaño incorrecto) |
-| `Basic_INIT3` | 0.178 | tamizaje v2 |
+| viable (margen real) | mejor nivel | EDP/F0 | fuente |
+|---|---|---:|---|
+| `Lcals_FIRST_SUM` | F2 | 0.9513 (**−7.09%**) | campaña completa, job 6594, 324/324 |
+| `Stream_MUL` | F1 | 0.9548 (−4.92%) | campaña completa, job 6594 |
+| `Basic_INIT3` | F1 | 0.9698 (−4.19%) | campaña completa, job 6594 |
+| `Lcals_TRIDIAG_ELIM` | F1 | 0.9798 (−3.46%) | campaña completa, job 6594 |
+| `Polybench_FDTD_2D` | REF | 0.9647 (−1.62%) | campaña completa, job 6594 |
+| `Polybench_JACOBI_1D` | REF | 0.9681 (−1.37%) | campaña completa, job 6594 |
+| `npb_mg` | S3000 | 0.9927 (−0.73%) | campaña completa, 638/720 |
+| `Basic_DAXPY` | REF | 0.9932 (−0.21%) | campaña completa, job 6594 |
+| `ptrchase` | — | α=0.097 (F0–F1, r²=1.000) | campaña completa, 320/320 (sujeto latency-bound, no EDP tabulado igual) |
 
-Los 9 del tamizaje v2 **todavía no tienen campaña propia** — el tamizaje
-solo mide α con tiempo/RAPL, falta la campaña completa con etiqueta de
-verdad para confirmarlos como `npb_mg`/`ptrchase`.
+`Stream_TRIAD`/`Stream_ADD` completaron campaña sin margen (EDP/F0=1.0,
+óptimo en F0) — confirmados sin viabilidad, no pendientes.
+
+**Hallazgo importante de esta campaña**: el α del tamizaje **no ordena**
+el ahorro real de EDP (`Stream_MUL`, el α más bajo, no es el de mayor
+ahorro; `Stream_TRIAD/ADD`, α medio, dan cero). El tamizaje sirvió para
+separar candidatos de los 70 compute-bound, no para predecir magnitud —
+ver detalle en `Estrategia_CPU_Fase2.md` §6.octies.
 
 Los otros 7 originales + 70 del tamizaje v2 son compute-bound genuinos —
 no artefacto de tamaño ya corregido (10× LLC real). Excepción parcial:
@@ -47,8 +49,10 @@ de escritura de frecuencia en `pacca01`. Huella de caché a reloj nativo
 **El modelo** (piloto LOKO, dataset viejo, 8 kernels): pierde contra no
 hacer nada (EDP loss 1.0027 vs trivial 1.0010). Causa raíz medida: N
 efectivo = kernels de entrenamiento, no filas; RMSE 92× el margen
-disponible. No se ha reentrenado — pendiente de construir campaña sobre
-los 9 nuevos candidatos.
+disponible. **La campaña que faltaba para atacarlo ya está lista**
+(job 6594, 17 kernels con etiqueta real) — pendiente el reentrenamiento
+con features corregidas (quitar `ref_running_ratio`), primer intento
+real desde el diagnóstico de causa raíz.
 
 ---
 

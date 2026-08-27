@@ -549,6 +549,60 @@ por `run_gap_triage_pacca01.sbatch`.
 > candidato en un terreno genuinamente incierto, no en una apuesta
 > segura como se esperaba. Vale medirlo en `paccaA100` de todas formas.
 
+## 6.octies Campaña real sobre los 9 sobrevivientes: 7 de 9 tienen margen (job 6594, 2026-08-26)
+
+**324/324 corridas aceptadas, 0 rechazos, matriz completa** (9 kernels ×
+6 niveles × 6 reps). Único aviso: CAL-07 no válido en la calibración de
+`ert_probe` en los 5 niveles (traza entera dentro de `grace_seconds`) —
+no bloquea desde ARC-167, solo advertencia.
+
+**Resultado, óptimo real de EDP (RAPL pkg+dram) por kernel:**
+
+| kernel | mejor nivel | EDP/F0 | ahorro | α de tamizaje |
+|---|---|---:|---:|---:|
+| `Lcals_FIRST_SUM` | F2 | 0.9513 | **7.09%** | 0.113 |
+| `Lcals_TRIDIAG_ELIM` | F1 | 0.9798 | 3.46% | 0.125 |
+| `Stream_MUL` | F1 | 0.9548 | 4.92% | 0.078 |
+| `Basic_INIT3` | F1 | 0.9698 | 4.19% | 0.178 |
+| `Polybench_FDTD_2D` | REF | 0.9647 | 1.62% | 0.175 |
+| `Polybench_JACOBI_1D` | REF | 0.9681 | 1.37% | 0.148 |
+| `Basic_DAXPY` | REF | 0.9932 | 0.21% | 0.161 |
+| `Stream_TRIAD` | F0 | 1.0000 | 0.00% | 0.128 |
+| `Stream_ADD` | F0 | 1.0000 | 0.00% | 0.147 |
+
+**Tres lecturas, ninguna trivial:**
+
+1. **7 de 9 kernels salen del catálogo con margen real.** El catálogo
+   pasa de "1 kernel con margen" (`npb_mg`, −0.73%) a **8 con margen**
+   (`npb_mg` + estos 7), con ahorros hasta 10× mayores (7.09% frente a
+   0.73%). Es el mejor resultado del eje CPU hasta hoy.
+2. **α de tamizaje NO ordena el ahorro real** — y eso es un hallazgo, no
+   un fallo del tamizaje. `Stream_MUL` tiene el α más bajo (0.078) pero
+   no el mayor ahorro; `Lcals_FIRST_SUM` (α=0.113, segundo más bajo) da
+   el mejor resultado; `Stream_TRIAD`/`Stream_ADD` (α medio, 0.128/0.147)
+   dan **cero**; `Basic_DAXPY` (α=0.161, casi el más alto) también da
+   casi cero. α mide sensibilidad de *tiempo* al reloj bajo un ajuste de
+   Amdahl sobre todo el rango F0–F4; el óptimo de *EDP* es otra cosa —
+   el punto donde el ahorro de energía todavía compensa el costo de
+   tiempo, que puede caer en F1/F2 aunque α sea mediocre. El tamizaje
+   cumplió su función real (separar candidatos de los 70 compute-bound),
+   no la de predecir la magnitud del ahorro.
+3. **Esto responde, con datos, la duda sobre diversidad interna que
+   se planteó antes de correr esta campaña** (¿los 9 sobrevivientes son
+   demasiado parecidos entre sí?): en **features de entrada** sí se
+   agrupan (mismo tipo de kernel, α en banda estrecha); en **etiqueta de
+   salida** (nivel óptimo, magnitud de ahorro) **no** — hay tres
+   resultados distintos (F1, F2, REF/F0-sin-margen) y un rango de 0% a
+   7.09%. Para el modelo esto es la señal correcta: variación real en el
+   objetivo que aprender, no solo en el número de kernels.
+
+**Pendiente:** reentrenar el piloto LOKO sobre el catálogo ampliado
+(17 kernels: los 8 originales con campaña válida — `npb_mg` viable,
+7 restantes sin margen — más estos 9), con las dos correcciones ya
+identificadas (quitar `ref_running_ratio`, sin varianza; reconsiderar
+dimensionalidad). Es el primer intento real desde el diagnóstico de causa
+raíz de `loko_feature_diagnostic.py`.
+
 ## 6.septies Estudio de candidatos futuros para llenar el hueco de diversidad (2026-08-26, sin lanzar)
 
 **Motivo.** Los 9 sobrevivientes del tamizaje v2 (§6) no son tan variables
