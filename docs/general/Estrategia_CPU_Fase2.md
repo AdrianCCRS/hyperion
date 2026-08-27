@@ -763,6 +763,29 @@ como **mecanismo secundario** para los casos con mezcla real —
 `npb_lu`, `npb_bt` y `rajaperf_polybench_3mm_omp`. No es una arquitectura
 nueva: es priorizar la que el dato respalda, sin descartar la otra.
 
+## 7.quater Contexto temporal (media móvil) en el clasificador de ventana: ayuda poco, no cierra el problema (2026-08-27)
+
+Pregunta motivada al explicar por qué C8 techa en ~0.5: las 7 features
+son de una sola ventana aislada, sin memoria de las ventanas anteriores
+— una fase es, por definición, un patrón que persiste en el tiempo.
+`train_phase_temporal.py` agrega la media móvil causal (20 ventanas,
+~20ms) de cada feature y repite C8 (mismos 3 kernels, mismo LOKO):
+
+| variante | F1 macro (`extra_trees`) | `npb_bt` | `npb_lu` | `3mm_omp` |
+|---|---:|---:|---:|---:|
+| solo instantánea (baseline) | 0.524 | 0.782 | 0.639 | 0.150 |
+| instantánea + media móvil | 0.535 | 0.785 | 0.634 | 0.186 |
+| solo media móvil | **0.553** | 0.783 | **0.689** | 0.187 |
+
+Mejora real pero modesta (+0.03), concentrada en `npb_lu` (su mezcla es
+un desplazamiento *gradual* del ridge — el contexto temporal sí lo capta).
+**`3mm_omp` no mejora en ninguna variante** (0.15–0.19 siempre): confirma
+que su problema no es de features sino de qué kernels están en el
+entrenamiento — el modelo aprende el mecanismo de `npb_bt`/`npb_lu`
+(reloj bajo → memory-bound) que es el inverso del suyo, y ninguna feature
+nueva enseña un mecanismo que ningún kernel de entrenamiento tiene. La
+media móvil queda como mejora barata a conservar, no como solución.
+
 ## 7.ter LULESH y HPCG: negativo en mezcla de fase, pero HPCG da el mayor margen de EDP del catálogo (job 6616+6617, 2026-08-27)
 
 Campaña completa, 72/72 corridas aceptadas (62 en el primer intento, 0
