@@ -55,8 +55,16 @@ from classifier.features import pair_dataset  # noqa: E402
 CAMPAIGNS = Path.home() / "hyperion-results/campaigns"
 
 # --- CPU -----------------------------------------------------------------
-CPU_BASE = CAMPAIGNS / "pacca_cpu_final_attempt03_20260820_arc174"
-CPU_CID = "pacca_cpu_final_attempt03_20260820"
+# Dos campañas independientes, mismo protocolo (REF/F0-F4, RAPL pkg+dram):
+# los 9 kernels originales (arc174) + los 9 sobrevivientes del tamizaje v2
+# (job 6594, 2026-08-26, 324/324 aceptadas -- Estrategia_CPU_Fase2.md
+# §6.octies). `collect_runs()` ya es agnóstica al directorio (extrae
+# kernel/nivel/repetición del NOMBRE de la carpeta de corrida, no del
+# prefijo de campaign_id), así que combinarlas es concatenar sus filas.
+CPU_BASES = [
+    CAMPAIGNS / "pacca_cpu_final_attempt03_20260820_arc174",
+    CAMPAIGNS / "pacca_cpu_screen_v2_survivors_20260826",
+]
 CPU_REF_LEVEL = "F0"
 
 # --- GPU -----------------------------------------------------------------
@@ -426,11 +434,11 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.axis == "gpu":
-        base, ref_level = GPU_BASE, GPU_REF_LEVEL
+        bases, ref_level = [GPU_BASE], GPU_REF_LEVEL
         feature_cols = list(pair_dataset.GPU_FEATURES)
         exclude = set(GPU_EXCLUDE)
     else:
-        base, ref_level = CPU_BASE, CPU_REF_LEVEL
+        bases, ref_level = CPU_BASES, CPU_REF_LEVEL
         feature_cols = list(pair_dataset.CPU_FEATURES)
         exclude = set()
     # Los kernels de calibracion nunca son pliegues del LOKO -- ver
@@ -441,11 +449,20 @@ def main() -> int:
     print(check_v5_anti_leak())
     print()
 
-    print(f"=== Agregando corridas de {base.name} (streaming) ===")
-    runs = collect_runs(base, args.axis, feature_cols)
-    print(f"corridas leidas: {len(runs)}  "
-          f"(saltadas sin match de nombre: {runs.attrs['skipped_no_match']}, "
-          f"ilegibles/incompletas: {runs.attrs['skipped_unreadable']})")
+    run_frames = []
+    total_no_match = total_unreadable = 0
+    for base in bases:
+        print(f"=== Agregando corridas de {base.name} (streaming) ===")
+        part = collect_runs(base, args.axis, feature_cols)
+        print(f"  corridas leidas: {len(part)}  "
+              f"(saltadas sin match de nombre: {part.attrs['skipped_no_match']}, "
+              f"ilegibles/incompletas: {part.attrs['skipped_unreadable']})")
+        total_no_match += part.attrs["skipped_no_match"]
+        total_unreadable += part.attrs["skipped_unreadable"]
+        run_frames.append(part)
+    runs = pd.concat(run_frames, ignore_index=True) if len(run_frames) > 1 else run_frames[0]
+    print(f"total combinado: {len(runs)} corridas de {len(bases)} campaña(s) "
+          f"(sin match: {total_no_match}, ilegibles: {total_unreadable})")
     if exclude:
         before = len(runs)
         runs = runs[~runs["kernel_ref"].isin(exclude)].reset_index(drop=True)

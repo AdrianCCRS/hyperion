@@ -55,10 +55,15 @@ def assert_no_target_leak(feature_cols: list[str]) -> None:
 
 
 # Características CPU: las mismas siete de train_phase.py (ninguna
-# requiere uncore), promediadas sobre la corrida de referencia completa.
+# requiere uncore), promediadas sobre la corrida de referencia completa,
+# MENOS `running_ratio`. Diagnóstico medido (job 6535,
+# `loko_feature_diagnostic.py`, ver Estrategia_GPU_Fase2.md §7 riesgo 4):
+# varianza cero, intra y entre kernels -- ocupa un grado de libertad sin
+# aportar señal, y con 8-17 kernels efectivos p≈n ya es un problema por sí
+# solo (no hay margen para features que no separan nada).
 CPU_FEATURES = [
     "ipc", "mpki", "llc_miss_rate", "stall_backend_ratio",
-    "ips", "running_ratio", "freq_khz_observed",
+    "ips", "freq_khz_observed",
 ]
 
 # Características GPU: telemetría NVML disponible en un solo nivel de
