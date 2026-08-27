@@ -295,6 +295,7 @@ def run_loko(
     pairs: pd.DataFrame,
     feature_cols: list[str],
     ref_level: str,
+    action_levels: list[str] | None = None,
 ) -> dict:
     """Entrena las dos regresiones de §4 (energy_ratio, time_ratio) bajo
     LOKO y compara la politica resultante contra la mejor constante
@@ -304,6 +305,17 @@ def run_loko(
     en la corrida de REFERENCIA (prefijo `ref_`) mas el nivel candidato
     codificado como su fraccion nominal de reloj -- nada de la corrida
     candidata entra al modelo.
+
+    `action_levels` restringe QUE niveles se ofrecen como opcion al
+    modelo (oraculo, constante honesta, argmin, y el RMSE que fija el
+    umbral de accion) -- no que datos entrenan los regresores, que siguen
+    viendo todo el rango. Motivo (medido 2026-08-26, dataset de 17
+    kernels): F3/F4 llegan a EDP=8x-12x en los kernels compute-bound, y
+    ese error domina el RMSE de entrenamiento aunque las predicciones en
+    F0-F2 sean buenas -- el umbral de seguridad nunca se dispara porque
+    compara una ganancia real de unos pocos % contra un RMSE inflado por
+    una region que ninguna politica razonable visitaria. Sin restriccion,
+    `action_levels=None` reproduce el comportamiento anterior exacto.
     """
     from sklearn.ensemble import GradientBoostingRegressor
 
@@ -314,7 +326,8 @@ def run_loko(
     pairs["level_code"] = pairs["freq_level_id"].map(level_index)
 
     edp_table = edp_by_level_table(pairs, ref_level)
-    oracle = edp_table.min(axis=1)
+    eval_levels = [lv for lv in (action_levels or levels) if lv in edp_table.columns]
+    oracle = edp_table[eval_levels].min(axis=1)
 
     chosen_by_model: dict[str, float] = {}
     chosen_level_by_model: dict[str, str] = {}
@@ -347,12 +360,14 @@ def run_loko(
         # pliegues de entrenamiento, nunca del kernel excluido -- no es un
         # hiperparametro sintonizado mirando el test, que seria
         # exactamente la trampa que V6 existe para impedir.
+        train_mask = train["freq_level_id"].isin(eval_levels).to_numpy()
         edp_train_pred = (
-            energy_model.predict(x_train) * time_model.predict(x_train)
+            energy_model.predict(x_train[train_mask])
+            * time_model.predict(x_train[train_mask])
         )
         edp_train_true = (
-            train["energy_ratio"].to_numpy(dtype=float)
-            * train["time_ratio"].to_numpy(dtype=float)
+            train["energy_ratio"].to_numpy(dtype=float)[train_mask]
+            * train["time_ratio"].to_numpy(dtype=float)[train_mask]
         )
         action_threshold = float(
             np.sqrt(np.mean((edp_train_pred - edp_train_true) ** 2))
@@ -363,7 +378,7 @@ def run_loko(
         # como observacion de referencia -- en produccion el daemon vera
         # una sola corrida, no un promedio.
         per_level_pred: dict[str, float] = {}
-        for level in levels:
+        for level in eval_levels:
             subset = test[test["freq_level_id"] == level]
             if subset.empty:
                 continue
@@ -407,7 +422,7 @@ def run_loko(
         np.array([chosen_by_gated[k] for k in common_gated]),
         oracle.loc[common_gated].to_numpy(),
     )
-    honest = protocol.honest_constant_baseline(edp_table)
+    honest = protocol.honest_constant_baseline(edp_table[eval_levels])
 
     return {
         "edp_table": edp_table,
@@ -431,7 +446,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--axis", choices=["cpu", "gpu"], required=True)
     parser.add_argument("--out-json", type=Path, default=None)
+    parser.add_argument(
+        "--action-levels", default=None,
+        help="Niveles separados por coma que el modelo puede elegir de "
+             "verdad (oraculo/constante/umbral); por defecto todos. Ej. "
+             "'REF,F0,F1,F2' para excluir F3/F4 de la region accionable.",
+    )
     args = parser.parse_args()
+    action_levels = args.action_levels.split(",") if args.action_levels else None
 
     if args.axis == "gpu":
         bases, ref_level = [GPU_BASE], GPU_REF_LEVEL
@@ -481,7 +503,7 @@ def main() -> int:
           f"{pairs.attrs.get('dropped_no_ref')}")
     print()
 
-    result = run_loko(pairs, feature_cols, ref_level)
+    result = run_loko(pairs, feature_cols, ref_level, action_levels=action_levels)
 
     print("=== EDP relativo por kernel y nivel (1.0 = igual que la referencia) ===")
     print(result["edp_table"].round(4).to_string())
