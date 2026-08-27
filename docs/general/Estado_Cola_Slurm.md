@@ -42,7 +42,7 @@ después, entra detrás.
 | orden | job | qué hace | estado |
 |---|---|---|---|
 | — | **6594** | Campaña completa (etiqueta de verdad real) sobre los 9 sobrevivientes del tamizaje CPU v2 — 324 corridas | ✅ **COMPLETED**, 324/324 aceptadas, 0 rechazos. **7 de 9 kernels con margen real de EDP** (hasta −7.09%) — ver `Estrategia_CPU_Fase2.md` §6.octies |
-| corriendo | **6595** | Tamizaje α GPU v2 — 43 candidatos memory-bound de la clasificación DRAM%/SM% (job 6571), no 6 elegidos a mano | RUNNING en `paccaA100`, arrancó solo vía `--dependency=afterany:6594` |
+| — | **6595** | Tamizaje α GPU v2 — 43 candidatos memory-bound de la clasificación DRAM%/SM% (job 6571), no 6 elegidos a mano | **CANCELADO a propósito (2026-08-26 noche)**: le cedimos el nodo ~10 min a los compañeros del otro proyecto. Se relanza apenas liberen |
 
 ## Jobs propios, orden real de ejecución (histórico, mañana 2026-08-26)
 
