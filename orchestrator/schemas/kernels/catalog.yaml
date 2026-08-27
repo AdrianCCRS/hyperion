@@ -1447,3 +1447,33 @@ kernels:
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
       pacca-a100: "sha256:008adcadba7842d23df221144068ea7b212642e27ed505cca90918d907d21107"
+
+  - id: cpu_gap_bfs
+    suite: GAP-Benchmark
+    role: dataset
+    exec_path: bin/cpu_gap_bfs
+    # Tamizaje (job 6601) dio alpha=0.738 agregado -- compute-bound en
+    # tiempo total. Esta campaña completa mide algo distinto: si existen
+    # ventanas MINORITARIAS memory-bound dentro de la corrida (frontier
+    # temprano del BFS), pregunta que el tamizaje nunca contestó.
+    phase_label_hint: intermedio # que lo diga la medicion real
+    size_variant: kronecker_scale22
+    expected_runtime_seconds: 40  # medido ~7.4s nativo sin candado de reloj, margen amplio para F4
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 700000000
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:121296ae0432efdc32db94b119c2af996c6cf62e34e947d0a08a3d55a9017619"
+
+  - id: cpu_gap_pr
+    suite: GAP-Benchmark
+    role: dataset
+    exec_path: bin/cpu_gap_pr
+    phase_label_hint: intermedio # tamizaje (job 6601): alpha=0.690 agregado -- que lo diga la medicion real por ventana
+    size_variant: kronecker_scale22
+    expected_runtime_seconds: 40  # medido ~7.8s nativo, margen amplio para F4
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 700000000
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:91961924f09aae059f485b8ac04604c3bf60e29d2a925e2b932d235f3bbeb60f"
