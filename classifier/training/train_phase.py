@@ -63,7 +63,7 @@ READ_COLS = [
 ]
 
 
-def load(per_run_sample: int, seed: int) -> pd.DataFrame:
+def load(per_run_sample: int, seed: int, kernels: list[str] | None = None) -> pd.DataFrame:
     """Carga la matriz, submuestreando por corrida.
 
     El submuestreo es por CORRIDA y no global para que ningún kernel ni
@@ -72,7 +72,7 @@ def load(per_run_sample: int, seed: int) -> pd.DataFrame:
     """
     rng = np.random.default_rng(seed)
     frames = []
-    for kernel in KERNELS:
+    for kernel in (kernels or KERNELS):
         for level in LEVELS:
             for rep in range(1, 11):
                 path = BASE / f"{CID}__{kernel}__{level}__rep{rep:02d}" / "windows.csv"
@@ -139,7 +139,15 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--per-run-sample", type=int, default=2000)
     parser.add_argument("--seed", type=int, default=20260806)
+    parser.add_argument(
+        "--kernels", default=None,
+        help="Lista separada por coma para restringir el subconjunto de "
+             "kernels (C8: solo los que muestran mezcla real de fase, "
+             "'npb_lu,npb_bt,rajaperf_polybench_3mm_omp'). Por defecto, "
+             "los 9 del catálogo original.",
+    )
     args = parser.parse_args()
+    kernels = args.kernels.split(",") if args.kernels else None
 
     from sklearn.metrics import f1_score
 
@@ -147,7 +155,7 @@ def main() -> None:
     if leaking:
         raise SystemExit(f"features con fuga de etiqueta: {sorted(leaking)}")
 
-    df = load(args.per_run_sample, args.seed)
+    df = load(args.per_run_sample, args.seed, kernels=kernels)
     print(f"matriz: {len(df):,} ventanas | {df['kernel_ref'].nunique()} kernels")
     print(f"features ({len(FEATURES)}): {', '.join(FEATURES)}")
     print(f"distribución de fase: {dict(df[LABEL].value_counts())}\n")
