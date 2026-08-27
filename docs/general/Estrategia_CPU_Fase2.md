@@ -715,6 +715,53 @@ como **mecanismo secundario** para los casos con mezcla real —
 `npb_lu`, `npb_bt` y `rajaperf_polybench_3mm_omp`. No es una arquitectura
 nueva: es priorizar la que el dato respalda, sin descartar la otra.
 
+## 7.bis El clasificador de ventana SÍ funciona donde hay fase real (C8, 2026-08-26)
+
+Pregunta directa, motivada por el texto literal del Objetivo 2 ("clasificar
+(...) las fases de ejecución"): el resultado de §5.bis de
+`resultados_compuertas_fase2.md` (F1 macro 0.393 vs. 0.371 trivial, sobre
+los 9 kernels completos) mostraba que el clasificador de ventana no le
+ganaba al trivial — pero ese número mezcla 6 kernels 100% homogéneos con
+los 3 que sí tienen mezcla, y un modelo LOKO no tiene de dónde aprender
+fase en un kernel que nunca cambia de clase. La pregunta pendiente era si
+el fracaso era de las *features/modelo* o de la *composición del
+catálogo de prueba*.
+
+**Se entrenó `train_phase.py` (mismas 7 features, mismo protocolo LOKO,
+sin CAP_PERFMON) restringido a los 3 kernels con mezcla real —
+`npb_lu` (19.0%), `npb_bt` (11.8%), `rajaperf_polybench_3mm_omp` (3.2%).
+360 000 ventanas, sin necesitar ningún kernel nuevo: el dato ya existía
+en la campaña `arc174`.**
+
+| modelo | F1 macro | vs. trivial (0.170) |
+|---|---:|---:|
+| `extra_trees` | **0.538** | **3.2×** |
+| `random_forest` | 0.518 | 3.0× |
+| regresión logística | 0.490 | 2.9× |
+| árbol prof. 6 | 0.427 | 2.5× |
+| árbol prof. 1 | 0.321 | 1.9× |
+| mayoritaria (trivial) | 0.170 | — |
+
+Por pliegue, `extra_trees` generaliza fuerte a un kernel nunca visto:
+0.783 en el pliegue `npb_bt` (entrenado con `npb_lu`+`3mm_omp`), 0.643 en
+`npb_lu`. El pliegue más débil es `3mm_omp` (0.187) — es también el que
+tiene menos mezcla (3.2%, la clase minoritaria casi no aparece ni para
+entrenar ni para evaluar), consistente con el patrón, no una excepción.
+
+**Lectura para el Objetivo 2, sin sobrevender:** el fracaso de §5.bis no
+era de las features ni del modelo — era que 6 de 9 kernels del catálogo
+son homogéneos de principio a fin, y eso ahoga la señal de los otros 3
+en el promedio. Donde el fenómeno que el objetivo pide clasificar existe
+de verdad, **el clasificador lo aprende y generaliza a un kernel nuevo**,
+con las mismas 7 features baratas y el mismo protocolo LOKO estricto. Eso
+es evidencia directa a favor de la lectura literal del Objetivo 2, no
+solo de su reinterpretación por carga (§4/§7) — **las dos cosas conviven
+en el catálogo actual, sin necesitar `GUPS`/`HPCG`/`LULESH`/`PARSEC`
+(§6.septies) para demostrarlo.** Esos candidatos siguen valiendo como
+trabajo futuro para ampliar el subconjunto con mezcla real más allá de 3
+kernels, pero ya no son necesarios para el veredicto de "¿se puede,
+cuando el fenómeno existe?" — esa pregunta ya tiene respuesta.
+
 ## 8. Mapeo a los Objetivos Específicos
 
 | Objetivo | Estado | Evidencia |
@@ -737,7 +784,7 @@ nueva: es priorizar la que el dato respalda, sin descartar la otra.
 | **C5** | `REF` ≡ gobernador nativo activo (§4) | Leer `scaling_governor` en cada corrida, no asumirlo | `performance` en los 6 CPUs delegados | La comparación del Objetivo 4 no es contra lo que se afirma: corregir antes de reportar |
 | **C6** | Anti-fuga de etiqueta (§1) | Test unitario: inyectar a propósito una columna `FORBIDDEN` | El test **falla** ruidosamente | El guardarraíl no protege: todo resultado del modelo queda invalidado hasta arreglarlo |
 | **C7** | ¿La arquitectura corregida mejora sobre el trivial? (§5.3) | Reentrenar por carga, LOKO, contra el predictor trivial (0.371 F1 macro) y contra la mejor constante elegida **solo en folds de entrenamiento** | Supera al trivial de forma significativa, no por décimas | La granularidad por carga tampoco alcanza en CPU: el aporte del eje CPU es la caracterización (Objetivo 1), y hay que decirlo |
-| **C8** | Mecanismo secundario por ventana (§7) | Entrenar solo sobre `npb_lu`/`npb_bt`/`3mm_omp`, que sí tienen mezcla | Mejora sobre el trivial *dentro* de ese subconjunto | La mezcla existe pero no es aprendible con estas features: documentarlo como límite medido |
+| **C8** | Mecanismo secundario por ventana (§7) | Entrenar solo sobre `npb_lu`/`npb_bt`/`3mm_omp`, que sí tienen mezcla | Mejora sobre el trivial *dentro* de ese subconjunto | **PASA (2026-08-26), y con margen grande.** F1 macro 0.538 (`extra_trees`) frente a 0.170 de la mayoritaria — 3.2× mejor, no una diferencia de décimas. Ver §7.bis |
 | **C9** | Latencia de inferencia (Objetivo 2) | p50/p99 de una inferencia (ya medido antes: 103 µs árbol, 33 ms ensembles) | p99 « período de decisión del daemon | Descartar los ensembles y quedarse con árbol/regresión, como ya sugieren los datos previos |
 | **C10** | Consistencia documento↔dato | Reejecutar `cpu_policy_headroom.py` y comparar contra §2 | Coinciden | Actualizar: los números deben salir del script, nunca copiarse a mano |
 
