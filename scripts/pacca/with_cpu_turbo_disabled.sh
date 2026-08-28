@@ -71,6 +71,7 @@ restore_cpu_state() {
   restore_failed=0
   while read -r c governor min_khz max_khz; do
     cpu_dir="/sys/devices/system/cpu/cpu${c}/cpufreq"
+    current_governor="$(<"$cpu_dir/scaling_governor")"
     current_min="$(<"$cpu_dir/scaling_min_freq")"
     current_max="$(<"$cpu_dir/scaling_max_freq")"
 
@@ -86,7 +87,14 @@ restore_cpu_state() {
       echo "$max_khz" > "$cpu_dir/scaling_max_freq" || restore_failed=1
       echo "$min_khz" > "$cpu_dir/scaling_min_freq" || restore_failed=1
     fi
-    echo "$governor" > "$cpu_dir/scaling_governor" || restore_failed=1
+    # En pacca min/max son delegados al usuario, pero scaling_governor no
+    # necesariamente es escribible. No convertir una restauracion ya
+    # correcta en fallo por intentar reescribir el mismo valor; si de verdad
+    # cambio, el intento se mantiene y la verificacion posterior falla
+    # cerrado si el permiso no alcanza.
+    if [[ "$current_governor" != "$governor" ]]; then
+      echo "$governor" > "$cpu_dir/scaling_governor" || restore_failed=1
+    fi
 
     actual_governor="$(<"$cpu_dir/scaling_governor")"
     actual_min="$(<"$cpu_dir/scaling_min_freq")"
