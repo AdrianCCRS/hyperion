@@ -44,19 +44,51 @@ GRID_MATRIX = [64, 96, 128, 192, 256, 384, 512, 768, 1024, 1536, 2048, 3072, 409
 GRID_VECTOR = [10_000, 31_623, 100_000, 316_228, 1_000_000, 3_162_278,
                10_000_000, 31_622_777]
 
-# Puntos de referencia medidos de verdad (calibrate_iterations.sh,
-# 2026-08-27, paccaA100). t_per_it en segundos, en el N de referencia.
-# Se usa el MAYOR de (cpu, gpu) para que la formula garantice margen de
-# warmup en el lado mas lento -- el mismo --iterations se aplica a ambos
-# devices del config_id para que sea comparable.
+# Punto de referencia medido de verdad para CPU (calibrate_iterations.sh,
+# 2026-08-27, paccaA100). t_per_it en segundos, en el N de referencia. Un
+# solo punto (modelo lineal por el origen) es suficiente para CPU: no hay
+# costo fijo de despacho relevante ahi (confirmado 2026-08-28: cholesky_cpu
+# corrio 293603 iteraciones a N=64 en 14.3s sin problema -- el timeout
+# nunca fue una amenaza real en el lado CPU, a diferencia de GPU, ver
+# GPU_TWO_TERM abajo). El mismo --iterations final se aplica a ambos
+# devices del config_id (calculado como el maximo de los dos modelos, ver
+# iterations_for) para que sea comparable.
 REFERENCE = {
-    # op: (N_ref, t_per_it_cpu, t_per_it_gpu, scaling_fn)
-    "gemm": (512, 0.00098501, 0.00072106, lambda n: n ** 3),
-    "fft": (512, 0.00125038, 0.00077179, lambda n: (n * n) * math.log2(n * n)),
-    "axpy": (1_000_000, 0.00084114, 0.00230873, lambda n: n),
-    "stencil": (512, 0.00023750, 0.00047244, lambda n: n * n),
-    "cholesky": (512, 0.00261578, 0.00090292, lambda n: n ** 3),
-    "spmv": (1_000_000, 0.00258186, 0.00155789, lambda n: n),
+    # op: (N_ref, t_per_it_cpu, scaling_fn)
+    "gemm": (512, 0.00098501, lambda n: n ** 3),
+    "fft": (512, 0.00125038, lambda n: (n * n) * math.log2(n * n)),
+    "axpy": (1_000_000, 0.00084114, lambda n: n),
+    "stencil": (512, 0.00023750, lambda n: n * n),
+    "cholesky": (512, 0.00261578, lambda n: n ** 3),
+    "spmv": (1_000_000, 0.00258186, lambda n: n),
+}
+
+# Modelo de DOS terminos para GPU: t_por_iteracion(N) = A_fijo + B_variable*fn(N).
+# Ajustado 2026-08-28 por minimos cuadrados sobre 486 corridas reales
+# aceptadas del pase 1 GPU (job 6689, ver
+# docs/general/metodologia_selector_cpu_gpu_20260827.md seccion 6.9), usando
+# solo niveles gpuREF/gpuF0 (reloj de GPU rapido, para no mezclar el efecto
+# de frecuencia con el de tamano) en los 13/8 tamanos de cada rejilla.
+#
+# POR QUE HACIA FALTA: el modelo lineal-por-el-origen anterior (un solo
+# punto en N=512/1e6, igual que CPU) ignoraba el costo fijo de despacho GPU
+# (H2D + lanzamiento de kernel + D2H, INDEPENDIENTE de N). A N chico ese
+# termino fijo domina por completo -- el modelo viejo pedia ordenes de
+# magnitud mas iteraciones de las que caben en el timeout (ej. gemm N=64:
+# 779688 iteraciones pedidas, tiempo real de esa cantidad ~20 min, contra
+# un timeout de ~90-132s -- el proceso moria sin imprimir ni su primera
+# linea, exactamente el patron de las 26 fallas C03 del pase 1 real,
+# concentradas en cholesky_gpu por ser el costo fijo mas caro despues de
+# gemm). Con el termino fijo explicito, gemm N=64 pide 975 iteraciones en
+# vez de 779688 -- una corrida real de 1.5s, no de 20 minutos.
+GPU_TWO_TERM = {
+    # op: (A_fijo_segundos_por_iteracion, B_variable_segundos_por_unidad_fn)
+    "gemm": (1.5383e-3, 7.280e-13),
+    "fft": (4.633e-4, 1.447e-10),
+    "axpy": (1.629e-4, 2.506e-9),
+    "stencil": (1.343e-4, 1.701e-9),
+    "cholesky": (6.238e-4, 1.314e-12),
+    "spmv": (1.301e-4, 1.780e-9),
 }
 
 # suite / gpu_precision / OI medida ncu (representativa por operacion, no
@@ -91,10 +123,13 @@ OP_META = {
 
 
 def iterations_for(op: str, n: int) -> int:
-    n_ref, t_cpu, t_gpu, fn = REFERENCE[op]
-    t_ref = max(t_cpu, t_gpu)
-    k = t_ref / fn(n_ref)
-    raw = TARGET_SECONDS / (k * fn(n))
+    n_ref, t_cpu_ref, fn = REFERENCE[op]
+    k_cpu = t_cpu_ref / fn(n_ref)
+    t_cpu_per_it = k_cpu * fn(n)
+    a_gpu, b_gpu = GPU_TWO_TERM[op]
+    t_gpu_per_it = a_gpu + b_gpu * fn(n)
+    t_per_it = max(t_cpu_per_it, t_gpu_per_it)
+    raw = TARGET_SECONDS / t_per_it
     it = int(round(raw))
     return max(MIN_ITERATIONS, min(MAX_ITERATIONS, it))
 

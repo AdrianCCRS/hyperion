@@ -1516,7 +1516,7 @@ kernels:
     config_id: gemm_N64
     phase_label_hint: intermedio
     size_variant: N64
-    exec_args: "--size 64 --iterations 779688"
+    exec_args: "--size 64 --iterations 975"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 127795
@@ -1535,7 +1535,7 @@ kernels:
     config_id: gemm_N64
     phase_label_hint: intermedio
     size_variant: N64
-    exec_args: "--size 64 --iterations 779688"
+    exec_args: "--size 64 --iterations 975"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 127795
@@ -1553,7 +1553,7 @@ kernels:
     config_id: gemm_N96
     phase_label_hint: intermedio
     size_variant: N96
-    exec_args: "--size 96 --iterations 231019"
+    exec_args: "--size 96 --iterations 975"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 287539
@@ -1572,7 +1572,7 @@ kernels:
     config_id: gemm_N96
     phase_label_hint: intermedio
     size_variant: N96
-    exec_args: "--size 96 --iterations 231019"
+    exec_args: "--size 96 --iterations 975"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 287539
@@ -1590,7 +1590,7 @@ kernels:
     config_id: gemm_N128
     phase_label_hint: intermedio
     size_variant: N128
-    exec_args: "--size 128 --iterations 97461"
+    exec_args: "--size 128 --iterations 974"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 511180
@@ -1609,7 +1609,7 @@ kernels:
     config_id: gemm_N128
     phase_label_hint: intermedio
     size_variant: N128
-    exec_args: "--size 128 --iterations 97461"
+    exec_args: "--size 128 --iterations 974"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 511180
@@ -1627,7 +1627,7 @@ kernels:
     config_id: gemm_N192
     phase_label_hint: intermedio
     size_variant: N192
-    exec_args: "--size 192 --iterations 28877"
+    exec_args: "--size 192 --iterations 972"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 1150156
@@ -1646,7 +1646,7 @@ kernels:
     config_id: gemm_N192
     phase_label_hint: intermedio
     size_variant: N192
-    exec_args: "--size 192 --iterations 28877"
+    exec_args: "--size 192 --iterations 972"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 1150156
@@ -1664,7 +1664,7 @@ kernels:
     config_id: gemm_N256
     phase_label_hint: intermedio
     size_variant: N256
-    exec_args: "--size 256 --iterations 12183"
+    exec_args: "--size 256 --iterations 967"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 2044723
@@ -1683,7 +1683,7 @@ kernels:
     config_id: gemm_N256
     phase_label_hint: intermedio
     size_variant: N256
-    exec_args: "--size 256 --iterations 12183"
+    exec_args: "--size 256 --iterations 967"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 2044723
@@ -1701,7 +1701,7 @@ kernels:
     config_id: gemm_N384
     phase_label_hint: intermedio
     size_variant: N384
-    exec_args: "--size 384 --iterations 3610"
+    exec_args: "--size 384 --iterations 950"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 4600627
@@ -1720,7 +1720,7 @@ kernels:
     config_id: gemm_N384
     phase_label_hint: intermedio
     size_variant: N384
-    exec_args: "--size 384 --iterations 3610"
+    exec_args: "--size 384 --iterations 950"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 4600627
@@ -1738,7 +1738,7 @@ kernels:
     config_id: gemm_N512
     phase_label_hint: intermedio
     size_variant: N512
-    exec_args: "--size 512 --iterations 1523"
+    exec_args: "--size 512 --iterations 917"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 8178892
@@ -1757,7 +1757,7 @@ kernels:
     config_id: gemm_N512
     phase_label_hint: intermedio
     size_variant: N512
-    exec_args: "--size 512 --iterations 1523"
+    exec_args: "--size 512 --iterations 917"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 8178892
@@ -1997,7 +1997,7 @@ kernels:
     config_id: fft_N64
     phase_label_hint: intermedio
     size_variant: N64
-    exec_args: "--size 64 --iterations 115165"
+    exec_args: "--size 64 --iterations 3189"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 170393
@@ -2016,7 +2016,7 @@ kernels:
     config_id: fft_N64
     phase_label_hint: intermedio
     size_variant: N64
-    exec_args: "--size 64 --iterations 115165"
+    exec_args: "--size 64 --iterations 3189"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 170393
@@ -2034,7 +2034,7 @@ kernels:
     config_id: fft_N96
     phase_label_hint: intermedio
     size_variant: N96
-    exec_args: "--size 96 --iterations 46638"
+    exec_args: "--size 96 --iterations 3119"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 383385
@@ -2053,7 +2053,7 @@ kernels:
     config_id: fft_N96
     phase_label_hint: intermedio
     size_variant: N96
-    exec_args: "--size 96 --iterations 46638"
+    exec_args: "--size 96 --iterations 3119"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 383385
@@ -2071,7 +2071,7 @@ kernels:
     config_id: fft_N128
     phase_label_hint: intermedio
     size_variant: N128
-    exec_args: "--size 128 --iterations 24678"
+    exec_args: "--size 128 --iterations 3021"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 681574
@@ -2090,7 +2090,7 @@ kernels:
     config_id: fft_N128
     phase_label_hint: intermedio
     size_variant: N128
-    exec_args: "--size 128 --iterations 24678"
+    exec_args: "--size 128 --iterations 3021"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 681574
@@ -2108,7 +2108,7 @@ kernels:
     config_id: fft_N192
     phase_label_hint: intermedio
     size_variant: N192
-    exec_args: "--size 192 --iterations 10122"
+    exec_args: "--size 192 --iterations 2756"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 1533542
@@ -2127,7 +2127,7 @@ kernels:
     config_id: fft_N192
     phase_label_hint: intermedio
     size_variant: N192
-    exec_args: "--size 192 --iterations 10122"
+    exec_args: "--size 192 --iterations 2756"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 1533542
@@ -2145,7 +2145,7 @@ kernels:
     config_id: fft_N256
     phase_label_hint: intermedio
     size_variant: N256
-    exec_args: "--size 256 --iterations 5398"
+    exec_args: "--size 256 --iterations 2439"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 2726297
@@ -2164,7 +2164,7 @@ kernels:
     config_id: fft_N256
     phase_label_hint: intermedio
     size_variant: N256
-    exec_args: "--size 256 --iterations 5398"
+    exec_args: "--size 256 --iterations 2439"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 2726297
@@ -2182,7 +2182,7 @@ kernels:
     config_id: fft_N384
     phase_label_hint: intermedio
     size_variant: N384
-    exec_args: "--size 384 --iterations 2236"
+    exec_args: "--size 384 --iterations 1808"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 6134169
@@ -2201,7 +2201,7 @@ kernels:
     config_id: fft_N384
     phase_label_hint: intermedio
     size_variant: N384
-    exec_args: "--size 384 --iterations 2236"
+    exec_args: "--size 384 --iterations 1808"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 6134169
@@ -2478,7 +2478,7 @@ kernels:
     config_id: axpy_N10000
     phase_label_hint: intermedio
     size_variant: N10000
-    exec_args: "--size 10000 --iterations 64971"
+    exec_args: "--size 10000 --iterations 7980"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 312000
@@ -2497,7 +2497,7 @@ kernels:
     config_id: axpy_N10000
     phase_label_hint: intermedio
     size_variant: N10000
-    exec_args: "--size 10000 --iterations 64971"
+    exec_args: "--size 10000 --iterations 7980"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 312000
@@ -2515,7 +2515,7 @@ kernels:
     config_id: axpy_N31623
     phase_label_hint: intermedio
     size_variant: N31623
-    exec_args: "--size 31623 --iterations 20545"
+    exec_args: "--size 31623 --iterations 6195"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 986637
@@ -2534,7 +2534,7 @@ kernels:
     config_id: axpy_N31623
     phase_label_hint: intermedio
     size_variant: N31623
-    exec_args: "--size 31623 --iterations 20545"
+    exec_args: "--size 31623 --iterations 6195"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 986637
@@ -2552,7 +2552,7 @@ kernels:
     config_id: axpy_N100000
     phase_label_hint: intermedio
     size_variant: N100000
-    exec_args: "--size 100000 --iterations 6497"
+    exec_args: "--size 100000 --iterations 3628"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 3120000
@@ -2571,7 +2571,7 @@ kernels:
     config_id: axpy_N100000
     phase_label_hint: intermedio
     size_variant: N100000
-    exec_args: "--size 100000 --iterations 6497"
+    exec_args: "--size 100000 --iterations 3628"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 3120000
@@ -2589,7 +2589,7 @@ kernels:
     config_id: axpy_N316228
     phase_label_hint: intermedio
     size_variant: N316228
-    exec_args: "--size 316228 --iterations 2055"
+    exec_args: "--size 316228 --iterations 1570"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 9866313
@@ -2608,7 +2608,7 @@ kernels:
     config_id: axpy_N316228
     phase_label_hint: intermedio
     size_variant: N316228
-    exec_args: "--size 316228 --iterations 2055"
+    exec_args: "--size 316228 --iterations 1570"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 9866313
@@ -2626,7 +2626,7 @@ kernels:
     config_id: axpy_N1000000
     phase_label_hint: intermedio
     size_variant: N1000000
-    exec_args: "--size 1000000 --iterations 650"
+    exec_args: "--size 1000000 --iterations 562"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 31200000
@@ -2645,7 +2645,7 @@ kernels:
     config_id: axpy_N1000000
     phase_label_hint: intermedio
     size_variant: N1000000
-    exec_args: "--size 1000000 --iterations 650"
+    exec_args: "--size 1000000 --iterations 562"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 31200000
@@ -2663,7 +2663,7 @@ kernels:
     config_id: axpy_N3162278
     phase_label_hint: intermedio
     size_variant: N3162278
-    exec_args: "--size 3162278 --iterations 205"
+    exec_args: "--size 3162278 --iterations 185"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 98663073
@@ -2682,7 +2682,7 @@ kernels:
     config_id: axpy_N3162278
     phase_label_hint: intermedio
     size_variant: N3162278
-    exec_args: "--size 3162278 --iterations 205"
+    exec_args: "--size 3162278 --iterations 185"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 98663073
@@ -2700,7 +2700,7 @@ kernels:
     config_id: axpy_N10000000
     phase_label_hint: intermedio
     size_variant: N10000000
-    exec_args: "--size 10000000 --iterations 65"
+    exec_args: "--size 10000000 --iterations 59"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 312000000
@@ -2719,7 +2719,7 @@ kernels:
     config_id: axpy_N10000000
     phase_label_hint: intermedio
     size_variant: N10000000
-    exec_args: "--size 10000000 --iterations 65"
+    exec_args: "--size 10000000 --iterations 59"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 312000000
@@ -2737,7 +2737,7 @@ kernels:
     config_id: axpy_N31622777
     phase_label_hint: intermedio
     size_variant: N31622777
-    exec_args: "--size 31622777 --iterations 21"
+    exec_args: "--size 31622777 --iterations 19"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 986630642
@@ -2756,7 +2756,7 @@ kernels:
     config_id: axpy_N31622777
     phase_label_hint: intermedio
     size_variant: N31622777
-    exec_args: "--size 31622777 --iterations 21"
+    exec_args: "--size 31622777 --iterations 19"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 986630642
@@ -2774,7 +2774,7 @@ kernels:
     config_id: stencil_N64
     phase_label_hint: intermedio
     size_variant: N64
-    exec_args: "--size 64 --iterations 203200"
+    exec_args: "--size 64 --iterations 10618"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 127795
@@ -2793,7 +2793,7 @@ kernels:
     config_id: stencil_N64
     phase_label_hint: intermedio
     size_variant: N64
-    exec_args: "--size 64 --iterations 203200"
+    exec_args: "--size 64 --iterations 10618"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 127795
@@ -2811,7 +2811,7 @@ kernels:
     config_id: stencil_N96
     phase_label_hint: intermedio
     size_variant: N96
-    exec_args: "--size 96 --iterations 90311"
+    exec_args: "--size 96 --iterations 10002"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 287539
@@ -2830,7 +2830,7 @@ kernels:
     config_id: stencil_N96
     phase_label_hint: intermedio
     size_variant: N96
-    exec_args: "--size 96 --iterations 90311"
+    exec_args: "--size 96 --iterations 10002"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 287539
@@ -2848,7 +2848,7 @@ kernels:
     config_id: stencil_N128
     phase_label_hint: intermedio
     size_variant: N128
-    exec_args: "--size 128 --iterations 50800"
+    exec_args: "--size 128 --iterations 9250"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 511180
@@ -2867,7 +2867,7 @@ kernels:
     config_id: stencil_N128
     phase_label_hint: intermedio
     size_variant: N128
-    exec_args: "--size 128 --iterations 50800"
+    exec_args: "--size 128 --iterations 9250"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 511180
@@ -2885,7 +2885,7 @@ kernels:
     config_id: stencil_N192
     phase_label_hint: intermedio
     size_variant: N192
-    exec_args: "--size 192 --iterations 22578"
+    exec_args: "--size 192 --iterations 7614"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 1150156
@@ -2904,7 +2904,7 @@ kernels:
     config_id: stencil_N192
     phase_label_hint: intermedio
     size_variant: N192
-    exec_args: "--size 192 --iterations 22578"
+    exec_args: "--size 192 --iterations 7614"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 1150156
@@ -2922,7 +2922,7 @@ kernels:
     config_id: stencil_N256
     phase_label_hint: intermedio
     size_variant: N256
-    exec_args: "--size 256 --iterations 12700"
+    exec_args: "--size 256 --iterations 6103"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 2044723
@@ -2941,7 +2941,7 @@ kernels:
     config_id: stencil_N256
     phase_label_hint: intermedio
     size_variant: N256
-    exec_args: "--size 256 --iterations 12700"
+    exec_args: "--size 256 --iterations 6103"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 2044723
@@ -2959,7 +2959,7 @@ kernels:
     config_id: stencil_N384
     phase_label_hint: intermedio
     size_variant: N384
-    exec_args: "--size 384 --iterations 5644"
+    exec_args: "--size 384 --iterations 3895"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 4600627
@@ -2978,7 +2978,7 @@ kernels:
     config_id: stencil_N384
     phase_label_hint: intermedio
     size_variant: N384
-    exec_args: "--size 384 --iterations 5644"
+    exec_args: "--size 384 --iterations 3895"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 4600627
@@ -2996,7 +2996,7 @@ kernels:
     config_id: stencil_N512
     phase_label_hint: intermedio
     size_variant: N512
-    exec_args: "--size 512 --iterations 3175"
+    exec_args: "--size 512 --iterations 2585"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 8178892
@@ -3015,7 +3015,7 @@ kernels:
     config_id: stencil_N512
     phase_label_hint: intermedio
     size_variant: N512
-    exec_args: "--size 512 --iterations 3175"
+    exec_args: "--size 512 --iterations 2585"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 8178892
@@ -3033,7 +3033,7 @@ kernels:
     config_id: stencil_N768
     phase_label_hint: intermedio
     size_variant: N768
-    exec_args: "--size 768 --iterations 1411"
+    exec_args: "--size 768 --iterations 1319"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 18402508
@@ -3052,7 +3052,7 @@ kernels:
     config_id: stencil_N768
     phase_label_hint: intermedio
     size_variant: N768
-    exec_args: "--size 768 --iterations 1411"
+    exec_args: "--size 768 --iterations 1319"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 18402508
@@ -3070,7 +3070,7 @@ kernels:
     config_id: stencil_N1024
     phase_label_hint: intermedio
     size_variant: N1024
-    exec_args: "--size 1024 --iterations 794"
+    exec_args: "--size 1024 --iterations 782"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 32715571
@@ -3089,7 +3089,7 @@ kernels:
     config_id: stencil_N1024
     phase_label_hint: intermedio
     size_variant: N1024
-    exec_args: "--size 1024 --iterations 794"
+    exec_args: "--size 1024 --iterations 782"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 32715571
@@ -3107,7 +3107,7 @@ kernels:
     config_id: stencil_N1536
     phase_label_hint: intermedio
     size_variant: N1536
-    exec_args: "--size 1536 --iterations 353"
+    exec_args: "--size 1536 --iterations 362"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 73610035
@@ -3126,7 +3126,7 @@ kernels:
     config_id: stencil_N1536
     phase_label_hint: intermedio
     size_variant: N1536
-    exec_args: "--size 1536 --iterations 353"
+    exec_args: "--size 1536 --iterations 362"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 73610035
@@ -3144,7 +3144,7 @@ kernels:
     config_id: stencil_N2048
     phase_label_hint: intermedio
     size_variant: N2048
-    exec_args: "--size 2048 --iterations 198"
+    exec_args: "--size 2048 --iterations 206"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 130862284
@@ -3163,7 +3163,7 @@ kernels:
     config_id: stencil_N2048
     phase_label_hint: intermedio
     size_variant: N2048
-    exec_args: "--size 2048 --iterations 198"
+    exec_args: "--size 2048 --iterations 206"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 130862284
@@ -3181,7 +3181,7 @@ kernels:
     config_id: stencil_N3072
     phase_label_hint: intermedio
     size_variant: N3072
-    exec_args: "--size 3072 --iterations 88"
+    exec_args: "--size 3072 --iterations 93"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 294440140
@@ -3200,7 +3200,7 @@ kernels:
     config_id: stencil_N3072
     phase_label_hint: intermedio
     size_variant: N3072
-    exec_args: "--size 3072 --iterations 88"
+    exec_args: "--size 3072 --iterations 93"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 294440140
@@ -3218,7 +3218,7 @@ kernels:
     config_id: stencil_N4096
     phase_label_hint: intermedio
     size_variant: N4096
-    exec_args: "--size 4096 --iterations 50"
+    exec_args: "--size 4096 --iterations 52"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 523449139
@@ -3237,7 +3237,7 @@ kernels:
     config_id: stencil_N4096
     phase_label_hint: intermedio
     size_variant: N4096
-    exec_args: "--size 4096 --iterations 50"
+    exec_args: "--size 4096 --iterations 52"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 523449139
@@ -3255,7 +3255,7 @@ kernels:
     config_id: cholesky_N64
     phase_label_hint: intermedio
     size_variant: N64
-    exec_args: "--size 64 --iterations 293603"
+    exec_args: "--size 64 --iterations 2403"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 85196
@@ -3274,7 +3274,7 @@ kernels:
     config_id: cholesky_N64
     phase_label_hint: intermedio
     size_variant: N64
-    exec_args: "--size 64 --iterations 293603"
+    exec_args: "--size 64 --iterations 2403"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 85196
@@ -3292,7 +3292,7 @@ kernels:
     config_id: cholesky_N96
     phase_label_hint: intermedio
     size_variant: N96
-    exec_args: "--size 96 --iterations 86993"
+    exec_args: "--size 96 --iterations 2400"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 191692
@@ -3311,7 +3311,7 @@ kernels:
     config_id: cholesky_N96
     phase_label_hint: intermedio
     size_variant: N96
-    exec_args: "--size 96 --iterations 86993"
+    exec_args: "--size 96 --iterations 2400"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 191692
@@ -3329,7 +3329,7 @@ kernels:
     config_id: cholesky_N128
     phase_label_hint: intermedio
     size_variant: N128
-    exec_args: "--size 128 --iterations 36700"
+    exec_args: "--size 128 --iterations 2394"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 340787
@@ -3348,7 +3348,7 @@ kernels:
     config_id: cholesky_N128
     phase_label_hint: intermedio
     size_variant: N128
-    exec_args: "--size 128 --iterations 36700"
+    exec_args: "--size 128 --iterations 2394"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 340787
@@ -3366,7 +3366,7 @@ kernels:
     config_id: cholesky_N192
     phase_label_hint: intermedio
     size_variant: N192
-    exec_args: "--size 192 --iterations 10874"
+    exec_args: "--size 192 --iterations 2369"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 766771
@@ -3385,7 +3385,7 @@ kernels:
     config_id: cholesky_N192
     phase_label_hint: intermedio
     size_variant: N192
-    exec_args: "--size 192 --iterations 10874"
+    exec_args: "--size 192 --iterations 2369"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 766771
@@ -3403,7 +3403,7 @@ kernels:
     config_id: cholesky_N256
     phase_label_hint: intermedio
     size_variant: N256
-    exec_args: "--size 256 --iterations 4588"
+    exec_args: "--size 256 --iterations 2323"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 1363148
@@ -3422,7 +3422,7 @@ kernels:
     config_id: cholesky_N256
     phase_label_hint: intermedio
     size_variant: N256
-    exec_args: "--size 256 --iterations 4588"
+    exec_args: "--size 256 --iterations 2323"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 1363148
@@ -3736,7 +3736,7 @@ kernels:
     config_id: spmv_N10000
     phase_label_hint: intermedio
     size_variant: N10000
-    exec_args: "--size 10000 --iterations 58098"
+    exec_args: "--size 10000 --iterations 10142"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 1352005
@@ -3755,7 +3755,7 @@ kernels:
     config_id: spmv_N10000
     phase_label_hint: intermedio
     size_variant: N10000
-    exec_args: "--size 10000 --iterations 58098"
+    exec_args: "--size 10000 --iterations 10142"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 1352005
@@ -3773,7 +3773,7 @@ kernels:
     config_id: spmv_N31623
     phase_label_hint: intermedio
     size_variant: N31623
-    exec_args: "--size 31623 --iterations 18372"
+    exec_args: "--size 31623 --iterations 8048"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 4275434
@@ -3792,7 +3792,7 @@ kernels:
     config_id: spmv_N31623
     phase_label_hint: intermedio
     size_variant: N31623
-    exec_args: "--size 31623 --iterations 18372"
+    exec_args: "--size 31623 --iterations 8048"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 4275434
@@ -3810,7 +3810,7 @@ kernels:
     config_id: spmv_N100000
     phase_label_hint: intermedio
     size_variant: N100000
-    exec_args: "--size 100000 --iterations 5810"
+    exec_args: "--size 100000 --iterations 4869"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 13520005
@@ -3829,7 +3829,7 @@ kernels:
     config_id: spmv_N100000
     phase_label_hint: intermedio
     size_variant: N100000
-    exec_args: "--size 100000 --iterations 5810"
+    exec_args: "--size 100000 --iterations 4869"
     expected_runtime_seconds: 11
     warmup_seconds: 0.05
     estimated_memory_bytes: 13520005
@@ -4024,4 +4024,3 @@ kernels:
     operational_intensity_flops_per_byte: 0.274176  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
       pacca-a100: "sha256:ab2659d9a62bf47341262f4d2a1e4de0114026c948d246e337ee0a3f28a9097e"
-
