@@ -207,6 +207,14 @@ Slurm asignó el **job 6718**. Entró con CPU en `performance`, rango
 800000–3200000 antes de la campaña. Al cierre debe restaurar el estado inicial
 exacto.
 
+La campaña superó preflight y comenzó la matriz con aceptaciones. Emitió
+`CAL-10/D04: cv_pct=16.15 %`; se auditó antes de dejarla continuar: el CV de
+IPC es solo **0.074 %**, mientras que el máximo proviene de `miss_rate`
+(16.145 %) y MPKI (16.094 %) con medias casi nulas (`miss_rate≈0.00158`,
+`MPKI≈0.0246`). Es la advertencia conocida por denominador cercano a cero, no
+inestabilidad del cómputo de referencia ni razón para cambiar umbrales durante
+la corrida.
+
 La campaña CPU completa solicita GPU y nodo exclusivo porque NVML forma parte
 del subtotal energético. Esperado: 1632 combinaciones, aproximadamente 2.5 h,
 límite Slurm de 4 h y timeout interno de 13200 s para dejar 20 minutos de
