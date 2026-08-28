@@ -29,6 +29,18 @@
 #include <omp.h>
 #endif
 
+/* ARC: sello absoluto de la region medida (CLOCK_MONOTONIC, mismo reloj que
+ * usa la telemetria -- telemetry/include/telemetry/metrics.hpp). Permite al
+ * constructor del dataset filtrar las ventanas al bucle realmente medido, en
+ * vez de promediar sobre todo el proceso (que en GPU es ~85% inicializacion
+ * de contexto CUDA). Ver docs/general/metodologia_selector_cpu_gpu_20260827.md
+ * seccion 6.9. */
+static long long now_ns(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long long)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+}
+
 static double now_seconds(void) {
     struct timeval tv;
     gettimeofday(&tv, NULL);
@@ -111,12 +123,15 @@ int main(int argc, char **argv) {
 
     const double alpha = 1.0, beta = 0.0;
 
+    long long t0_ns = now_ns();
+
     double t0 = now_seconds();
     for (int rep = 0; rep < iterations; ++rep) {
         cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
                     (int)n, (int)n, (int)n, alpha, a, (int)n, b, (int)n, beta, c, (int)n);
     }
     double t1 = now_seconds();
+    long long t1_ns = now_ns();
     double seconds = t1 - t0;
 
     int ok = verify_sample(a, b, c, n, alpha, beta, verify_samples);
@@ -137,6 +152,8 @@ int main(int argc, char **argv) {
     printf(" OMP max threads       =                %8d\n", nthreads);
     printf("\n");
     printf(" Time in seconds =    %12.6f\n", seconds);
+    printf(" Measured region t0_ns = %lld\n", t0_ns);
+    printf(" Measured region t1_ns = %lld\n", t1_ns);
     printf(" Mop/s total     =    %12.2f\n", mops_total);
     printf(" Verification    =               %s\n", ok ? "SUCCESSFUL" : "FAILED");
 
