@@ -615,15 +615,18 @@ def validate_windows(
             row for row in usable_rows
             if row.get("frequency_quality_status") in ("valid", "not_applicable_native")
         ]
-    if len(usable_rows) < target_windows_per_repetition:
+    labeled_usable_rows = [
+        row for row in usable_rows
+        if row.get("phase_label_train") not in (None, "", "None")
+    ]
+    if not labeled_usable_rows and usable_rows:
+        return Verdict(False, "I11", "ninguna ventana usable tiene phase_label_train calculado")
+    if len(labeled_usable_rows) < target_windows_per_repetition:
         return Verdict(
             False, "I10",
-            f"{len(usable_rows)} ventanas '{usable_status}' logradas, por debajo de "
+            f"{len(labeled_usable_rows)} ventanas etiquetadas '{usable_status}' logradas, por debajo de "
             f"target_windows_per_repetition={target_windows_per_repetition}",
         )
-    has_label = any(row.get("phase_label_train") not in (None, "", "None") for row in usable_rows)
-    if not has_label:
-        return Verdict(False, "I11", "ninguna ventana usable tiene phase_label_train calculado")
     return Verdict(True, None, "ok")
 
 

@@ -614,6 +614,26 @@ def test_run10_generacion_fuera_de_region_warm_no_satisface_i10(tmp_path):
     assert accepted.accepted is True
 
 
+def test_run10_exige_target_de_ventanas_etiquetadas_no_solo_sanas(tmp_path):
+    rows = [
+        {
+            "quality_status": "ok", "phase_label_train": "",
+            "frequency_quality_status": "valid", "t_start_ns": i * 10,
+            "t_end_ns": i * 10 + 9,
+        }
+        for i in range(5)
+    ]
+    rows[0]["phase_label_train"] = "memory_bound"
+    windows_path = _write_windows_csv(tmp_path / "windows.csv", rows)
+
+    verdict = validation.validate_windows(
+        windows_path, target_windows_per_repetition=3, device="cpu",
+    )
+
+    assert verdict.factor_id == "I10"
+    assert "1 ventanas etiquetadas" in verdict.message
+
+
 def test_arc174_validate_windows_cpu_exige_calidad_general_y_frecuencia_y_etiqueta(tmp_path):
     # Mezcla: solo la primera fila cumple las tres condiciones a la vez.
     windows_path = _write_windows_csv(tmp_path / "windows.csv", [
