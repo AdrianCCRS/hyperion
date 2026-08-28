@@ -1,0 +1,104 @@
+# Pre-vuelo del selector CPU/GPU -- eje GPU (2026-08-27). Mismo objetivo que
+# campaign_pacca_dual_preflight_cpu.yaml (overhead real + CV% con reps=10),
+# aplicado a los 6 kernels GPU. Niveles reducidos a los EXTREMOS (F0/F6 en
+# ambos ejes) a proposito: el smoke (job 6668) ya cubrio la FORMA de la
+# curva CPU-durante-GPU con REF/F0/F3/F6 x REF/F0/F3/F6 y 3 reps -- este
+# pre-vuelo no repite esa cobertura, se enfoca en el caso mas caro
+# (F6 en ambos ejes, donde el overhead de asentamiento de frecuencia
+# deberia ser mayor) contra el mas barato (F0 en ambos), con 10 reps para
+# CV% real.
+
+campaign_id: pacca_dual_preflight_gpu_20260827
+environment_tier: hpc_sc3
+seed: 20260827
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_dual_preflight_gpu_20260827
+overwrite: true
+
+catalog_path: ../kernels/catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: dual_gemm_gpu_N512
+  - kernel_ref: dual_fft_gpu_N256
+  - kernel_ref: dual_axpy_gpu_N1000000
+  - kernel_ref: dual_stencil_gpu_N512
+  - kernel_ref: dual_cholesky_gpu_N512
+  - kernel_ref: dual_spmv_gpu_N1000000
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F0,  mode: fixed, fraction: 1.0}
+  - {id: F6,  mode: fixed, fraction: 0.0}
+
+gpu_frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F0,  mode: fixed, fraction: 1.0}
+  - {id: F6,  mode: fixed, fraction: 0.0}
+
+repetitions_per_combination: 10
+target_windows_per_repetition: 5
+interval_ns: 1000000  # 1 ms
+gpu_interval_ns: 5000000  # 5 ms
+
+running_ratio_min: 0.90
+
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+  grace_seconds: 0.05
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+
+rapl:
+  enabled: true
+
+uncore:
+  enabled: true
+
+turbo:
+  require_disabled: true
+
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+
+gpu:
+  enabled: true
+  calibration:
+    - gpu_stream_bw
+    - gpu_ert_probe_fp32
+    - gpu_ert_probe_fp64
+
+timeouts_seconds:
+  ready: 15
+  run: 90
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 509083000000
+
+projected_campaign_bytes: 500000000
+remaining_core_hours: 1000.0
+projected_core_hours: 6.0
