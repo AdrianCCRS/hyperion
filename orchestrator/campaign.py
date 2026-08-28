@@ -1126,12 +1126,20 @@ def run_campaign(
                     # en cola que no declare esto no cambia de comportamiento.
                     gpu_idle_by_level = manifest.gpu.get("idle_power_mw_by_level")
                     gpu_active_margin = manifest.gpu.get("active_power_margin_mw")
+                    dispatch_timing = result.metadata.get("dispatch_timing") or {}
+                    measured_interval_ns = None
+                    if entry.config_id is not None:
+                        warm_t0_ns = dispatch_timing.get("warm_t0_ns")
+                        warm_t1_ns = dispatch_timing.get("warm_t1_ns")
+                        if warm_t0_ns is not None and warm_t1_ns is not None:
+                            measured_interval_ns = (int(warm_t0_ns), int(warm_t1_ns))
                     verdict = validation_module.validate_windows(
                         windows_path,
                         target_windows_per_repetition=manifest.target_windows_per_repetition,
                         device=entry.device,
                         gpu_idle_power_mw_by_level=gpu_idle_by_level,
                         gpu_active_power_margin_mw=gpu_active_margin,
+                        measured_interval_ns=measured_interval_ns,
                     )
                 else:
                     verdict = provisional_verdict

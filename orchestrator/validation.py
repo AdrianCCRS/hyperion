@@ -467,6 +467,7 @@ def validate_windows(
     device: str,
     gpu_idle_power_mw_by_level: Mapping[str, float] | None = None,
     gpu_active_power_margin_mw: Mapping[str, float] | float | None = None,
+    measured_interval_ns: tuple[int, int] | None = None,
 ) -> Verdict:
     """VAL-09 (ARC-94): segunda etapa de aceptación, DESPUÉS de que
     postprocess.py escribió windows.csv -- validate_run() por sí solo solo
@@ -550,6 +551,26 @@ def validate_windows(
         rows = list(csv.DictReader(handle))
     usable_status = "gpu_telemetry" if device == "gpu" else "ok"
     usable_rows = [row for row in rows if row.get("quality_status") == usable_status]
+    # RUN-10: en los kernels duales, generación y verificación están fuera
+    # del costo de despacho por decisión metodológica. Sin este filtro una
+    # entrada grande (p.ej. CSR de SpMV) podía aportar miles de ventanas
+    # sanas ANTES de warm_t0 y hacer pasar I10 aunque la región medida no
+    # tuviera telemetría usable. CPU exige ventanas completas dentro del
+    # intervalo; GPU es un muestreo puntual y usa t_end_ns.
+    if measured_interval_ns is not None:
+        measured_start_ns, measured_end_ns = measured_interval_ns
+
+        def _inside_measured_interval(row: Mapping[str, Any]) -> bool:
+            try:
+                end_ns = int(row.get("t_end_ns") or "")
+                if device == "gpu":
+                    return measured_start_ns <= end_ns <= measured_end_ns
+                start_ns = int(row.get("t_start_ns") or "")
+                return start_ns >= measured_start_ns and end_ns <= measured_end_ns
+            except (TypeError, ValueError):
+                return False
+
+        usable_rows = [row for row in usable_rows if _inside_measured_interval(row)]
     if device == "gpu":
         use_power_criterion = (
             gpu_idle_power_mw_by_level is not None and gpu_active_power_margin_mw is not None

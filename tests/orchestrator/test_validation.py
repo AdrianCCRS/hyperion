@@ -581,6 +581,39 @@ def test_val09_windows_suficientes_y_etiquetadas_acepta(tmp_path):
     assert verdict.accepted is True
 
 
+def test_run10_generacion_fuera_de_region_warm_no_satisface_i10(tmp_path):
+    rows = [
+        {
+            "quality_status": "ok", "phase_label_train": "memory_bound",
+            "frequency_quality_status": "valid", "t_start_ns": i * 10,
+            "t_end_ns": i * 10 + 9,
+        }
+        for i in range(10)
+    ]
+    # Solo tres ventanas pertenecen realmente al bucle warm [100, 200].
+    rows.extend([
+        {
+            "quality_status": "ok", "phase_label_train": "memory_bound",
+            "frequency_quality_status": "valid", "t_start_ns": start,
+            "t_end_ns": start + 9,
+        }
+        for start in (110, 130, 150)
+    ])
+    windows_path = _write_windows_csv(tmp_path / "windows.csv", rows)
+
+    rejected = validation.validate_windows(
+        windows_path, target_windows_per_repetition=5, device="cpu",
+        measured_interval_ns=(100, 200),
+    )
+    accepted = validation.validate_windows(
+        windows_path, target_windows_per_repetition=3, device="cpu",
+        measured_interval_ns=(100, 200),
+    )
+
+    assert rejected.factor_id == "I10"
+    assert accepted.accepted is True
+
+
 def test_arc174_validate_windows_cpu_exige_calidad_general_y_frecuencia_y_etiqueta(tmp_path):
     # Mezcla: solo la primera fila cumple las tres condiciones a la vez.
     windows_path = _write_windows_csv(tmp_path / "windows.csv", [
