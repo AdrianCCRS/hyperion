@@ -109,6 +109,7 @@ gpu_frequency_levels:
   - {id: F6, mode: fixed, fraction: 0.0}
 
 repetitions_per_combination: 3
+baseline_repetition_indices: [1]
 target_windows_per_repetition: 5
 interval_ns: 1000000  # 1 ms
 gpu_interval_ns: 5000000  # 5 ms

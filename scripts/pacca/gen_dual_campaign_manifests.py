@@ -13,6 +13,16 @@ uso y valido el smoke (job 6668, 2026-08-27) -- confirmo con datos reales
 que el reloj de CPU afecta el despacho GPU (hasta 95% mas lento en F6),
 con forma de meseta REF~F0 y penalizacion creciente hacia F6. Reusar ese
 grid, ya probado, evita diseñar uno nuevo sin evidencia.
+
+BASELINE_REPETITION_INDICES=[1] (2026-08-27, auditoria pre-lanzamiento):
+sin esto, campaign.py empareja baseline+telemetry en CADA repeticion
+(CAM-04), duplicando el total de lanzamientos de proceso. El overhead de
+instrumentacion ya esta caracterizado (media 1.95%, estable por nivel de
+frecuencia, ver Estrategia_CPU_Fase2.md) sobre 540 pares previos -- no hace
+falta re-medirlo en cada una de las 8160 combinaciones nuevas. Restringir
+el baseline a la repeticion 1 de cada combinacion (spot-check) recorta
+~33% de los lanzamientos totales sin perder cobertura de deteccion de
+deriva silenciosa.
 """
 import sys
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent))
@@ -104,6 +114,7 @@ frequency_levels:
 {fmt_levels(CPU_LEVELS_FULL)}
 
 repetitions_per_combination: {REPS}
+baseline_repetition_indices: [1]
 target_windows_per_repetition: {TARGET_WINDOWS_PER_REP}
 interval_ns: 1000000  # 1 ms
 
@@ -201,6 +212,7 @@ gpu_frequency_levels:
 {fmt_levels(GPU_LEVELS_FULL)}
 
 repetitions_per_combination: {REPS}
+baseline_repetition_indices: [1]
 target_windows_per_repetition: {TARGET_WINDOWS_PER_REP}
 interval_ns: 1000000  # 1 ms
 gpu_interval_ns: 5000000  # 5 ms
@@ -269,6 +281,13 @@ if __name__ == "__main__":
     base = __import__("pathlib").Path(__file__).parent.parent.parent / "orchestrator/schemas/campaigns"
     (base / "campaign_pacca_dual_cpu_full.yaml").write_text(CPU_MANIFEST)
     (base / "campaign_pacca_dual_gpu_full.yaml").write_text(GPU_MANIFEST)
-    print(f"CPU: 68 config_id x 8 niveles x {REPS} rep = {68*8*REPS} corridas")
-    print(f"GPU: 68 config_id x 4 niveles CPU x 8 niveles GPU x {REPS} rep = {68*4*8*REPS} corridas")
-    print(f"TOTAL: {68*8*REPS + 68*4*8*REPS} corridas")
+    cpu_combos = 68 * 8 * REPS
+    gpu_combos = 68 * 4 * 8 * REPS
+    # baseline_repetition_indices=[1]: solo 1 de cada REPS repeticiones empareja
+    # baseline+telemetry (2 lanzamientos); el resto es solo telemetry (1 lanzamiento).
+    cpu_launches = (cpu_combos // REPS) * 2 + (cpu_combos - cpu_combos // REPS)
+    gpu_launches = (gpu_combos // REPS) * 2 + (gpu_combos - gpu_combos // REPS)
+    print(f"CPU: 68 config_id x 8 niveles x {REPS} rep = {cpu_combos} corridas ({cpu_launches} lanzamientos de proceso)")
+    print(f"GPU: 68 config_id x 4 niveles CPU x 8 niveles GPU x {REPS} rep = {gpu_combos} corridas ({gpu_launches} lanzamientos de proceso)")
+    print(f"TOTAL: {cpu_combos + gpu_combos} corridas, {cpu_launches + gpu_launches} lanzamientos de proceso "
+          f"(vs {2*(cpu_combos+gpu_combos)} sin baseline_repetition_indices)")
