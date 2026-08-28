@@ -892,11 +892,17 @@ def run_campaign(
             # de GPU -- otro job del clúster compartido puede empezar a usar
             # la GPU a mitad de una campaña de horas, y G01 antes de este
             # cambio solo se corría una vez al inicio (run_campaign_preflight,
-            # nunca conectado por combinación). Solo aplica a combinaciones
-            # cuyo kernel es device=="gpu"; gpu_inspector=None desactiva el
-            # check por completo (nunca falla "cerrado" en una campaña de
-            # solo CPU sin inspector NVML disponible).
-            if getattr(entry, "device", "cpu") == "gpu" and gpu_inspector is not None:
+            # nunca conectado por combinación). También aplica cuando una
+            # campaña CPU habilita NVML explícitamente: en ese caso la GPU
+            # ociosa forma parte del subtotal energético común y actividad
+            # CUDA ajena contaminaría el candidato CPU. gpu_inspector=None
+            # conserva la degradación histórica para entornos sin inspector.
+            gpu_config = getattr(manifest, "gpu", {}) or {}
+            requires_gpu_isolation = (
+                getattr(entry, "device", "cpu") == "gpu"
+                or bool(gpu_config.get("enabled", False))
+            )
+            if requires_gpu_isolation and gpu_inspector is not None:
                 gpu_foreign_check = preflight_module.check_gpu_foreign_activity(gpu_inspector)
                 if not gpu_foreign_check.passed:
                     logger.warning(
