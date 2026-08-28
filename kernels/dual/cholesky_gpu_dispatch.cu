@@ -119,11 +119,6 @@ int main(int argc, char** argv) {
                                      d_A, (int)n, d_work, lwork, d_info));
     CUDA_CHECK(cudaMemcpy(h_work.data(), d_A, bytes, cudaMemcpyDeviceToHost));
     CUDA_CHECK(cudaDeviceSynchronize());
-    {
-        int warmup_info = -999;
-        CUDA_CHECK(cudaMemcpy(&warmup_info, d_info, sizeof(int), cudaMemcpyDeviceToHost));
-        std::fprintf(stderr, "DEBUG warmup_info=%d lwork=%d n=%ld\n", warmup_info, lwork, n);
-    }
 
     double t0 = now_seconds();
     int info_host = 0;
@@ -147,8 +142,15 @@ int main(int argc, char** argv) {
             if (j >= n) j = n - 1;
             long lo = i < j ? i : j, hi = i < j ? j : i;
             double sum = 0.0;
+            /* cuSOLVER es SIEMPRE column-major (a diferencia de LAPACKE, que
+             * tiene el flag LAPACK_ROW_MAJOR y transpone por dentro) -- L(fila,
+             * columna) vive en el offset columna*n+fila, no fila*n+columna
+             * como en la contraparte de CPU. Sin este ajuste se lee L
+             * transpuesta y la verificacion falla aunque la factorizacion
+             * (info=0) sea correcta -- diagnosticado 2026-08-27 imprimiendo
+             * info_host directamente: la factorizacion siempre dio 0. */
             for (long k = 0; k <= lo; ++k) {
-                sum += h_work[(size_t)hi * n + k] * h_work[(size_t)lo * n + k];
+                sum += h_work[(size_t)k * n + hi] * h_work[(size_t)k * n + lo];
             }
             double expected = h_original[(size_t)i * n + j];
             if (!std::isfinite(sum)) { max_abs_error = INFINITY; break; }
