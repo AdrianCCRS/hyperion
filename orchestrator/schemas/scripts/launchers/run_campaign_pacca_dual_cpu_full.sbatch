@@ -19,7 +19,7 @@
 # proyeccion ~2.5 h, cabe en una sola sesion (margen generoso a 4h). Si por
 # algo se corta antes de terminar, relanzar este mismo script reanuda solo
 # (CAM-11 detecta las corridas ya aceptadas en el output_dir y las salta).
-set -o pipefail
+set -e -o pipefail
 
 export PYTHONPATH="/home/latorresn/hyperion:${PYTHONPATH:-}"
 

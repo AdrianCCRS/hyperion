@@ -38,7 +38,7 @@
 # Verificar con `squeue`/`sacct` + el conteo de corridas aceptadas en
 # campaign_metadata.json antes de cada relanzamiento para saber cuantas
 # sesiones faltan.
-set -o pipefail
+set -e -o pipefail
 
 export PYTHONPATH="/home/latorresn/hyperion:${PYTHONPATH:-}"
 

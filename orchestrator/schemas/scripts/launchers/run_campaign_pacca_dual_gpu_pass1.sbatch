@@ -22,7 +22,7 @@
 #
 # Si la ventana de nodo se acaba antes, relanzar este mismo script reanuda
 # (CAM-11 salta las corridas ya aceptadas en el output_dir).
-set -o pipefail
+set -e -o pipefail
 
 export PYTHONPATH="/home/latorresn/hyperion:${PYTHONPATH:-}"
 

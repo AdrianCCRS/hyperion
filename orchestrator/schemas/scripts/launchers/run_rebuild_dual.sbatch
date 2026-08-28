@@ -21,7 +21,7 @@
 # Las campanas se encolan con --dependency=afterok sobre este job: si la
 # recompilacion o la verificacion de checksums falla, NINGUNA campana
 # arranca, que es el modo de fallo correcto.
-set -o pipefail
+set -e -o pipefail
 
 bash ~/hyperion/scripts/pacca/rebuild_and_resync_dual.sh
 echo REBUILD_SCRIPT_DONE
