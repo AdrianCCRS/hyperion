@@ -19,6 +19,7 @@ export LD_LIBRARY_PATH="/opt/ohpc/pub/libs/gnu12/openblas/0.3.21/lib:/opt/ohpc/p
 source ~/hyperion-venv/bin/activate
 cd ~/hyperion-kernels
 bash ~/hyperion/scripts/pacca/reset_cpu_freq_range.sh
+sudo -n nvidia-smi -i "${CUDA_VISIBLE_DEVICES:-0}" -rgc
 export HYPERION_GPU_FREQ_WRITE_CAPABLE=1
 python3 -m orchestrator.cli run-campaign \
   --manifest ~/hyperion/orchestrator/schemas/campaigns/campaign_pacca_dual_coldwarm_gpu_smoke.yaml \

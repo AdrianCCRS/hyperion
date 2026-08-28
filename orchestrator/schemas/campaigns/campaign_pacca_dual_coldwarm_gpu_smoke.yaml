@@ -69,6 +69,19 @@ gpu:
     - gpu_stream_bw
     - gpu_ert_probe_fp32
     - gpu_ert_probe_fp64
+  # Líneas/márgenes medidos en pacca (ARC-194). F6 de la rejilla dual es
+  # el mismo reloj mínimo de 210 MHz que se llamaba F4 en esa campaña.
+  # Este criterio reemplaza el piso legado de utilization=5 %, que el
+  # smoke 6713 demostró incapaz de ver GEMM/Cholesky N=64 aunque su salida,
+  # reloj, potencia y región warm fueran válidos.
+  idle_power_mw_by_level:
+    REF: 33654.0
+    F0: 53621.8
+    F6: 33677.6
+  active_power_margin_mw:
+    REF: 800.0
+    F0: 4000.0
+    F6: 800.0
 timeouts_seconds: {ready: 15, run: 180, shutdown: 15}
 hardware_datasheet:
   bw_pico_bytes_per_s: 59500000000
