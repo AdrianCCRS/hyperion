@@ -17,6 +17,11 @@
 set -e -o pipefail
 
 REPO="${REPO:-$HOME/hyperion}"
+# El paso 4/4 importa orchestrator.catalog -> orchestrator.config, que usa
+# tomllib (solo stdlib desde Python 3.11) -- el python3 de sistema en pacca
+# es mas viejo, hace falta el venv del proyecto (mismo patron que usan todos
+# los launchers de campana antes de invocar orchestrator.cli).
+source "$HOME/hyperion-venv/bin/activate"
 BIN_DIR="${BIN_DIR:-$HOME/hyperion-kernels/bin}"
 LIB_DIR="${LIB_DIR:-$HOME/hyperion-kernels/libexec/dual}"
 CPU_LIBS="/opt/ohpc/pub/libs/gnu12/openblas/0.3.21/lib:/opt/ohpc/pub/libs/gnu12/openmpi4/fftw/3.3.10/lib"
