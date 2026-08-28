@@ -1517,7 +1517,7 @@ kernels:
     size_variant: N512
     exec_args: "--size 512 --iterations 500"
     expected_runtime_seconds: 6
-    warmup_seconds: 0.5
+    warmup_seconds: 0.05
     estimated_memory_bytes: 50000000
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
@@ -1537,13 +1537,13 @@ kernels:
     size_variant: N512
     exec_args: "--size 512 --iterations 500"
     expected_runtime_seconds: 6
-    warmup_seconds: 0.5
+    warmup_seconds: 0.05
     estimated_memory_bytes: 50000000
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     binary_checksum:
-      pacca-a100: "sha256:4bc99653eef955b4d1a4d21b15b6156eea4df9507ddf672fd21297fc79147e3b"
+      pacca-a100: "sha256:f9b8aa868984f739eea271d5b792a45aafd413df98669ef4b398956693de840b"
 
   - id: dual_fft_cpu_N512
     suite: Dual-FFT
@@ -1554,7 +1554,7 @@ kernels:
     size_variant: N512
     exec_args: "--size 512 --iterations 1000"
     expected_runtime_seconds: 15
-    warmup_seconds: 0.5
+    warmup_seconds: 0.05
     estimated_memory_bytes: 50000000
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
@@ -1574,13 +1574,13 @@ kernels:
     size_variant: N512
     exec_args: "--size 512 --iterations 1000"
     expected_runtime_seconds: 15
-    warmup_seconds: 0.5
+    warmup_seconds: 0.05
     estimated_memory_bytes: 50000000
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     binary_checksum:
-      pacca-a100: "sha256:3158228bd8a0b33bdfbc642564d2912841c5add6ed73539ee3d3391c9fab7cb6"
+      pacca-a100: "sha256:ac72a63f28829a73c5ee72364e1499d178ee7c7c2ef977343cd2a21d1f7677fc"
 
   - id: dual_axpy_cpu_N1000000
     suite: Dual-AXPY
@@ -1591,7 +1591,7 @@ kernels:
     size_variant: N1000000
     exec_args: "--size 1000000 --iterations 2000"
     expected_runtime_seconds: 10
-    warmup_seconds: 0.5
+    warmup_seconds: 0.05
     estimated_memory_bytes: 50000000
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
@@ -1611,13 +1611,13 @@ kernels:
     size_variant: N1000000
     exec_args: "--size 1000000 --iterations 2000"
     expected_runtime_seconds: 10
-    warmup_seconds: 0.5
+    warmup_seconds: 0.05
     estimated_memory_bytes: 50000000
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     binary_checksum:
-      pacca-a100: "sha256:41e345661e59217dc56f254eb6a412b5b383837e3df256b8205025be6cbcd45b"
+      pacca-a100: "sha256:1e6bb9e3014748d4221c7b96ca085f29a84bcd80027f655f14d56a03d6b2d906"
 
   - id: dual_stencil_cpu_N512
     suite: Dual-Stencil
@@ -1628,7 +1628,7 @@ kernels:
     size_variant: N512
     exec_args: "--size 512 --iterations 2000"
     expected_runtime_seconds: 8
-    warmup_seconds: 0.5
+    warmup_seconds: 0.05
     estimated_memory_bytes: 50000000
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
@@ -1648,10 +1648,84 @@ kernels:
     size_variant: N512
     exec_args: "--size 512 --iterations 2000"
     expected_runtime_seconds: 8
-    warmup_seconds: 0.5
+    warmup_seconds: 0.05
     estimated_memory_bytes: 50000000
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     binary_checksum:
-      pacca-a100: "sha256:f2d2b106b59d8108b73b204f208e9b76fe437cbc35788acb8ca8c5becee24769"
+      pacca-a100: "sha256:46fd0ca330952a17dd14a659d332da99369207a1bd58f7ea14accb08071369e5"
+
+  - id: dual_cholesky_cpu_N512
+    suite: Dual-Cholesky
+    role: dataset
+    exec_path: bin/cholesky_cpu
+    config_id: cholesky_N512
+    phase_label_hint: intermedio
+    size_variant: N512
+    exec_args: "--size 512 --iterations 10"
+    expected_runtime_seconds: 6
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 50000000
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:b3fdd715d9cac8206f7092829df82ed4ff4b714ab6f2138b13ad2eb9e7827d06"
+
+  - id: dual_cholesky_gpu_N512
+    suite: Dual-Cholesky
+    role: dataset
+    device: gpu
+    gpu_precision: fp64
+    exec_path: bin/cholesky_gpu
+    config_id: cholesky_N512
+    phase_label_hint: intermedio
+    size_variant: N512
+    exec_args: "--size 512 --iterations 10"
+    expected_runtime_seconds: 6
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 50000000
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    operational_intensity_flops_per_byte: 9.887307  # ncu real, medido 2026-08-27 (post-fix verificacion)
+    binary_checksum:
+      pacca-a100: "sha256:fe55859d36a0b1de656e949745365d14968a465c5b06cf0bb9849a41d3c7c480"
+
+  - id: dual_spmv_cpu_N1000000
+    suite: Dual-SpMV
+    role: dataset
+    exec_path: bin/spmv_cpu
+    config_id: spmv_N1000000
+    phase_label_hint: intermedio
+    size_variant: N1000000
+    exec_args: "--size 1000000 --iterations 200"
+    expected_runtime_seconds: 10
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 50000000
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:591b732e4ff0ff47fead923dff19651bd0b368ae43fba89b9e30ef9aff95aa37"
+
+  - id: dual_spmv_gpu_N1000000
+    suite: Dual-SpMV
+    role: dataset
+    device: gpu
+    gpu_precision: fp64
+    exec_path: bin/spmv_gpu
+    config_id: spmv_N1000000
+    phase_label_hint: intermedio
+    size_variant: N1000000
+    exec_args: "--size 1000000 --iterations 200"
+    expected_runtime_seconds: 10
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 50000000
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    operational_intensity_flops_per_byte: 0.274176  # ncu real, medido 2026-08-27
+    binary_checksum:
+      pacca-a100: "sha256:ab2659d9a62bf47341262f4d2a1e4de0114026c948d246e337ee0a3f28a9097e"
