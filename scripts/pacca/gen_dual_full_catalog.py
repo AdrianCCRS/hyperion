@@ -44,21 +44,28 @@ GRID_MATRIX = [64, 96, 128, 192, 256, 384, 512, 768, 1024, 1536, 2048, 3072, 409
 GRID_VECTOR = [10_000, 31_623, 100_000, 316_228, 1_000_000, 3_162_278,
                10_000_000, 31_622_777]
 
-# Punto de referencia medido de verdad para CPU (calibrate_iterations.sh,
-# 2026-08-27, paccaA100). t_per_it en segundos, en el N de referencia. Un
-# solo punto (modelo lineal por el origen) es suficiente para CPU. CPU y GPU
-# usan conteos de repeticion distintos: el observable comparable es tiempo y
-# energia POR DESPACHO, no la duracion total de bucles artificialmente
-# igualados. Asi cada lado conserva ~1.5 s de region warm y suficientes
-# ventanas de telemetria, incluso cuando N es pequeno.
-REFERENCE = {
-    # op: (N_ref, t_per_it_cpu, scaling_fn)
-    "gemm": (512, 0.00098501, lambda n: n ** 3),
-    "fft": (512, 0.00125038, lambda n: (n * n) * math.log2(n * n)),
-    "axpy": (1_000_000, 0.00084114, lambda n: n),
-    "stencil": (512, 0.00023750, lambda n: n * n),
-    "cholesky": (512, 0.00261578, lambda n: n ** 3),
-    "spmv": (1_000_000, 0.00258186, lambda n: n),
+# Mediana real por despacho CPU a REF/F0, extraida de las 1632 combinaciones
+# del job 6696 (2026-08-28). El intento de extrapolar desde un solo N por la
+# complejidad asintotica fallo en el smoke 6704: el costo fijo/los umbrales de
+# OpenBLAS y LAPACK hicieron que Cholesky N64 recibiera 293603 iteraciones y
+# tardara decenas de segundos. La rejilla es finita y ya fue medida completa;
+# usar sus 68 medianas evita inventar una curva que los datos contradicen.
+CPU_TIME_PER_ITERATION = {
+    "gemm": {64: 7.96239585578e-06, 96: 3.08240534328e-05, 128: 3.53404900422e-05, 192: 6.08153028362e-05, 256: 0.000137175859805, 384: 0.000293268836565, 512: 0.000756091595535, 768: 0.00217215742794, 1024: 0.00508470789474, 1536: 0.01539825, 2048: 0.0374482916667, 3072: 0.116323142857, 4096: 0.2743135},
+    "fft": {64: 1.71109755568e-05, 96: 2.79728440328e-05, 128: 4.85152565038e-05, 192: 0.000404567279194, 256: 0.000223244349759, 384: 0.000450006261181, 512: 0.0013137675, 768: 0.0049989011976, 1024: 0.00816525925926, 1536: 0.0274405132743, 2048: 0.0471101393443, 3072: 0.102393288462, 4096: 0.204926892857},
+    "axpy": {10000: 5.18409752043e-06, 31623: 2.85773180823e-05, 100000: 7.03062952132e-05, 316228: 0.000211486618005, 1000000: 0.000994307692308, 3162278: 0.00316177317073, 10000000: 0.00984732307692, 31622777: 0.0312331666667},
+    "stencil": {64: 4.97226870079e-06, 96: 7.14202588832e-06, 128: 1.05825688976e-05, 192: 2.18674373284e-05, 256: 3.70892125984e-05, 384: 0.00010319888377, 512: 0.000185711968504, 768: 0.00047016832034, 1024: 0.000959628463476, 1536: 0.00223470396601, 2048: 0.00411498232323, 3072: 0.00951960795455, 4096: 0.01691171},
+    "cholesky": {64: 4.3353361512e-05, 96: 9.11085202258e-05, 128: 0.000148021185286, 192: 0.000280198363068, 256: 0.000524511006975, 384: 0.00114143561442, 512: 0.00207461954625, 768: 0.00501012058824, 1024: 0.0124251875, 1536: 0.0250171190476, 2048: 0.0708432222222, 3072: 0.167766, 4096: 0.3179533},
+    "spmv": {10000: 1.02730644773e-05, 31623: 3.11666666667e-05, 100000: 0.000114191996558, 316228: 0.00059048693522, 1000000: 0.00210222289157, 3162278: 0.00682941032609, 10000000: 0.0216142327586, 31622777: 0.0683968055556},
+}
+
+SCALING_FN = {
+    "gemm": lambda n: n ** 3,
+    "fft": lambda n: (n * n) * math.log2(n * n),
+    "axpy": lambda n: n,
+    "stencil": lambda n: n * n,
+    "cholesky": lambda n: n ** 3,
+    "spmv": lambda n: n,
 }
 
 # Modelo de DOS terminos para GPU: t_por_iteracion(N) = A_fijo + B_variable*fn(N).
@@ -121,16 +128,20 @@ OP_META = {
 
 
 def iterations_for(op: str, n: int, device: str) -> int:
-    n_ref, t_cpu_ref, fn = REFERENCE[op]
     if device == "cpu":
-        t_per_it = (t_cpu_ref / fn(n_ref)) * fn(n)
+        try:
+            t_per_it = CPU_TIME_PER_ITERATION[op][n]
+        except KeyError as error:
+            raise ValueError(f"no hay tiempo CPU medido para {op} N={n}") from error
     elif device == "gpu":
         a_gpu, b_gpu = GPU_TWO_TERM[op]
-        t_per_it = a_gpu + b_gpu * fn(n)
+        t_per_it = a_gpu + b_gpu * SCALING_FN[op](n)
     else:
         raise ValueError(device)
     raw = TARGET_SECONDS / t_per_it
-    it = int(round(raw))
+    # CPU usa techo para no quedar por debajo de la duracion objetivo medida.
+    # GPU conserva el redondeo del modelo validado por el pase 6689.
+    it = math.ceil(raw) if device == "cpu" else int(round(raw))
     return max(MIN_ITERATIONS, min(MAX_ITERATIONS, it))
 
 

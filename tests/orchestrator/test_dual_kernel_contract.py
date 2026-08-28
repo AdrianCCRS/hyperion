@@ -2,6 +2,9 @@ from pathlib import Path
 
 import pytest
 
+from orchestrator.catalog import load_catalog
+from scripts.pacca import gen_dual_full_catalog
+
 
 REPO = Path(__file__).resolve().parents[2]
 DUAL_SOURCES = [
@@ -54,3 +57,23 @@ def test_cholesky_no_genera_btb_cubico_fuera_de_medicion():
     assert "for (long k = 0; k < n; ++k)" not in gpu
     assert "radius + 1.0" in cpu
     assert "radius + 1.0" in gpu
+
+
+def test_catalogo_dual_usa_las_iteraciones_del_generador_validado():
+    catalog = load_catalog(str(REPO / "orchestrator/schemas/kernels/catalog.yaml"))
+    checked = 0
+    for op, meta in gen_dual_full_catalog.OP_META.items():
+        assert set(gen_dual_full_catalog.CPU_TIME_PER_ITERATION[op]) == set(meta["grid"])
+        for n in meta["grid"]:
+            for device in ("cpu", "gpu"):
+                expected = gen_dual_full_catalog.iterations_for(op, n, device)
+                assert catalog[f"dual_{op}_{device}_N{n}"].exec_args == f"--size {n} --iterations {expected}"
+                checked += 1
+    assert checked == 136
+
+
+def test_iteraciones_cpu_proyectan_al_menos_region_warm_objetivo():
+    for op, measurements in gen_dual_full_catalog.CPU_TIME_PER_ITERATION.items():
+        for n, seconds_per_iteration in measurements.items():
+            iterations = gen_dual_full_catalog.iterations_for(op, n, "cpu")
+            assert iterations * seconds_per_iteration >= gen_dual_full_catalog.TARGET_SECONDS
