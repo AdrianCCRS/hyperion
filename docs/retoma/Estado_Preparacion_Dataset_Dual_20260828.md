@@ -10,14 +10,13 @@ técnicas. No sustituye esas fuentes.
 - Rama local y checkout de pacca: `fase-02`, commit `9d8e1b7`
   (`prepare cold-warm dual dataset campaigns`). El commit está publicado en
   `origin/fase-02`.
-- Job activo al redactar este relevo: **6716**, smoke GPU integrado corregido,
-  lanzado con
-  `run_campaign_pacca_dual_coldwarm_gpu_smoke.sbatch`.
-- No seguir sondeando el job automáticamente: el autor avisará cuando termine
-  para ahorrar su cuota de uso.
-- Si 6716 termina con 108/108 corridas aceptadas y restaura el estado, el paso
-  siguiente autorizado es lanzar **primero la campaña CPU completa**. Auditarla
-  antes de iniciar la primera sesión GPU completa.
+- El smoke GPU integrado corregido **6716 terminó y pasó la auditoría**. La
+  campaña CPU completa quedó lanzada como **job 6718** con
+  `run_campaign_pacca_dual_cpu_full.sbatch`; estaba `RUNNING` al actualizar
+  este documento.
+- No seguir sondeando 6718 automáticamente si el autor quiere ahorrar cuota de
+  uso. Auditarlo cuando avise que terminó, antes de iniciar la primera sesión
+  GPU completa.
 - No hay un rediseño metodológico abierto que bloquee este primer intento. El
   constructor final del dataset de nivel 2 sí sigue pendiente y no debe
   confundirse con la adquisición de los crudos.
@@ -138,7 +137,20 @@ interpolación lineal por MHz. No se presentan como nuevas mediciones bajo
 carga. Con las nuevas líneas, una revalidación offline de las 108 corridas de
 6713 produjo **108/108 aceptables, cero rechazos**.
 
-## 5. Auditoría obligatoria al terminar 6716
+- Job 6716, repetición integrada con el criterio corregido: `COMPLETED 0:0` en
+  12:34, **108 aceptadas, 0 rechazadas**, matriz completa y
+  `frequency_restored_verified: true`. La auditoría corrida por corrida encontró
+  cero anomalías: 108 contratos temporales válidos y ordenados, mínimo 15
+  ventanas warm útiles por corrida, RAPL/NVML y checksums presentes, y muestras
+  CPU/GPU encerrando cold en 108/108. El peor warm fue 9.2955 s, lejos del
+  timeout de 180 s. Los cinco mensajes de stderr fueron únicamente CAL-07 no
+  bloqueantes ya documentados.
+- Job 6717, comprobación física posterior de un segundo: `COMPLETED 0:0`, GPU
+  ociosa a 210 MHz con máximo nativo 1410 MHz y stderr vacío. La relectura
+  directa CPU posterior confirmó governor `performance`, 800000–3600000 en
+  `0-5,16-21` y `no_turbo=0`.
+
+## 5. Auditoría de 6716 — completada
 
 Conexión: `ssh hpc-unicartagena`, luego `ssh pacca`. La cuenta es compartida:
 no tocar archivos ajenos; cualquier diagnóstico nuevo va en `~/yacacerest/`.
@@ -178,19 +190,22 @@ no tocar archivos ajenos; cualquier diagnóstico nuevo va en `~/yacacerest/`.
    Cholesky N=64. El objetivo es confirmar que dejaron de ser falsos I10 sin
    relajar otros gates.
 
-Si cualquiera de estos puntos falla, **no lanzar la campaña completa** hasta
-explicar la causa. No borrar la corrida fallida; preservarla con un sufijo que
-incluya el job y el motivo.
+Todos estos puntos pasaron. La campaña CPU completa se lanzó como job 6718.
 
-## 6. Lanzamiento siguiente si 6716 pasa
+## 6. Campaña CPU completa en ejecución
 
-Primero verificar que el directorio nuevo no exista o esté realmente vacío:
+Antes del lanzamiento se confirmó que el directorio nuevo no existía. Comando
+ya ejecutado:
 
 ```bash
-test ! -e /home/latorresn/hyperion-results/campaigns/pacca_dual_cpu_full_20260828
 cd /home/latorresn/hyperion
 sbatch orchestrator/schemas/scripts/launchers/run_campaign_pacca_dual_cpu_full.sbatch
 ```
+
+Slurm asignó el **job 6718**. Entró con CPU en `performance`, rango
+800000–3600000 y `no_turbo=0`; el wrapper cambió correctamente al rango no-Turbo
+800000–3200000 antes de la campaña. Al cierre debe restaurar el estado inicial
+exacto.
 
 La campaña CPU completa solicita GPU y nodo exclusivo porque NVML forma parte
 del subtotal energético. Esperado: 1632 combinaciones, aproximadamente 2.5 h,
@@ -243,4 +258,3 @@ job de dos días. Auditar el progreso y los rechazos entre sesiones.
   `catalog-checksums-before-coldwarm-rebuild-20260828`.
 - No borrar corridas rechazadas. Se archivan con nombre explícito y se conservan
   como evidencia.
-
