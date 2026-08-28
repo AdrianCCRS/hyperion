@@ -113,6 +113,7 @@ int main(int argc, char** argv) {
     fill_vector(h_x);
 
     long long cold_t0_ns = now_ns();
+    CUDA_CHECK(cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync));
     int *d_row_ptr, *d_col_idx;
     double *d_values, *d_x, *d_y;
     CUDA_CHECK(cudaMalloc(&d_row_ptr, h_row_ptr.size() * sizeof(int)));

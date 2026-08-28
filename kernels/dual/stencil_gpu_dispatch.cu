@@ -93,6 +93,7 @@ int main(int argc, char** argv) {
     h_original = h_in;
 
     long long cold_t0_ns = now_ns();
+    CUDA_CHECK(cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync));
     double *d_in, *d_out;
     CUDA_CHECK(cudaMalloc(&d_in, bytes));
     CUDA_CHECK(cudaMalloc(&d_out, bytes));

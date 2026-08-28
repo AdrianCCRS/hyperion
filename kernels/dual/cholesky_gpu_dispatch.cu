@@ -119,6 +119,7 @@ int main(int argc, char** argv) {
     make_spd_matrix_host(h_original, n);
 
     long long cold_t0_ns = now_ns();
+    CUDA_CHECK(cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync));
     cusolverDnHandle_t handle;
     CUSOLVER_CHECK(cusolverDnCreate(&handle));
 

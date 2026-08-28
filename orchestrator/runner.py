@@ -619,15 +619,23 @@ def run_single(
     # corrida sigue -- degradación conocida, no un fallo duro, igual que
     # stalled_cycles_backend/l2_lines_in_all cuando el nodo no los soporta.
     if getattr(entry, "device", "cpu") == "gpu":
-        shim_path = compiled_blocking_sync_shim()
-        if shim_path is not None:
-            run_env["LD_PRELOAD"] = f"{shim_path}:{run_env.get('LD_PRELOAD', '')}".rstrip(":")
-        else:
-            logger.warning(
-                "ARC-70: no se pudo compilar el shim de blocking sync para %s -- "
-                "cudaDeviceSynchronize() hará spin (comportamiento por defecto de CUDA)",
-                kernel_ref,
-            )
+        # Los kernels duales son propios (config_id no nulo) y fijan
+        # cudaDeviceScheduleBlockingSync dentro de main(), despues de
+        # cold_t0 y antes de la primera llamada CUDA. Inyectar el shim en
+        # ellos ejecutaria cudaSetDeviceFlags() en un constructor previo a
+        # main y podria sacar la inicializacion de contexto fuera de la
+        # region fria que el experimento necesita medir. El shim se conserva
+        # para binarios externos que no podemos modificar.
+        if entry.config_id is None:
+            shim_path = compiled_blocking_sync_shim()
+            if shim_path is not None:
+                run_env["LD_PRELOAD"] = f"{shim_path}:{run_env.get('LD_PRELOAD', '')}".rstrip(":")
+            else:
+                logger.warning(
+                    "ARC-70: no se pudo compilar el shim de blocking sync para %s -- "
+                    "cudaDeviceSynchronize() hará spin (comportamiento por defecto de CUDA)",
+                    kernel_ref,
+                )
         # ARC-74: cudart y cublas viven en árboles distintos del mismo HPC
         # SDK en paccaA100 (cuda/<ver>/lib64 vs math_libs/.../lib) -- ambos
         # se agregan cuando existen, nunca se asume que un kernel GPU solo

@@ -38,6 +38,15 @@ def test_spmv_gpu_transfiere_csr_completo_en_cold_y_warm():
     assert "bytes_per_dispatch" in gpu
 
 
+@pytest.mark.parametrize("source", sorted((REPO / "kernels/dual").glob("*_gpu_dispatch.cu")), ids=lambda path: path.name)
+def test_dual_gpu_configura_blocking_sync_despues_de_cold_t0(source):
+    text = source.read_text(encoding="utf-8")
+    cold = text.index("long long cold_t0_ns = now_ns();")
+    flags = text.index("cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync)")
+    first_allocation = text.index("cudaMalloc", flags)
+    assert cold < flags < first_allocation
+
+
 def test_cholesky_no_genera_btb_cubico_fuera_de_medicion():
     cpu = (REPO / "kernels/dual/cholesky_cpu_bench.c").read_text(encoding="utf-8")
     gpu = (REPO / "kernels/dual/cholesky_gpu_dispatch.cu").read_text(encoding="utf-8")

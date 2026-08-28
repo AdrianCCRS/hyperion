@@ -16,7 +16,10 @@ from orchestrator.config import HarnessConfig
 FAKE_LAUNCHER = Path(__file__).resolve().parent / "fixtures" / "fake_launcher.py"
 
 
-def _make_entry(tmp_path: Path, *, success_check: dict | None = None, device: str = "cpu") -> KernelEntry:
+def _make_entry(
+    tmp_path: Path, *, success_check: dict | None = None,
+    device: str = "cpu", config_id: str | None = None,
+) -> KernelEntry:
     binary = tmp_path / "npb_ep.x"
     binary.write_bytes(b"#!/bin/sh\necho fake npb binary\n")
     binary.chmod(0o755)
@@ -36,6 +39,7 @@ def _make_entry(tmp_path: Path, *, success_check: dict | None = None, device: st
         device=device,
         operational_intensity_flops_per_byte=5.0 if device == "gpu" else None,
         gpu_precision="fp32" if device == "gpu" else None,
+        config_id=config_id,
     )
 
 
@@ -359,6 +363,21 @@ def test_arc70_run_single_gpu_sin_shim_disponible_no_falla(tmp_path, monkeypatch
     assert result.success is True
     assert result.metadata["observed_ld_preload"] == ""
     assert "ARC-70" in caplog.text
+
+
+def test_dual_gpu_no_precarga_shim_antes_de_su_region_fria(tmp_path, monkeypatch):
+    monkeypatch.delenv("FAKE_LAUNCHER_BEHAVIOR", raising=False)
+    monkeypatch.setattr(
+        runner, "compiled_blocking_sync_shim",
+        lambda: (_ for _ in ()).throw(AssertionError("un dual no debe precargar el shim")),
+    )
+    monkeypatch.setattr(runner, "cuda_lib_dirs", lambda: [])
+    entry = _make_entry(tmp_path, device="gpu", config_id="gemm_N64")
+    manifest = _make_manifest(tmp_path)
+
+    result = runner.run_single(entry, manifest, "npb_ep", "REF", 1, harness=_harness())
+
+    assert result.metadata["observed_ld_preload"] == ""
 
 
 def test_run05_run06_run07_corrida_exitosa(tmp_path, monkeypatch):

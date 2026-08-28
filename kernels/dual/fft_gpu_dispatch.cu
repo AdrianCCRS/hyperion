@@ -99,6 +99,7 @@ int main(int argc, char** argv) {
     }
 
     long long cold_t0_ns = now_ns();
+    CUDA_CHECK(cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync));
     cufftDoubleComplex* d_data;
     CUDA_CHECK(cudaMalloc(&d_data, bytes));
 

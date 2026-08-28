@@ -110,6 +110,7 @@ int main(int argc, char** argv) {
     /* Datos listos en host. Contexto CUDA, asignaciones y handle cuBLAS se
      * cobran desde este punto, como parte del primer despacho en frio. */
     long long cold_t0_ns = now_ns();
+    CUDA_CHECK(cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync));
     double *d_a, *d_b, *d_c;
     CUDA_CHECK(cudaMalloc(&d_a, bytes));
     CUDA_CHECK(cudaMalloc(&d_b, bytes));
