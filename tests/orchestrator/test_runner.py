@@ -106,6 +106,18 @@ def test_arc70_build_command_sin_enable_gpu_si_device_cpu(tmp_path):
     assert "--enable-gpu" not in command
 
 
+def test_arc70_build_command_muestrea_nvml_en_cpu_si_manifest_gpu_enabled(tmp_path):
+    entry = _make_entry(tmp_path, device="cpu")
+    manifest = _make_manifest(tmp_path)
+    manifest.gpu = {"enabled": True}
+    manifest.gpu_interval_ns = 5_000_000
+
+    command = runner.build_command(entry, manifest, "run_x", _harness())
+
+    assert "--enable-gpu" in command
+    assert command[command.index("--gpu-interval-ns") + 1] == "5000000"
+
+
 def test_arc70_build_command_agrega_gpu_interval_ns_si_esta_en_el_manifiesto(tmp_path):
     entry = _make_entry(tmp_path, device="gpu")
     manifest = _make_manifest(tmp_path)
@@ -825,11 +837,11 @@ def test_arc87_sin_apply_gpu_frequency_no_agrega_campos_de_gpu(tmp_path, monkeyp
 def test_run10_extrae_fronteras_cold_y_warm(tmp_path):
     stdout = tmp_path / "stdout.txt"
     stdout.write_text(
-        "Cold region t0_ns = 100\n"
-        "Setup complete t_ns = 140\n"
-        "Cold region t1_ns = 220\n"
-        "Measured region t0_ns = 230\n"
-        "Measured region t1_ns = 1230\n"
+        " Cold region t0_ns = 100\n"
+        " Setup complete t_ns = 140\n"
+        " Cold region t1_ns = 220\n"
+        " Measured region t0_ns = 230\n"
+        " Measured region t1_ns = 1230\n"
     )
 
     timing = runner._read_dispatch_timing(stdout)

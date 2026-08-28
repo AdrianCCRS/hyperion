@@ -39,11 +39,13 @@ _GROUP_GONE_INTERVAL_SECONDS = 0.05
 # la vida completa del proceso porque eso volveria a incluir generacion de
 # datos y verificacion, que estan deliberadamente fuera de la decision.
 _DISPATCH_TIMING_PATTERNS = {
-    "cold_t0_ns": re.compile(r"^Cold region t0_ns\s*=\s*(\d+)\s*$", re.MULTILINE),
-    "setup_complete_ns": re.compile(r"^Setup complete t_ns\s*=\s*(\d+)\s*$", re.MULTILINE),
-    "cold_t1_ns": re.compile(r"^Cold region t1_ns\s*=\s*(\d+)\s*$", re.MULTILINE),
-    "warm_t0_ns": re.compile(r"^Measured region t0_ns\s*=\s*(\d+)\s*$", re.MULTILINE),
-    "warm_t1_ns": re.compile(r"^Measured region t1_ns\s*=\s*(\d+)\s*$", re.MULTILINE),
+    # Los benches historicamente anteponen un espacio a sus lineas de
+    # salida. El contrato es estricto en nombre/conteo, no en indentacion.
+    "cold_t0_ns": re.compile(r"^\s*Cold region t0_ns\s*=\s*(\d+)\s*$", re.MULTILINE),
+    "setup_complete_ns": re.compile(r"^\s*Setup complete t_ns\s*=\s*(\d+)\s*$", re.MULTILINE),
+    "cold_t1_ns": re.compile(r"^\s*Cold region t1_ns\s*=\s*(\d+)\s*$", re.MULTILINE),
+    "warm_t0_ns": re.compile(r"^\s*Measured region t0_ns\s*=\s*(\d+)\s*$", re.MULTILINE),
+    "warm_t1_ns": re.compile(r"^\s*Measured region t1_ns\s*=\s*(\d+)\s*$", re.MULTILINE),
 }
 
 
@@ -293,12 +295,15 @@ def build_command(
         # asumir que sigue siendo seguro.
         reserved_cpus = set(cores.delegated_cpus) | {cores.collector_cpu, cores.consumer_cpu}
         command += ["--uncore-pin-cpu", str(max(reserved_cpus) + 1)]
-    # ARC-70: kernels GPU (Rodinia u otros del catálogo con device="gpu")
-    # necesitan que el Collector muestree NVML -- el launcher ya soporta
-    # --enable-gpu/--gpu-interval-ns (ARC-68), solo faltaba conectarlo desde
-    # el catálogo. gpu_interval_ns es opcional en el manifiesto; si no se
-    # declara, se omite el flag y el launcher usa su propio default (100ms).
-    if getattr(entry, "device", "cpu") == "gpu":
+    # ARC-70: todo kernel GPU necesita NVML. Ademas, una campaña CPU puede
+    # habilitarlo explicitamente para medir el mismo subtotal energetico en
+    # ambos candidatos (RAPL package+DRAM + GPU, ociosa durante CPU). Antes
+    # solo se miraba entry.device y manifest.gpu.enabled se ignoraba para
+    # kernels CPU: el smoke 6702 lo demostro con enable_gpu=false, dejando
+    # imposible una comparacion energetica simetrica CPU/GPU.
+    gpu_config = getattr(manifest, "gpu", {}) or {}
+    collect_gpu = getattr(entry, "device", "cpu") == "gpu" or bool(gpu_config.get("enabled", False))
+    if collect_gpu:
         command.append("--enable-gpu")
         gpu_interval_ns = getattr(manifest, "gpu_interval_ns", None)
         if gpu_interval_ns is not None:
