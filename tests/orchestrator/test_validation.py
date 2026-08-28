@@ -298,24 +298,39 @@ def test_arc174_seis_cpu_igualmente_desviados_spread_cero_pero_outliers_seis(tmp
     assert classification.min_khz == classification.max_khz == 3_000_000
 
 
-def test_arc174_un_cpu_desviado(tmp_path):
+def test_arc174_cpu_ocioso_por_debajo_no_invalida_si_otro_confirma_objetivo(tmp_path):
     classification = validation.classify_frequency_window(
         "3200000;3200000;3200000;2800000",
         is_native_governor=False, expected_khz=3_200_000, tolerance_fraction=0.03,
         within_grace=False,
     )
-    assert classification.status == "observation_unreliable"
+    assert classification.status == "valid"
     assert classification.outlier_cpu_count == 1
+    assert classification.in_tolerance_cpu_count == 3
+    assert classification.below_tolerance_cpu_count == 1
+    assert classification.above_tolerance_cpu_count == 0
 
 
-def test_arc174_varios_cpu_desviados(tmp_path):
+def test_arc174_varios_cpu_ociosos_no_invalidan_si_hay_confirmacion(tmp_path):
     classification = validation.classify_frequency_window(
         "3200000;2800000;2800000;3200000",
         is_native_governor=False, expected_khz=3_200_000, tolerance_fraction=0.03,
         within_grace=False,
     )
-    assert classification.status == "observation_unreliable"
+    assert classification.status == "valid"
     assert classification.outlier_cpu_count == 2
+
+
+def test_arc174_sobre_reloj_invalida_aunque_otro_cpu_confirme_objetivo(tmp_path):
+    classification = validation.classify_frequency_window(
+        "3200000;3200000;3400000;2800000",
+        is_native_governor=False, expected_khz=3_200_000, tolerance_fraction=0.03,
+        within_grace=False,
+    )
+    assert classification.status == "observation_unreliable"
+    assert classification.in_tolerance_cpu_count == 2
+    assert classification.below_tolerance_cpu_count == 1
+    assert classification.above_tolerance_cpu_count == 1
 
 
 def test_arc174_valor_exactamente_en_el_limite_de_tolerancia_se_acepta(tmp_path):

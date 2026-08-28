@@ -17,6 +17,8 @@
 #include <string.h>
 #include <time.h>
 
+#include "dispatch_timing.h"
+
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -52,16 +54,16 @@ static double next_uniform(void) {
 
 /* CSR con NNZ_PER_ROW fijo por fila -- construccion determinista, misma
  * secuencia de PRNG que la contraparte GPU para la misma N. */
-static void build_csr(long n, int **row_ptr, long **col_idx, double **values) {
+static void build_csr(long n, int **row_ptr, int **col_idx, double **values) {
     *row_ptr = malloc((size_t)(n + 1) * sizeof(int));
-    *col_idx = malloc((size_t)n * NNZ_PER_ROW * sizeof(long));
+    *col_idx = malloc((size_t)n * NNZ_PER_ROW * sizeof(int));
     *values = malloc((size_t)n * NNZ_PER_ROW * sizeof(double));
     (*row_ptr)[0] = 0;
     for (long i = 0; i < n; ++i) {
         for (int k = 0; k < NNZ_PER_ROW; ++k) {
             long offset = k - NNZ_PER_ROW / 2;
             long col = ((i + offset) % n + n) % n;
-            (*col_idx)[i * NNZ_PER_ROW + k] = col;
+            (*col_idx)[i * NNZ_PER_ROW + k] = (int)col;
             (*values)[i * NNZ_PER_ROW + k] = next_uniform() * 2.0 - 1.0;
         }
         (*row_ptr)[i + 1] = (int)((i + 1) * NNZ_PER_ROW);
@@ -89,20 +91,23 @@ int main(int argc, char **argv) {
         return 2;
     }
 
-    int *row_ptr; long *col_idx; double *values;
+    int *row_ptr; int *col_idx; double *values;
     build_csr(n, &row_ptr, &col_idx, &values);
 
     double *x = malloc((size_t)n * sizeof(double));
     double *y = malloc((size_t)n * sizeof(double));
     fill_vector(x, n);
 
-    /* Warmup fuera de ventana. */
+    /* Primer despacho en frio; incluye el arranque del runtime OpenMP. */
+    long long cold_t0_ns = now_ns();
+    long long setup_complete_ns = cold_t0_ns;
     #pragma omp parallel for schedule(static)
     for (long i = 0; i < n; ++i) {
         double sum = 0.0;
         for (int k = row_ptr[i]; k < row_ptr[i + 1]; ++k) sum += values[k] * x[col_idx[k]];
         y[i] = sum;
     }
+    long long cold_t1_ns = now_ns();
 
     long long t0_ns = now_ns();
 
@@ -140,8 +145,7 @@ int main(int argc, char **argv) {
     printf(" Iterations            =                %8d\n", iterations);
     printf("\n");
     printf(" Time in seconds =    %12.6f\n", seconds);
-    printf(" Measured region t0_ns = %lld\n", t0_ns);
-    printf(" Measured region t1_ns = %lld\n", t1_ns);
+    print_dispatch_timing(cold_t0_ns, setup_complete_ns, cold_t1_ns, t0_ns, t1_ns);
     printf(" Mop/s total     =    %12.2f\n", mops_total);
     printf(" Verification    =               %s\n", ok ? "SUCCESSFUL" : "FAILED");
 

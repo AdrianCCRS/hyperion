@@ -9,11 +9,9 @@
  * podria aprender "tamaño -> device"; con dos de perfil opuesto tiene que
  * aprender tambien "que operacion es".
  *
- * La planificacion FFTW queda FUERA de la ventana medida: es costo de setup
- * que el runtime del selector pagaria una sola vez, no por despacho. Se usa
- * FFTW_ESTIMATE y no FFTW_MEASURE para que el plan sea determinista y no
- * dependa de un autotuning que varia entre corridas (lo que meteria varianza
- * en el eje de frecuencia, que es justo lo que se quiere medir limpio).
+ * La planificacion FFTW se cobra en el primer despacho (region cold) y se
+ * separa de las repeticiones con plan reutilizado (region warm). Se usa
+ * FFTW_ESTIMATE y no FFTW_MEASURE para que el plan sea determinista.
  *
  * Formato de salida identico al resto del catalogo (catalog.yaml).
  */
@@ -25,6 +23,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+
+#include "dispatch_timing.h"
 
 /* ARC: sello absoluto de la region medida (CLOCK_MONOTONIC, mismo reloj que
  * usa la telemetria -- telemetry/include/telemetry/metrics.hpp). Permite al
@@ -71,16 +71,6 @@ int main(int argc, char **argv) {
         return 2;
     }
 
-#ifdef _OPENMP
-    if (fftw_init_threads()) {
-        int nthreads = 1;
-        const char *env = getenv("OMP_NUM_THREADS");
-        if (env) nthreads = atoi(env);
-        if (nthreads < 1) nthreads = 1;
-        fftw_plan_with_nthreads(nthreads);
-    }
-#endif
-
     const size_t elems = (size_t)n * (size_t)n;
     fftw_complex *data = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * elems);
     fftw_complex *original = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * elems);
@@ -96,7 +86,19 @@ int main(int argc, char **argv) {
         original[i] = data[i];
     }
 
-    /* Planificacion fuera de la ventana medida: es setup, no despacho. */
+    /* Datos listos. Desde aqui se cobra el analogo CPU del setup: soporte
+     * multihilo y creacion de planes FFTW. */
+    long long cold_t0_ns = now_ns();
+#ifdef _OPENMP
+    if (fftw_init_threads()) {
+        int nthreads = 1;
+        const char *env = getenv("OMP_NUM_THREADS");
+        if (env) nthreads = atoi(env);
+        if (nthreads < 1) nthreads = 1;
+        fftw_plan_with_nthreads(nthreads);
+    }
+#endif
+
     fftw_plan forward = fftw_plan_dft_2d((int)n, (int)n, data, data,
                                          FFTW_FORWARD, FFTW_ESTIMATE);
     fftw_plan backward = fftw_plan_dft_2d((int)n, (int)n, data, data,
@@ -105,12 +107,13 @@ int main(int argc, char **argv) {
         fprintf(stderr, "fallo al planificar FFTW para N=%ld\n", n);
         return 2;
     }
+    long long setup_complete_ns = now_ns();
 
-    /* Warmup fuera de ventana, para igualar el trato que recibe el bench de GPU
-     * (que descarta su primera llamada por autotuning/carga de kernels). */
+    /* Primer despacho real: preserva el operando de entrada y deja el
+     * resultado disponible en RAM host. */
+    memcpy(data, original, sizeof(fftw_complex) * elems);
     fftw_execute(forward);
-    fftw_execute(backward);
-    for (size_t i = 0; i < elems; ++i) data[i] = original[i];
+    long long cold_t1_ns = now_ns();
 
     long long t0_ns = now_ns();
 
@@ -173,8 +176,7 @@ int main(int argc, char **argv) {
     printf(" Iterations            =                %8d\n", iterations);
     printf("\n");
     printf(" Time in seconds =    %12.6f\n", seconds);
-    printf(" Measured region t0_ns = %lld\n", t0_ns);
-    printf(" Measured region t1_ns = %lld\n", t1_ns);
+    print_dispatch_timing(cold_t0_ns, setup_complete_ns, cold_t1_ns, t0_ns, t1_ns);
     printf(" Mop/s total     =    %12.2f\n", mops_total);
     printf(" Verification    =               %s\n", ok ? "SUCCESSFUL" : "FAILED");
 

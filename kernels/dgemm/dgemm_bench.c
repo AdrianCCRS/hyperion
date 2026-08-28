@@ -26,6 +26,8 @@
 #include <sys/time.h>
 #include <time.h>
 
+#include "../dual/dispatch_timing.h"
+
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -124,6 +126,15 @@ int main(int argc, char **argv) {
 
     const double alpha = 1.0, beta = 0.0;
 
+    /* Primer despacho en frio. OpenBLAS no expone un handle: cualquier
+     * inicializacion perezosa de la biblioteca ocurre dentro de esta primera
+     * llamada y, por tanto, queda correctamente incluida. */
+    long long cold_t0_ns = now_ns();
+    long long setup_complete_ns = cold_t0_ns;
+    cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                (int)n, (int)n, (int)n, alpha, a, (int)n, b, (int)n, beta, c, (int)n);
+    long long cold_t1_ns = now_ns();
+
     long long t0_ns = now_ns();
 
     double t0 = now_seconds();
@@ -153,8 +164,7 @@ int main(int argc, char **argv) {
     printf(" OMP max threads       =                %8d\n", nthreads);
     printf("\n");
     printf(" Time in seconds =    %12.6f\n", seconds);
-    printf(" Measured region t0_ns = %lld\n", t0_ns);
-    printf(" Measured region t1_ns = %lld\n", t1_ns);
+    print_dispatch_timing(cold_t0_ns, setup_complete_ns, cold_t1_ns, t0_ns, t1_ns);
     printf(" Mop/s total     =    %12.2f\n", mops_total);
     printf(" Verification    =               %s\n", ok ? "SUCCESSFUL" : "FAILED");
 

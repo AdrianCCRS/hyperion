@@ -13,6 +13,8 @@
 #include <cmath>
 #include <vector>
 
+#include "dispatch_timing.h"
+
 #define NNZ_PER_ROW 7
 
 /* ARC: sello absoluto de la region medida (CLOCK_MONOTONIC, mismo reloj que
@@ -62,10 +64,8 @@ static double next_uniform() {
         }                                                                      \
     } while (0)
 
-/* Mismo algoritmo y misma secuencia de PRNG que build_csr() en
- * spmv_cpu_bench.c -- misma matriz para la misma N. cuSPARSE usa
- * row_ptr de tipo int (indexado 0), col_idx de tipo int (no long, a
- * diferencia del lado CPU -- se convierte al construir). */
+/* Mismo algoritmo, PRNG y representacion int32 que build_csr() en
+ * spmv_cpu_bench.c -- misma matriz y mismos bytes logicos para la misma N. */
 static void build_csr(long n, std::vector<int>& row_ptr, std::vector<int>& col_idx,
                        std::vector<double>& values) {
     row_ptr.resize(n + 1);
@@ -112,6 +112,7 @@ int main(int argc, char** argv) {
     std::vector<double> h_x(n), h_y(n);
     fill_vector(h_x);
 
+    long long cold_t0_ns = now_ns();
     int *d_row_ptr, *d_col_idx;
     double *d_values, *d_x, *d_y;
     CUDA_CHECK(cudaMalloc(&d_row_ptr, h_row_ptr.size() * sizeof(int)));
@@ -119,12 +120,6 @@ int main(int argc, char** argv) {
     CUDA_CHECK(cudaMalloc(&d_values, h_values.size() * sizeof(double)));
     CUDA_CHECK(cudaMalloc(&d_x, (size_t)n * sizeof(double)));
     CUDA_CHECK(cudaMalloc(&d_y, (size_t)n * sizeof(double)));
-    /* La topologia (row_ptr/col_idx/values) no cambia entre despachos -- solo
-     * se sube una vez, fuera del bucle medido, igual que un runtime real que
-     * factoriza/ensambla la matriz una sola vez y la reutiliza. */
-    CUDA_CHECK(cudaMemcpy(d_row_ptr, h_row_ptr.data(), h_row_ptr.size() * sizeof(int), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_col_idx, h_col_idx.data(), h_col_idx.size() * sizeof(int), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_values, h_values.data(), h_values.size() * sizeof(double), cudaMemcpyHostToDevice));
 
     cusparseHandle_t handle;
     CUSPARSE_CHECK(cusparseCreate(&handle));
@@ -143,20 +138,29 @@ int main(int argc, char** argv) {
                                             CUSPARSE_SPMV_ALG_DEFAULT, &buffer_size));
     void* d_buffer;
     CUDA_CHECK(cudaMalloc(&d_buffer, buffer_size));
+    long long setup_complete_ns = now_ns();
 
-    /* Warmup fuera de ventana. */
+    /* Primer despacho en frio. Por contrato, TODOS los operandos empiezan
+     * en host: tambien se transfiere el CSR completo, no solo x. */
+    CUDA_CHECK(cudaMemcpy(d_row_ptr, h_row_ptr.data(), h_row_ptr.size() * sizeof(int), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_col_idx, h_col_idx.data(), h_col_idx.size() * sizeof(int), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_values, h_values.data(), h_values.size() * sizeof(double), cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(d_x, h_x.data(), (size_t)n * sizeof(double), cudaMemcpyHostToDevice));
     CUSPARSE_CHECK(cusparseSpMV(handle, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA,
                                  vecX, &beta, vecY, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, d_buffer));
     CUDA_CHECK(cudaMemcpy(h_y.data(), d_y, (size_t)n * sizeof(double), cudaMemcpyDeviceToHost));
     CUDA_CHECK(cudaDeviceSynchronize());
+    long long cold_t1_ns = now_ns();
 
     long long t0_ns = now_ns();
 
     double t0 = now_seconds();
     for (int rep = 0; rep < iterations; ++rep) {
-        /* Despacho: subir x, multiplicar, bajar y -- la matriz (subida antes
-         * del bucle) se reutiliza igual que en un despliegue real. */
+        /* Estado reutilizado solo para contexto/handle/descriptores/memoria;
+         * los datos no residen en device entre operaciones. */
+        CUDA_CHECK(cudaMemcpy(d_row_ptr, h_row_ptr.data(), h_row_ptr.size() * sizeof(int), cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMemcpy(d_col_idx, h_col_idx.data(), h_col_idx.size() * sizeof(int), cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMemcpy(d_values, h_values.data(), h_values.size() * sizeof(double), cudaMemcpyHostToDevice));
         CUDA_CHECK(cudaMemcpy(d_x, h_x.data(), (size_t)n * sizeof(double), cudaMemcpyHostToDevice));
         CUSPARSE_CHECK(cusparseSpMV(handle, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA,
                                      vecX, &beta, vecY, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, d_buffer));
@@ -182,7 +186,12 @@ int main(int argc, char** argv) {
 
     double total_flops = (double)iterations * 2.0 * (double)nnz;
     double mops_total = total_flops / 1e6 / seconds;
-    double moved_bytes = (double)iterations * 2.0 * (double)n * sizeof(double);
+    double bytes_per_dispatch =
+        (double)h_row_ptr.size() * sizeof(int)
+        + (double)h_col_idx.size() * sizeof(int)
+        + (double)h_values.size() * sizeof(double)
+        + 2.0 * (double)n * sizeof(double);
+    double moved_bytes = (double)iterations * bytes_per_dispatch;
 
     std::printf("\n SpMV CSR dispatch benchmark (GPU / cuSPARSE, transferencias incluidas)\n\n");
     std::printf(" Matrix rows (N)       =                %8ld\n", n);
@@ -190,8 +199,7 @@ int main(int argc, char** argv) {
     std::printf(" Bytes transferred     =        %16.0f\n", moved_bytes);
     std::printf("\n");
     std::printf(" Time in seconds =    %12.6f\n", seconds);
-    std::printf(" Measured region t0_ns = %lld\n", t0_ns);
-    std::printf(" Measured region t1_ns = %lld\n", t1_ns);
+    print_dispatch_timing(cold_t0_ns, setup_complete_ns, cold_t1_ns, t0_ns, t1_ns);
     std::printf(" Mop/s total     =    %12.2f\n", mops_total);
     std::printf(" Verification    =               %s\n", ok ? "SUCCESSFUL" : "FAILED");
 

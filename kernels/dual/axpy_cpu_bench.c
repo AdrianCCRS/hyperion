@@ -18,6 +18,8 @@
 #include <string.h>
 #include <time.h>
 
+#include "dispatch_timing.h"
+
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -82,9 +84,12 @@ int main(int argc, char **argv) {
     memcpy(y_original, y, (size_t)n * sizeof(double));
     const double alpha = 2.5;
 
-    /* Warmup fuera de ventana. */
+    /* Primer despacho en frio: incluye la inicializacion perezosa que
+     * OpenBLAS pueda hacer en su primera llamada. */
+    long long cold_t0_ns = now_ns();
+    long long setup_complete_ns = cold_t0_ns;
     cblas_daxpy((int)n, alpha, x, 1, y, 1);
-    memcpy(y, y_original, (size_t)n * sizeof(double));
+    long long cold_t1_ns = now_ns();
 
     long long t0_ns = now_ns();
 
@@ -121,8 +126,7 @@ int main(int argc, char **argv) {
     printf(" Iterations            =                %8d\n", iterations);
     printf("\n");
     printf(" Time in seconds =    %12.6f\n", seconds);
-    printf(" Measured region t0_ns = %lld\n", t0_ns);
-    printf(" Measured region t1_ns = %lld\n", t1_ns);
+    print_dispatch_timing(cold_t0_ns, setup_complete_ns, cold_t1_ns, t0_ns, t1_ns);
     printf(" Mop/s total     =    %12.2f\n", mops_total);
     printf(" Verification    =               %s\n", ok ? "SUCCESSFUL" : "FAILED");
 

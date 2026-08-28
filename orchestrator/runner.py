@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import signal
 import subprocess
+import tempfile
 import time
 from typing import Any, Callable, Iterable, Mapping
 
@@ -31,9 +32,79 @@ SAFETY_MARGIN = 3.0
 _GROUP_GONE_ATTEMPTS = 20
 _GROUP_GONE_INTERVAL_SECONDS = 0.05
 
+# Contrato de los 12 binarios duales. Los sellos usan CLOCK_MONOTONIC, el
+# mismo reloj del launcher, y separan dos preguntas distintas: el primer
+# despacho en frio (setup de biblioteca/device incluido) y los despachos
+# posteriores con recursos ya creados. No se infieren fronteras a partir de
+# la vida completa del proceso porque eso volveria a incluir generacion de
+# datos y verificacion, que estan deliberadamente fuera de la decision.
+_DISPATCH_TIMING_PATTERNS = {
+    "cold_t0_ns": re.compile(r"^Cold region t0_ns\s*=\s*(\d+)\s*$", re.MULTILINE),
+    "setup_complete_ns": re.compile(r"^Setup complete t_ns\s*=\s*(\d+)\s*$", re.MULTILINE),
+    "cold_t1_ns": re.compile(r"^Cold region t1_ns\s*=\s*(\d+)\s*$", re.MULTILINE),
+    "warm_t0_ns": re.compile(r"^Measured region t0_ns\s*=\s*(\d+)\s*$", re.MULTILINE),
+    "warm_t1_ns": re.compile(r"^Measured region t1_ns\s*=\s*(\d+)\s*$", re.MULTILINE),
+}
+
 
 class RunTimeoutError(RuntimeError):
     """Raised when the measured process group could not be cleaned up."""
+
+
+def _read_dispatch_timing(stdout_path: Path) -> dict[str, Any]:
+    """Extrae y valida las fronteras cold/warm de un kernel dual.
+
+    Falla cerrado: un sello ausente, duplicado o no monotonico invalida el
+    contrato. Guardar los nanosegundos absolutos en metadata permite integrar
+    despues tiempo, RAPL y NVML sobre exactamente el mismo intervalo.
+    """
+    stdout = stdout_path.read_text(encoding="utf-8", errors="replace")
+    values: dict[str, int] = {}
+    for name, pattern in _DISPATCH_TIMING_PATTERNS.items():
+        matches = pattern.findall(stdout)
+        if len(matches) != 1:
+            raise ValueError(
+                f"RUN-10: marcador {name!r} esperado exactamente una vez en {stdout_path}, "
+                f"encontrado {len(matches)}"
+            )
+        values[name] = int(matches[0])
+
+    ordered = [
+        values["cold_t0_ns"], values["setup_complete_ns"], values["cold_t1_ns"],
+        values["warm_t0_ns"], values["warm_t1_ns"],
+    ]
+    if ordered != sorted(ordered) or ordered[0] == ordered[2] or ordered[3] == ordered[4]:
+        raise ValueError(f"RUN-10: fronteras de tiempo invalidas/no monotonicas: {values}")
+
+    return {
+        "contract_version": "cold_warm_v1",
+        **values,
+        "setup_seconds": (values["setup_complete_ns"] - values["cold_t0_ns"]) / 1e9,
+        "first_dispatch_seconds": (values["cold_t1_ns"] - values["setup_complete_ns"]) / 1e9,
+        "cold_total_seconds": (values["cold_t1_ns"] - values["cold_t0_ns"]) / 1e9,
+        "warm_total_seconds": (values["warm_t1_ns"] - values["warm_t0_ns"]) / 1e9,
+    }
+
+
+def _write_json_atomic(path: Path, payload: Mapping[str, Any]) -> None:
+    """Escribe JSON completo y lo publica con rename atomico en el mismo FS."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_name: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent,
+            prefix=f".{path.name}.", suffix=".tmp", delete=False,
+        ) as temporary:
+            temporary_name = temporary.name
+            json.dump(payload, temporary, indent=2, sort_keys=True, default=str)
+            temporary.write("\n")
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_name, path)
+    finally:
+        if temporary_name is not None:
+            with contextlib.suppress(FileNotFoundError):
+                Path(temporary_name).unlink()
 
 
 @dataclass(frozen=True)
@@ -590,6 +661,27 @@ def run_single(
     success = (not timed_out) and _check_success(entry, exit_code, stdout_path)
 
     launcher_metadata = _read_launcher_metadata(run_dir)
+    # Todo kernel del catalogo dual (config_id != None) debe demostrar las
+    # dos fronteras temporales acordadas. Una verificacion numerica exitosa
+    # no basta si no se puede saber que energia/tiempo pertenecen al primer
+    # despacho y cuales al estado reutilizado. Se degrada a corrida fallida
+    # sin abortar la campaña completa; los crudos y el motivo se conservan.
+    if success and entry.config_id is not None:
+        try:
+            dispatch_timing = _read_dispatch_timing(stdout_path)
+        except ValueError as error:
+            success = False
+            launcher_metadata = merge_metadata(
+                launcher_metadata,
+                {"dispatch_timing_contract_valid": False, "dispatch_timing_error": str(error)},
+                context="RUN-10",
+            )
+        else:
+            launcher_metadata = merge_metadata(
+                launcher_metadata,
+                {"dispatch_timing_contract_valid": True, "dispatch_timing": dispatch_timing},
+                context="RUN-10",
+            )
     metadata = _merge_metadata(
         launcher_metadata,
         entry,
@@ -642,9 +734,7 @@ def run_single(
     # de esos campos. El comando ejecutado (`command`) tampoco se
     # persistía en ningún lado -- se agrega aquí, no solo en RunResult.
     metadata_path = run_dir / "metadata.json"
-    with metadata_path.open("w", encoding="utf-8") as metadata_file:
-        json.dump({**metadata, "command": list(command)}, metadata_file, indent=2, sort_keys=True, default=str)
-        metadata_file.write("\n")
+    _write_json_atomic(metadata_path, {**metadata, "command": list(command)})
 
     return RunResult(
         run_id=run_id,

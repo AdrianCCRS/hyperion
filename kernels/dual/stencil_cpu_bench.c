@@ -21,6 +21,8 @@
 #include <string.h>
 #include <time.h>
 
+#include "dispatch_timing.h"
+
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -100,11 +102,12 @@ int main(int argc, char **argv) {
     fill(a, (long)elems);
     memcpy(original, a, elems * sizeof(double));
 
-    /* Warmup fuera de ventana: un paso completo (ida y vuelta) para tocar
-     * ambos buffers antes de medir. */
+    /* Primer despacho en frio. El arranque del runtime OpenMP queda dentro
+     * de la decision; la generacion de la malla ya termino. */
+    long long cold_t0_ns = now_ns();
+    long long setup_complete_ns = cold_t0_ns;
     jacobi_step(a, b, n);
-    jacobi_step(b, a, n);
-    memcpy(a, original, elems * sizeof(double));
+    long long cold_t1_ns = now_ns();
 
     long long t0_ns = now_ns();
 
@@ -147,8 +150,7 @@ int main(int argc, char **argv) {
     printf(" Iterations            =                %8d\n", iterations);
     printf("\n");
     printf(" Time in seconds =    %12.6f\n", seconds);
-    printf(" Measured region t0_ns = %lld\n", t0_ns);
-    printf(" Measured region t1_ns = %lld\n", t1_ns);
+    print_dispatch_timing(cold_t0_ns, setup_complete_ns, cold_t1_ns, t0_ns, t1_ns);
     printf(" Mop/s total     =    %12.2f\n", mops_total);
     printf(" Verification    =               %s\n", ok ? "SUCCESSFUL" : "FAILED");
 

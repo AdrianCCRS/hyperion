@@ -465,26 +465,25 @@ def _previous_verdict(output_dir: str | Path, run_id: str) -> validation_module.
 def write_campaign_metadata(progress: CampaignProgress, manifest: Any, output_dir: str | Path) -> Path:
     """CAM-02/MET-06: seed and the full executed run_id order in campaign
     metadata, written incrementally so a crash mid-campaign still leaves the
-    order-so-far on disk."""
+    order-so-far on disk. La publicacion es atomica: un lector concurrente o
+    un kill durante json.dump nunca observa un archivo vacio/truncado."""
     path = Path(output_dir) / "campaign_metadata.json"
-    with path.open("w", encoding="utf-8") as metadata_file:
-        json.dump(
-            {
-                "campaign_id": manifest.campaign_id,
-                "seed": manifest.seed,
-                "run_ids_in_order": progress.run_ids_in_order,
-                "accepted_run_ids": progress.accepted_run_ids,
-                "rejected_run_ids": progress.rejected_run_ids,
-                "skipped_run_ids": progress.skipped_run_ids,
-                "total_core_hours": progress.total_core_hours,
-                "frequency_restored_verified": progress.frequency_restored_verified,
-                "overhead_pct_values": progress.overhead_pct_values,
-                "pre_run_observations": progress.pre_run_observations,
-                "pre_calibration_observation": progress.pre_calibration_observation,
-            },
-            metadata_file, indent=2, sort_keys=True,
-        )
-        metadata_file.write("\n")
+    runner_module._write_json_atomic(
+        path,
+        {
+            "campaign_id": manifest.campaign_id,
+            "seed": manifest.seed,
+            "run_ids_in_order": progress.run_ids_in_order,
+            "accepted_run_ids": progress.accepted_run_ids,
+            "rejected_run_ids": progress.rejected_run_ids,
+            "skipped_run_ids": progress.skipped_run_ids,
+            "total_core_hours": progress.total_core_hours,
+            "frequency_restored_verified": progress.frequency_restored_verified,
+            "overhead_pct_values": progress.overhead_pct_values,
+            "pre_run_observations": progress.pre_run_observations,
+            "pre_calibration_observation": progress.pre_calibration_observation,
+        },
+    )
     return path
 
 

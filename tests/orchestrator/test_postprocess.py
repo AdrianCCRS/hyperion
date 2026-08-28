@@ -861,7 +861,7 @@ def test_arc174_ventana_cpu_valida_bajo_nivel_fijo(tmp_path):
     assert windows[1]["frequency_outlier_cpu_count"] == 0
 
 
-def test_arc174_ventana_cpu_no_confiable_bajo_nivel_fijo(tmp_path):
+def test_arc174_ventana_cpu_acepta_nucleo_ocioso_por_debajo(tmp_path):
     samples = tmp_path / "samples.csv"
     _write_samples(samples, [
         _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
@@ -874,8 +874,28 @@ def test_arc174_ventana_cpu_no_confiable_bajo_nivel_fijo(tmp_path):
         samples,
         _context(freq_tolerance_fraction=0.03, freq_khz_applied=2_200_000, freq_is_native_governor=False),
     )
-    assert windows[1]["frequency_quality_status"] == "observation_unreliable"
+    assert windows[1]["frequency_quality_status"] == "valid"
     assert windows[1]["frequency_outlier_cpu_count"] == 1
+    assert windows[1]["frequency_in_tolerance_cpu_count"] == 1
+    assert windows[1]["frequency_below_tolerance_cpu_count"] == 1
+    assert windows[1]["frequency_above_tolerance_cpu_count"] == 0
+
+
+def test_arc174_ventana_cpu_rechaza_sobre_reloj(tmp_path):
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0),
+        _cpu_row(repetition=1, ts=1_001_000_000, instructions=2_000_000, cycles=1_000_000,
+                 cache_references=100_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000,
+                 scaling_cur_freq_khz_all="2200000;2400000"),
+    ])
+    windows = postprocess.build_windows(
+        samples,
+        _context(freq_tolerance_fraction=0.03, freq_khz_applied=2_200_000, freq_is_native_governor=False),
+    )
+    assert windows[1]["frequency_quality_status"] == "observation_unreliable"
+    assert windows[1]["frequency_above_tolerance_cpu_count"] == 1
 
 
 def test_arc174_ventana_dentro_de_grace_seconds_queda_unverified(tmp_path):

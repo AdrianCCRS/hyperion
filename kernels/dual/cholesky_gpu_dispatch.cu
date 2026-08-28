@@ -2,7 +2,7 @@
  * cholesky_gpu_dispatch.cu -- factorizacion de Cholesky en GPU via
  * cusolverDnDpotrf, midiendo H2D + factorizacion + D2H dentro de la ventana.
  * Contraparte exacta de cholesky_cpu_bench.c: misma matriz SPD sintetica
- * (mismo PRNG/semilla, A = B^T*B + N*I), mismo criterio de despacho.
+ * diagonal-dominante, mismo PRNG/semilla y mismo criterio de despacho.
  */
 #include <cusolverDn.h>
 #include <cublas_v2.h>
@@ -13,7 +13,10 @@
 #include <cstring>
 #include <ctime>
 #include <cmath>
+#include <algorithm>
 #include <vector>
+
+#include "dispatch_timing.h"
 
 /* ARC: sello absoluto de la region medida (CLOCK_MONOTONIC, mismo reloj que
  * usa la telemetria -- telemetry/include/telemetry/metrics.hpp). Permite al
@@ -72,18 +75,24 @@ static double next_uniform() {
         }                                                                      \
     } while (0)
 
-/* A = B^T*B + N*I, row-major, mismo PRNG y misma secuencia de llamadas que
- * la contraparte de CPU -- misma matriz para la misma semilla. */
+/* Matriz simetrica estrictamente diagonal-dominante y positiva: SPD por
+ * Gershgorin. Es O(N^2), evita que la generacion excluida de la medida haga
+ * un GEMM O(N^3) y cause timeouts antes de llegar al primer marcador. */
 static void make_spd_matrix_host(std::vector<double>& A, long n) {
-    std::vector<double> B((size_t)n * n);
-    for (auto& v : B) v = next_uniform() * 2.0 - 1.0;
+    std::fill(A.begin(), A.end(), 0.0);
     for (long i = 0; i < n; ++i) {
-        for (long j = 0; j < n; ++j) {
-            double sum = 0.0;
-            for (long k = 0; k < n; ++k) sum += B[k * n + i] * B[k * n + j];
-            A[(size_t)i * n + j] = sum;
+        for (long j = i + 1; j < n; ++j) {
+            double value = next_uniform() * 2.0 - 1.0;
+            A[(size_t)i * n + j] = value;
+            A[(size_t)j * n + i] = value;
         }
-        A[(size_t)i * n + i] += (double)n;
+    }
+    for (long i = 0; i < n; ++i) {
+        double radius = 0.0;
+        for (long j = 0; j < n; ++j) {
+            if (i != j) radius += std::fabs(A[(size_t)i * n + j]);
+        }
+        A[(size_t)i * n + i] = radius + 1.0;
     }
 }
 
@@ -109,6 +118,7 @@ int main(int argc, char** argv) {
     std::vector<double> h_original(elems), h_work(elems);
     make_spd_matrix_host(h_original, n);
 
+    long long cold_t0_ns = now_ns();
     cusolverDnHandle_t handle;
     CUSOLVER_CHECK(cusolverDnCreate(&handle));
 
@@ -124,18 +134,22 @@ int main(int argc, char** argv) {
                                                 (int)n, d_A, (int)n, &lwork));
     double* d_work;
     CUDA_CHECK(cudaMalloc(&d_work, (size_t)lwork * sizeof(double)));
+    long long setup_complete_ns = now_ns();
 
-    /* Warmup fuera de ventana. */
+    int info_host = 0;
+    /* Primer despacho completo en frio, incluida la carga perezosa de
+     * kernels de cuSOLVER. */
     CUDA_CHECK(cudaMemcpy(d_A, h_original.data(), bytes, cudaMemcpyHostToDevice));
     CUSOLVER_CHECK(cusolverDnDpotrf(handle, CUBLAS_FILL_MODE_LOWER, (int)n,
                                      d_A, (int)n, d_work, lwork, d_info));
+    CUDA_CHECK(cudaMemcpy(&info_host, d_info, sizeof(int), cudaMemcpyDeviceToHost));
     CUDA_CHECK(cudaMemcpy(h_work.data(), d_A, bytes, cudaMemcpyDeviceToHost));
     CUDA_CHECK(cudaDeviceSynchronize());
+    long long cold_t1_ns = now_ns();
 
     long long t0_ns = now_ns();
 
     double t0 = now_seconds();
-    int info_host = 0;
     for (int rep = 0; rep < iterations; ++rep) {
         CUDA_CHECK(cudaMemcpy(d_A, h_original.data(), bytes, cudaMemcpyHostToDevice));
         CUSOLVER_CHECK(cusolverDnDpotrf(handle, CUBLAS_FILL_MODE_LOWER, (int)n,
@@ -187,8 +201,7 @@ int main(int argc, char** argv) {
     std::printf(" Bytes transferred     =        %16.0f\n", moved_bytes);
     std::printf("\n");
     std::printf(" Time in seconds =    %12.6f\n", seconds);
-    std::printf(" Measured region t0_ns = %lld\n", t0_ns);
-    std::printf(" Measured region t1_ns = %lld\n", t1_ns);
+    print_dispatch_timing(cold_t0_ns, setup_complete_ns, cold_t1_ns, t0_ns, t1_ns);
     std::printf(" Mop/s total     =    %12.2f\n", mops_total);
     std::printf(" Verification    =               %s\n", ok ? "SUCCESSFUL" : "FAILED");
 

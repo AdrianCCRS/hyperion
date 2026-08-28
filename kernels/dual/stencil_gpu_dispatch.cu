@@ -14,6 +14,8 @@
 #include <cmath>
 #include <vector>
 
+#include "dispatch_timing.h"
+
 /* ARC: sello absoluto de la region medida (CLOCK_MONOTONIC, mismo reloj que
  * usa la telemetria -- telemetry/include/telemetry/metrics.hpp). Permite al
  * constructor del dataset filtrar las ventanas al bucle realmente medido, en
@@ -90,6 +92,7 @@ int main(int argc, char** argv) {
     fill(h_in);
     h_original = h_in;
 
+    long long cold_t0_ns = now_ns();
     double *d_in, *d_out;
     CUDA_CHECK(cudaMalloc(&d_in, bytes));
     CUDA_CHECK(cudaMalloc(&d_out, bytes));
@@ -97,13 +100,15 @@ int main(int argc, char** argv) {
     dim3 block(16, 16);
     dim3 grid((unsigned)((n + block.x - 1) / block.x),
               (unsigned)((n + block.y - 1) / block.y));
+    long long setup_complete_ns = now_ns();
 
-    /* Warmup fuera de ventana: carga el kernel CUDA (JIT/cache) antes de
-     * medir, mismo trato que el resto del catalogo dual. */
+    /* Primer despacho en frio: incluye carga/JIT/cache de la primera
+     * ejecucion del kernel. */
     CUDA_CHECK(cudaMemcpy(d_in, h_original.data(), bytes, cudaMemcpyHostToDevice));
     jacobi_kernel<<<grid, block>>>(d_in, d_out, (int)n);
     CUDA_CHECK(cudaMemcpy(h_out.data(), d_out, bytes, cudaMemcpyDeviceToHost));
     CUDA_CHECK(cudaDeviceSynchronize());
+    long long cold_t1_ns = now_ns();
 
     long long t0_ns = now_ns();
 
@@ -145,8 +150,7 @@ int main(int argc, char** argv) {
     std::printf(" Bytes transferred     =        %16.0f\n", moved_bytes);
     std::printf("\n");
     std::printf(" Time in seconds =    %12.6f\n", seconds);
-    std::printf(" Measured region t0_ns = %lld\n", t0_ns);
-    std::printf(" Measured region t1_ns = %lld\n", t1_ns);
+    print_dispatch_timing(cold_t0_ns, setup_complete_ns, cold_t1_ns, t0_ns, t1_ns);
     std::printf(" Mop/s total     =    %12.2f\n", mops_total);
     std::printf(" Verification    =               %s\n", ok ? "SUCCESSFUL" : "FAILED");
 

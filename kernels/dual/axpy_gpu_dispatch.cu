@@ -19,6 +19,8 @@
 #include <cmath>
 #include <vector>
 
+#include "dispatch_timing.h"
+
 /* ARC: sello absoluto de la region medida (CLOCK_MONOTONIC, mismo reloj que
  * usa la telemetria -- telemetry/include/telemetry/metrics.hpp). Permite al
  * constructor del dataset filtrar las ventanas al bucle realmente medido, en
@@ -93,6 +95,7 @@ int main(int argc, char** argv) {
     fill(h_y);
     h_y_original = h_y;
 
+    long long cold_t0_ns = now_ns();
     double *d_x, *d_y;
     CUDA_CHECK(cudaMalloc(&d_x, bytes));
     CUDA_CHECK(cudaMalloc(&d_y, bytes));
@@ -100,13 +103,15 @@ int main(int argc, char** argv) {
     cublasHandle_t handle;
     CUBLAS_CHECK(cublasCreate(&handle));
     const double alpha = 2.5;
+    long long setup_complete_ns = now_ns();
 
-    /* Warmup fuera de ventana. */
+    /* Primer despacho completo en frio. */
     CUDA_CHECK(cudaMemcpy(d_x, h_x.data(), bytes, cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(d_y, h_y_original.data(), bytes, cudaMemcpyHostToDevice));
     CUBLAS_CHECK(cublasDaxpy(handle, (int)n, &alpha, d_x, 1, d_y, 1));
     CUDA_CHECK(cudaMemcpy(h_y.data(), d_y, bytes, cudaMemcpyDeviceToHost));
     CUDA_CHECK(cudaDeviceSynchronize());
+    long long cold_t1_ns = now_ns();
 
     long long t0_ns = now_ns();
 
@@ -144,8 +149,7 @@ int main(int argc, char** argv) {
     std::printf(" Bytes transferred     =        %16.0f\n", moved_bytes);
     std::printf("\n");
     std::printf(" Time in seconds =    %12.6f\n", seconds);
-    std::printf(" Measured region t0_ns = %lld\n", t0_ns);
-    std::printf(" Measured region t1_ns = %lld\n", t1_ns);
+    print_dispatch_timing(cold_t0_ns, setup_complete_ns, cold_t1_ns, t0_ns, t1_ns);
     std::printf(" Mop/s total     =    %12.2f\n", mops_total);
     std::printf(" Verification    =               %s\n", ok ? "SUCCESSFUL" : "FAILED");
 

@@ -10,8 +10,8 @@
  * O(N^3) de GEMM, asi que la transferencia domina en un rango de tamaños
  * mucho mas amplio.
  *
- * La creacion del plan cuFFT queda fuera de la ventana (setup, igual que la
- * planificacion FFTW en la contraparte de CPU).
+ * La creacion del contexto y del plan cuFFT forma parte de la region cold;
+ * la region warm separada conserva el caso de reutilizacion.
  */
 #include <cufft.h>
 #include <cuda_runtime.h>
@@ -22,6 +22,8 @@
 #include <ctime>
 #include <cmath>
 #include <vector>
+
+#include "dispatch_timing.h"
 
 /* ARC: sello absoluto de la region medida (CLOCK_MONOTONIC, mismo reloj que
  * usa la telemetria -- telemetry/include/telemetry/metrics.hpp). Permite al
@@ -96,18 +98,20 @@ int main(int argc, char** argv) {
         h_original[i] = h_data[i];
     }
 
+    long long cold_t0_ns = now_ns();
     cufftDoubleComplex* d_data;
     CUDA_CHECK(cudaMalloc(&d_data, bytes));
 
-    /* Plan fuera de la ventana medida: es setup, no despacho. */
     cufftHandle plan;
     CUFFT_CHECK(cufftPlan2d(&plan, (int)n, (int)n, CUFFT_Z2Z));
+    long long setup_complete_ns = now_ns();
 
-    /* Warmup fuera de ventana (carga de kernels cuFFT). */
+    /* Primer despacho en frio: incluye la carga perezosa de kernels cuFFT. */
     CUDA_CHECK(cudaMemcpy(d_data, h_data.data(), bytes, cudaMemcpyHostToDevice));
     CUFFT_CHECK(cufftExecZ2Z(plan, d_data, d_data, CUFFT_FORWARD));
     CUDA_CHECK(cudaMemcpy(h_data.data(), d_data, bytes, cudaMemcpyDeviceToHost));
     CUDA_CHECK(cudaDeviceSynchronize());
+    long long cold_t1_ns = now_ns();
 
     long long t0_ns = now_ns();
 
@@ -162,8 +166,7 @@ int main(int argc, char** argv) {
     std::printf(" Bytes transferred     =        %16.0f\n", moved_bytes);
     std::printf("\n");
     std::printf(" Time in seconds =    %12.6f\n", seconds);
-    std::printf(" Measured region t0_ns = %lld\n", t0_ns);
-    std::printf(" Measured region t1_ns = %lld\n", t1_ns);
+    print_dispatch_timing(cold_t0_ns, setup_complete_ns, cold_t1_ns, t0_ns, t1_ns);
     std::printf(" Mop/s total     =    %12.2f\n", mops_total);
     std::printf(" Verification    =               %s\n", ok ? "SUCCESSFUL" : "FAILED");
 

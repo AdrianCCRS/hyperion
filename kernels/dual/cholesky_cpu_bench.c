@@ -9,11 +9,10 @@
  * GEMM al mismo tamaño, asi que su frontera CPU/GPU deberia caer en un N
  * mayor que el de GEMM.
  *
- * Matriz SPD generada en tiempo de ejecucion (A = B^T*B + N*I, garantiza
- * definida positiva sin depender de un archivo declarado externo) --
- * mismo criterio "sintetico, nunca descargado" que gen_laplacian3d_mtx.py.
+ * Matriz SPD diagonal-dominante generada en tiempo de ejecucion, sin
+ * depender de un archivo externo y sin esconder otro kernel cubico antes de
+ * la region medida.
  */
-#include <cblas.h>
 #include <lapacke.h>
 #include <math.h>
 #include <stdint.h>
@@ -21,6 +20,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+
+#include "dispatch_timing.h"
 
 /* ARC: sello absoluto de la region medida (CLOCK_MONOTONIC, mismo reloj que
  * usa la telemetria -- telemetry/include/telemetry/metrics.hpp). Permite al
@@ -49,16 +50,26 @@ static double next_uniform(void) {
     return (double)(rng_state >> 11) / (double)(1ULL << 53);
 }
 
-/* A = B^T*B + N*I -- SPD garantizada: B^T*B es semidefinida positiva por
- * construccion, sumar N*I la hace estrictamente definida positiva (el
- * autovalor minimo de B^T*B es >=0, +N lo empuja lejos de cero). */
+/* Matriz simetrica estrictamente diagonal-dominante con diagonal positiva.
+ * Por Gershgorin todos sus autovalores son positivos: es SPD. A diferencia
+ * de B^T*B, se construye en O(N^2), no ejecuta un GEMM oculto O(N^3) antes
+ * de medir y no inicializa OpenBLAS por efecto lateral fuera de cold_t0. */
 static void make_spd_matrix(double *A, long n) {
-    double *B = malloc((size_t)n * (size_t)n * sizeof(double));
-    for (long i = 0; i < n * n; ++i) B[i] = next_uniform() * 2.0 - 1.0;
-    cblas_dgemm(CblasRowMajor, CblasTrans, CblasNoTrans, (int)n, (int)n, (int)n,
-                1.0, B, (int)n, B, (int)n, 0.0, A, (int)n);
-    for (long i = 0; i < n; ++i) A[i * n + i] += (double)n;
-    free(B);
+    memset(A, 0, (size_t)n * (size_t)n * sizeof(double));
+    for (long i = 0; i < n; ++i) {
+        for (long j = i + 1; j < n; ++j) {
+            double value = next_uniform() * 2.0 - 1.0;
+            A[(size_t)i * n + j] = value;
+            A[(size_t)j * n + i] = value;
+        }
+    }
+    for (long i = 0; i < n; ++i) {
+        double radius = 0.0;
+        for (long j = 0; j < n; ++j) {
+            if (i != j) radius += fabs(A[(size_t)i * n + j]);
+        }
+        A[(size_t)i * n + i] = radius + 1.0;
+    }
 }
 
 int main(int argc, char **argv) {
@@ -87,14 +98,18 @@ int main(int argc, char **argv) {
     }
     make_spd_matrix(original, n);
 
-    /* Warmup fuera de ventana. */
+    /* Primer despacho en frio: LAPACKE/OpenBLAS no expone un handle aqui;
+     * su inicializacion perezosa queda incluida en la primera llamada. */
+    long long cold_t0_ns = now_ns();
+    long long setup_complete_ns = cold_t0_ns;
     memcpy(work, original, elems * sizeof(double));
-    LAPACKE_dpotrf(LAPACK_ROW_MAJOR, 'L', (int)n, work, (int)n);
+    int first_info = LAPACKE_dpotrf(LAPACK_ROW_MAJOR, 'L', (int)n, work, (int)n);
+    long long cold_t1_ns = now_ns();
 
     long long t0_ns = now_ns();
 
     double t0 = now_seconds();
-    int lapack_ok = 1;
+    int lapack_ok = first_info == 0;
     for (int rep = 0; rep < iterations; ++rep) {
         /* Cada despacho parte de la matriz original -- dpotrf es in-place y
          * destruye su entrada, igual criterio que el resto del catalogo
@@ -143,8 +158,7 @@ int main(int argc, char **argv) {
     printf(" Iterations            =                %8d\n", iterations);
     printf("\n");
     printf(" Time in seconds =    %12.6f\n", seconds);
-    printf(" Measured region t0_ns = %lld\n", t0_ns);
-    printf(" Measured region t1_ns = %lld\n", t1_ns);
+    print_dispatch_timing(cold_t0_ns, setup_complete_ns, cold_t1_ns, t0_ns, t1_ns);
     printf(" Mop/s total     =    %12.2f\n", mops_total);
     printf(" Verification    =               %s\n", ok ? "SUCCESSFUL" : "FAILED");
 

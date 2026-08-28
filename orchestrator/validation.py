@@ -259,6 +259,9 @@ class FrequencyWindowClassification:
 
     status: str | None
     outlier_cpu_count: int | None
+    in_tolerance_cpu_count: int | None
+    below_tolerance_cpu_count: int | None
+    above_tolerance_cpu_count: int | None
     min_khz: int | None
     max_khz: int | None
     max_relative_error: float | None
@@ -294,10 +297,17 @@ def classify_frequency_window(
       ``within_grace``, quien conoce ``t_start_ns``/``t_end_ns`` del run) --
       tiene precedencia sobre ``observation_unreliable`` incluso si además
       hay desviación de tolerancia.
-    - ``"observation_unreliable"``: al menos un CPU delegado fuera de
-      ±tolerance_fraction del objetivo, fuera de cualquier ventana de
-      gracia.
-    - ``"valid"``: todos los CPUs delegados dentro de tolerancia.
+    - ``"observation_unreliable"``: ningun CPU confirma el objetivo, o al
+      menos uno lo excede por encima de la tolerancia.
+    - ``"valid"``: al menos un CPU confirma el objetivo y ninguno lo excede.
+      Lecturas inferiores no invalidan por si solas: en paccaA100
+      ``scaling_cur_freq`` es APERF/MPERF dependiente de actividad y los
+      nucleos ociosos reportan menos aunque min=max este correctamente
+      escrito. Job 6696 demostro el caso: GEMM N64/N96 ocupa 1-2 de los 6
+      nucleos; exigir seis lecturas iguales rechazo 18 corridas con miles de
+      ventanas PMU sanas. Un sobre-reloj si invalida porque no se explica por
+      ociosidad; todas las lecturas bajas tambien invalidan porque ninguna
+      confirma actuacion bajo carga.
 
     Estado ``None`` (fail-closed, ARC-174): cuando falta ``expected_khz``/
     ``tolerance_fraction`` (validación desactivada o config incompleta) o
@@ -318,22 +328,39 @@ def classify_frequency_window(
     max_khz = max(values) if values else None
 
     if is_native_governor:
-        return FrequencyWindowClassification("not_applicable_native", None, min_khz, max_khz, None)
+        return FrequencyWindowClassification(
+            "not_applicable_native", None, None, None, None, min_khz, max_khz, None,
+        )
 
     if expected_khz is None or tolerance_fraction is None or not values:
-        return FrequencyWindowClassification(None, None, min_khz, max_khz, None)
+        return FrequencyWindowClassification(None, None, None, None, None, min_khz, max_khz, None)
 
     max_relative_error = max(abs(value - expected_khz) / expected_khz for value in values)
     tolerance_khz = expected_khz * tolerance_fraction
-    outlier_cpu_count = sum(1 for value in values if abs(value - expected_khz) > tolerance_khz)
+    lower_khz = expected_khz - tolerance_khz
+    upper_khz = expected_khz + tolerance_khz
+    below_tolerance_cpu_count = sum(1 for value in values if value < lower_khz)
+    above_tolerance_cpu_count = sum(1 for value in values if value > upper_khz)
+    in_tolerance_cpu_count = len(values) - below_tolerance_cpu_count - above_tolerance_cpu_count
+    outlier_cpu_count = below_tolerance_cpu_count + above_tolerance_cpu_count
 
     if within_grace:
         return FrequencyWindowClassification(
-            "observation_unverified_grace", outlier_cpu_count, min_khz, max_khz, max_relative_error,
+            "observation_unverified_grace", outlier_cpu_count, in_tolerance_cpu_count,
+            below_tolerance_cpu_count, above_tolerance_cpu_count,
+            min_khz, max_khz, max_relative_error,
         )
 
-    status = "valid" if outlier_cpu_count == 0 else "observation_unreliable"
-    return FrequencyWindowClassification(status, outlier_cpu_count, min_khz, max_khz, max_relative_error)
+    status = (
+        "valid"
+        if in_tolerance_cpu_count > 0 and above_tolerance_cpu_count == 0
+        else "observation_unreliable"
+    )
+    return FrequencyWindowClassification(
+        status, outlier_cpu_count, in_tolerance_cpu_count,
+        below_tolerance_cpu_count, above_tolerance_cpu_count,
+        min_khz, max_khz, max_relative_error,
+    )
 
 
 def validate_run(

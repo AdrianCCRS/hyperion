@@ -820,3 +820,38 @@ def test_arc87_sin_apply_gpu_frequency_no_agrega_campos_de_gpu(tmp_path, monkeyp
 
     assert result.applied_gpu_frequency is None
     assert "gpu_freq_mhz_requested" not in result.metadata
+
+
+def test_run10_extrae_fronteras_cold_y_warm(tmp_path):
+    stdout = tmp_path / "stdout.txt"
+    stdout.write_text(
+        "Cold region t0_ns = 100\n"
+        "Setup complete t_ns = 140\n"
+        "Cold region t1_ns = 220\n"
+        "Measured region t0_ns = 230\n"
+        "Measured region t1_ns = 1230\n"
+    )
+
+    timing = runner._read_dispatch_timing(stdout)
+
+    assert timing["contract_version"] == "cold_warm_v1"
+    assert timing["setup_seconds"] == 40 / 1e9
+    assert timing["first_dispatch_seconds"] == 80 / 1e9
+    assert timing["cold_total_seconds"] == 120 / 1e9
+    assert timing["warm_total_seconds"] == 1000 / 1e9
+
+
+@pytest.mark.parametrize(
+    "contents",
+    [
+        "Cold region t0_ns = 100\nCold region t1_ns = 220\n"
+        "Measured region t0_ns = 230\nMeasured region t1_ns = 1230\n",
+        "Cold region t0_ns = 100\nSetup complete t_ns = 240\nCold region t1_ns = 220\n"
+        "Measured region t0_ns = 230\nMeasured region t1_ns = 1230\n",
+    ],
+)
+def test_run10_rechaza_contrato_incompleto_o_no_monotonico(tmp_path, contents):
+    stdout = tmp_path / "stdout.txt"
+    stdout.write_text(contents)
+    with pytest.raises(ValueError, match="RUN-10"):
+        runner._read_dispatch_timing(stdout)

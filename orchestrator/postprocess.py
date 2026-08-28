@@ -29,6 +29,8 @@ REQUIRED_OUTPUT_COLUMNS: tuple[str, ...] = (
     # -- ver validation.classify_frequency_window()). Vacías para filas GPU
     # (tag=GPU no tiene per-CPU scaling_cur_freq_khz_all que clasificar).
     "frequency_quality_status", "frequency_outlier_cpu_count",
+    "frequency_in_tolerance_cpu_count", "frequency_below_tolerance_cpu_count",
+    "frequency_above_tolerance_cpu_count",
     "frequency_min_khz", "frequency_max_khz", "frequency_max_relative_error",
     "window_index", "t_start_ns", "t_end_ns", "delta_t_ns",
     "delta_instructions", "delta_cycles", "delta_cache_references", "delta_cache_misses",
@@ -523,6 +525,9 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
         )
         row["frequency_quality_status"] = freq_classification.status
         row["frequency_outlier_cpu_count"] = freq_classification.outlier_cpu_count
+        row["frequency_in_tolerance_cpu_count"] = freq_classification.in_tolerance_cpu_count
+        row["frequency_below_tolerance_cpu_count"] = freq_classification.below_tolerance_cpu_count
+        row["frequency_above_tolerance_cpu_count"] = freq_classification.above_tolerance_cpu_count
         row["frequency_min_khz"] = freq_classification.min_khz
         row["frequency_max_khz"] = freq_classification.max_khz
         row["frequency_max_relative_error"] = freq_classification.max_relative_error

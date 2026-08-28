@@ -31,6 +31,8 @@
 #include <cmath>
 #include <vector>
 
+#include "dispatch_timing.h"
+
 /* ARC: sello absoluto de la region medida (CLOCK_MONOTONIC, mismo reloj que
  * usa la telemetria -- telemetry/include/telemetry/metrics.hpp). Permite al
  * constructor del dataset filtrar las ventanas al bucle realmente medido, en
@@ -105,6 +107,9 @@ int main(int argc, char** argv) {
     fill_matrix(h_a);
     fill_matrix(h_b);
 
+    /* Datos listos en host. Contexto CUDA, asignaciones y handle cuBLAS se
+     * cobran desde este punto, como parte del primer despacho en frio. */
+    long long cold_t0_ns = now_ns();
     double *d_a, *d_b, *d_c;
     CUDA_CHECK(cudaMalloc(&d_a, bytes));
     CUDA_CHECK(cudaMalloc(&d_b, bytes));
@@ -114,17 +119,17 @@ int main(int argc, char** argv) {
     CUBLAS_CHECK(cublasCreate(&handle));
 
     const double alpha = 1.0, beta = 0.0;
+    long long setup_complete_ns = now_ns();
 
-    /* Warmup fuera de la ventana: la primera llamada cuBLAS carga kernels y
-     * hace autotuning, costo que no se repite en estado estable. La creacion
-     * del contexto CUDA tambien queda fuera -- el runtime del selector lo
-     * tendria ya inicializado al decidir. */
+    /* Primer despacho completo, incluyendo carga perezosa/autotuning de la
+     * primera llamada de cuBLAS. */
     CUDA_CHECK(cudaMemcpy(d_a, h_a.data(), bytes, cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(d_b, h_b.data(), bytes, cudaMemcpyHostToDevice));
     CUBLAS_CHECK(cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, (int)n, (int)n, (int)n,
                              &alpha, d_a, (int)n, d_b, (int)n, &beta, d_c, (int)n));
     CUDA_CHECK(cudaMemcpy(h_c.data(), d_c, bytes, cudaMemcpyDeviceToHost));
     CUDA_CHECK(cudaDeviceSynchronize());
+    long long cold_t1_ns = now_ns();
 
     long long t0_ns = now_ns();
 
@@ -178,8 +183,7 @@ int main(int argc, char** argv) {
     std::printf(" Bytes transferred     =        %16.0f\n", moved_bytes);
     std::printf("\n");
     std::printf(" Time in seconds =    %12.6f\n", seconds);
-    std::printf(" Measured region t0_ns = %lld\n", t0_ns);
-    std::printf(" Measured region t1_ns = %lld\n", t1_ns);
+    print_dispatch_timing(cold_t0_ns, setup_complete_ns, cold_t1_ns, t0_ns, t1_ns);
     std::printf(" Mop/s total     =    %12.2f\n", mops_total);
     std::printf(" Verification    =               %s\n", ok ? "SUCCESSFUL" : "FAILED");
 

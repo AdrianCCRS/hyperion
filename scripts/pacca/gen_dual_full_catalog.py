@@ -46,13 +46,11 @@ GRID_VECTOR = [10_000, 31_623, 100_000, 316_228, 1_000_000, 3_162_278,
 
 # Punto de referencia medido de verdad para CPU (calibrate_iterations.sh,
 # 2026-08-27, paccaA100). t_per_it en segundos, en el N de referencia. Un
-# solo punto (modelo lineal por el origen) es suficiente para CPU: no hay
-# costo fijo de despacho relevante ahi (confirmado 2026-08-28: cholesky_cpu
-# corrio 293603 iteraciones a N=64 en 14.3s sin problema -- el timeout
-# nunca fue una amenaza real en el lado CPU, a diferencia de GPU, ver
-# GPU_TWO_TERM abajo). El mismo --iterations final se aplica a ambos
-# devices del config_id (calculado como el maximo de los dos modelos, ver
-# iterations_for) para que sea comparable.
+# solo punto (modelo lineal por el origen) es suficiente para CPU. CPU y GPU
+# usan conteos de repeticion distintos: el observable comparable es tiempo y
+# energia POR DESPACHO, no la duracion total de bucles artificialmente
+# igualados. Asi cada lado conserva ~1.5 s de region warm y suficientes
+# ventanas de telemetria, incluso cuando N es pequeno.
 REFERENCE = {
     # op: (N_ref, t_per_it_cpu, scaling_fn)
     "gemm": (512, 0.00098501, lambda n: n ** 3),
@@ -122,13 +120,15 @@ OP_META = {
 }
 
 
-def iterations_for(op: str, n: int) -> int:
+def iterations_for(op: str, n: int, device: str) -> int:
     n_ref, t_cpu_ref, fn = REFERENCE[op]
-    k_cpu = t_cpu_ref / fn(n_ref)
-    t_cpu_per_it = k_cpu * fn(n)
-    a_gpu, b_gpu = GPU_TWO_TERM[op]
-    t_gpu_per_it = a_gpu + b_gpu * fn(n)
-    t_per_it = max(t_cpu_per_it, t_gpu_per_it)
+    if device == "cpu":
+        t_per_it = (t_cpu_ref / fn(n_ref)) * fn(n)
+    elif device == "gpu":
+        a_gpu, b_gpu = GPU_TWO_TERM[op]
+        t_per_it = a_gpu + b_gpu * fn(n)
+    else:
+        raise ValueError(device)
     raw = TARGET_SECONDS / t_per_it
     it = int(round(raw))
     return max(MIN_ITERATIONS, min(MAX_ITERATIONS, it))
@@ -169,10 +169,10 @@ def gen_entries() -> str:
     lines = []
     for op, meta in OP_META.items():
         for n in meta["grid"]:
-            it = iterations_for(op, n)
             config_id = f"{op}_N{n}"
             mem = estimated_memory_bytes(op, n)
             for device in ("cpu", "gpu"):
+                it = iterations_for(op, n, device)
                 kid = f"dual_{op}_{device}_N{n}"
                 wrap = meta[f"wrap_{device}"]
                 sha = meta[f"sha_{device}"]
@@ -207,5 +207,10 @@ if __name__ == "__main__":
     total_configs = sum(len(m["grid"]) for m in OP_META.values())
     print(f"config_id totales: {total_configs}  (catalog entries: {total_configs * 2})", file=sys.stderr)
     for op, meta in OP_META.items():
-        its = [iterations_for(op, n) for n in meta["grid"]]
-        print(f"{op:<10} N={meta['grid'][0]}..{meta['grid'][-1]}  iterations={min(its)}..{max(its)}", file=sys.stderr)
+        for device in ("cpu", "gpu"):
+            its = [iterations_for(op, n, device) for n in meta["grid"]]
+            print(
+                f"{op:<10} {device} N={meta['grid'][0]}..{meta['grid'][-1]}  "
+                f"iterations={min(its)}..{max(its)}",
+                file=sys.stderr,
+            )
