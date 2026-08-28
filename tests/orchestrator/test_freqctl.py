@@ -119,8 +119,10 @@ def test_frq02_apply_bounded_range_transicion_descendente(tmp_path, monkeypatch)
     target queda debajo del min actual) nunca la viola."""
     paths = {0: _write_cpu(tmp_path, 0, governor="powersave", min_khz=2261000, max_khz=2261000)}
     env = _env(paths, write_capable=True, strategy="bounded_range")
-    # fraction=0.5 sobre AVAILABLE_KHZ -> target=1662500, por debajo del
-    # min vigente (2261000): la transicion descendente que rompia el orden viejo.
+    # fraction=0.5 sobre AVAILABLE_KHZ -> target=1662500, redondeado al paso
+    # de 100MHz mas cercano (2026-08-28, ver _target_khz) a 1700000, por
+    # debajo del min vigente (2261000): la transicion descendente que rompia
+    # el orden viejo.
     level = SimpleNamespace(id="F_MID", mode="fixed", fraction=0.5)
 
     min_path = tmp_path / "cpu0/cpufreq/scaling_min_freq"
@@ -145,9 +147,9 @@ def test_frq02_apply_bounded_range_transicion_descendente(tmp_path, monkeypatch)
 
     result = freqctl.apply_frequency([0], level, env)
 
-    assert result.applied_khz == 1662500
-    assert min_path.read_text() == "1662500"
-    assert max_path.read_text() == "1662500"
+    assert result.applied_khz == 1700000
+    assert min_path.read_text() == "1700000"
+    assert max_path.read_text() == "1700000"
 
 
 def test_frq_native_governor_restaura_min_max_no_solo_el_governor(tmp_path):

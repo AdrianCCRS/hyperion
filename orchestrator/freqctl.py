@@ -148,13 +148,40 @@ def _nearest_available(target_khz: float, available_khz: Iterable[int]) -> int:
     return min(available_khz, key=lambda value: abs(value - target_khz))
 
 
+_HARDWARE_STEP_KHZ = 100_000  # Intel P-states se enumeran en pasos de 100MHz.
+
+
 def _target_khz(level: Any, available_khz: Iterable[int]) -> int:
+    """2026-08-28: para una fraccion INTERMEDIA (ni 0.0 ni 1.0), redondea al
+    paso real de 100MHz antes de devolver el objetivo. Sin esto, una
+    interpolacion lineal pura sobre fracciones no multiplas de 1/8 (p.ej.
+    0.333, 0.667) cae en valores como 1599200kHz que ningun P-state real
+    puede alcanzar -- en pacca (estrategia BOUNDED,
+    scaling_available_frequencies ausente, `_nearest_available` solo ve
+    [min,max]) esto se manifesto como wait_for_frequency_settled() fallando
+    su timeout de 30s con el reloj observado estancado en el escalon real
+    mas cercano (1500000kHz) en vez del objetivo pedido -- reprodujo
+    identico dos veces seguidas en CPU_LEVELS_FULL (jobs 6692/6688), nunca
+    antes porque solo se habian ejercitado F0/F3/F6 (fracciones 1.0/0.5/0.0,
+    ya alineadas por coincidencia).
+
+    Los extremos (0.0 y 1.0) devuelven `low`/`high` SIN redondear: son el
+    minimo/maximo real que el propio nodo reporto (cpuinfo_min_freq/
+    cpuinfo_max_freq), no necesariamente multiplos de 100MHz en todo
+    hardware -- redondearlos podria pedir una frecuencia fuera del rango
+    real que el nodo dice soportar."""
     values = list(available_khz)
     low, high = min(values), max(values)
     fraction = getattr(level, "fraction", None)
     if fraction is None:
         raise ValueError(f"freqctl: nivel {getattr(level, 'id', '?')!r} es fixed pero no declara fraction")
-    return round(low + float(fraction) * (high - low))
+    fraction = float(fraction)
+    if fraction <= 0.0:
+        return low
+    if fraction >= 1.0:
+        return high
+    raw = low + fraction * (high - low)
+    return round(raw / _HARDWARE_STEP_KHZ) * _HARDWARE_STEP_KHZ
 
 
 def _expand_with_smt_siblings(cpus: Iterable[int], env: Any) -> tuple[int, ...]:
