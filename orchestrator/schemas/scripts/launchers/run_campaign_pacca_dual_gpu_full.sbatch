@@ -29,9 +29,9 @@
 #   1. corre reset_cpu_freq_range.sh antes de que el orquestador tome su
 #      propio snapshot (evita la corrupcion de frecuencia entre sesiones,
 #      ver docs/general/metodologia_selector_cpu_gpu_20260827.md #6.2),
-#   2. re-mide calibracion (stream_official, ert_probe, gpu_*) -- overhead
-#      de minutos, pequeno frente a 5.5h de sesion,
-#      3. corta limpio via --campaign-timeout-seconds (deja margen sobre el
+#   2. mide calibracion solo en la primera sesion; las reanudaciones cargan
+#      los mismos artefactos y fallan cerrado si falta alguno (CAM-11),
+#   3. corta limpio via --campaign-timeout-seconds (deja margen sobre el
 #      --time de Slurm para que el `finally:` de run_campaign restaure la
 #      frecuencia ANTES del kill duro de Slurm -- nunca dejar que Slurm
 #      mate el proceso, siempre debe salir por su cuenta).
@@ -48,12 +48,13 @@ export LD_LIBRARY_PATH="/opt/ohpc/pub/libs/gnu12/openblas/0.3.21/lib:/opt/ohpc/p
 source ~/hyperion-venv/bin/activate
 cd ~/hyperion-kernels
 bash ~/hyperion/scripts/pacca/reset_cpu_freq_range.sh
+sudo -n nvidia-smi -i "${CUDA_VISIBLE_DEVICES:-0}" -rgc
 export HYPERION_GPU_FREQ_WRITE_CAPABLE=1
 python3 -m orchestrator.cli run-campaign \
   --manifest ~/hyperion/orchestrator/schemas/campaigns/campaign_pacca_dual_gpu_full.yaml \
   --node-id pacca-a100 \
   --hostname "$(hostname)" \
   --reference-kernel-ref dual_gemm_gpu_N512 \
-  --campaign-timeout-seconds 19800
+  --campaign-timeout-seconds 18000
 '
 echo CAMPAIGN_SCRIPT_DONE

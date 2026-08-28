@@ -1,4 +1,4 @@
-# Campana real del selector CPU/GPU -- eje CPU (2026-08-27). 68 config_id
+# Primer dataset cold/warm del selector CPU/GPU -- eje CPU (20260828). 68 config_id
 # x 8 niveles finos de CPU x 3 rep = 1632 corridas. Ver
 # scripts/pacca/gen_dual_campaign_manifests.py -- NO editar a mano.
 #
@@ -7,11 +7,11 @@
 # warmup_seconds=0.05 en las 136 entradas del catalogo (corrige el bug del
 # smoke 6668/6657: 0.5s excluia TODAS las ventanas de corridas mas cortas).
 
-campaign_id: pacca_dual_cpu_full_20260827
+campaign_id: pacca_dual_cpu_full_20260828
 environment_tier: hpc_sc3
-seed: 20260827
+seed: 20260828
 
-output_dir: /home/latorresn/hyperion-results/campaigns/pacca_dual_cpu_full_20260827
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_dual_cpu_full_20260828
 overwrite: true
 
 catalog_path: ../kernels/catalog.yaml
@@ -104,6 +104,7 @@ repetitions_per_combination: 3
 baseline_repetition_indices: [1]
 target_windows_per_repetition: 5
 interval_ns: 1000000  # 1 ms
+gpu_interval_ns: 5000000  # 5 ms; GPU ociosa entra al mismo subtotal energetico
 
 running_ratio_min: 0.90
 
@@ -145,11 +146,13 @@ temperature:
   maximum_c: 90
 
 gpu:
-  enabled: false
+  # Mismo alcance energetico que el lado GPU: RAPL package+DRAM + NVML.
+  # En corridas CPU la contribucion GPU es la potencia ociosa, no cero.
+  enabled: true
 
 timeouts_seconds:
   ready: 15
-  run: 90
+  run: 180
   shutdown: 15
 
 hardware_datasheet:

@@ -30,6 +30,7 @@ from gen_dual_full_catalog import OP_META  # noqa: E402
 
 REPS = 3
 TARGET_WINDOWS_PER_REP = 5
+CAMPAIGN_DATE = "20260828"
 
 CPU_LEVELS_FULL = [
     ("REF", "native_governor", None),
@@ -85,7 +86,7 @@ def kernels_block(device):
     return "\n".join(lines)
 
 
-CPU_MANIFEST = f"""# Campana real del selector CPU/GPU -- eje CPU (2026-08-27). 68 config_id
+CPU_MANIFEST = f"""# Primer dataset cold/warm del selector CPU/GPU -- eje CPU ({CAMPAIGN_DATE}). 68 config_id
 # x 8 niveles finos de CPU x {REPS} rep = {68*8*REPS} corridas. Ver
 # scripts/pacca/gen_dual_campaign_manifests.py -- NO editar a mano.
 #
@@ -94,11 +95,11 @@ CPU_MANIFEST = f"""# Campana real del selector CPU/GPU -- eje CPU (2026-08-27). 
 # warmup_seconds=0.05 en las 136 entradas del catalogo (corrige el bug del
 # smoke 6668/6657: 0.5s excluia TODAS las ventanas de corridas mas cortas).
 
-campaign_id: pacca_dual_cpu_full_20260827
+campaign_id: pacca_dual_cpu_full_{CAMPAIGN_DATE}
 environment_tier: hpc_sc3
-seed: 20260827
+seed: {CAMPAIGN_DATE}
 
-output_dir: /home/latorresn/hyperion-results/campaigns/pacca_dual_cpu_full_20260827
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_dual_cpu_full_{CAMPAIGN_DATE}
 overwrite: true
 
 catalog_path: ../kernels/catalog.yaml
@@ -117,6 +118,7 @@ repetitions_per_combination: {REPS}
 baseline_repetition_indices: [1]
 target_windows_per_repetition: {TARGET_WINDOWS_PER_REP}
 interval_ns: 1000000  # 1 ms
+gpu_interval_ns: 5000000  # 5 ms; GPU ociosa entra al mismo subtotal energetico
 
 running_ratio_min: 0.90
 
@@ -158,11 +160,13 @@ temperature:
   maximum_c: 90
 
 gpu:
-  enabled: false
+  # Mismo alcance energetico que el lado GPU: RAPL package+DRAM + NVML.
+  # En corridas CPU la contribucion GPU es la potencia ociosa, no cero.
+  enabled: true
 
 timeouts_seconds:
   ready: 15
-  run: 90
+  run: 180
   shutdown: 15
 
 hardware_datasheet:
@@ -178,7 +182,7 @@ remaining_core_hours: 1000.0
 projected_core_hours: 10.0
 """
 
-GPU_MANIFEST = f"""# Campana real del selector CPU/GPU -- eje GPU (2026-08-27). 68 config_id
+GPU_MANIFEST = f"""# Primer dataset cold/warm del selector CPU/GPU -- eje GPU ({CAMPAIGN_DATE}). 68 config_id
 # x 4 niveles reducidos de CPU x 8 niveles finos de GPU x {REPS} rep =
 # {68*4*8*REPS} corridas. Ver scripts/pacca/gen_dual_campaign_manifests.py --
 # NO editar a mano.
@@ -189,11 +193,11 @@ GPU_MANIFEST = f"""# Campana real del selector CPU/GPU -- eje GPU (2026-08-27). 
 # forma de meseta REF~F0 + penalizacion creciente hacia F6, capturada con
 # estos 4 puntos sin pagar el costo combinatorio de 8x8.
 
-campaign_id: pacca_dual_gpu_full_20260827
+campaign_id: pacca_dual_gpu_full_{CAMPAIGN_DATE}
 environment_tier: hpc_sc3
-seed: 20260827
+seed: {CAMPAIGN_DATE}
 
-output_dir: /home/latorresn/hyperion-results/campaigns/pacca_dual_gpu_full_20260827
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_dual_gpu_full_{CAMPAIGN_DATE}
 overwrite: true
 
 catalog_path: ../kernels/catalog.yaml
@@ -262,10 +266,34 @@ gpu:
     - gpu_stream_bw
     - gpu_ert_probe_fp32
     - gpu_ert_probe_fp64
+  # Reposo medido en la rejilla exacta (job 6714: 300 muestras/nivel,
+  # 60 s, reloj observado == solicitado). Los margenes REF/F0/F3/F6
+  # conservan los anclajes activos de ARC-194; F1/F2/F4/F5 son
+  # interpolaciones lineales por MHz entre esos anclajes, no nuevas
+  # mediciones de carga. El smoke completo debe validar el criterio antes
+  # de lanzar este manifiesto.
+  idle_power_mw_by_level:
+    REF: 34837.9
+    F0: 56565.5
+    F1: 45052.4
+    F2: 38466.0
+    F3: 36941.6
+    F4: 35369.0
+    F5: 34837.9
+    F6: 34368.9
+  active_power_margin_mw:
+    REF: 800.0
+    F0: 4000.0
+    F1: 2700.0   # interpolado entre 1230/1170 MHz de ARC-194
+    F2: 1720.0   # interpolado entre 1110/810 MHz de ARC-194
+    F3: 1200.0
+    F4: 1005.0   # interpolado entre 810/510 MHz de ARC-194
+    F5: 865.0    # interpolado entre 510/210 MHz de ARC-194
+    F6: 800.0
 
 timeouts_seconds:
   ready: 15
-  run: 90
+  run: 180
   shutdown: 15
 
 hardware_datasheet:

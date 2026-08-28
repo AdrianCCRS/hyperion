@@ -281,6 +281,8 @@ silenciosa) recorta el total de lanzamientos de **16 320 a 10 880
 | `target_windows_per_repetition` | 5 |
 | `interval_ns` (muestreo CPU) | 1 000 000 (1 ms) |
 | `gpu_interval_ns` | 5 000 000 (5 ms) |
+| `gpu.enabled` | `true` en ambos ejes: subtotal comparable RAPL package+DRAM+NVML; en CPU la GPU aporta su consumo ocioso medido, no cero |
+| Gate de actividad GPU | potencia NVML sobre reposo por nivel; líneas de la rejilla exacta medidas por 60 s y 300 muestras/nivel en job 6714; márgenes anclados en ARC-194 e interpolados por MHz donde el nivel es nuevo |
 | `running_ratio_min` | 0.90 |
 | `frequency_validation.tolerance_fraction` | 0.05 |
 | `frequency_validation.grace_seconds` | 0.05 |
@@ -291,6 +293,7 @@ silenciosa) recorta el total de lanzamientos de **16 320 a 10 880
 | `frequency_settle` | habilitado, timeout 30 s, tolerancia 5 %, poll 0.5 s |
 | `turbo.require_disabled` | `true` (todo script/manifiesto de nivel fijo se envuelve en `with_cpu_turbo_disabled.sh`) |
 | `temperature` | requiere sensor de paquete, rango 0-90 °C |
+| `timeouts_seconds.run` | 180 s por proceso; validado contra el peor extremo del smoke antes del dataset |
 | Calibración GPU | `gpu_stream_bw`, `gpu_ert_probe_fp32`, `gpu_ert_probe_fp64` |
 | `hardware_datasheet.p_pico_flops_per_s` | 509 083 000 000 (medido real post-reparación, `ert_probe` a 6 hilos) |
 | `hardware_datasheet.bw_pico_bytes_per_s` | 59 500 000 000 |
@@ -418,59 +421,48 @@ correspondía al mismo número de hilos (6). El primer "fix"
 §6.2, y hubo que corregirlo una segunda vez al valor real
 (509 083 000 000) tras reparar el nodo.
 
-### 6.9 ABIERTO — el EDP de GPU mediría inicialización de CUDA, no la operación (2026-08-28)
+### 6.9 RESUELTO — contrato temporal frío y reutilizado (2026-08-28)
 
-**No corregido todavía; bloquea el lanzamiento de la campaña GPU, no el
-de la campaña CPU.**
+La decisión metodológica final no excluye la inicialización CUDA: la
+conserva como un costo real, pero **separada** del caso en que los recursos
+ya existen. Cada binario dual imprime marcadores absolutos
+`CLOCK_MONOTONIC` y el runner los persiste en `metadata.json` bajo
+`dispatch_timing`:
 
-`classifier/features/pair_dataset.py:86-125`
-(`aggregate_cpu_runs`/`aggregate_gpu_runs`) colapsa cada corrida así:
+- **`cold` (primario para una primera decisión):** empieza antes de la
+  primera llamada al runtime CUDA e incluye creación del contexto,
+  handles/planes/descriptores, `cudaMalloc` y workspace, transferencia de
+  todos los operandos host→device, primera operación, sincronización y
+  resultado device→host. En SpMV incluye también `row_ptr`, `col_idx` y
+  `values`, no solo el vector. En CPU incluye el arranque perezoso real de
+  OpenMP/OpenBLAS/FFTW/LAPACK y el primer cómputo equivalente.
+- **`warm` (suplementario para reutilización):** reutiliza contexto,
+  handles/planes y buffers, pero **no** supone residencia de datos: cada
+  operación GPU vuelve a transferir todos los operandos desde host y trae
+  el resultado. CPU repite la operación equivalente y, cuando la rutina
+  destruye su entrada (Cholesky), incluye la copia necesaria del operando.
+- La generación de entradas y la verificación del resultado permanecen
+  fuera de ambas regiones, porque no son costo de decidir ni despachar a
+  CPU/GPU.
 
-- `elapsed_s` = `max(t_end_ns) − min(t_start_ns)` sobre **todas** las
-  ventanas de la corrida → duración del **proceso completo**.
-- `energy_j` = suma de `pkg_delta_uj + dram_delta_uj` sobre las ventanas
-  con `energy_valid == 1` → energía del **proceso completo**.
-- No filtra por `quality_status`, y `warmup_seconds=0.05` solo recorta
-  50 ms del arranque.
+Cada repetición de campaña es un proceso nuevo, de modo que `cold` sí
+representa un escenario sin recursos CUDA previos. No se afirma que una
+aplicación HPC siempre pague ese costo en todas sus fases: por eso también
+se conserva `warm`, y el dataset podrá evaluar por separado la estrategia
+A (decisión estática previa) y la estrategia C (usar la primera ejecución
+real para decidir las siguientes), sin fabricar una única política de
+amortización.
 
-En el eje CPU eso es una contaminación menor (0.40 s de 2.01 s, ~20 %,
-además poco variable entre niveles: 0.36 s en REF → 0.44 s en F6). En el
-eje GPU es **el 85 % de la medición**, y — lo decisivo — **escala con el
-reloj de GPU** (~6.5 s en `gpuREF` → ~20.6 s en `gpuF6`). Como el target
-del selector es `argmin EDP` sobre `{device}×{freq_level}` (§3.2), la
-curva EDP-vs-frecuencia que aprendería en GPU sería principalmente *cómo
-escala la inicialización de CUDA con el reloj*, no cómo escala la
-operación → **etiquetas incorrectas y sesgadas sistemáticamente contra
-la GPU**.
-
-Esto contradice el intent explícito del propio binario
-(`kernels/dual/gemm_gpu_dispatch.cu:105-108`: *"La creacion del contexto
-CUDA tambien queda fuera -- el runtime del selector lo tendria ya
-inicializado al decidir"*). El binario lo excluye correctamente de su
-bucle medido; el agregador del dataset lo vuelve a meter.
-
-**Por qué no basta con "es un costo real de irse a GPU"** (objeción
-planteada 2026-08-27, correcta en el fondo): en una aplicación HPC
-multi-fase el contexto CUDA se crea **una vez por proceso**, no por
-operación — la fase 1 que va a GPU lo paga, y las fases 5, 12, 30 lo
-encuentran vivo. El costo **por despacho** (H2D + cómputo + D2H) sí se
-paga siempre, y ese ya está **dentro** del bucle medido, correctamente.
-La medición actual le cobra el init íntegro a cada una de las 2176
-corridas GPU, como si cada operación reinicializara CUDA. Si la
-aplicación tiene N fases en GPU, a cada una le corresponde ~1/N de ese
-costo.
-
-**Fix propuesto** (no implementado): medir las dos cosas por separado en
-vez de conflacionarlas — el bucle (costo por despacho, por
-`config_id`×nivel) y el init (costo único, una vez por nivel). Es
-estrictamente más informativo: permite decidir la política de
-amortización analíticamente, que es justo el "umbral de amortización de
-la sonda" ya previsto en la Fase D (§10). Implementación: la telemetría
-y los kernels usan **ambos** `CLOCK_MONOTONIC` en el mismo proceso
-(`telemetry/include/telemetry/metrics.hpp:31`,
-`kernels/dual/*.cu:34-38`), así que basta con que los binarios impriman
-`t0`/`t1` absolutos (ya los calculan) y filtrar las ventanas a ese
-intervalo al construir el dataset de nivel 2.
+El parser exige el orden
+`cold_t0 <= setup_complete <= cold_t1 <= warm_t0 <= warm_t1` y la campaña
+solo cuenta para I10 ventanas usables situadas dentro de `warm`; así la
+generación o verificación, aunque produzcan telemetría, no pueden hacer
+pasar una región medida sin cobertura. El smoke CPU 6710 confirmó 108/108
+corridas con marcadores válidos. El agregador legado
+`classifier/features/pair_dataset.py` **sigue sin implementar este contrato
+ni el subtotal energético simétrico**, por lo que no debe usarse para
+construir el dataset cold/warm; los crudos sí contienen los marcadores y
+contadores necesarios y el constructor de nivel 2 continúa pendiente.
 
 ### 6.8 Doble medición baseline+telemetry no restringida (encontrado 2026-08-27)
 
@@ -636,15 +628,16 @@ usuario (nodo compartido, no se puede ocupar por días) sin sacrificar
 ninguna decisión metodológica ya tomada con evidencia.
 
 Mecanismo: `orchestrator/schemas/scripts/launchers/run_campaign_pacca_dual_gpu_full.sbatch`,
-`--time=05:30:00`, `--campaign-timeout-seconds=19800` (5h30m — deja
-margen sobre el límite de Slurm para que el `finally:` de
+`--time=05:30:00`, `--campaign-timeout-seconds=18000` (5h — deja
+30 minutos de margen sobre el límite de Slurm para que el `finally:` de
 `run_campaign()` restaure la frecuencia con CAM-06 antes de un kill
 forzado, nunca dejar que Slurm mate el proceso). Cada sesión vuelve a
 correr `reset_cpu_freq_range.sh` antes del snapshot del orquestador
-(mismo motivo que §6.2) y vuelve a medir calibración (minutos, costo
-pequeño frente a 5.5 h). Reanudar es tan simple como volver a lanzar el
-mismo script — CAM-11 detecta las corridas ya aceptadas en el
-`output_dir` y las salta.
+(mismo motivo que §6.2). La primera sesión mide y persiste la calibración;
+las siguientes la cargan y fallan cerrado si falta algún artefacto, en vez
+de sobrescribir bajo las corridas ya aceptadas. Reanudar es tan simple
+como volver a lanzar el mismo script — CAM-11 detecta las corridas ya
+aceptadas en el `output_dir` y las salta.
 
 `campaign_pacca_dual_cpu_full.yaml` sí cabe en una sola sesión:
 `run_campaign_pacca_dual_cpu_full.sbatch`, `--time=04:00:00`,
