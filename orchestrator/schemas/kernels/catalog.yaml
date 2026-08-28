@@ -1544,7 +1544,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.062215  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:e1d79ed209075b04f8bbcfd9be8bf4253a839423bfff045f3b3166fa385b4208"
+      pacca-a100: "sha256:f5494ea4cef0cc1e909975e6370a0945c0a50337db8aeb28a2a71d2de54721eb"
 
   - id: dual_gemm_cpu_N96
     suite: Dual-GEMM
@@ -1581,7 +1581,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.062215  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:e1d79ed209075b04f8bbcfd9be8bf4253a839423bfff045f3b3166fa385b4208"
+      pacca-a100: "sha256:f5494ea4cef0cc1e909975e6370a0945c0a50337db8aeb28a2a71d2de54721eb"
 
   - id: dual_gemm_cpu_N128
     suite: Dual-GEMM
@@ -1618,7 +1618,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.062215  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:e1d79ed209075b04f8bbcfd9be8bf4253a839423bfff045f3b3166fa385b4208"
+      pacca-a100: "sha256:f5494ea4cef0cc1e909975e6370a0945c0a50337db8aeb28a2a71d2de54721eb"
 
   - id: dual_gemm_cpu_N192
     suite: Dual-GEMM
@@ -1655,7 +1655,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.062215  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:e1d79ed209075b04f8bbcfd9be8bf4253a839423bfff045f3b3166fa385b4208"
+      pacca-a100: "sha256:f5494ea4cef0cc1e909975e6370a0945c0a50337db8aeb28a2a71d2de54721eb"
 
   - id: dual_gemm_cpu_N256
     suite: Dual-GEMM
@@ -1692,7 +1692,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.062215  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:e1d79ed209075b04f8bbcfd9be8bf4253a839423bfff045f3b3166fa385b4208"
+      pacca-a100: "sha256:f5494ea4cef0cc1e909975e6370a0945c0a50337db8aeb28a2a71d2de54721eb"
 
   - id: dual_gemm_cpu_N384
     suite: Dual-GEMM
@@ -1729,7 +1729,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.062215  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:e1d79ed209075b04f8bbcfd9be8bf4253a839423bfff045f3b3166fa385b4208"
+      pacca-a100: "sha256:f5494ea4cef0cc1e909975e6370a0945c0a50337db8aeb28a2a71d2de54721eb"
 
   - id: dual_gemm_cpu_N512
     suite: Dual-GEMM
@@ -1766,7 +1766,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.062215  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:e1d79ed209075b04f8bbcfd9be8bf4253a839423bfff045f3b3166fa385b4208"
+      pacca-a100: "sha256:f5494ea4cef0cc1e909975e6370a0945c0a50337db8aeb28a2a71d2de54721eb"
 
   - id: dual_gemm_cpu_N768
     suite: Dual-GEMM
@@ -1803,7 +1803,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.062215  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:e1d79ed209075b04f8bbcfd9be8bf4253a839423bfff045f3b3166fa385b4208"
+      pacca-a100: "sha256:f5494ea4cef0cc1e909975e6370a0945c0a50337db8aeb28a2a71d2de54721eb"
 
   - id: dual_gemm_cpu_N1024
     suite: Dual-GEMM
@@ -1840,7 +1840,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.062215  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:e1d79ed209075b04f8bbcfd9be8bf4253a839423bfff045f3b3166fa385b4208"
+      pacca-a100: "sha256:f5494ea4cef0cc1e909975e6370a0945c0a50337db8aeb28a2a71d2de54721eb"
 
   - id: dual_gemm_cpu_N1536
     suite: Dual-GEMM
@@ -1877,7 +1877,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.062215  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:e1d79ed209075b04f8bbcfd9be8bf4253a839423bfff045f3b3166fa385b4208"
+      pacca-a100: "sha256:f5494ea4cef0cc1e909975e6370a0945c0a50337db8aeb28a2a71d2de54721eb"
 
   - id: dual_gemm_cpu_N2048
     suite: Dual-GEMM
@@ -1914,7 +1914,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.062215  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:e1d79ed209075b04f8bbcfd9be8bf4253a839423bfff045f3b3166fa385b4208"
+      pacca-a100: "sha256:f5494ea4cef0cc1e909975e6370a0945c0a50337db8aeb28a2a71d2de54721eb"
 
   - id: dual_gemm_cpu_N3072
     suite: Dual-GEMM
@@ -1951,7 +1951,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.062215  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:e1d79ed209075b04f8bbcfd9be8bf4253a839423bfff045f3b3166fa385b4208"
+      pacca-a100: "sha256:f5494ea4cef0cc1e909975e6370a0945c0a50337db8aeb28a2a71d2de54721eb"
 
   - id: dual_gemm_cpu_N4096
     suite: Dual-GEMM
@@ -1988,7 +1988,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.062215  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:e1d79ed209075b04f8bbcfd9be8bf4253a839423bfff045f3b3166fa385b4208"
+      pacca-a100: "sha256:f5494ea4cef0cc1e909975e6370a0945c0a50337db8aeb28a2a71d2de54721eb"
 
   - id: dual_fft_cpu_N64
     suite: Dual-FFT
@@ -2025,7 +2025,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 2.498981  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:38c04ff7881c10aa8535dce005dbe5c8a6e6c9e7c49a14b63dd2001d942818f2"
+      pacca-a100: "sha256:7de9abeb8dc3e6f0ccf724e18d8529b8c0bfb0a06848dfe968b43a9626f87035"
 
   - id: dual_fft_cpu_N96
     suite: Dual-FFT
@@ -2062,7 +2062,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 2.498981  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:38c04ff7881c10aa8535dce005dbe5c8a6e6c9e7c49a14b63dd2001d942818f2"
+      pacca-a100: "sha256:7de9abeb8dc3e6f0ccf724e18d8529b8c0bfb0a06848dfe968b43a9626f87035"
 
   - id: dual_fft_cpu_N128
     suite: Dual-FFT
@@ -2099,7 +2099,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 2.498981  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:38c04ff7881c10aa8535dce005dbe5c8a6e6c9e7c49a14b63dd2001d942818f2"
+      pacca-a100: "sha256:7de9abeb8dc3e6f0ccf724e18d8529b8c0bfb0a06848dfe968b43a9626f87035"
 
   - id: dual_fft_cpu_N192
     suite: Dual-FFT
@@ -2136,7 +2136,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 2.498981  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:38c04ff7881c10aa8535dce005dbe5c8a6e6c9e7c49a14b63dd2001d942818f2"
+      pacca-a100: "sha256:7de9abeb8dc3e6f0ccf724e18d8529b8c0bfb0a06848dfe968b43a9626f87035"
 
   - id: dual_fft_cpu_N256
     suite: Dual-FFT
@@ -2173,7 +2173,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 2.498981  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:38c04ff7881c10aa8535dce005dbe5c8a6e6c9e7c49a14b63dd2001d942818f2"
+      pacca-a100: "sha256:7de9abeb8dc3e6f0ccf724e18d8529b8c0bfb0a06848dfe968b43a9626f87035"
 
   - id: dual_fft_cpu_N384
     suite: Dual-FFT
@@ -2210,7 +2210,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 2.498981  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:38c04ff7881c10aa8535dce005dbe5c8a6e6c9e7c49a14b63dd2001d942818f2"
+      pacca-a100: "sha256:7de9abeb8dc3e6f0ccf724e18d8529b8c0bfb0a06848dfe968b43a9626f87035"
 
   - id: dual_fft_cpu_N512
     suite: Dual-FFT
@@ -2247,7 +2247,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 2.498981  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:38c04ff7881c10aa8535dce005dbe5c8a6e6c9e7c49a14b63dd2001d942818f2"
+      pacca-a100: "sha256:7de9abeb8dc3e6f0ccf724e18d8529b8c0bfb0a06848dfe968b43a9626f87035"
 
   - id: dual_fft_cpu_N768
     suite: Dual-FFT
@@ -2284,7 +2284,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 2.498981  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:38c04ff7881c10aa8535dce005dbe5c8a6e6c9e7c49a14b63dd2001d942818f2"
+      pacca-a100: "sha256:7de9abeb8dc3e6f0ccf724e18d8529b8c0bfb0a06848dfe968b43a9626f87035"
 
   - id: dual_fft_cpu_N1024
     suite: Dual-FFT
@@ -2321,7 +2321,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 2.498981  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:38c04ff7881c10aa8535dce005dbe5c8a6e6c9e7c49a14b63dd2001d942818f2"
+      pacca-a100: "sha256:7de9abeb8dc3e6f0ccf724e18d8529b8c0bfb0a06848dfe968b43a9626f87035"
 
   - id: dual_fft_cpu_N1536
     suite: Dual-FFT
@@ -2358,7 +2358,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 2.498981  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:38c04ff7881c10aa8535dce005dbe5c8a6e6c9e7c49a14b63dd2001d942818f2"
+      pacca-a100: "sha256:7de9abeb8dc3e6f0ccf724e18d8529b8c0bfb0a06848dfe968b43a9626f87035"
 
   - id: dual_fft_cpu_N2048
     suite: Dual-FFT
@@ -2395,7 +2395,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 2.498981  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:38c04ff7881c10aa8535dce005dbe5c8a6e6c9e7c49a14b63dd2001d942818f2"
+      pacca-a100: "sha256:7de9abeb8dc3e6f0ccf724e18d8529b8c0bfb0a06848dfe968b43a9626f87035"
 
   - id: dual_fft_cpu_N3072
     suite: Dual-FFT
@@ -2432,7 +2432,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 2.498981  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:38c04ff7881c10aa8535dce005dbe5c8a6e6c9e7c49a14b63dd2001d942818f2"
+      pacca-a100: "sha256:7de9abeb8dc3e6f0ccf724e18d8529b8c0bfb0a06848dfe968b43a9626f87035"
 
   - id: dual_fft_cpu_N4096
     suite: Dual-FFT
@@ -2469,7 +2469,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 2.498981  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:38c04ff7881c10aa8535dce005dbe5c8a6e6c9e7c49a14b63dd2001d942818f2"
+      pacca-a100: "sha256:7de9abeb8dc3e6f0ccf724e18d8529b8c0bfb0a06848dfe968b43a9626f87035"
 
   - id: dual_axpy_cpu_N10000
     suite: Dual-AXPY
@@ -2506,7 +2506,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.12493  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:415244d14bd67db06521010ecbdcdadf84eacba90d434a4589a1de2c59c1932b"
+      pacca-a100: "sha256:d3166ae3e44a83e8e4358f5676025a84f2db42339e30f9f916edee36436497fb"
 
   - id: dual_axpy_cpu_N31623
     suite: Dual-AXPY
@@ -2543,7 +2543,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.12493  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:415244d14bd67db06521010ecbdcdadf84eacba90d434a4589a1de2c59c1932b"
+      pacca-a100: "sha256:d3166ae3e44a83e8e4358f5676025a84f2db42339e30f9f916edee36436497fb"
 
   - id: dual_axpy_cpu_N100000
     suite: Dual-AXPY
@@ -2580,7 +2580,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.12493  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:415244d14bd67db06521010ecbdcdadf84eacba90d434a4589a1de2c59c1932b"
+      pacca-a100: "sha256:d3166ae3e44a83e8e4358f5676025a84f2db42339e30f9f916edee36436497fb"
 
   - id: dual_axpy_cpu_N316228
     suite: Dual-AXPY
@@ -2617,7 +2617,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.12493  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:415244d14bd67db06521010ecbdcdadf84eacba90d434a4589a1de2c59c1932b"
+      pacca-a100: "sha256:d3166ae3e44a83e8e4358f5676025a84f2db42339e30f9f916edee36436497fb"
 
   - id: dual_axpy_cpu_N1000000
     suite: Dual-AXPY
@@ -2654,7 +2654,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.12493  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:415244d14bd67db06521010ecbdcdadf84eacba90d434a4589a1de2c59c1932b"
+      pacca-a100: "sha256:d3166ae3e44a83e8e4358f5676025a84f2db42339e30f9f916edee36436497fb"
 
   - id: dual_axpy_cpu_N3162278
     suite: Dual-AXPY
@@ -2691,7 +2691,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.12493  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:415244d14bd67db06521010ecbdcdadf84eacba90d434a4589a1de2c59c1932b"
+      pacca-a100: "sha256:d3166ae3e44a83e8e4358f5676025a84f2db42339e30f9f916edee36436497fb"
 
   - id: dual_axpy_cpu_N10000000
     suite: Dual-AXPY
@@ -2728,7 +2728,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.12493  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:415244d14bd67db06521010ecbdcdadf84eacba90d434a4589a1de2c59c1932b"
+      pacca-a100: "sha256:d3166ae3e44a83e8e4358f5676025a84f2db42339e30f9f916edee36436497fb"
 
   - id: dual_axpy_cpu_N31622777
     suite: Dual-AXPY
@@ -2765,7 +2765,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.12493  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:415244d14bd67db06521010ecbdcdadf84eacba90d434a4589a1de2c59c1932b"
+      pacca-a100: "sha256:d3166ae3e44a83e8e4358f5676025a84f2db42339e30f9f916edee36436497fb"
 
   - id: dual_stencil_cpu_N64
     suite: Dual-Stencil
@@ -2802,7 +2802,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.49537  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:568f1cd7629f6b3da7f27801aac4b4d37f84e17157ff6a6a93c74fa3751eaa8c"
+      pacca-a100: "sha256:0678e6829048a38028c4e3770fc60d0bba5aaf80910abfb63334e7965d5b29d3"
 
   - id: dual_stencil_cpu_N96
     suite: Dual-Stencil
@@ -2839,7 +2839,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.49537  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:568f1cd7629f6b3da7f27801aac4b4d37f84e17157ff6a6a93c74fa3751eaa8c"
+      pacca-a100: "sha256:0678e6829048a38028c4e3770fc60d0bba5aaf80910abfb63334e7965d5b29d3"
 
   - id: dual_stencil_cpu_N128
     suite: Dual-Stencil
@@ -2876,7 +2876,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.49537  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:568f1cd7629f6b3da7f27801aac4b4d37f84e17157ff6a6a93c74fa3751eaa8c"
+      pacca-a100: "sha256:0678e6829048a38028c4e3770fc60d0bba5aaf80910abfb63334e7965d5b29d3"
 
   - id: dual_stencil_cpu_N192
     suite: Dual-Stencil
@@ -2913,7 +2913,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.49537  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:568f1cd7629f6b3da7f27801aac4b4d37f84e17157ff6a6a93c74fa3751eaa8c"
+      pacca-a100: "sha256:0678e6829048a38028c4e3770fc60d0bba5aaf80910abfb63334e7965d5b29d3"
 
   - id: dual_stencil_cpu_N256
     suite: Dual-Stencil
@@ -2950,7 +2950,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.49537  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:568f1cd7629f6b3da7f27801aac4b4d37f84e17157ff6a6a93c74fa3751eaa8c"
+      pacca-a100: "sha256:0678e6829048a38028c4e3770fc60d0bba5aaf80910abfb63334e7965d5b29d3"
 
   - id: dual_stencil_cpu_N384
     suite: Dual-Stencil
@@ -2987,7 +2987,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.49537  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:568f1cd7629f6b3da7f27801aac4b4d37f84e17157ff6a6a93c74fa3751eaa8c"
+      pacca-a100: "sha256:0678e6829048a38028c4e3770fc60d0bba5aaf80910abfb63334e7965d5b29d3"
 
   - id: dual_stencil_cpu_N512
     suite: Dual-Stencil
@@ -3024,7 +3024,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.49537  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:568f1cd7629f6b3da7f27801aac4b4d37f84e17157ff6a6a93c74fa3751eaa8c"
+      pacca-a100: "sha256:0678e6829048a38028c4e3770fc60d0bba5aaf80910abfb63334e7965d5b29d3"
 
   - id: dual_stencil_cpu_N768
     suite: Dual-Stencil
@@ -3061,7 +3061,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.49537  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:568f1cd7629f6b3da7f27801aac4b4d37f84e17157ff6a6a93c74fa3751eaa8c"
+      pacca-a100: "sha256:0678e6829048a38028c4e3770fc60d0bba5aaf80910abfb63334e7965d5b29d3"
 
   - id: dual_stencil_cpu_N1024
     suite: Dual-Stencil
@@ -3098,7 +3098,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.49537  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:568f1cd7629f6b3da7f27801aac4b4d37f84e17157ff6a6a93c74fa3751eaa8c"
+      pacca-a100: "sha256:0678e6829048a38028c4e3770fc60d0bba5aaf80910abfb63334e7965d5b29d3"
 
   - id: dual_stencil_cpu_N1536
     suite: Dual-Stencil
@@ -3135,7 +3135,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.49537  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:568f1cd7629f6b3da7f27801aac4b4d37f84e17157ff6a6a93c74fa3751eaa8c"
+      pacca-a100: "sha256:0678e6829048a38028c4e3770fc60d0bba5aaf80910abfb63334e7965d5b29d3"
 
   - id: dual_stencil_cpu_N2048
     suite: Dual-Stencil
@@ -3172,7 +3172,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.49537  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:568f1cd7629f6b3da7f27801aac4b4d37f84e17157ff6a6a93c74fa3751eaa8c"
+      pacca-a100: "sha256:0678e6829048a38028c4e3770fc60d0bba5aaf80910abfb63334e7965d5b29d3"
 
   - id: dual_stencil_cpu_N3072
     suite: Dual-Stencil
@@ -3209,7 +3209,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.49537  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:568f1cd7629f6b3da7f27801aac4b4d37f84e17157ff6a6a93c74fa3751eaa8c"
+      pacca-a100: "sha256:0678e6829048a38028c4e3770fc60d0bba5aaf80910abfb63334e7965d5b29d3"
 
   - id: dual_stencil_cpu_N4096
     suite: Dual-Stencil
@@ -3246,7 +3246,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.49537  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:568f1cd7629f6b3da7f27801aac4b4d37f84e17157ff6a6a93c74fa3751eaa8c"
+      pacca-a100: "sha256:0678e6829048a38028c4e3770fc60d0bba5aaf80910abfb63334e7965d5b29d3"
 
   - id: dual_cholesky_cpu_N64
     suite: Dual-Cholesky
@@ -3283,7 +3283,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 9.887307  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:fa25fce927aeae443734d191aae3566dec8a7483324030821407d23a400645a0"
+      pacca-a100: "sha256:0df46019e61e6cffdb3e7df55370bc9407bc1fc2a8bbc7b5fb4b6b90581f0058"
 
   - id: dual_cholesky_cpu_N96
     suite: Dual-Cholesky
@@ -3320,7 +3320,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 9.887307  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:fa25fce927aeae443734d191aae3566dec8a7483324030821407d23a400645a0"
+      pacca-a100: "sha256:0df46019e61e6cffdb3e7df55370bc9407bc1fc2a8bbc7b5fb4b6b90581f0058"
 
   - id: dual_cholesky_cpu_N128
     suite: Dual-Cholesky
@@ -3357,7 +3357,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 9.887307  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:fa25fce927aeae443734d191aae3566dec8a7483324030821407d23a400645a0"
+      pacca-a100: "sha256:0df46019e61e6cffdb3e7df55370bc9407bc1fc2a8bbc7b5fb4b6b90581f0058"
 
   - id: dual_cholesky_cpu_N192
     suite: Dual-Cholesky
@@ -3394,7 +3394,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 9.887307  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:fa25fce927aeae443734d191aae3566dec8a7483324030821407d23a400645a0"
+      pacca-a100: "sha256:0df46019e61e6cffdb3e7df55370bc9407bc1fc2a8bbc7b5fb4b6b90581f0058"
 
   - id: dual_cholesky_cpu_N256
     suite: Dual-Cholesky
@@ -3431,7 +3431,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 9.887307  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:fa25fce927aeae443734d191aae3566dec8a7483324030821407d23a400645a0"
+      pacca-a100: "sha256:0df46019e61e6cffdb3e7df55370bc9407bc1fc2a8bbc7b5fb4b6b90581f0058"
 
   - id: dual_cholesky_cpu_N384
     suite: Dual-Cholesky
@@ -3468,7 +3468,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 9.887307  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:fa25fce927aeae443734d191aae3566dec8a7483324030821407d23a400645a0"
+      pacca-a100: "sha256:0df46019e61e6cffdb3e7df55370bc9407bc1fc2a8bbc7b5fb4b6b90581f0058"
 
   - id: dual_cholesky_cpu_N512
     suite: Dual-Cholesky
@@ -3505,7 +3505,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 9.887307  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:fa25fce927aeae443734d191aae3566dec8a7483324030821407d23a400645a0"
+      pacca-a100: "sha256:0df46019e61e6cffdb3e7df55370bc9407bc1fc2a8bbc7b5fb4b6b90581f0058"
 
   - id: dual_cholesky_cpu_N768
     suite: Dual-Cholesky
@@ -3542,7 +3542,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 9.887307  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:fa25fce927aeae443734d191aae3566dec8a7483324030821407d23a400645a0"
+      pacca-a100: "sha256:0df46019e61e6cffdb3e7df55370bc9407bc1fc2a8bbc7b5fb4b6b90581f0058"
 
   - id: dual_cholesky_cpu_N1024
     suite: Dual-Cholesky
@@ -3579,7 +3579,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 9.887307  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:fa25fce927aeae443734d191aae3566dec8a7483324030821407d23a400645a0"
+      pacca-a100: "sha256:0df46019e61e6cffdb3e7df55370bc9407bc1fc2a8bbc7b5fb4b6b90581f0058"
 
   - id: dual_cholesky_cpu_N1536
     suite: Dual-Cholesky
@@ -3616,7 +3616,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 9.887307  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:fa25fce927aeae443734d191aae3566dec8a7483324030821407d23a400645a0"
+      pacca-a100: "sha256:0df46019e61e6cffdb3e7df55370bc9407bc1fc2a8bbc7b5fb4b6b90581f0058"
 
   - id: dual_cholesky_cpu_N2048
     suite: Dual-Cholesky
@@ -3653,7 +3653,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 9.887307  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:fa25fce927aeae443734d191aae3566dec8a7483324030821407d23a400645a0"
+      pacca-a100: "sha256:0df46019e61e6cffdb3e7df55370bc9407bc1fc2a8bbc7b5fb4b6b90581f0058"
 
   - id: dual_cholesky_cpu_N3072
     suite: Dual-Cholesky
@@ -3690,7 +3690,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 9.887307  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:fa25fce927aeae443734d191aae3566dec8a7483324030821407d23a400645a0"
+      pacca-a100: "sha256:0df46019e61e6cffdb3e7df55370bc9407bc1fc2a8bbc7b5fb4b6b90581f0058"
 
   - id: dual_cholesky_cpu_N4096
     suite: Dual-Cholesky
@@ -3727,7 +3727,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 9.887307  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:fa25fce927aeae443734d191aae3566dec8a7483324030821407d23a400645a0"
+      pacca-a100: "sha256:0df46019e61e6cffdb3e7df55370bc9407bc1fc2a8bbc7b5fb4b6b90581f0058"
 
   - id: dual_spmv_cpu_N10000
     suite: Dual-SpMV
@@ -3764,7 +3764,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.274176  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:9d737a78f4fc92a3cb1aafa3e4108d942549566879744d91387369a510466217"
+      pacca-a100: "sha256:9e8d32606ed1bcedf6a5a36666a9562c8a8400ee41f6b42680c3f336a807fdd8"
 
   - id: dual_spmv_cpu_N31623
     suite: Dual-SpMV
@@ -3801,7 +3801,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.274176  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:9d737a78f4fc92a3cb1aafa3e4108d942549566879744d91387369a510466217"
+      pacca-a100: "sha256:9e8d32606ed1bcedf6a5a36666a9562c8a8400ee41f6b42680c3f336a807fdd8"
 
   - id: dual_spmv_cpu_N100000
     suite: Dual-SpMV
@@ -3838,7 +3838,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.274176  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:9d737a78f4fc92a3cb1aafa3e4108d942549566879744d91387369a510466217"
+      pacca-a100: "sha256:9e8d32606ed1bcedf6a5a36666a9562c8a8400ee41f6b42680c3f336a807fdd8"
 
   - id: dual_spmv_cpu_N316228
     suite: Dual-SpMV
@@ -3875,7 +3875,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.274176  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:9d737a78f4fc92a3cb1aafa3e4108d942549566879744d91387369a510466217"
+      pacca-a100: "sha256:9e8d32606ed1bcedf6a5a36666a9562c8a8400ee41f6b42680c3f336a807fdd8"
 
   - id: dual_spmv_cpu_N1000000
     suite: Dual-SpMV
@@ -3912,7 +3912,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.274176  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:9d737a78f4fc92a3cb1aafa3e4108d942549566879744d91387369a510466217"
+      pacca-a100: "sha256:9e8d32606ed1bcedf6a5a36666a9562c8a8400ee41f6b42680c3f336a807fdd8"
 
   - id: dual_spmv_cpu_N3162278
     suite: Dual-SpMV
@@ -3949,7 +3949,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.274176  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:9d737a78f4fc92a3cb1aafa3e4108d942549566879744d91387369a510466217"
+      pacca-a100: "sha256:9e8d32606ed1bcedf6a5a36666a9562c8a8400ee41f6b42680c3f336a807fdd8"
 
   - id: dual_spmv_cpu_N10000000
     suite: Dual-SpMV
@@ -3986,7 +3986,7 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.274176  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:9d737a78f4fc92a3cb1aafa3e4108d942549566879744d91387369a510466217"
+      pacca-a100: "sha256:9e8d32606ed1bcedf6a5a36666a9562c8a8400ee41f6b42680c3f336a807fdd8"
 
   - id: dual_spmv_cpu_N31622777
     suite: Dual-SpMV
@@ -4023,4 +4023,4 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     operational_intensity_flops_per_byte: 0.274176  # ncu real, representativa de la operacion (no por tamano)
     binary_checksum:
-      pacca-a100: "sha256:9d737a78f4fc92a3cb1aafa3e4108d942549566879744d91387369a510466217"
+      pacca-a100: "sha256:9e8d32606ed1bcedf6a5a36666a9562c8a8400ee41f6b42680c3f336a807fdd8"
