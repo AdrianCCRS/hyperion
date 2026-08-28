@@ -119,6 +119,11 @@ int main(int argc, char** argv) {
                                      d_A, (int)n, d_work, lwork, d_info));
     CUDA_CHECK(cudaMemcpy(h_work.data(), d_A, bytes, cudaMemcpyDeviceToHost));
     CUDA_CHECK(cudaDeviceSynchronize());
+    {
+        int warmup_info = -999;
+        CUDA_CHECK(cudaMemcpy(&warmup_info, d_info, sizeof(int), cudaMemcpyDeviceToHost));
+        std::fprintf(stderr, "DEBUG warmup_info=%d lwork=%d n=%ld\n", warmup_info, lwork, n);
+    }
 
     double t0 = now_seconds();
     int info_host = 0;
