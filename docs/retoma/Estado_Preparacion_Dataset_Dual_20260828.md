@@ -11,11 +11,10 @@ técnicas. No sustituye esas fuentes.
   `9d8e1b7`; los commits posteriores hasta este relevo solo actualizan esta
   documentación operativa.
 - El smoke GPU 6716 y la campaña CPU completa 6718 terminaron y pasaron sus
-  auditorías. La primera sesión GPU completa quedó lanzada como **job 6721**
-  con `run_campaign_pacca_dual_gpu_full.sbatch`; estaba `RUNNING` al actualizar
-  este documento.
-- No seguir sondeando 6721 automáticamente si el autor quiere ahorrar cuota de
-  uso. Auditarla cuando termine antes de relanzar la siguiente sesión.
+  auditorías. La primera sesión GPU completa, **job 6721**, fue cancelada por
+  solicitud del autor a los 22:57 para liberar paccaA100 a otros usuarios.
+  Conservó 119 corridas aceptadas y cero rechazadas. Reanudar mañana con el
+  mismo launcher, después de confirmar disponibilidad del nodo.
 - No hay un rediseño metodológico abierto que bloquee este primer intento. El
   constructor final del dataset de nivel 2 sí sigue pendiente y no debe
   confundirse con la adquisición de los crudos.
@@ -240,7 +239,8 @@ si fuera consumo de la aplicación. Para el subtotal CPU debe usar
 ociosa, no la reemplaza por cero. Conservar la serie cruda para auditar el
 overhead instrumental. Esta corrección no afecta tiempos, PMC, uncore ni RAPL.
 
-La primera sesión GPU completa ya fue lanzada como **job 6721**:
+La primera sesión GPU completa se lanzó como **job 6721** y fue cancelada para
+liberar el nodo compartido:
 
 ```bash
 cd /home/latorresn/hyperion
@@ -252,6 +252,37 @@ para salida limpia y restauración. Relanzar el mismo script reanuda el mismo
 `output_dir`; la primera sesión crea calibraciones y las siguientes las cargan.
 La proyección completa es 48–55 h repartidas en varias sesiones, nunca un único
 job de dos días. Auditar el progreso y los rechazos entre sesiones.
+
+Estado parcial de 6721 al cancelar:
+
+- Slurm: `CANCELLED` a los 22:57 de ejecución.
+- 119 aceptadas, 0 rechazadas, 1.376 core-hours y 525 MiB preservados.
+- Las 119 cubren los cuatro niveles CPU, los ocho niveles GPU, las seis
+  operaciones y las tres repeticiones.
+- Mínimo 17 ventanas warm válidas por corrida; peor cold 2.241 s y peor warm
+  16.684 s, todavía lejos del timeout de 180 s.
+- RAPL, NVML y uncore presentes y encerrando cold en 119/119.
+- Los ocho pisos/márgenes GPU funcionaron en vivo. Exceso mínimo observado
+  sobre el reposo: F0 5.357 W, F1 3.217 W, F2 2.783 W, F3 2.421 W,
+  F4 1.993 W, F5 1.453 W, F6 1.024 W y REF 26.876 W; ninguno quedó por debajo
+  de su margen declarado.
+- La corrida interrumpida
+  `dual_gemm_gpu_N512__REF__gpuF5__rep01` dejó solo `stdout.txt` y
+  `stderr.txt`, sin metadata ni veredicto. No cuenta como aceptada; al reanudar
+  se vuelve a ejecutar y los dos archivos se abren con truncado.
+- Como Slurm cortó antes del cierre normal, `frequency_restored_verified`
+  quedó `None`. La CPU se releyó ya restaurada (`performance`, 800000–3600000,
+  `no_turbo=0`). El job de limpieza 6723 ejecutó `nvidia-smi -rgc` y confirmó
+  GPU nativa con máximo 1410 MHz y stderr vacío. El nodo quedó libre.
+
+Para reanudar mañana no crear un manifiesto ni un directorio nuevo. Ejecutar
+exactamente el mismo launcher; CAM-11 carga las calibraciones ya completas,
+salta las 119 aceptadas y continúa la matriz:
+
+```bash
+cd /home/latorresn/hyperion
+sbatch orchestrator/schemas/scripts/launchers/run_campaign_pacca_dual_gpu_full.sbatch
+```
 
 ## 7. Riesgos y límites que no deben ocultarse
 
