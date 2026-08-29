@@ -793,6 +793,15 @@ en la partición CPU `normal`, no en `paccaA100`.
   repetirla para el selector unificado.
 - Construir la aplicación sintética multi-fase HPC y el runtime
   (lógica sonda-y-decide) — Objetivo 3 / Fase D, no iniciado.
+- **Idea abierta, no decidida (2026-08-29)**: en vez de que la sonda de C
+  sea siempre la primera ejecución real y completa de la fase (como hoy),
+  explorar una sonda por copia barata del kernel — ejecutar una réplica de
+  menor costo solo para generar telemetría antes de comprometer la
+  ejecución real. Implica decidir si esa copia se paga siempre o solo
+  cuando el margen es incierto, y cómo se contabiliza su costo en el
+  umbral de amortización de la sonda (§4 del experimento de cuatro
+  barras). No iniciar sin acordar el diseño primero — no reemplaza la C
+  actual, es una variante a evaluar más adelante.
 - Experimento de cuatro barras (todo-CPU, todo-GPU, selector, oráculo) +
   medición del umbral de amortización de la sonda — no iniciado.
 - Actualizar `Estado_Paralelo_CPU_GPU.md`, `Estrategia_CPU_Fase2.md` /
