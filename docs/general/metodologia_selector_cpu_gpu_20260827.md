@@ -281,7 +281,7 @@ silenciosa) recorta el total de lanzamientos de **16 320 a 10 880
 | `target_windows_per_repetition` | 5 |
 | `interval_ns` (muestreo CPU) | 1 000 000 (1 ms) |
 | `gpu_interval_ns` | 5 000 000 (5 ms) |
-| `gpu.enabled` | `true` en ambos ejes: subtotal comparable RAPL package+DRAM+NVML; en CPU la GPU aporta su consumo ocioso medido, no cero |
+| `gpu.enabled` | `true` en ambos ejes para conservar la evidencia cruda RAPL+NVML; en el EDP CPU la GPU aporta reposo nativo no cero mediante la línea base de §4.4.1, no la serie perturbada por sondeo |
 | Gate de actividad GPU | potencia NVML sobre reposo por nivel; líneas de la rejilla exacta medidas por 60 s y 300 muestras/nivel en job 6714; márgenes anclados en ARC-194 e interpolados por MHz donde el nivel es nuevo |
 | `running_ratio_min` | 0.90 |
 | `frequency_validation.tolerance_fraction` | 0.05 |
@@ -297,6 +297,47 @@ silenciosa) recorta el total de lanzamientos de **16 320 a 10 880
 | Calibración GPU | `gpu_stream_bw`, `gpu_ert_probe_fp32`, `gpu_ert_probe_fp64` |
 | `hardware_datasheet.p_pico_flops_per_s` | 509 083 000 000 (medido real post-reparación, `ert_probe` a 6 hilos) |
 | `hardware_datasheet.bw_pico_bytes_per_s` | 59 500 000 000 |
+
+#### 4.4.1 Efecto del observador NVML en el eje CPU y regla energética
+
+La campaña CPU completa 6718 terminó 1632/1632, pero reveló un efecto del
+instrumento que debe corregirse al construir el dataset de nivel 2. Los
+kernels CPU no ejecutaron CUDA y el aislamiento G01 confirmó que no había
+procesos GPU ajenos; aun así, al consultar NVML cada 5 ms la GPU aparecía en
+1410 MHz en las corridas inspeccionadas, con `gpu_util_pct=0`, y la potencia
+media por corrida quedó entre 49.93 y 67.60 W (mediana 59.53 W). En contraste,
+la sonda de reposo 6714, con 300 muestras durante 60 s y consultas espaciadas,
+midió REF nativo en 34.8379 W de media, 35.05 W p95 y 35.20 W máximo. Las
+relecturas posteriores 6720 y 6723 volvieron a observar la GPU nativa ociosa
+en 210 MHz y aproximadamente 36 W.
+
+La interpretación respaldada por esa comparación es un **efecto del
+observador**: el sondeo NVML a alta cadencia impide o retrasa que el dominio
+GPU permanezca en su estado profundo de reposo. NVML informa correctamente la
+potencia del estado provocado por el propio muestreo; lo incorrecto sería
+atribuir esa energía instrumental al kernel CPU. No se afirma que una lectura
+individual de NVML sea falsa ni se extrapola este comportamiento a otra GPU.
+
+Por tanto, el subtotal energético de cada región CPU (`cold` o `warm`) se
+define como:
+
+\[
+E_{\mathrm{CPU,total}} = E_{\mathrm{RAPL,package+DRAM}}
+  + 34.8379\ \mathrm{W}\; t_{\mathrm{región}}.
+\]
+
+La GPU ociosa **no se imputa como cero**: se usa su línea base nativa medida.
+La serie NVML cruda de 6718 se conserva como evidencia del overhead
+instrumental, pero no se integra para producir el target EDP CPU. Para las
+corridas GPU sí se integra NVML dentro de cada región, porque allí el
+dispositivo ejecuta realmente la operación y su potencia dependiente del
+nivel es parte del candidato. RAPL se integra en ambos dispositivos.
+
+El constructor pendiente de nivel 2 debe persistir al menos el origen del
+término GPU (`gpu_energy_source=idle_baseline` para CPU y
+`gpu_energy_source=nvml_integrated` para GPU), el valor de línea base y el job
+que lo midió. Esta regla salva los crudos CPU sin repetir la campaña y no
+modifica tiempos, marcadores, PMC, uncore, frecuencia ni energía RAPL.
 
 ### 4.5 Orquestación del cruce CPU×GPU
 
