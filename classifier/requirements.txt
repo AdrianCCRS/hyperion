@@ -9,3 +9,6 @@ seaborn
 jupyter
 ipykernel
 optuna
+xgboost
+PyYAML
+joblib

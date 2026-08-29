@@ -1,56 +1,78 @@
 # classifier/
 
-Fase 2 del proyecto: entrenamiento del clasificador ligero que infiere la fase
-de ejecución (`compute_bound` / `memory_bound`) a partir de telemetría de
-hardware. Paquete hermano de `orchestrator/` (Fase 1, el instrumento de
-medición) — no depende de él salvo para leer los artefactos que ya produjo
-(`windows.csv`, `frequency_quality_summary.json`, etc.), nunca para volver a
-correr una campaña.
+Fase 2 de Hyperion. El objetivo vigente es puntuar las configuraciones
+candidatas de una operación y seleccionar el dispositivo y las frecuencias
+que minimizan EDP. El clasificador histórico de ventanas
+`compute_bound`/`memory_bound` se conserva para reproducibilidad, pero no
+construye el dataset del selector cold/warm.
 
-## Estructura
+## Pipeline vigente
 
-- `features/` — preprocesamiento y selección de características a partir de
-  `windows.csv` (limpieza, normalización, filtrado por las anotaciones de
-  calidad de la Fase 1: `quality_status`, `frequency_quality_status`).
-- `training/` — definición y entrenamiento de modelos candidatos, búsqueda de
-  hiperparámetros (Optuna).
-- `eval/` — métricas de clasificación y de latencia de inferencia, comparación
-  entre modelos candidatos.
-- `notebooks/` — exploración interactiva (matrices de correlación,
-  distribución de etiquetas, etc.). Pensados para correr contra un kernel
-  Jupyter remoto en `paccaA100` vía VS Code Remote-SSH, no localmente contra
-  una copia del dataset.
+`python -m classifier.selector` expone cinco comandos:
 
-## Datos
+- `build`: integra las regiones absolutas `cold` y `warm`, aplica la regla
+  energética simétrica y construye los datasets de estrategias A y C.
+- `eda`: produce correlaciones Pearson/Spearman, faltantes, distribuciones de
+  óptimos, curvas EDP y diagnóstico de resolución temporal.
+- `tune`: compara regresión logística, árbol, Random Forest y XGBoost mediante
+  Optuna multiobjetivo dentro de una validación anidada
+  leave-one-operation-out.
+- `evaluate`: resume una búsqueda ya terminada.
+- `all`: ejecuta la cadena completa.
 
-El dataset (`windows.csv` de ambas campañas, CPU y GPU) vive en
-`~/hyperion-results/` en `pacca`, no en este repositorio — mismo criterio que
-`orchestrator/` ya aplica con las suites de benchmarks de terceros: el
-repositorio versiona el código, no los datos ni sus copias. El código de este
-paquete recibe la ruta al dataset como parámetro/config, nunca la asume fija
-ni la vendoriza.
+Ejemplo de construcción provisional CPU:
 
-## Entorno remoto (VS Code + paccaA100/pacca)
+```bash
+python -m classifier.selector build \
+  --cpu-campaign ~/hyperion-results/campaigns/pacca_dual_cpu_full_20260828 \
+  --gpu-campaign ~/hyperion-results/campaigns/pacca_dual_gpu_full_20260828 \
+  --catalog orchestrator/schemas/kernels/catalog.yaml \
+  --cpu-manifest orchestrator/schemas/campaigns/campaign_pacca_dual_cpu_full.yaml \
+  --gpu-manifest orchestrator/schemas/campaigns/campaign_pacca_dual_gpu_full.yaml \
+  --output-dir ~/hyperion-results/analysis/selector_cpu_provisional_20260828 \
+  --mode cpu-provisional
+```
 
-El venv `~/hyperion-venv` en `pacca` ya trae `pandas`, `numpy`,
-`scikit-learn`, `matplotlib`, `seaborn`, `jupyter`/`ipykernel` y `optuna`
-instalados, con un kernel de Jupyter registrado como `hyperion-classifier`
-("Hyperion (classifier venv)").
+El modo provisional exige 68 configuraciones CPU, 8 niveles y 3
+repeticiones. Puede leer GPU parcial para auditar el integrador, pero esas
+corridas nunca generan labels. `--mode final` exige las 40 acciones
+CPU/GPU completas por `config_id` y falla cerrado si falta una.
 
-Para conectar VS Code directamente (extensión **Remote-SSH**): el host
-`pacca` ya está configurado en `~/.ssh/config` con `ProxyJump
-hpc-unicartagena`, así que `ssh pacca` (o "Connect to Host" → `pacca` en VS
-Code) conecta en un solo paso sin anidar sesiones a mano. Al abrir un
-notebook remoto, seleccionar el kernel `Hyperion (classifier venv)`.
+## Contratos principales
 
-Trabajo puramente exploratorio (EDA, matrices de correlación, distribución de
-etiquetas) no necesita GPU ni una asignación exclusiva de `paccaA100` — corre
-perfectamente en el nodo de login `pacca` o en cualquier nodo de cómputo CPU
-libre (`pacca01`, `pacca03`, ...) vía `srun`. Reservar `paccaA100` solo
-cuando el trabajo específicamente necesite la GPU.
+- `cold` contiene un despacho e incluye inicialización de bibliotecas,
+  contexto CUDA, recursos, transferencias y resultado.
+- `warm` se divide por `iterations`: CPU y GPU usan números distintos de
+  despachos para lograr una duración medible y sus totales no son comparables
+  directamente.
+- El candidato CPU usa RAPL package+DRAM más la línea base GPU nativa de
+  34.8379 W (job 6714). El candidato GPU usa RAPL+NVML integrado.
+- A solo usa descriptores estáticos. C solo añade telemetría `cold` de una
+  primera repetición REF y cambia entre costos cold/warm según qué dispositivo
+  ya esté inicializado. Si esa región es menor que el intervalo de muestreo,
+  su telemetría queda ausente con indicadores; no se rellena con cero.
+- El split es por operación completa. Nunca se dividen filas candidatas ni
+  tamaños de una operación entre entrenamiento y prueba.
+- La métrica primaria es EDP loss; la exactitud del argmin es secundaria.
+
+## Datos y entorno
+
+Los crudos permanecen en `~/hyperion-results/` y no se versionan. Los
+artefactos derivados (`run_regions.csv`, `candidate_summary.csv`, datasets
+A/C, EDA, estudios Optuna y modelos) se escriben también bajo
+`hyperion-results/analysis`.
+
+El venv `~/hyperion-venv` contiene pandas, NumPy, scikit-learn, Optuna,
+XGBoost, matplotlib, seaborn y Jupyter. Las búsquedas se ejecutan en un nodo
+CPU de la partición `normal`; no necesitan ni deben reservar `paccaA100`.
 
 ## Pruebas
 
-`tests/classifier/`, mismo patrón que `tests/orchestrator/` (sin
-`__init__.py`, cada archivo de test resuelve el import con
-`sys.path.insert`).
+```bash
+python -m pytest -q tests/classifier
+```
+
+La suite cubre integración temporal, fuentes de energía, normalización por
+despacho, acciones, estrategias A/C, fugas y splits por operación. Las suites
+`tests/classifier` y `tests/orchestrator` se ejecutan por separado por la
+colisión histórica de descubrimiento documentada en el repositorio.

@@ -707,31 +707,79 @@ aceptadas en el `output_dir` y las salta.
 
 ---
 
-## 10. Pendiente
+## 10. Pipeline de nivel 2 implementado (2026-08-28)
+
+Se implementó `classifier/selector/` como flujo independiente del código
+histórico de clasificación de fases. La interfaz `python -m
+classifier.selector` ofrece `build`, `eda`, `tune`, `evaluate` y `all`.
+
+El constructor integra RAPL y NVML por la fracción de solapamiento de cada
+intervalo con los marcadores absolutos de `cold` y `warm`. Las filas GPU de
+`windows.csv` solo persisten el timestamp final; su inicio se reconstruye con
+el timestamp de la muestra NVML anterior, que es el intervalo al que pertenece
+`gpu_energy_delta_mj`. Para CPU aplica la regla de ARC-195 y conserva por
+separado la energía NVML cruda provocada por el observador.
+
+El hallazgo metodológico adicional más importante es que CPU y GPU no usan el
+mismo `--iterations` en el catálogo vigente. Por ello, los totales `warm` no
+son comparables directamente: tiempo y energía se dividen por el número de
+despachos y el target usa `EDP_dispatch = (E_warm/iterations) *
+(T_warm/iterations)`. `cold` contiene exactamente un despacho. El campo
+`metadata.iterations` del launcher vale cero en modo `--exec`; el constructor
+lee las iteraciones reales de `catalog.yaml`.
+
+La validación de lectura sobre los artefactos vigentes integró 1632/1632
+corridas CPU y las 119/119 corridas GPU parciales, sin exclusiones. El modo
+provisional produjo 68 grupos A con ocho candidatos CPU. Detectó 85 regiones
+`cold` CPU menores que el intervalo de 1 ms y las conserva con
+`energy_resolution_status=low`, sin presentarlas como mediciones de alta
+resolución. La GPU parcial se procesa para auditar el integrador, pero no genera
+labels ni observaciones C en modo provisional.
+
+Para C se toma la primera repetición `cold` de CPU-REF (y, en modo final,
+GPU-REF), no el promedio retrospectivo de las tres sondas. Tiempo y energía se
+conservan como estimaciones integradas aun si la región es submuestreada; las
+métricas puntuales sin resolución suficiente quedan ausentes con indicadores
+explícitos. El EDA materializa por separado correlaciones exploratorias,
+faltantes, resultados y CV, resolución `cold`, márgenes, clases, asociación
+operación/dispositivo y curvas por tamaño/frecuencia.
+
+La comparación de modelos usa formato largo (`is_optimal` por candidato),
+leave-one-operation-out externo y Optuna multiobjetivo anidado únicamente en
+las operaciones de entrenamiento. Se comparan regresión logística, árbol de
+decisión, Random Forest y XGBoost; los objetivos de búsqueda son EDP loss y
+latencia p99 para puntuar la decisión completa. XGBoost 3.2.0 quedó instalado
+en `~/hyperion-venv` y las cuatro familias pasaron un smoke real sobre el
+dataset A-CPU. La búsqueda completa de 100 trials por familia/pliegue se lanza
+en la partición CPU `normal`, no en `paccaA100`.
+
+## 11. Pendiente
 
 - ~~Analizar overhead real y CV%/convergencia de repeticiones con los
   datos de los pre-vuelos~~ — hecho, ver §8.
 - Diseñar e implementar la política de repeticiones adaptativa (base 3,
   escalar por margen EDP estrecho o CV% alto) — FFT ya es un candidato
   concreto con evidencia real (§8.1, §9).
-- Lanzar `campaign_pacca_dual_cpu_full.yaml` (una sesión) y
-  `campaign_pacca_dual_gpu_full.yaml` (varias sesiones de ~5.5 h,
-  reanudables, ver §8.3) — 8160 corridas, 10 880 lanzamientos de proceso
-  tras §4.3.
-- Construir el script de dataset de nivel 2 (agrupar por `config_id`,
-  `argmin EDP` sobre `{device}×{freq_level}`).
-- Entrenar el clasificador de `config_id`, validar con leave-one-operación-out.
+- La campaña CPU completa ya terminó con 1632 corridas aceptadas. Reanudar
+  `campaign_pacca_dual_gpu_full.yaml` cuando el nodo esté disponible hasta
+  completar 6528 corridas GPU aceptadas; hoy solo hay 119 y no se usan para
+  targets provisionales.
+- ~~Construir el script de dataset de nivel 2~~ — implementado y validado en
+  modo CPU provisional; falta repetir `--mode final` cuando termine GPU.
+- Ejecutar la búsqueda Optuna completa A-CPU/C-CPU y, al terminar GPU,
+  repetirla para el selector unificado.
 - Construir la aplicación sintética multi-fase HPC y el runtime
   (lógica sonda-y-decide) — Objetivo 3 / Fase D, no iniciado.
 - Experimento de cuatro barras (todo-CPU, todo-GPU, selector, oráculo) +
   medición del umbral de amortización de la sonda — no iniciado.
 - Actualizar `Estado_Paralelo_CPU_GPU.md`, `Estrategia_CPU_Fase2.md` /
   `Estrategia_GPU_Fase2.md` y `Estado_Cola_Slurm.md` con este pivote.
-- `main.tex` sigue sin redacción de la Fase 2 / pivote.
+- No incorporar resultados finales en `main.tex` hasta terminar y verificar
+  el dataset GPU y la comparación final.
 
 ---
 
-## 11. Referencias cruzadas
+## 12. Referencias cruzadas
 
 - Memoria: `pivote-selector-cpu-gpu-20260827`,
   `intra-kernel-phase-hunt-negative`,
