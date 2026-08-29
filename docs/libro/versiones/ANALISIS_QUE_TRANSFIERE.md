@@ -227,14 +227,30 @@ instrumento y la física, ninguno de los dos cambió.
 
 ---
 
-## 6. Riesgo a vigilar en la reescritura
+## 6. Cómo debe presentarse esto en el libro (decisión del autor, 2026-08-28)
 
-El documento anterior ya había hecho **un** pivote de granularidad (de ventana a
-carga completa, §`sec:fase2-reformulacion`) con su justificación escrita. La
-reescritura hace un segundo. Conviene que el texto no dé la impresión de una
-metodología que se mueve cada vez que un resultado incomoda. La forma honesta de
-presentarlo es como una **cadena de evidencia que converge**: cada cambio de
-unidad estuvo forzado por una medición concreta, y el destino final —
-la operación como unidad de decisión — es también la lectura más literal de los
-objetivos específicos, que hablan de "las fases de ejecución de las aplicaciones"
-y nunca de ventanas temporales.
+**El selector es el proyecto, no el destino de un pivote.** La línea de
+clasificación de fases intra-kernel fue una malinterpretación del alcance, no un
+diseño anterior legítimo que la evidencia obligara a revisar. En consecuencia, el
+libro **no** debe narrarla como antecedente, ni presentar la formulación vigente
+como una reformulación, revisión o pivote.
+
+Esto descarta explícitamente el encuadre de "cadena de evidencia que converge"
+que una versión anterior de este documento recomendaba: contar el recorrido daría
+la impresión de una metodología que se mueve cada vez que un resultado incomoda, y
+además describiría mal lo que ocurrió.
+
+La justificación de la unidad de decisión se da entonces en **positivo**, sin
+referencia a ninguna alternativa abandonada:
+
+- $\alpha$ varía mucho entre operaciones y es casi constante dentro de cada una,
+  luego la variación aprendible está en el eje de la operación.
+- El punto de inflexión Roofline se desplaza con la frecuencia, luego la etiqueta
+  de régimen sirve para caracterizar pero no como objetivo de aprendizaje.
+- El costo de conmutar el punto operativo no se amortiza a escala de
+  milisegundos.
+- Tres sistemas publicados independientes deciden en esa misma escala.
+
+Ninguno de esos cuatro argumentos necesita mencionar la línea cerrada. El
+registro de esa línea vive aquí, en `versiones/`, que es su lugar correcto: es
+historia del proceso, no contenido del documento.
