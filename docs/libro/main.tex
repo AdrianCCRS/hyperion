@@ -369,15 +369,26 @@ donde $P_{\text{pico}}$ es el rendimiento aritmético pico, $I$ la intensidad op
     \centering
     \includegraphics[width=0.75\textwidth]
         {figuras/fig_modelo_roofline_conceptual_williams2009.png}
-    \caption{Modelo Roofline conceptual: relación entre el techo de ancho
-    de banda de memoria y el techo de rendimiento de cómputo.
-    Fuente: tomada de Williams et al. \cite[Fig.~1(a)]{Williams2009}.}
+    \caption[Modelo Roofline conceptual]{Modelo Roofline conceptual: relación entre el techo de ancho de banda de memoria y el techo de rendimiento de cómputo. Fuente: tomada de Williams et al. \cite[Fig.~1(a)]{Williams2009}.}
     \label{fig:modelo-roofline-conceptual}
 \end{figure}
 
-Conviene precisar una distinción que la propia ecuación \eqref{eq:roofline} contiene pero que resulta fácil de pasar por alto: la intensidad operacional $I$ se define como operaciones por byte \textit{efectivamente transferido desde memoria}, no por byte del conjunto de trabajo total. Un algoritmo cuyo conjunto de datos exceda varias veces la memoria caché de último nivel no es, solo por ese hecho, \textit{memory-bound} --- lo sería únicamente si, además, careciera de reutilización de datos mientras estos permanecen cerca del procesador. Un algoritmo con bloqueo o mosaico (\textit{tiling}) que reutiliza intensamente cada bloque de datos antes de descartarlo --- la multiplicación de matrices densas es el ejemplo canónico --- puede tener una intensidad operacional alta y creciente con el tamaño del problema, incluso con un conjunto de datos que exceda la caché en un orden de magnitud, porque la mayoría de las operaciones aritméticas se ejecutan sobre datos que ya están cerca, no sobre datos recién traídos de memoria principal. Lo contrario --- un algoritmo de un solo paso sobre el dato, sin reutilización posible, como una copia o una reducción lineal --- es \textit{memory-bound} a cualquier tamaño que exceda un búfer trivial, precisamente porque no existe reutilización que el tamaño pueda diluir. El tamaño del conjunto de trabajo frente a la caché es, por tanto, una condición necesaria pero no suficiente para el régimen \textit{memory-bound}; la condición suficiente es la intensidad operacional definida por la ecuación \eqref{eq:roofline}, que depende de la estructura del algoritmo y no solo de su volumen de datos.
+La intensidad operacional $I$ relaciona el trabajo aritmético con los
+bytes transferidos desde el nivel de memoria modelado, no con el tamaño
+nominal del conjunto de trabajo \cite[p.~66]{Williams2009}. Por ello, que
+los datos excedan la caché de último nivel solo indica que parte de ellos
+deberá atravesar niveles inferiores de la jerarquía, pero no determina
+cuánto tráfico se genera ni cuánta reutilización ocurre. La multiplicación
+de matrices densas ilustra esta diferencia: mediante bloqueo o mosaico
+(\textit{tiling}), los bloques pueden reutilizarse y su movimiento entre
+niveles de memoria se amortiza, sin requerir que las matrices completas
+residan simultáneamente en caché \cite[Secs.~3--4]{Goto2008}. Para una
+cantidad fija de operaciones, esa reducción del tráfico aumenta la
+intensidad operacional. El tamaño del conjunto de trabajo frente a la
+caché es, por tanto, un indicio útil, pero no un criterio suficiente para
+clasificar una carga como \textit{memory-bound} o \textit{compute-bound}.
 
-\subsubsection{Punto de inflexión y calibración empírica del techo}
+\subsubsection{Punto de inflexión y criterio de clasificación}
 
 La frontera entre regímenes es el punto de inflexión o \textit{ridge point}, donde ambas ramas de \eqref{eq:roofline} se igualan:
 
@@ -386,66 +397,160 @@ I_{\text{ridge}} = \frac{P_{\text{pico}}}{BW_{\text{pico}}}
 \label{eq:ridge}
 \end{equation}
 
-En el criterio operacional adoptado en este trabajo, una ventana con
-intensidad observada por debajo de $I_{\text{ridge}}$ se etiqueta como
-\textit{memory-bound}; por encima, como \textit{compute-bound}
-\cite{Williams2009}. Cuando el dispositivo admite precisiones aritméticas
-con rendimientos pico sustancialmente distintos ---como una GPU con rutas
-de simple y doble precisión---, un único $I_{\text{ridge}}$ genérico no es
-representativo de ninguna de las dos y la ecuación debe evaluarse por
-separado para cada precisión (sección \ref{sec:gpu-calibracion}).
+En este trabajo, $I_{\text{ridge}}$ se adopta como umbral operativo de
+etiquetado: una intensidad observada inferior se clasifica como
+\textit{memory-bound} y una superior como \textit{compute-bound}, de
+acuerdo con la separación de regímenes que plantea el modelo Roofline
+\cite{Williams2009}. La caracterización Roofline puede determinar techos
+de cómputo por separado para distintos tipos de dato y precisiones
+aritméticas \cite{Antepara2025}. En consecuencia, cuando esos techos
+difieren, el valor de $P_{\text{pico}}$ empleado en
+\eqref{eq:ridge} debe corresponder a la precisión de las operaciones
+medidas; cada precisión requiere entonces su propio
+$I_{\text{ridge}}$. Una carga de precisión mixta no puede compararse
+directamente con un único techo sin definir previamente cómo se tratará
+esa mezcla.
 
-Los valores nominales de fábrica de $P_{\text{pico}}$ y
-$BW_{\text{pico}}$ describen máximos teóricos que pueden no reproducir las
-condiciones de la configuración experimental concreta, como el número de
-núcleos activos, la anchura vectorial o los canales de memoria poblados
-\cite{NERSC2026}. Por ello, en este trabajo ambos techos se determinan
-mediante calibración empírica: cargas diseñadas para saturar cada límite
-por separado ---ancho de banda de memoria y densidad aritmética sobre
-datos residentes en caché---, ejecutadas bajo la misma afinidad de núcleos
-que la campaña experimental. $I_{\text{ridge}}$ resulta así una propiedad
-de la plataforma bajo la configuración utilizada, no una constante tomada
-directamente de la ficha técnica.
-\subsubsection{Estimación de la intensidad operacional observada}
+Los valores de fábrica sirven como referencia inicial, pero no representan
+necesariamente los techos alcanzables bajo la configuración experimental.
+La caracterización Roofline recomienda estimarlos mediante microkernels y
+condiciones de ejecución representativas \cite{NERSC2026}. Por ello, este
+trabajo determina empíricamente los techos de cómputo y ancho de banda con
+cargas diseñadas para saturarlos por separado, ejecutadas bajo la misma
+afinidad de núcleos que la campaña experimental. Así,
+$I_{\text{ridge}}$ corresponde a la plataforma y a la configuración
+efectivamente evaluadas, no solo a una cifra de la ficha técnica.
+
+\subsubsection{Cálculo de la intensidad operacional observada}
 \label{sec:intensidad}
 
-Aplicar el criterio anterior a una ventana concreta exige estimar:
+Aplicar el criterio anterior exige calcular la intensidad sobre un mismo
+intervalo de observación:
 
 \begin{equation}
-I = \frac{\text{FLOPs realizados en la ventana}}{\text{bytes movidos en la ventana}}
+I_i = \frac{\text{FLOPs}_i}{B_i^{\text{DRAM}}}
 \label{eq:intensidad}
 \end{equation}
 
-El numerador no es una magnitud trivialmente observable: la disponibilidad y semántica de los eventos PMU asociados a aritmética de punto flotante no son uniformes entre microarquitecturas, y un evento puede contabilizar instrucciones retiradas, micro-operaciones ejecutadas o actividad especulativa según el procesador, una fuente de sobreconteo ya documentada empíricamente \cite{Weaver2008}. En este trabajo, ningún evento PMU se considera válido por defecto: su \textit{encoding} se determina para la microarquitectura concreta y su interpretación se contrasta mediante microbenchmarks de resultado conocido. El procedimiento completo: \textit{encoding} exacto, ponderación por ancho vectorial y tipo de operación, y validación empírica con error relativo por debajo de 0.5\% contra un kernel de trabajo conocido analíticamente se documenta en la sección \ref{sec:validacion-flops}, junto con la campaña real que confirmó su disponibilidad sostenida a escala.
+donde $\text{FLOPs}_i$ representa el trabajo aritmético realizado y
+$B_i^{\text{DRAM}}$ los bytes transferidos hacia o desde memoria principal
+durante el intervalo $i$. Ambos términos deben corresponder al mismo
+intervalo temporal; dividir magnitudes obtenidas con granularidades
+distintas produciría una intensidad sin consistencia física.
 
-El denominador es más difícil de observar directamente: el tráfico real hacia memoria principal se origina en el controlador de memoria, mientras que los contadores accesibles por proceso observan desde la perspectiva del núcleo, sin visibilidad directa sobre ese tráfico. Este trabajo lo mide mediante los propios contadores del controlador de memoria (\textit{uncore}), cuyas condiciones de acceso se discuten en la sección \ref{sec:uncore} y cuyo resultado de medición se reporta en la sección \ref{sec:resultados-uncore}.
+Los contadores de rendimiento no miden FLOPs como una magnitud abstracta,
+sino eventos definidos por una microarquitectura concreta. Incluso eventos
+aparentemente directos, como las instrucciones retiradas, pueden presentar
+diferencias de implementación y sensibilidad a las condiciones de medición
+\cite{Weaver2008}. Por ello, cualquier conversión desde eventos PMU hacia
+FLOPs requiere verificar la disponibilidad, la codificación y la semántica
+del evento utilizado.
+
+El tráfico hacia memoria principal se observa desde un dominio distinto:
+los contadores \textit{uncore} del controlador de memoria integrado
+(IMC), que permiten contabilizar comandos de lectura y escritura enviados
+a la DRAM \cite{IntelUncore2021}. Estos contadores tienen alcance de
+sistema y no pueden atribuirse directamente a un proceso individual.
+Cuando su granularidad temporal es más gruesa que la de los contadores de
+núcleo, los FLOPs deben agregarse sobre el mismo intervalo antes de
+calcular la intensidad operacional.
 
 \subsection{Telemetría microarquitectónica}
 
-Los procesadores modernos incorporan Unidades de Monitorización de Rendimiento (PMU), compuestas por contadores fijos (eventos frecuentes como ciclos e instrucciones) y programables (eventos configurables), que permiten instrumentación de baja sobrecarga sobre el flujo de instrucciones y la jerarquía de memoria \cite{Liu2024}. El número de contadores físicos disponibles simultáneamente es limitado --- típicamente 1--4 fijos y 4--8 genéricos en arquitecturas modernas \cite{Liu2024} ---, lo que condiciona qué eventos pueden observarse a la vez.
+Los procesadores modernos incorporan Unidades de Monitorización de
+Rendimiento (PMU), compuestas por contadores fijos y programables que permiten
+observar eventos asociados al flujo de instrucciones y a la jerarquía de
+memoria \cite{Weaver2015,IntelSDM2026}. Su cantidad y sus capacidades dependen
+de la microarquitectura, pero el número de eventos que pueden observarse
+simultáneamente es limitado, lo que motiva el uso de mecanismos de
+multiplexación cuando la demanda supera los contadores disponibles
+\cite{Liu2024}.
 
 \subsubsection{Multiplexación de contadores y escalado de medidas}
 \label{sec:multiplexacion}
 
-Cuando los eventos solicitados exceden los contadores físicos disponibles, el kernel rota periódicamente los eventos sobre ellos (multiplexación) y escala cada lectura mediante la razón entre tiempo habilitado y tiempo efectivamente contando. Este escalado es una extrapolación --- asume tasa de evento uniforme durante los intervalos no observados ---, supuesto que se debilita cuando el comportamiento de la aplicación varía rápidamente dentro de la ventana, precisamente el escenario de interés en aplicaciones multifásicas \cite{Liu2024}. Por ello, mantener el conjunto de eventos dentro del presupuesto físico de la plataforma no es solo una decisión de cobertura, sino de calidad de la medida.
+Cuando los eventos solicitados exceden los contadores físicos disponibles,
+el kernel puede alternarlos periódicamente sobre ellos. En ese caso, cada
+lectura se escala mediante la relación entre el tiempo durante el cual el
+evento estuvo habilitado y el tiempo durante el cual contó efectivamente. El
+resultado es una extrapolación que supone una tasa de eventos aproximadamente
+estable durante los intervalos no observados, supuesto que pierde validez
+cuando el comportamiento cambia dentro de la ventana \cite{Liu2024}.
+
+Para evitar esta fuente de incertidumbre, el conjunto de eventos empleado en
+este trabajo se dimensionó dentro del presupuesto de contadores físicos
+simultáneos de la plataforma y se comprobó durante la calificación del
+instrumento. Los tiempos de habilitación y conteo conservados por el
+instrumento proporcionan, además, una señal de control sobre el funcionamiento
+de la medición de referencia.
 
 \subsubsection{Eventos genéricos y eventos crudos}
 
-Los eventos genéricos son una abstracción portable que el kernel traduce a la codificación concreta de la microarquitectura; los eventos crudos se especifican mediante la codificación nativa del procesador (selector de evento, máscara de sub-evento, calificadores adicionales). Cuando el kernel carece de una entrada de traducción para un modelo de procesador reciente, la vía genérica falla aunque el contador físico exista, y acceder a él exige codificación cruda --- trasladando al instrumento la responsabilidad de garantizar que esa codificación es correcta para esa microarquitectura específica. Una codificación incompleta puede abrir el contador sin error aparente y producir valores sin sentido físico, un modo de fallo más peligroso que un error explícito porque no se manifiesta hasta examinar la coherencia de los datos.
+Los eventos genéricos son una abstracción portable que el kernel traduce a
+la codificación concreta de la microarquitectura; los eventos crudos se
+especifican mediante la codificación nativa del procesador (selector de evento,
+máscara de subevento y calificadores adicionales)
+\cite{Weaver2015,IntelSDM2026}. Cuando el kernel carece de una traducción para
+un evento disponible en el procesador, puede ser necesario usar su codificación
+cruda, lo que traslada al instrumento la responsabilidad de verificar que esa
+codificación corresponde a la microarquitectura evaluada. Una codificación
+incorrecta puede producir valores sin significado físico aun cuando la apertura
+del contador no genere un error explícito.
 
 \subsubsection{Contadores de núcleo y contadores de \textit{uncore}}
 \label{sec:uncore}
 
-Los contadores de núcleo observan eventos atribuibles a un núcleo concreto y pueden asociarse a un proceso. Los contadores de \textit{uncore} observan recursos compartidos del zócalo --- controlador de memoria, caché de último nivel distribuida, interconexiones --- y por tanto son de alcance de sistema, no atribuibles a un proceso específico. Los contadores del controlador de memoria observan el tráfico que efectivamente alcanza memoria principal, con independencia de si lo originó un acceso de demanda o precarga, por lo que constituyen la fuente empleada en este trabajo para el denominador de la ecuación \eqref{eq:intensidad} (sección \ref{sec:intensidad}) --- aunque su acceso está sujeto a una categoría de privilegio distinta (sección \ref{sec:paranoid}).
+Los contadores de núcleo observan eventos atribuibles a un núcleo concreto y
+pueden asociarse a un proceso. Los contadores de \textit{uncore} observan
+recursos compartidos del zócalo, como el controlador de memoria, la caché de
+último nivel distribuida y las interconexiones, y por tanto son de alcance de
+sistema, no atribuibles a un proceso específico. Los contadores del controlador
+de memoria contabilizan el tráfico que alcanza la memoria principal, tanto por
+accesos de demanda como por precarga \cite{IntelUncore2021}. Por ello,
+constituyen la fuente empleada en este trabajo para el denominador de la
+ecuación \eqref{eq:intensidad} (sección \ref{sec:intensidad}), aunque su acceso
+está sujeto a una categoría de privilegio distinta (sección
+\ref{sec:paranoid}).
 
 \subsubsection{Métricas microarquitectónicas de eficiencia}
 
-Instrucciones por ciclo (IPC), tasa de fallos de caché y ciclos de estancamiento (\textit{stall cycles}) son señales complementarias que describen cómo se distribuye el costo de ejecución entre cómputo y memoria \cite{Shekofteh2019,Littman2025}. El IPC mide cuánto ciclo de reloj se traduce en trabajo útil retirado \cite[Ch.~6]{Gregg2020}; la tasa de fallos de último nivel describe la presión relativa sobre la jerarquía de memoria \cite[Ch.~2]{Gregg2020}; y los \textit{stall cycles} asociados a la etapa de ejecución --- espera por operandos desde memoria, a diferencia de los originados en captación/decodificación --- son la señal con mayor valor discriminante para el régimen \textit{memory-bound} \cite[Ch.~6]{Gregg2020}. Ninguna constituye por sí sola una formulación analítica exacta de los regímenes, pero en conjunto describen patrones de ejecución consistentes con cada uno \cite{Littman2025}.
+Las instrucciones por ciclo (IPC), la tasa de fallos de caché y la fracción
+de ciclos de estancamiento describen aspectos complementarios del
+comportamiento de la ejecución. El IPC relaciona las instrucciones retiradas
+con los ciclos transcurridos \cite[Ch.~6]{Gregg2020}, mientras que los eventos
+de caché permiten observar la frecuencia relativa de accesos que no son
+atendidos en el nivel representado por el evento configurado
+\cite[Ch.~2]{Gregg2020}.
+
+Los ciclos de estancamiento contabilizan intervalos en los que la ejecución no
+progresa. Esta señal puede aumentar por dependencias de datos, latencias de
+memoria u otras restricciones del procesador, por lo que no identifica por sí
+sola la causa del estancamiento. En este trabajo se utiliza como una
+característica complementaria del clasificador, no como sustituto de la
+intensidad operacional ni como criterio directo para asignar la etiqueta
+\textit{memory-bound}. La clasificación se determina mediante la intensidad
+operacional observada y el punto de inflexión correspondiente.
 
 \subsubsection{Ventanas de muestreo y naturaleza temporal de la observación}
 \label{sec:ventanas}
 
-Los contadores de hardware son acumulativos: crecen monótonamente desde que se habilitan. La unidad de análisis adecuada no es una lectura individual, sino la diferencia entre dos lecturas consecutivas --- una ventana de muestreo ---, que describe el trabajo realizado en ese intervalo. La elección del período de muestreo es un compromiso: un período corto ofrece mayor resolución temporal pero reduce el número de eventos acumulados por ventana, degradando la relación señal--ruido de las métricas derivadas; un período largo produce métricas más estables pero promedia sobre intervalos que pueden abarcar varias fases distintas. Adicionalmente, el intervalo efectivo entre lecturas no coincide exactamente con el período nominal solicitado --- el hilo de muestreo está sujeto a planificación de un sistema operativo de propósito general ---, por lo que toda métrica derivada debe calcularse sobre el intervalo realmente transcurrido, medido con un reloj monótono.
+En el modo de conteo empleado para los eventos de núcleo, cada lectura
+representa el valor acumulado desde la habilitación o el último reinicio del
+contador. La unidad de análisis no es, por tanto, una lectura individual, sino
+la diferencia entre dos lecturas consecutivas, teniendo en cuenta posibles
+desbordamientos. Las lecturas periódicas de \textit{uncore} empleadas en este
+trabajo, en cambio, ya expresan conteos por intervalo y no deben volver a
+diferenciarse.
+
+La elección del período de muestreo es un compromiso: un período corto ofrece
+mayor resolución temporal pero reduce el número de eventos acumulados por
+ventana, degradando la relación señal--ruido de las métricas derivadas; un
+período largo produce métricas más estables pero promedia intervalos que pueden
+abarcar varias fases. Adicionalmente, el intervalo efectivo entre lecturas no
+coincide exactamente con el período nominal solicitado, porque el hilo de
+muestreo está sujeto a la planificación de un sistema operativo de propósito
+general. Por ello, toda métrica derivada debe calcularse sobre el intervalo
+realmente transcurrido, medido con un reloj monótono.
 
 \subsection{Espacios de ejecución: \textit{user-space} y \textit{kernel-space}}
 
@@ -648,7 +753,7 @@ La identidad precisa de la microarquitectura no es un dato meramente descriptivo
 
 \begin{table}[H]
 \centering
-\caption{Características de la plataforma experimental.}
+\caption[Características de la plataforma experimental]{Características de la plataforma experimental.}
 \label{tab:plataforma}
 \begin{tabular}{@{}ll@{}}
 \toprule
@@ -711,32 +816,77 @@ El instrumento valida este contrato al cerrar cada corrida y falla de forma cerr
 
 \subsection{Variables observadas}
 
-Antes de describir las señales capturadas, conviene precisar qué se entiende por ventana de muestreo, término empleado de aquí en adelante. El hilo productor descrito en la sección anterior toma una lectura de los contadores cada cierto período configurado en la campaña; cada lectura individual es un valor acumulativo, y por sí sola no describe el comportamiento de un intervalo concreto. Una ventana de muestreo se define como el intervalo delimitado por dos lecturas consecutivas, y su contenido --- el trabajo realizado durante ese intervalo --- se obtiene restando la lectura anterior de la lectura actual, conforme a lo argumentado en la sección \ref{sec:ventanas}. Por tanto, una ventana no es un conjunto o agregado de varias muestras, sino el resultado de un único par de lecturas consecutivas; se requieren dos lecturas para producir una ventana, de modo que la primera lectura de cada corrida no genera ventana alguna, al carecer de una lectura previa contra la cual diferenciarse (condición registrada en la Tabla \ref{tab:calidad} como ``sin diferencia previa''). La duración real de una ventana corresponde al tiempo efectivamente transcurrido entre ambas lecturas, medido con un reloj monótono, y no al período nominal configurado.
+Una ventana de muestreo se define como el intervalo entre dos lecturas
+consecutivas de los contadores de núcleo. El trabajo realizado en ella se
+obtiene mediante la diferencia entre ambas lecturas; por esta razón, la
+primera lectura de una corrida no produce una ventana. Su duración corresponde
+al tiempo realmente transcurrido, medido con un reloj monótono, y no al
+período nominal solicitado.
 
-La Tabla \ref{tab:contadores} resume las señales de telemetría capturadas en cada ventana de muestreo. El conjunto de eventos se dimensionó para permanecer dentro del presupuesto de contadores físicos simultáneos de la plataforma, verificado empíricamente sobre la máquina en lugar de asumirse a partir del modelo de procesador, con el fin de evitar el error de extrapolación asociado a la multiplexación descrito en la sección \ref{sec:multiplexacion}.
+La Tabla \ref{tab:contadores} resume las señales de CPU capturadas por el
+instrumento. El conjunto de eventos de núcleo se dimensionó para permanecer
+dentro del presupuesto de contadores físicos simultáneos de la plataforma,
+comprobado durante la calificación del instrumento. Las mediciones de RAPL y
+del controlador de memoria tienen sus propios intervalos de muestreo y se
+asocian temporalmente con las ventanas de núcleo durante el procesamiento.
 
 \begin{table}[H]
 \centering
-\caption{Señales de telemetría capturadas por ventana de muestreo.}
+\caption[Señales de telemetría de CPU]{Señales de telemetría de CPU capturadas por el instrumento.}
 \label{tab:contadores}
 \begin{tabular}{@{}p{5.2cm}p{9.3cm}@{}}
 \toprule
 \textbf{Señal} & \textbf{Propósito} \\
 \midrule
-Instrucciones retiradas & Base para IPC y tasa de instrucciones. \\
-Ciclos de reloj & Base para IPC y para la fracción de ciclos de estancamiento. \\
-Referencias a caché & Denominador de la tasa de fallos. \\
-Fallos de caché & Estimación de bytes movidos y de la presión sobre memoria. \\
-Ciclos de estancamiento en ejecución & Señal directa de espera por operandos, asociada al régimen \textit{memory-bound}. \\
-Operaciones de punto flotante retiradas (escalar, 128 bits, 256 bits, 512 bits) & Medición directa de FLOPs por ventana, ponderada por ancho de registro vectorial (ecuación \eqref{eq:flops-medidos}); fuente principal del numerador de la intensidad operacional. \\
-Tiempo habilitado y tiempo contando & Diagnóstico de multiplexación y escalado de la medida. \\
-Energía acumulada por dominio RAPL & Cálculo de energía y potencia por ventana. \\
-Frecuencia efectiva de cada núcleo delegado & Lectura instantánea de \texttt{scaling\_cur\_freq}, tomada de forma independiente para cada núcleo lógico asignado a la carga y en el mismo ciclo de muestreo de los contadores de PMU; permite contrastar durante la carga el nivel solicitado contra el realmente observado, y detectar una divergencia entre núcleos que una lectura de un único núcleo representativo no podría revelar (sección \ref{sec:dominios}). \\
+Instrucciones retiradas
+& Cálculo del IPC y de la tasa de instrucciones. \\
+
+Ciclos de reloj
+& Base temporal para el IPC y para la fracción de ciclos de
+estancamiento. \\
+
+Referencias y fallos de caché
+& Cálculo de la tasa de fallos y de los fallos por cada mil instrucciones.
+También proporcionan un indicador auxiliar de presión sobre la jerarquía de
+memoria. \\
+
+Ciclos totales de estancamiento de la ejecución
+& Indicador complementario de pérdida de progreso. No identifica por sí solo
+si el estancamiento fue causado por memoria. \\
+
+Operaciones de punto flotante retiradas (escalar, 128, 256 y 512 bits)
+& Cálculo de los FLOPs por ventana mediante la ponderación correspondiente al
+ancho vectorial (ecuación \eqref{eq:flops-medidos}). Constituyen el numerador
+de la intensidad operacional. \\
+
+Tiempos de habilitación y conteo del evento de referencia
+& Control de la medición y soporte para el escalado aplicado por la interfaz
+de contadores. \\
+
+Comandos CAS de lectura y escritura del IMC
+& Estimación del tráfico que alcanza la DRAM. La suma de ambos contadores,
+multiplicada por 64 bytes por comando, constituye el denominador de la
+intensidad operacional. \\
+
+Energía acumulada por dominio RAPL
+& Cálculo del incremento de energía y de la potencia media sobre el intervalo
+de muestreo de RAPL asociado temporalmente con la ventana. \\
+
+Frecuencia observada de cada núcleo delegado
+& Lectura de \texttt{scaling\_cur\_freq} para cada núcleo lógico asignado a la
+carga, utilizada para contrastar el nivel solicitado con el comportamiento
+observado durante la ejecución. \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-A partir de estas señales se derivan, para cada ventana, las métricas de eficiencia descritas en el marco conceptual --- instrucciones por ciclo, tasa de fallos del último nivel de caché, fallos por cada mil instrucciones, fracción de ciclos de estancamiento --- así como la intensidad operacional y las magnitudes energéticas. Todas las tasas se calculan sobre el intervalo realmente transcurrido entre lecturas consecutivas, conforme a lo argumentado en la sección \ref{sec:ventanas}.
+A partir de las lecturas de núcleo se calculan el IPC, los fallos por cada mil
+instrucciones, la tasa de fallos de caché y la fracción de ciclos de
+estancamiento. Los FLOPs se agregan sobre cada intervalo de los contadores del
+IMC antes de dividirlos por los bytes transferidos hacia o desde la DRAM. De
+esta manera, la intensidad operacional y la etiqueta de entrenamiento dependen
+del tráfico observado por el controlador de memoria, no de una aproximación
+basada en los fallos de caché.
 
 \section{Fase 1: Recolección de información y caracterización de cargas}
 
@@ -757,7 +907,7 @@ La Tabla \ref{tab:catalogo} resume la composición final del catálogo, ya estab
 
 \begin{table}[H]
 \centering
-\caption{Composición del catálogo experimental de cargas de trabajo.}
+\caption[Composición del catálogo experimental]{Composición del catálogo experimental de cargas de trabajo.}
 \label{tab:catalogo}
 \begin{tabular}{@{}p{3.2cm}p{2.6cm}p{8.6cm}@{}}
 \toprule
@@ -816,7 +966,7 @@ Este trabajo emplea dos rejillas de frecuencia con propósitos distintos, y conv
 
 \begin{table}[H]
 \centering
-\caption{Estados de frecuencia de la campaña de caracterización (Fase 1).}
+\caption[Estados de frecuencia (Fase 1)]{Estados de frecuencia de la campaña de caracterización (Fase 1).}
 \label{tab:frecuencias}
 \begin{tabular}{@{}lll@{}}
 \toprule
@@ -834,7 +984,7 @@ F4 & Extremo inferior del rango & Límite inferior \\
 
 \begin{table}[H]
 \centering
-\caption{Rejilla fina de frecuencia empleada como espacio de acciones del selector. Las fracciones se aplican sobre el rango real de cada dispositivo, por lo que los mismos identificadores designan frecuencias absolutas distintas en la CPU y en el acelerador.}
+\caption[Rejilla fina de frecuencia]{Rejilla fina de frecuencia empleada como espacio de acciones del selector. Las fracciones se aplican sobre el rango real de cada dispositivo, por lo que los mismos identificadores designan frecuencias absolutas distintas en la CPU y en el acelerador.}
 \label{tab:frecuencias-fina}
 \begin{tabular}{@{}llrr@{}}
 \toprule
@@ -860,7 +1010,7 @@ Quinta, la matriz de frecuencia fija exige deshabilitar, además de acotar el ra
 
 \begin{table}[H]
 \centering
-\caption{Taxonomía de clasificación de frecuencia por ventana de muestreo.}
+\caption[Taxonomía de clasificación de frecuencia]{Taxonomía de clasificación de frecuencia por ventana de muestreo.}
 \label{tab:frecuencia-clasificacion}
 \begin{tabular}{@{}p{4.3cm}p{10.2cm}@{}}
 \toprule
@@ -897,7 +1047,7 @@ Las dos etapas anteriores operan sobre una única señal por dispositivo y, por 
 
 \begin{table}[H]
 \centering
-\caption{Taxonomía de anotaciones de calidad por ventana de muestreo.}
+\caption[Taxonomía de anotaciones de calidad]{Taxonomía de anotaciones de calidad por ventana de muestreo.}
 \label{tab:calidad}
 \begin{tabular}{@{}p{4.3cm}p{10.2cm}@{}}
 \toprule
@@ -930,7 +1080,7 @@ El diseño original de este instrumento estimaba los FLOPs de cada ventana media
 
 \begin{table}[h]
 \centering
-\caption{FLOPs por instrucción retirada según ancho vectorial y tipo de operación, evento \texttt{FP\_ARITH\_INST\_RETIRED} de Ice Lake-SP. La columna FMA ya está incorporada en el valor que reporta el contador de hardware.}
+\caption[FLOPs por instrucción retirada]{FLOPs por instrucción retirada según ancho vectorial y tipo de operación, evento \texttt{FP\_ARITH\_INST\_RETIRED} de Ice Lake-SP. La columna FMA ya está incorporada en el valor que reporta el contador de hardware.}
 \label{tab:fma-pesos}
 \begin{tabular}{@{}lccc@{}}
 \toprule
@@ -1031,7 +1181,7 @@ La Tabla \ref{tab:matriz-dual} resume ambas campañas. La asimetría entre ellas
 
 \begin{table}[H]
 \centering
-\caption{Matriz experimental de las dos campañas del catálogo dual.}
+\caption[Matriz experimental del catálogo dual]{Matriz experimental de las dos campañas del catálogo dual.}
 \label{tab:matriz-dual}
 \begin{tabular}{@{}lrr@{}}
 \toprule
@@ -1116,7 +1266,7 @@ Su vector de entrada se compone de descriptores analíticos, calculados con las 
 
 \begin{table}[H]
 \centering
-\caption{Fórmulas analíticas de trabajo y de tráfico lógico por despacho, empleadas como descriptores estáticos. $N$ es el parámetro de tamaño de la operación.}
+\caption[Fórmulas analíticas de descriptores estáticos]{Fórmulas analíticas de trabajo y de tráfico lógico por despacho, empleadas como descriptores estáticos. $N$ es el parámetro de tamaño de la operación.}
 \label{tab:formulas-analiticas}
 \begin{tabular}{@{}lll@{}}
 \toprule
@@ -1173,7 +1323,7 @@ De la aproximación al frente de Pareto resultante se elige un punto mediante un
 
 \begin{table}[H]
 \centering
-\caption{Espacios de hiperparámetros explorados por familia.}
+\caption[Espacios de hiperparámetros por familia]{Espacios de hiperparámetros explorados por familia.}
 \label{tab:hiperparametros}
 \begin{tabular}{@{}p{3.1cm}p{11.4cm}@{}}
 \toprule
@@ -1404,7 +1554,7 @@ donde $\alpha \in [0,1]$ es la fracción sensible al reloj. La estructura es la 
 
 \begin{table}[htbp]
 \centering
-\caption{Fracción de tiempo sensible a la frecuencia ($\alpha$) y calidad del ajuste de la ecuación \ref{eq:alpha}, por carga de conjunto de datos.}
+\caption[Fracción de tiempo sensible a frecuencia ($\alpha$)]{Fracción de tiempo sensible a la frecuencia ($\alpha$) y calidad del ajuste de la ecuación \ref{eq:alpha}, por carga de conjunto de datos.}
 \label{tab:alpha}
 \begin{tabular}{lrrr}
 \hline
@@ -1465,7 +1615,7 @@ La lectura directa de ese reloj (\texttt{current\_freq\_khz}) no está disponibl
 
 \begin{table}[H]
 \centering
-\caption{Reloj real del controlador de memoria y ancho de banda alcanzado, por nivel de frecuencia de núcleo.}
+\caption[Reloj del controlador de memoria vs. frecuencia]{Reloj real del controlador de memoria y ancho de banda alcanzado, por nivel de frecuencia de núcleo.}
 \label{tab:uncore-freq-vs-core}
 \begin{tabular}{@{}lrrr@{}}
 \toprule
@@ -1513,7 +1663,7 @@ El contraste entre los resultados de CPU y de GPU admite una explicación unific
 
 \begin{table}[htbp]
 \centering
-\caption{Rango dinámico de potencia y umbral de viabilidad del DVFS por dispositivo.}
+\caption[Rango dinámico de potencia por dispositivo]{Rango dinámico de potencia y umbral de viabilidad del DVFS por dispositivo.}
 \label{tab:rango-dinamico}
 \begin{tabular}{lrr}
 \hline
@@ -1581,7 +1731,7 @@ La conclusión anterior depende de una decisión metodológica y no de una restr
 
 \begin{table}[htbp]
 \centering
-\caption{Ahorro de energía del acelerador respecto del estado de máximo reloj, con la frontera de medición empleada en la literatura de referencia. Estados: F0 = 1410~MHz, F1 = 1110~MHz.}
+\caption[Ahorro de energía del acelerador]{Ahorro de energía del acelerador respecto del estado de máximo reloj, con la frontera de medición empleada en la literatura de referencia. Estados: F0 = 1410~MHz, F1 = 1110~MHz.}
 \label{tab:ahorro-gpu}
 \begin{tabular}{lrrr}
 \hline
@@ -1611,7 +1761,7 @@ En GPU, sobre las seis cargas con energía de acelerador medible --- se excluye 
 
 \begin{table}[htbp]
 \centering
-\caption{Ahorro de energía alcanzable por la mejor frecuencia constante única y por un oráculo por carga, según el presupuesto de degradación de rendimiento admitido. El margen es la diferencia entre ambos, es decir, el aporte máximo atribuible a un modelo. Los tres primeros renglones de GPU corresponden a la rejilla de seis estados original; los cuatro siguientes, a la rejilla fina de diez estados que la resuelve (véase el texto).}
+\caption[Margen de mejora por modelo vs. oráculo]{Ahorro de energía alcanzable por la mejor frecuencia constante única y por un oráculo por carga, según el presupuesto de degradación de rendimiento admitido. El margen es la diferencia entre ambos, es decir, el aporte máximo atribuible a un modelo. Los tres primeros renglones de GPU corresponden a la rejilla de seis estados original; los cuatro siguientes, a la rejilla fina de diez estados que la resuelve (véase el texto).}
 \label{tab:margen-politica}
 \begin{tabular}{llrrr}
 \hline
@@ -1853,6 +2003,13 @@ La tercera es una variante del sondeo que la formulación actual no contempla. E
 Repositorio público del proyecto:
 
 \url{https://github.com/AdrianCCRS/hyperion}
+
+%==============================================================================
+% BIBLIOGRAFÍA
+%==============================================================================
+
+\bibliographystyle{plainnat}
+\bibliography{main}
 
 %==============================================================================
 % FIN DEL DOCUMENTO
