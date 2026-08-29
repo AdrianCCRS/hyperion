@@ -7,16 +7,15 @@ técnicas. No sustituye esas fuentes.
 
 ## 1. Estado inmediato
 
-- Rama local y checkout de pacca: `fase-02`, commit `9d8e1b7`
-  (`prepare cold-warm dual dataset campaigns`). El commit está publicado en
-  `origin/fase-02`.
-- El smoke GPU integrado corregido **6716 terminó y pasó la auditoría**. La
-  campaña CPU completa quedó lanzada como **job 6718** con
-  `run_campaign_pacca_dual_cpu_full.sbatch`; estaba `RUNNING` al actualizar
+- Rama `fase-02`. El código de las campañas ejecutadas corresponde al commit
+  `9d8e1b7`; los commits posteriores hasta este relevo solo actualizan esta
+  documentación operativa.
+- El smoke GPU 6716 y la campaña CPU completa 6718 terminaron y pasaron sus
+  auditorías. La primera sesión GPU completa quedó lanzada como **job 6721**
+  con `run_campaign_pacca_dual_gpu_full.sbatch`; estaba `RUNNING` al actualizar
   este documento.
-- No seguir sondeando 6718 automáticamente si el autor quiere ahorrar cuota de
-  uso. Auditarlo cuando avise que terminó, antes de iniciar la primera sesión
-  GPU completa.
+- No seguir sondeando 6721 automáticamente si el autor quiere ahorrar cuota de
+  uso. Auditarla cuando termine antes de relanzar la siguiente sesión.
 - No hay un rediseño metodológico abierto que bloquee este primer intento. El
   constructor final del dataset de nivel 2 sí sigue pendiente y no debe
   confundirse con la adquisición de los crudos.
@@ -192,7 +191,7 @@ no tocar archivos ajenos; cualquier diagnóstico nuevo va en `~/yacacerest/`.
 
 Todos estos puntos pasaron. La campaña CPU completa se lanzó como job 6718.
 
-## 6. Campaña CPU completa en ejecución
+## 6. Campaña CPU completa cerrada y primera sesión GPU activa
 
 Antes del lanzamiento se confirmó que el directorio nuevo no existía. Comando
 ya ejecutado:
@@ -204,8 +203,8 @@ sbatch orchestrator/schemas/scripts/launchers/run_campaign_pacca_dual_cpu_full.s
 
 Slurm asignó el **job 6718**. Entró con CPU en `performance`, rango
 800000–3600000 y `no_turbo=0`; el wrapper cambió correctamente al rango no-Turbo
-800000–3200000 antes de la campaña. Al cierre debe restaurar el estado inicial
-exacto.
+800000–3200000 antes de la campaña y restauró el estado inicial exacto al
+cierre.
 
 La campaña superó preflight y comenzó la matriz con aceptaciones. Emitió
 `CAL-10/D04: cv_pct=16.15 %`; se auditó antes de dejarla continuar: el CV de
@@ -215,13 +214,33 @@ IPC es solo **0.074 %**, mientras que el máximo proviene de `miss_rate`
 inestabilidad del cómputo de referencia ni razón para cambiar umbrales durante
 la corrida.
 
-La campaña CPU completa solicita GPU y nodo exclusivo porque NVML forma parte
-del subtotal energético. Esperado: 1632 combinaciones, aproximadamente 2.5 h,
-límite Slurm de 4 h y timeout interno de 13200 s para dejar 20 minutos de
-margen de restauración. No encadenar automáticamente la campaña GPU: auditar
-primero aceptación, tiempos, cobertura, energía, actuación y restauración CPU.
+Resultado final de 6718: `COMPLETED 0:0` en **02:35:36**, 1632 aceptadas,
+0 rechazadas, matriz completa y `frequency_restored_verified: true`. Auditoría
+de cobertura:
 
-Después, la GPU completa se ejecuta en sesiones reanudables:
+- 68 kernels × 8 niveles × 3 repeticiones, exactamente una corrida por triple;
+- 204 corridas por nivel, 24 por kernel y 544 baselines de repetición 1;
+- 1632 contratos temporales válidos y checksums presentes;
+- mínimo 1062 ventanas warm etiquetadas por corrida, frente al requisito de 5;
+- RAPL válido y muestras NVML presentes en 1632/1632;
+- niveles aplicados exactamente: F0=3200, F1=2800, F2=2400, F3=2000,
+  F4=1600, F5=1200 y F6=800 MHz;
+- peor cold 1.0647 s y peor warm 6.9353 s, lejos del timeout de 180 s;
+- relectura física posterior: CPU `performance` 800000–3600000,
+  `no_turbo=0`; job 6720 confirmó GPU nativa, 210 MHz ociosa y máximo
+  1410 MHz.
+
+La auditoría detectó un efecto del observador en NVML: con sondeo cada 5 ms,
+la GPU permaneció a 1410 MHz y la potencia cruda durante candidatos CPU quedó
+en torno a 50–68 W aun con utilización 0 %. Antes y después de la campaña, y
+en el job 6714 con sondeo espaciado, el reposo nativo real fue ~35 W. Por ello,
+el agregador de nivel 2 no debe integrar la serie NVML cruda del eje CPU como
+si fuera consumo de la aplicación. Para el subtotal CPU debe usar
+`RAPL package+DRAM + 34.8379 W × duración de la región`; sigue contando la GPU
+ociosa, no la reemplaza por cero. Conservar la serie cruda para auditar el
+overhead instrumental. Esta corrección no afecta tiempos, PMC, uncore ni RAPL.
+
+La primera sesión GPU completa ya fue lanzada como **job 6721**:
 
 ```bash
 cd /home/latorresn/hyperion
@@ -240,6 +259,10 @@ job de dos días. Auditar el progreso y los rechazos entre sesiones.
   contrato cold/warm y el subtotal energético simétrico. **No usarlo** para
   construir el dataset final. Los crudos conservan marcadores y contadores;
   falta implementar el agregador de nivel 2.
+- La serie NVML de las corridas CPU contiene el efecto de despertar la GPU por
+  sondeo a 5 ms. No usarla directamente para el EDP CPU; aplicar la línea de
+  reposo nativa medida como se documenta en §6. Esto permite salvar la campaña
+  sin atribuir al candidato CPU la energía causada por el instrumento.
 - En regiones CPU cold muy cortas puede no caer una muestra completa dentro del
   intervalo. El tiempo sigue siendo exacto por marcadores y existen muestras de
   energía que lo acotan, pero la energía requerirá integración por solapamiento
