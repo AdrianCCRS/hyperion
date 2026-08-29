@@ -44,6 +44,61 @@ def _numeric_correlations(frame: pd.DataFrame, output_dir: Path, stem: str) -> d
     return result
 
 
+def _strategy_a_cold_sensitivity(strategy_a: pd.DataFrame, runs: pd.DataFrame) -> dict[str, Any]:
+    """Estrategia A construye su etiqueta y sus candidatos sobre `cold`
+    exclusivamente (build_strategy_a, region="cold") -- no tiene telemetria
+    de warm que la respalde. Comprueba si el ganador actual de cada grupo
+    depende de una region `cold` mas corta que el intervalo de muestreo
+    (`energy_resolution_status=="low"`), y si excluir esas acciones cambia
+    el ganador. No modifica la etiqueta: solo la audita.
+    """
+    cold_cpu = runs[(runs["region"] == "cold") & (runs["device"] == "cpu")]
+    if cold_cpu.empty or strategy_a.empty:
+        return {"applicable": False}
+    action_resolution = (
+        cold_cpu.groupby(["config_id", "action_id"], observed=True)["energy_resolution_status"]
+        .apply(lambda s: "low" if (s == "low").any() else "nominal")
+        .reset_index(name="action_resolution")
+    )
+    merged = strategy_a.merge(action_resolution, on=["config_id", "action_id"], how="left")
+    merged["action_resolution"] = merged["action_resolution"].fillna("nominal")
+
+    n_groups = merged["decision_group_id"].nunique()
+    winners = merged[merged["is_optimal"] == 1]
+    winner_low = winners[winners["action_resolution"] == "low"]
+
+    changed_rows = []
+    dropped_groups = 0
+    for group_id, group in merged.groupby("decision_group_id", observed=True):
+        original = group.loc[group["is_optimal"] == 1, "action_id"]
+        original = original.iloc[0] if len(original) else None
+        nominal_only = group[group["action_resolution"] == "nominal"]
+        if nominal_only.empty:
+            dropped_groups += 1
+            continue
+        recomputed = nominal_only.sort_values(
+            ["edp_mean", "energy_mean", "time_mean", "action_id"], kind="mergesort"
+        ).iloc[0]["action_id"]
+        if recomputed != original:
+            changed_rows.append({
+                "decision_group_id": group_id, "config_id": group["config_id"].iloc[0],
+                "winner_all_actions": original, "winner_nominal_only": recomputed,
+            })
+
+    return {
+        "applicable": True,
+        "n_groups": int(n_groups),
+        "n_actions_total": int(merged.drop_duplicates(["config_id", "action_id"]).shape[0]),
+        "n_actions_low_resolution": int(
+            (merged.drop_duplicates(["config_id", "action_id"])["action_resolution"] == "low").sum()
+        ),
+        "groups_with_low_resolution_winner": int(winner_low["decision_group_id"].nunique()),
+        "groups_with_no_nominal_action": dropped_groups,
+        "groups_whose_winner_changes_if_low_resolution_excluded": len(changed_rows),
+        "changed_winners": changed_rows,
+    }
+
+
 def generate_eda(dataset_dir: str | Path, output_dir: str | Path | None = None) -> dict[str, Path]:
     dataset_dir = Path(dataset_dir)
     output_dir = Path(output_dir) if output_dir else dataset_dir / "eda"
@@ -153,6 +208,18 @@ def generate_eda(dataset_dir: str | Path, output_dir: str | Path | None = None) 
             json.dumps(health, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
         summary["label_health"] = health
+
+    strategy_a = frames.get("strategy_a")
+    if strategy_a is not None and not strategy_a.empty:
+        sensitivity = _strategy_a_cold_sensitivity(strategy_a, runs)
+        (output_dir / "strategy_a_cold_sensitivity.json").write_text(
+            json.dumps(sensitivity, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        if sensitivity.get("changed_winners"):
+            pd.DataFrame(sensitivity["changed_winners"]).to_csv(
+                output_dir / "strategy_a_cold_sensitivity_changed_winners.csv", index=False
+            )
+        summary["strategy_a_cold_sensitivity"] = sensitivity
 
     report = output_dir / "eda_summary.json"
     report.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")

@@ -71,11 +71,31 @@ para confirmar que `build → eda → tune → evaluate` corre de punta a punta,
 **no** para decidir qué familia es mejor. El veredicto queda escrito en
 `eda/label_health.json` y en `model_contract.json` (`result_status`).
 
-En el eje CPU-solo del catálogo actual la etiqueta es casi constante
-(REF/F0 —el mismo punto físico— ganan 98.5 % combinado, margen mediano
-0.91 %): cualquier corrida de `tune` sobre A-CPU/C-CPU cae en
-`pipeline_smoke_only` por diseño, hasta que exista el eje GPU con variación
-real.
+Contra el dataset real (`selector_cpu_provisional_20260828`), A y C no dan
+el mismo veredicto: **A es `comparison_valid`** (REF gana 36.8 %, 5 de 6
+niveles con masa apreciable, margen mediano 11.3 %) — el paso 6 del plan es
+informativo para A-CPU, no solo humo. **C es `pipeline_smoke_only`** (F0
+gana 54.4 %, solo 2 acciones con masa, margen mediano 0.73 %): sus
+resultados deben leerse como validación de tubería, no como comparación.
+La estimación previa de "eje CPU degenerado" venía de una aproximación con
+energía de proceso completo, no de la integración real por despacho —
+normalizar por despacho separa el costo fijo de arranque del efecto de la
+frecuencia sobre el kernel puro y revela más variación de la que esa
+aproximación mostraba.
+
+### Sensibilidad de A a los `cold` de baja resolución
+
+A construye su etiqueta y sus candidatos exclusivamente sobre la región
+`cold` (`build_strategy_a`, sin telemetría `warm` de respaldo). `eda`
+calcula ahora `strategy_a_cold_sensitivity.json`: de las 544 acciones cold
+de A, 32 (5.9 %) están marcadas de baja resolución; el ganador actual de un
+grupo depende de una de ellas en 5/68 grupos; 3/68 grupos no tienen ninguna
+acción de resolución nominal con la que contrastar; y excluir las acciones
+de baja resolución cambia el ganador en 2/68 grupos (`axpy_N100000`
+F0→F1, `axpy_N316228` REF→F2 — concentrado en `axpy`, como predecía el
+diagnóstico de resolución temporal). No se excluyen automáticamente: la
+auditoría queda escrita para que se lea junto con `model_comparison.csv`,
+no para alterar la etiqueta en silencio.
 
 La selección de familia final tampoco usa solo el 1 % relativo: una familia
 es elegible si su EDP loss cae dentro de esa banda **o** dentro del error
