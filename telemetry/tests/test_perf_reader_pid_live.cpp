@@ -59,6 +59,7 @@ int main() {
     uint64_t previous_instructions = 0;
     int growing_deltas = 0;
     int flat_reads = 0;
+    int worst_ratio_reads = 0;
     for(int sample = 0; sample < 20; ++sample) {
         struct timespec t{0, 20'000'000}; // 20ms
         nanosleep(&t, nullptr);
@@ -77,7 +78,34 @@ int main() {
             ++flat_reads;
         }
 
+        // Regression check for the worst-ratio-across-events fix: the
+        // exported time_enabled_ns/time_running_ns must describe SOME
+        // opened counter's real state (running <= enabled, both nonzero
+        // once the reader has produced any sample at all), never the
+        // zeroed-out placeholder from before an event was ever read.
+        if(cpu.time_enabled_ns > 0) {
+            ++worst_ratio_reads;
+            if(cpu.time_running_ns > cpu.time_enabled_ns) {
+                std::fprintf(stderr, "time_running_ns (%llu) > time_enabled_ns (%llu)\n",
+                             static_cast<unsigned long long>(cpu.time_running_ns),
+                             static_cast<unsigned long long>(cpu.time_enabled_ns));
+                reader.close();
+                ::kill(child, SIGKILL);
+                ::waitpid(child, &wstatus, 0);
+                return 1;
+            }
+        }
+
         if(!child_alive) break;
+    }
+
+    if(worst_ratio_reads == 0) {
+        std::fprintf(stderr, "expected at least one read with a populated time_enabled_ns\n");
+        int cleanup_status = 0;
+        reader.close();
+        ::kill(child, SIGKILL);
+        ::waitpid(child, &cleanup_status, 0);
+        return 1;
     }
 
     reader.close();

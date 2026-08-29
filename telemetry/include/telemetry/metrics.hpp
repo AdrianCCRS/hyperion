@@ -62,8 +62,14 @@ namespace telemetry {
         uint64_t fp_128b_packed_double;   /**< Raw FP_ARITH_INST_RETIRED.128B_PACKED_DOUBLE (0xC7, umask=0x04). 2 flops/count. */
         uint64_t fp_256b_packed_double;   /**< Raw FP_ARITH_INST_RETIRED.256B_PACKED_DOUBLE (0xC7, umask=0x10). 4 flops/count. */
         uint64_t fp_512b_packed_double;   /**< Raw FP_ARITH_INST_RETIRED.512B_PACKED_DOUBLE (0xC7, umask=0x40). 8 flops/count. */
-        uint64_t time_enabled_ns;   /**< Perf enabled time for multiplexing diagnostics. */
-        uint64_t time_running_ns;   /**< Perf running time for multiplexing diagnostics. */
+        /* Enabled/running time of whichever opened perf event has the
+         * LOWEST time_running/time_enabled ratio at this read -- the worst
+         * case across all active counters, not always `instructions`.
+         * Before this fix only `instructions`' own enabled/running time was
+         * kept here, so a multiplexed FP_ARITH_INST_RETIRED sub-event could
+         * go undetected while instructions itself stayed at ratio 1.0. */
+        uint64_t time_enabled_ns;   /**< Perf enabled time of the worst-ratio event, for multiplexing diagnostics. */
+        uint64_t time_running_ns;   /**< Perf running time of the worst-ratio event, for multiplexing diagnostics. */
         /* ARC-135: cpufreq scaling_cur_freq for one representative delegated
          * CPU, read from the SAME producer tick as the counters above --
          * previously this was a single post-hoc Python read taken AFTER the

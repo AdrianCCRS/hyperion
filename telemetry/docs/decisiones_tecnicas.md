@@ -254,7 +254,12 @@ scaled = raw * time_enabled / time_running
 
 Además, `perf_running_ratio_min = min(time_running / time_enabled)` se exporta
 como indicador de confianza. Si se aleja de `1.0`, puede haber multiplexación o
-presión sobre PMU.
+presión sobre PMU. El `time_enabled`/`time_running` que cada muestra conserva
+para este diagnóstico corresponde al evento con la razón más baja entre los
+diez contadores abiertos en esa lectura, no siempre al mismo contador --
+antes de esta corrección solo se conservaba el de `instructions`, así que un
+sub-evento de `FP_ARITH_INST_RETIRED` podía multiplexarse sin que el
+indicador lo reflejara mientras `instructions` se mantuviera en razón 1.0.
 
 Los eventos excluyen kernel e hipervisor:
 

@@ -354,8 +354,10 @@ namespace telemetry {
         clock_gettime(CLOCK_MONOTONIC, &ts);
 
         uint64_t scaled[kEventCount] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-        uint64_t time_enabled = 0;
-        uint64_t time_running = 0;
+        uint64_t worst_time_enabled = 0;
+        uint64_t worst_time_running = 0;
+        double worst_ratio = 0.0;
+        bool has_worst = false;
 
         for(size_t i = 0; i < kEventCount; ++i) {
             if(fds_[i] < 0) continue; // optional event unavailable on this node (ARC-50)
@@ -363,9 +365,26 @@ namespace telemetry {
             const ssize_t n = ::read(fds_[i], &rf, sizeof(rf));
             if(n != static_cast<ssize_t>(sizeof(rf))) return false;
             scaled[i] = detail::scale_perf_count(rf.value, rf.time_enabled, rf.time_running);
-            if(i == kInstructions) {
-                time_enabled = rf.time_enabled;
-                time_running = rf.time_running;
+
+            // Before this fix, only kInstructions' time_enabled/time_running
+            // were kept, so the multiplexing diagnostic exported downstream
+            // (time_enabled_ns/time_running_ns -> perf_running_ratio_min /
+            // pmu_degraded) reflected only that one counter. A FP_ARITH_
+            // INST_RETIRED sub-event could be rotated out by the kernel
+            // while instructions stayed at ratio 1.0, and the degradation
+            // would go undetected. Track the worst (lowest running/enabled
+            // ratio) among ALL opened events instead, same comparison
+            // pattern already used by perf_running_ratio_min() in
+            // telemetry_kernel_launcher.cpp.
+            if(rf.time_enabled > 0) {
+                const double ratio = static_cast<double>(rf.time_running) /
+                                      static_cast<double>(rf.time_enabled);
+                if(!has_worst || ratio < worst_ratio) {
+                    worst_ratio = ratio;
+                    worst_time_enabled = rf.time_enabled;
+                    worst_time_running = rf.time_running;
+                    has_worst = true;
+                }
             }
         }
 
@@ -381,8 +400,8 @@ namespace telemetry {
         sample.fp_128b_packed_double = scaled[kFp128bPackedDouble];
         sample.fp_256b_packed_double = scaled[kFp256bPackedDouble];
         sample.fp_512b_packed_double = scaled[kFp512bPackedDouble];
-        sample.time_enabled_ns = time_enabled;
-        sample.time_running_ns = time_running;
+        sample.time_enabled_ns = worst_time_enabled;
+        sample.time_running_ns = worst_time_running;
         out = sample;
         return true;
     }
