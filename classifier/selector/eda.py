@@ -8,6 +8,8 @@ import json
 import numpy as np
 import pandas as pd
 
+from . import label_health
+
 
 def _save_heatmap(matrix: pd.DataFrame, path: Path, title: str) -> None:
     import matplotlib
@@ -139,6 +141,18 @@ def generate_eda(dataset_dir: str | Path, output_dir: str | Path | None = None) 
         frame.groupby("optimum_stability", observed=True).size().rename("count").to_csv(
             output_dir / f"{name}_stability_distribution.csv"
         )
+
+    health: dict[str, Any] = {}
+    for name in ("strategy_a", "strategy_c"):
+        frame = frames.get(name)
+        if frame is None or frame.empty or "is_optimal" not in frame:
+            continue
+        health[name] = label_health.assess_label_health(frame)
+    if health:
+        (output_dir / "label_health.json").write_text(
+            json.dumps(health, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        summary["label_health"] = health
 
     report = output_dir / "eda_summary.json"
     report.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")

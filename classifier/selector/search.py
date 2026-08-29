@@ -11,7 +11,7 @@ import time
 import numpy as np
 import pandas as pd
 
-from . import models
+from . import label_health, models
 
 
 FAMILIES = ("logistic", "decision_tree", "random_forest", "xgboost")
@@ -333,12 +333,23 @@ def run_nested_tuning(
     ).reset_index()
     summary.to_csv(output_dir / "model_comparison.csv", index=False)
 
-    best_loss = float(summary["edp_loss_mean"].min())
-    eligible = summary[summary["edp_loss_mean"] <= best_loss * 1.01]
+    n_folds = int(folds["held_out_operation"].nunique())
+    summary["edp_loss_stderr"] = summary["edp_loss_std"] / np.sqrt(max(n_folds, 1))
+    best_row = summary.loc[summary["edp_loss_mean"].idxmin()]
+    best_loss = float(best_row["edp_loss_mean"])
+    best_stderr = float(best_row["edp_loss_stderr"]) if pd.notna(best_row["edp_loss_stderr"]) else 0.0
+    # Una familia es indistinguible del ganador si su brecha frente a el no
+    # supera la dispersion combinada entre pliegues externos (ARC critica
+    # punto 2: sin esto, 6 numeros con ruido decidian la familia final).
+    dispersion_gap = summary["edp_loss_stderr"].fillna(0.0) + best_stderr
+    within_relative = summary["edp_loss_mean"] <= best_loss * 1.01
+    within_dispersion = (summary["edp_loss_mean"] - best_loss) <= dispersion_gap
+    eligible = summary[within_relative | within_dispersion]
     winner = eligible.sort_values(
         ["latency_p99_us", "model_size_bytes", "family"], kind="mergesort"
     ).iloc[0]
     winner_family = str(winner["family"])
+    families_indistinguishable_from_winner = sorted(eligible["family"].astype(str))
     final_tuning, final_model = tune_family(
         winner_family, frame, strategy=strategy, outer_fold="full",
         output_dir=output_dir / "studies", trials=trials, seed=seed,
@@ -346,20 +357,35 @@ def run_nested_tuning(
     )
     final_size = _serialize_model(final_model, output_dir / "selected_model.pkl")
     categorical, numeric = models.feature_columns(frame)
+    health = label_health.assess_label_health(frame)
     contract = {
         "strategy": strategy,
         "selected_family": winner_family,
-        "selection_rule": "edp_loss_within_1pct_then_p99_then_size",
+        "selection_rule": "edp_loss_within_1pct_or_within_fold_dispersion_then_p99_then_size",
+        "families_indistinguishable_from_winner": families_indistinguishable_from_winner,
+        "external_folds": n_folds,
         "categorical_features": categorical,
         "numeric_features": numeric,
         "action_ids": sorted(frame["action_id"].unique()),
         "final_tuning": final_tuning,
         "model_size_bytes": final_size,
         "seed": seed,
+        "label_health": health,
+        "result_status": health["verdict"],
+        "result_status_note": (
+            "pipeline_smoke_only: la etiqueta is_optimal no tiene variedad "
+            "suficiente para que esta tabla se lea como comparacion de "
+            "modelos -- sirve solo para validar que build/eda/tune/evaluate "
+            "corren de punta a punta. Ver label_health para el detalle."
+            if health["verdict"] == "pipeline_smoke_only" else
+            "comparison_valid: la etiqueta tiene variedad suficiente para "
+            "interpretar model_comparison.csv como comparacion real."
+        ),
         "environment": {
             "python": platform.python_version(),
             "numpy": np.__version__,
             "pandas": pd.__version__,
+            "hostname": platform.node(),
         },
     }
     try:

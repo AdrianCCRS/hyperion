@@ -54,6 +54,34 @@ CPU/GPU completas por `config_id` y falla cerrado si falta una.
 - El split es por operación completa. Nunca se dividen filas candidatas ni
   tamaños de una operación entre entrenamiento y prueba.
 - La métrica primaria es EDP loss; la exactitud del argmin es secundaria.
+- **`EDP_dispatch` es una cota superior, no una ganancia neta**: no incluye el
+  costo de actuar la frecuencia entre decisiones sucesivas, que se evalúa por
+  separado con el daemon (`energy_rule.edp_interpretation` en
+  `provenance.json`).
+
+## Compuerta de salud de la etiqueta (`label_health.py`)
+
+Antes de leer `model_comparison.csv` como una comparación real de familias,
+`eda`/`tune` calculan si `is_optimal` tiene variedad aprendible: cuota de la
+acción dominante, número de acciones con masa ≥5 % y margen EDP mediano entre
+el mejor y el segundo candidato. Si la acción dominante gana >90 %, hay menos
+de 3 acciones con masa apreciable, o el margen mediano cae bajo el piso de
+ruido de medición (2 %), el veredicto es `pipeline_smoke_only`: la tabla sirve
+para confirmar que `build → eda → tune → evaluate` corre de punta a punta,
+**no** para decidir qué familia es mejor. El veredicto queda escrito en
+`eda/label_health.json` y en `model_contract.json` (`result_status`).
+
+En el eje CPU-solo del catálogo actual la etiqueta es casi constante
+(REF/F0 —el mismo punto físico— ganan 98.5 % combinado, margen mediano
+0.91 %): cualquier corrida de `tune` sobre A-CPU/C-CPU cae en
+`pipeline_smoke_only` por diseño, hasta que exista el eje GPU con variación
+real.
+
+La selección de familia final tampoco usa solo el 1 % relativo: una familia
+es elegible si su EDP loss cae dentro de esa banda **o** dentro del error
+estándar combinado entre los folds externos (`edp_loss_std / sqrt(n_folds)`
+de ambas familias) — evita que 6 números con dispersión decidan la familia
+"ganadora" cuando la diferencia real es ruido entre pliegues.
 
 ## Datos y entorno
 

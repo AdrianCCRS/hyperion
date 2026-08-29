@@ -658,6 +658,7 @@ def _environment_versions() -> dict[str, str | None]:
         "numpy": np.__version__,
         "pandas": pd.__version__,
         "pyyaml": getattr(yaml, "__version__", None),
+        "hostname": platform.node(),
     }
     for package, key in (("sklearn", "scikit_learn"), ("optuna", "optuna"), ("xgboost", "xgboost")):
         try:
@@ -735,6 +736,13 @@ def build_selector_datasets(config: BuildConfig) -> dict[str, Path]:
             "source_job": config.idle_gpu_power_source_job,
             "cpu": "rapl_package_dram_plus_idle_gpu_baseline",
             "gpu": "rapl_package_dram_plus_nvml_integrated",
+            "edp_excludes_frequency_actuation_cost": True,
+            "edp_interpretation": (
+                "EDP_dispatch mide unicamente el despacho del kernel. El costo de "
+                "cambiar de frecuencia entre decisiones sucesivas no esta incluido "
+                "y se evalua por separado con el daemon; toda ganancia reportada a "
+                "partir de este EDP es una cota superior, no una ganancia neta."
+            ),
         },
         "campaigns": campaign_reports,
         "environment": _environment_versions(),
