@@ -18,7 +18,7 @@
 % sin atribuir el resultado a una versión de driver, aunque la campaña GPU completa sigue
 % pendiente. Capítulos de
 % Resultados, Discusión y Conclusiones redactados con estos datos; las
-% Fases 2-4 (clasificador, agente, evaluación EDP) quedan fuera de alcance
+% Fases 3-4 (agente, evaluación EDP) quedan fuera de alcance
 % y se incorporarán al cerrarse cada una.
 %
 % OPTIMIZACIÓN DE VOLUMEN (2026-08-11): el capítulo de Marco Conceptual se
@@ -197,7 +197,9 @@ El consumo energético constituye hoy una restricción estructural para el escal
 
 Este trabajo propone el diseño, la implementación y la evaluación de un agente en espacio de usuario que, antes de despachar cada operación de una aplicación científica, decide conjuntamente el dispositivo de ejecución y su estado de frecuencia, con el objetivo de optimizar el Producto Energía--Retardo (EDP) sin incurrir en una penalización severa del rendimiento ni en una sobrecarga de inferencia que anule el beneficio energético. Que la decisión sea conjunta y no únicamente de frecuencia responde a una restricción física medida sobre la plataforma: en la CPU del nodo experimental, reducir el reloj en un factor de cuatro disminuye la potencia solo un 28\,\%, de modo que alargar la ejecución rara vez compensa; en el acelerador, en cambio, el escalado de frecuencia sí abre un margen energético apreciable. En un sistema heterogéneo la pregunta por la frecuencia carece de sentido sin resolver antes en qué dispositivo se ejecuta, y el DVFS es el mecanismo de actuación que hace que esa elección tenga consecuencia energética.
 
-El desarrollo se organiza en cuatro fases: caracterización de cargas y construcción del conjunto de datos; entrenamiento y selección de un modelo supervisado ligero; implementación del servicio de control; y validación experimental frente a los gobernadores nativos de Linux. El presente documento reporta el instrumento de medición y el protocolo experimental construidos durante la primera fase, junto con un catálogo dual en el que cada configuración de cómputo existe en una variante de CPU y una de GPU funcionalmente equivalentes, lo que permite comparar ambos dispositivos sobre la misma unidad de decisión. Su aporte metodológico central es un procedimiento reproducible para atribuir tiempo y energía al costo real de despacho de una operación --- separando el costo que se paga una sola vez por proceso del que se paga en cada llamada ---, con trazabilidad explícita de la calidad de cada observación y verificación directa de cada mecanismo del instrumento contra el estado real del hardware.
+El desarrollo se organiza en cuatro fases: caracterización de cargas y construcción del conjunto de datos; construcción del conjunto de decisión y selección de un modelo supervisado ligero; implementación del servicio de control; y validación experimental frente a los gobernadores nativos de Linux. El presente documento reporta el instrumento de medición y el protocolo experimental de la primera fase, y de la segunda, el catálogo dual --- en el que cada configuración de cómputo existe en una variante de CPU y una de GPU funcionalmente equivalentes, lo que permite comparar ambos dispositivos sobre la misma unidad de decisión ---, la campaña de adquisición completa de su eje de CPU, y el procedimiento de construcción del conjunto de decisión, entrenamiento y validación anidada, implementado y auditado de extremo a extremo.
+
+Su aporte metodológico central es un procedimiento reproducible para atribuir tiempo y energía al costo real de despacho de una operación --- separando el costo que se paga una sola vez por proceso del que se paga en cada llamada ---, con trazabilidad explícita de la calidad de cada observación y verificación directa de cada mecanismo del instrumento contra el estado real del hardware. A ese procedimiento se añaden dos salvaguardas metodológicas que condicionan cómo deben leerse sus resultados: una regla simétrica de frontera energética, que impide atribuir a una carga de CPU el consumo que el propio instrumento provoca en el acelerador ocioso, y una compuerta explícita sobre la distribución de la variable objetivo, que declara cuándo una comparación entre modelos es interpretable y cuándo constituye únicamente una validación del procedimiento. La comparación de modelos que responde a la pregunta de investigación requiere el eje del acelerador, cuya adquisición se encuentra en curso al cierre de este documento.
 
 % [PENDIENTE: al cerrar las Fases 2-4, incorporar aquí las cifras de
 %  desempeño del selector, ahorro energético y EDP obtenidos.]
@@ -229,7 +231,9 @@ Energy consumption has become a structural constraint on the scaling of high per
 
 This work proposes the design, implementation and evaluation of a user-space agent that, before dispatching each operation of a scientific application, jointly decides the execution device and its frequency state, aiming to optimise the Energy--Delay Product (EDP) without incurring a severe performance penalty or an inference overhead that cancels the energy benefit. Making the decision joint rather than frequency-only follows from a physical constraint measured on the platform: on the CPU of the experimental node, reducing the clock by a factor of four lowers power draw by only 28\,\%, so stretching execution seldom pays off; on the accelerator, by contrast, frequency scaling does open an appreciable energy margin. In a heterogeneous system the question of which frequency to use is meaningless without first resolving which device executes the work, and DVFS is the actuation mechanism that gives that choice its energy consequence.
 
-The work is organised in four phases: workload characterisation and dataset construction; training and selection of a lightweight supervised model; implementation of the control service; and experimental validation against the native Linux governors. This document reports the measurement instrument and experimental protocol built during the first phase, together with a dual catalogue in which every compute configuration exists as a functionally equivalent CPU variant and GPU variant, allowing both devices to be compared over the same decision unit. Its central methodological contribution is a reproducible procedure for attributing time and energy to the true dispatch cost of an operation --- separating the cost paid once per process from the cost paid on every call --- with explicit traceability of the quality of each observation and direct verification of every instrument mechanism against the real state of the hardware.
+The work is organised in four phases: workload characterisation and dataset construction; construction of the decision dataset and selection of a lightweight supervised model; implementation of the control service; and experimental validation against the native Linux governors. This document reports the measurement instrument and experimental protocol of the first phase, and from the second, the dual catalogue --- in which every compute configuration exists as a functionally equivalent CPU variant and GPU variant, allowing both devices to be compared over the same decision unit ---, the complete acquisition campaign of its CPU axis, and the procedure for building the decision dataset, training and nested validation, implemented and audited end to end.
+
+Its central methodological contribution is a reproducible procedure for attributing time and energy to the true dispatch cost of an operation --- separating the cost paid once per process from the cost paid on every call --- with explicit traceability of the quality of each observation and direct verification of every instrument mechanism against the real state of the hardware. Two further safeguards condition how its results must be read: a symmetric energy-frontier rule, which prevents attributing to a CPU workload the consumption that the instrument itself induces on the idle accelerator, and an explicit gate on the distribution of the target variable, which declares when a comparison between models is interpretable and when it constitutes only a validation of the procedure. The model comparison that answers the research question requires the accelerator axis, whose acquisition is in progress at the time of writing.
 
 %==============================================================================
 % TABLA DE CONTENIDOS
@@ -508,7 +512,31 @@ z = \beta_{0} + \beta_{1}x_{1} + \cdots + \beta_{n}x_{n}, \qquad P(y=1\mid x) = 
 \end{equation}
 Sus ventajas son simplicidad, bajo costo de inferencia e interpretabilidad; su limitación principal es la frontera de decisión lineal, insuficiente cuando la separación entre clases depende de relaciones fuertemente no lineales \cite{IBMLR2026}.
 
+\paragraph{Árbol de decisión.} Modelo que particiona recursivamente el espacio de características mediante umbrales sobre una variable a la vez, hasta alcanzar hojas suficientemente puras según un criterio de impureza. Su interés en este trabajo es doble: ofrece una frontera de decisión no lineal a un costo de inferencia muy bajo --- recorrer una rama es una secuencia de comparaciones escalares ---, y es directamente inspeccionable, de modo que la regla aprendida puede leerse y contrastarse contra el comportamiento físico esperado. Su limitación conocida es la varianza: un árbol profundo ajustado sobre pocos ejemplos es sensible a perturbaciones menores del conjunto de entrenamiento, que es justamente lo que los métodos de ensamble mitigan.
+
 \paragraph{XGBoost.} Ensamble de árboles potenciados de forma secuencial y aditiva, donde cada nuevo árbol corrige los residuos del modelo actual, incorporando regularización directamente en el objetivo de aprendizaje para controlar la complejidad \cite{IBMXGB2026}. Frente a la regresión logística es más expresivo; frente a un árbol individual, más robusto --- a costa de mayor complejidad estructural.
+
+Estas cuatro familias no se presentan como alternativas equivalentes entre las que elegir por preferencia, sino como una escala ordenada de capacidad expresiva y de costo de inferencia: un piso lineal, una frontera no lineal interpretable, un ensamble por promediado y un ensamble por potenciación regularizada. Compararlas bajo condiciones idénticas permite establecer si la complejidad adicional se traduce en una mejora real de la decisión o si el problema se resuelve igual de bien en el extremo barato de esa escala, lo cual es una respuesta legítima y no un resultado fallido.
+
+\subsection{Hiperparámetros y su optimización}
+\label{sec:marco-hiperparametros}
+
+Los modelos anteriores no quedan determinados únicamente por los datos. Cada familia expone un conjunto de \textbf{hiperparámetros} --- la fuerza de regularización de la regresión logística, la profundidad máxima de un árbol, el número de estimadores de un ensamble, la tasa de aprendizaje de la potenciación --- cuyos valores no se estiman durante el ajuste sino que se fijan antes de él y condicionan qué función puede aprenderse. Dejarlos en sus valores por defecto es una decisión, no una omisión neutral: compara implementaciones bajo una configuración arbitraria en lugar de comparar familias bajo su mejor configuración alcanzable, y penaliza sistemáticamente a las familias con más grados de libertad.
+
+La búsqueda de esos valores puede plantearse por rejilla exhaustiva, por muestreo aleatorio o mediante métodos que aprovechen la información de las evaluaciones previas. La \textbf{optimización bayesiana} pertenece a esta tercera clase: construye un modelo sustituto de la relación entre configuración y desempeño, y lo emplea para decidir qué configuración probar a continuación, concentrando el presupuesto de evaluaciones en las regiones prometedoras del espacio. Su ventaja sobre la rejilla es relevante cuando cada evaluación es costosa y el espacio tiene dimensiones continuas, ambas condiciones presentes aquí.
+
+Cuando el criterio de calidad no es único, el problema deja de tener un óptimo escalar. En este trabajo concurren dos objetivos legítimos y en tensión: la calidad de la decisión, y el costo de emitirla, dado que la pregunta de investigación exige explícitamente que el sobrecosto de la inferencia no degrade el rendimiento. Un modelo que decidiera marginalmente mejor a costa de una latencia sustancialmente mayor no sería preferible. Para este caso se emplea la \textbf{optimización multiobjetivo}, cuyo resultado no es una configuración única sino un \textbf{frente de Pareto}: el conjunto de configuraciones para las cuales no existe otra que mejore un objetivo sin empeorar el otro. Elegir un punto de ese frente es una decisión de diseño que debe declararse explícitamente, y en este trabajo se declara en la sección \ref{sec:fase2-optuna}.
+
+Los algoritmos evolutivos multiobjetivo son una vía habitual para aproximar ese frente. El empleado aquí ordena la población de configuraciones por dominancia de Pareto y, dentro de cada nivel de dominancia, favorece las soluciones situadas en regiones menos densas del frente, con lo que la aproximación resultante no se concentra en un solo extremo del compromiso entre objetivos.
+
+\subsection{Validación anidada y fuga de información}
+\label{sec:marco-validacion-anidada}
+
+Optimizar hiperparámetros introduce un riesgo metodológico específico. Si la configuración se elige observando el mismo conjunto sobre el que después se reporta el desempeño, la métrica resultante ya no estima la capacidad de generalización: mide cuán bien se ajustó la búsqueda a ese conjunto particular. El sesgo resultante es optimista y crece con el número de configuraciones evaluadas, de modo que una búsqueda más intensa produce una estimación más engañosa.
+
+La \textbf{validación anidada} resuelve esa circularidad separando dos bucles. El bucle externo reserva una partición que no interviene en ninguna decisión de modelado y sobre la cual se reporta el desempeño final. Dentro de cada partición externa, un bucle interno --- que solo ve los datos de entrenamiento de esa partición --- ejecuta la búsqueda de hiperparámetros y selecciona una configuración. El modelo así configurado se evalúa una única vez sobre la partición externa reservada. Así, ninguna información de la partición de prueba participa en la elección de hiperparámetros.
+
+A esa separación se añade una segunda, independiente de la anterior: la \textbf{fuga de la variable objetivo} hacia las características de entrada. Ocurre cuando una característica codifica, directa o indirectamente, información que solo estaría disponible después de conocer el resultado que se pretende predecir. En un problema de selección de configuración, el caso más evidente es incluir el tiempo o la energía medidos de la configuración candidata: el modelo alcanzaría un desempeño casi perfecto sin haber aprendido nada útil, dado que en despliegue esas cantidades son precisamente lo que no se conoce. La prevención de esta fuga no se resuelve por inspección visual del conjunto de datos, sino declarando explícitamente qué columnas están prohibidas y verificándolo de forma automática, como se describe en la sección \ref{sec:fase2-features}.
 
 \subsection{Producto Energía--Retardo (EDP)}
 
@@ -712,7 +740,7 @@ A partir de estas señales se derivan, para cada ventana, las métricas de efici
 
 \section{Fase 1: Recolección de información y caracterización de cargas}
 
-La primera fase tiene por objetivo construir el conjunto de datos etiquetado que sustentará el entrenamiento del clasificador, junto con el instrumento y el protocolo que garantizan su validez. Se describe a continuación el procedimiento completo.
+La primera fase tiene por objetivo caracterizar el comportamiento de las cargas bajo distintos estados de frecuencia, junto con el instrumento y el protocolo que garantizan la validez de esa caracterización. Se describe a continuación el procedimiento completo.
 
 \subsection{Verificación previa de la plataforma}
 \label{sec:verificacion-previa}
@@ -782,11 +810,13 @@ Cuando una carga no dispone de un parámetro de la primera categoría --- por ej
 
 \subsection{Matriz experimental y control de sesgos}
 
-La matriz experimental se define como el producto cartesiano entre las cargas del catálogo, los estados de frecuencia y las repeticiones. Los estados de frecuencia previstos se describen en la Tabla \ref{tab:frecuencias}: además del punto de operación nativo, que sirve como referencia y se obtiene sin intervenir el gobernador del sistema, se contemplan cinco niveles distribuidos uniformemente sobre el rango soportado por la plataforma. Los niveles fijos se expresan como fracciones del rango real detectado en tiempo de ejecución, y no como valores absolutos de frecuencia, con el fin de que la misma definición de campaña sea aplicable a plataformas con rangos distintos.
+La matriz experimental se define como el producto cartesiano entre las cargas del catálogo, los estados de frecuencia y las repeticiones. Los niveles fijos se expresan como fracciones del rango real detectado en tiempo de ejecución, y no como valores absolutos de frecuencia, con el fin de que la misma definición de campaña sea aplicable a plataformas con rangos distintos.
+
+Este trabajo emplea dos rejillas de frecuencia con propósitos distintos, y conviene distinguirlas desde el principio para no leer una como versión incompleta de la otra. La rejilla de la Tabla \ref{tab:frecuencias} --- seis niveles --- gobierna la campaña de caracterización descrita en esta fase, cuyo objetivo es establecer la forma de la respuesta de cada carga al escalado de frecuencia; para determinar si esa respuesta es monótona, dónde se sitúa su óptimo y cuál es el rango dinámico de potencia del dispositivo, seis puntos bastan y añadir más solo multiplica el costo de la campaña sin cambiar la conclusión. La rejilla de la Tabla \ref{tab:frecuencias-fina} --- ocho niveles, de paso más fino --- gobierna la campaña del catálogo dual descrita en la sección \ref{sec:fase2-campanas}, cuyo objetivo es distinto: allí cada nivel es una \textit{acción} entre las que el modelo debe elegir, y el espacio de acciones determina cuán fina puede ser la decisión que el sistema es capaz de emitir. Una rejilla gruesa limitaría al selector por construcción, con independencia de su calidad.
 
 \begin{table}[H]
 \centering
-\caption{Estados de frecuencia de la matriz experimental.}
+\caption{Estados de frecuencia de la campaña de caracterización (Fase 1).}
 \label{tab:frecuencias}
 \begin{tabular}{@{}lll@{}}
 \toprule
@@ -801,6 +831,28 @@ F4 & Extremo inferior del rango & Límite inferior \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\begin{table}[H]
+\centering
+\caption{Rejilla fina de frecuencia empleada como espacio de acciones del selector. Las fracciones se aplican sobre el rango real de cada dispositivo, por lo que los mismos identificadores designan frecuencias absolutas distintas en la CPU y en el acelerador.}
+\label{tab:frecuencias-fina}
+\begin{tabular}{@{}llrr@{}}
+\toprule
+\textbf{Nivel} & \textbf{Fracción del rango} & \textbf{CPU (MHz)} & \textbf{GPU (fracción)} \\
+\midrule
+REF & Gobernador nativo & --- & Nativo \\
+F0 & 1.000 & 3200 & 1.000 \\
+F1 & 0.833 & 2800 & 0.833 \\
+F2 & 0.667 & 2400 & 0.667 \\
+F3 & 0.500 & 2000 & 0.500 \\
+F4 & 0.333 & 1600 & 0.333 \\
+F5 & 0.167 & 1200 & 0.167 \\
+F6 & 0.000 & 800 & 0.000 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Las frecuencias de CPU de la Tabla \ref{tab:frecuencias-fina} no son las que resultarían de aplicar directamente las fracciones al rango nominal de la plataforma, y la diferencia no es cosmética. El controlador de frecuencia de este procesador solo admite objetivos alineados a un escalón de 100~MHz; una fracción intermedia produce en general un valor no alineado, que el controlador rechaza o redondea silenciosamente, en cuyo caso el nivel solicitado y el aplicado dejan de coincidir sin que ninguna verificación agregada lo advierta. Por esa razón los niveles intermedios se redondean explícitamente al escalón de 100~MHz más próximo antes de solicitarse, mientras que los dos extremos conservan sin redondear los valores mínimo y máximo que el propio nodo reporta, dado que esos extremos no son necesariamente múltiplos del escalón en toda plataforma. Esta corrección se identificó al fallar tres campañas consecutivas sobre el mismo nivel intermedio, y su ausencia no producía datos erróneos sino la detención de la campaña, que es el modo de falla preferible entre los dos.
 
 Para reducir el sesgo experimental se adoptan cinco medidas. Primera, cada combinación se ejecuta en múltiples repeticiones independientes, entendidas como relanzamientos completos del binario y no como iteraciones internas, de modo que cada repetición parta de un estado de caché y de predictores equivalente. Segunda, el orden de ejecución de las combinaciones se aleatoriza a partir de una semilla registrada en el manifiesto, con el fin de evitar que una deriva temporal --- por ejemplo, térmica --- se confunda con el efecto de la carga o de la frecuencia; el registro de la semilla preserva la reproducibilidad del orden. Tercera, las condiciones de afinidad, número de hilos y asignación de núcleos se fijan explícitamente y de forma idéntica para todas las corridas, en lugar de heredarse del entorno. Cuarta, al concluir la campaña se verifica que el estado de frecuencia del sistema haya sido restaurado a su configuración original, y este mismo mecanismo de restauración se registra para ejecutarse también ante una terminación anómala.
 
@@ -903,6 +955,7 @@ El encoding se determinó a partir de la definición oficial de Intel para esta 
 \paragraph{Alcance de esta validación.} Los resultados anteriores se verificaron específicamente para la microarquitectura Ice Lake-SP de la plataforma experimental (Tabla \ref{tab:plataforma}), gateados por familia y modelo de procesador en el mismo mecanismo que protege los demás eventos crudos de este instrumento (sección \ref{sec:multiplexacion}); no se extrapolan a otro hardware sin repetir este procedimiento. Tampoco se reclama que el error relativo observado (0.29--7.48\%) sea una cota universal: ambos valores dependen del kernel evaluado y, en el segundo caso, de una particularidad de cómo ese kernel específico delimita su propio tiempo de ejecución. Dado que este trabajo no reclama portabilidad más allá de la plataforma descrita, y que la medición directa estuvo disponible sin excepción en las 66 corridas de la campaña real, el instrumento no conserva ningún mecanismo de respaldo para un nodo hipotético donde este encoding no se haya validado: una ventana en esa situación queda con intensidad operacional indefinida, no con un valor estimado.
 
 \subsection{Reproducibilidad}
+\label{sec:reproducibilidad}
 
 Toda campaña queda definida por un manifiesto declarativo bajo control de versiones, que especifica las cargas, los estados de frecuencia, el número de repeticiones, el período de muestreo, la asignación de núcleos, la semilla de aleatorización y las referencias de calibración. Junto con los datos, cada campaña persiste el perfil de capacidades detectado en el nodo, los resultados de calibración y los metadatos de cada corrida. El instrumento de medición, el orquestador y las definiciones de campaña se mantienen en un repositorio público, de modo que la campaña sea reproducible a partir de los artefactos publicados.
 
@@ -910,10 +963,10 @@ Dado que la duración total de la matriz completa excede lo que una única asign
 
 Como verificación adicional de consistencia, toda vez que se modifica un parámetro de ejecución de una carga del catálogo --- por ejemplo, a raíz de un ajuste realizado conforme a lo descrito en la sección \ref{sec:dimensionamiento} --- se ejecuta una corrida completa de la campaña que incluya dicha carga, contrastando que la etiqueta derivada, la intensidad operacional y el punto de inflexión empleado resulten idénticos entre las distintas repeticiones independientes de esa misma carga. Esta comparación no sustituye la verificación de calidad por ventana descrita en la Tabla \ref{tab:calidad}, sino que actúa como una verificación de nivel superior: una discrepancia entre repeticiones nominalmente idénticas indicaría una fuente de no determinismo en el instrumento o en la propia carga, y no únicamente un artefacto puntual de una corrida concreta.
 
-\section{Fase 2: Desarrollo del modelo de selección}
+\section{Fase 2: Construcción del conjunto de datos y del modelo de selección}
 \label{sec:fase2}
 
-Esta fase construye el modelo que decide, para cada operación que la aplicación va a despachar, bajo qué configuración conviene ejecutarla. Las dos definiciones que determinan el resto del diseño --- sobre qué unidad se predice, y qué cantidad se predice sobre ella --- se establecen a continuación, apoyadas en la caracterización de la Fase 1 y no en una preferencia de diseño.
+Esta fase construye el modelo que decide, para cada operación que la aplicación va a despachar, bajo qué configuración conviene ejecutarla. Se describe primero qué se decide y sobre qué unidad, después cómo se adquieren y se transforman los datos que sostienen esa decisión, y finalmente cómo se entrena y se valida el modelo. El orden no es arbitrario: cada una de las decisiones de diseño de las secciones posteriores queda determinada por las dos definiciones que se establecen a continuación.
 
 \subsection{Unidad de decisión y su correspondencia con los objetivos}
 \label{sec:fase2-unidad}
@@ -942,6 +995,88 @@ Predecir directamente $c^{*}$ en lugar de una etiqueta intermedia responde a una
 
 La formulación se plantea como clasificación sobre un conjunto discreto de configuraciones, coherente con el hecho de que el hardware solo admite un conjunto finito de estados y con el diseño de política discreta descrito en la Fase 3. Como variante analizable sobre el mismo conjunto de datos, y sin reentrenamiento, se contempla la minimización de energía sujeta a un presupuesto explícito de degradación temporal; formular ese presupuesto como parámetro de la política y no como constante del entrenamiento hace explícito un supuesto que de otro modo quedaría implícito en los datos.
 
+\subsubsection*{Resolución de empates y estabilidad del óptimo}
+
+La ecuación \eqref{eq:target-selector} presupone que el mínimo es único, lo cual no está garantizado sobre cantidades medidas. El desempate se resuelve mediante un orden total declarado --- menor EDP, después menor energía, después menor tiempo, y finalmente el identificador de la acción --- de modo que la etiqueta sea determinista y reproducible, y no dependa del orden en que las filas lleguen al constructor.
+
+Un empate exacto, sin embargo, es menos frecuente que un margen tan estrecho que no se distingue del ruido de medición. Por esa razón cada configuración registra, además de su etiqueta, el margen relativo de EDP entre la mejor y la segunda mejor acción, y una anotación de estabilidad que compara ese margen contra el error estándar combinado de ambas, estimado a partir de la dispersión entre repeticiones. Cuando el margen no supera esa incertidumbre, el óptimo se anota como \textbf{incierto}. Esas configuraciones no se excluyen ni se corrigen aumentando repeticiones de forma silenciosa: se conservan con su anotación, porque el hecho de que dos configuraciones sean indistinguibles es en sí mismo un resultado que el análisis debe poder leer.
+
+\subsection{Campañas de adquisición del catálogo dual}
+\label{sec:fase2-campanas}
+
+El conjunto de datos que sostiene la ecuación \eqref{eq:target-selector} exige medir cada configuración bajo \textit{todas} las acciones candidatas, y no solo bajo aquella que se sospecha óptima: un $\arg\min$ sobre un subconjunto de alternativas no es el mínimo del problema. Esa exigencia determina el tamaño de las campañas.
+
+\subsubsection*{Rejilla de tamaños}
+
+Cada una de las seis operaciones del catálogo dual se instancia sobre una rejilla de tamaños de problema. Las operaciones de estructura matricial o de malla --- multiplicación densa, transformada rápida de Fourier, esquema de vecindad sobre malla regular y factorización de Cholesky --- emplean trece tamaños entre 64 y 4096, con razón aproximada de 1.5 entre tamaños consecutivos y mayor densidad en la banda de 256 a 512, donde el tamizaje preliminar situó la frontera de conveniencia entre dispositivos. Las operaciones de estructura vectorial --- combinación lineal de vectores y producto matriz dispersa--vector --- emplean ocho tamaños entre $10^4$ y $3.16\times10^7$, con razón aproximada de $\sqrt{10}$. El techo de la rejilla vectorial se recortó desde $10^8$ al comprobarse que la representación dispersa a ese tamaño exigía del orden de 10~GB solo en memoria del anfitrión, por encima del presupuesto asignado a las campañas. El total es de 68 configuraciones distintas.
+
+\subsubsection*{Calibración del número de iteraciones por dispositivo}
+
+Cada corrida ejecuta la operación un número de veces determinado por el catálogo, de modo que su duración total sea suficiente para producir varias ventanas de muestreo. Ese número no puede ser común a ambos dispositivos: la misma operación al mismo tamaño tarda órdenes de magnitud distintos en la CPU y en el acelerador, y un número único produciría o bien corridas de GPU demasiado breves para muestrear, o bien corridas de CPU de duración inaceptable.
+
+El número de iteraciones se calibra por tanto de forma independiente para cada dispositivo, con procedimientos distintos porque la información disponible es distinta en cada caso. Para la CPU se emplea una tabla empírica de la mediana del tiempo por iteración medida en cada uno de los 68 pares (operación, tamaño), obtenida de la campaña de CPU ya ejecutada; no hay extrapolación, porque la rejilla es finita y fue medida por completo. Para el acelerador se emplea un modelo de dos términos,
+
+\begin{equation}
+\label{eq:iteraciones-gpu}
+t_{\text{iter}}(N) \;=\; A \;+\; B \cdot f(N),
+\end{equation}
+
+ajustado por mínimos cuadrados sobre las corridas reales aceptadas de un pase preliminar, donde $f(N)$ es la función de escalado asintótico de la operación. El término constante $A$ representa el costo fijo por despacho --- lanzamiento del núcleo de cómputo y sincronización ---, y el término $B\cdot f(N)$ el costo que escala con el tamaño. Un modelo de un solo término, ajustado desde un único tamaño de referencia, sobreestima el número de iteraciones en los tamaños pequeños por varios órdenes de magnitud, precisamente porque atribuye al cómputo un tiempo que en realidad consume el despacho.
+
+De esta calibración independiente se sigue una consecuencia que condiciona todo el procesamiento posterior: las dos variantes de una misma configuración ejecutan números de iteraciones distintos, con razones que en el catálogo vigente van desde 0.2 hasta 36 veces. Sus totales de tiempo y energía no son, por tanto, directamente comparables, y compararlos sin normalizar invalidaría la etiqueta. La normalización correspondiente se describe en la sección \ref{sec:fase2-dataset} y es un paso obligatorio del constructor, verificado por prueba automatizada.
+
+\subsubsection*{Matriz de las dos campañas}
+
+La Tabla \ref{tab:matriz-dual} resume ambas campañas. La asimetría entre ellas es deliberada. En la campaña del eje de CPU el acelerador permanece ocioso, y su reloj no es un factor: basta recorrer la rejilla fina de la CPU. En la campaña del eje del acelerador, en cambio, el reloj de la CPU sí afecta al despacho --- el anfitrión prepara las transferencias y sincroniza ---, de modo que la acción es un par ordenado de niveles, uno por dispositivo. Recorrer las dos rejillas finas completas daría $8\times8=64$ acciones por configuración, un costo combinatorio que la campaña no puede absorber; el eje de la CPU se reduce por ello a cuatro niveles --- el nativo, ambos extremos y un punto central ---, elegidos porque el tamizaje preliminar mostró que la respuesta del despacho al reloj del anfitrión tiene forma de meseta seguida de penalización creciente, y cuatro puntos bastan para capturar esa forma sin asumir linealidad.
+
+\begin{table}[H]
+\centering
+\caption{Matriz experimental de las dos campañas del catálogo dual.}
+\label{tab:matriz-dual}
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\textbf{Factor} & \textbf{Eje de CPU} & \textbf{Eje del acelerador} \\
+\midrule
+Configuraciones (operación $\times$ tamaño) & 68 & 68 \\
+Niveles de frecuencia de CPU & 8 & 4 \\
+Niveles de frecuencia de GPU & --- & 8 \\
+Acciones por configuración & 8 & 32 \\
+Repeticiones por combinación & 3 & 3 \\
+\midrule
+\textbf{Corridas totales} & \textbf{1\,632} & \textbf{6\,528} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+El espacio de acciones sobre el que se resuelve la ecuación \eqref{eq:target-selector} es la unión de ambos: 8 acciones de CPU, denotadas por su nivel de reloj, y 32 acciones de acelerador, denotadas por el par de niveles de anfitrión y dispositivo --- 40 acciones en total por configuración.
+
+Tres parámetros de estas campañas requieren justificación explícita, por tratarse de decisiones con alternativas defendibles. El primero es el número de repeticiones. Se fija en tres, y no en el valor de diez empleado en la campaña de caracterización de la Fase 1, porque el propósito es distinto: allí se estimaba la forma de una curva de respuesta y convenía reducir la incertidumbre de cada punto, mientras que aquí se comparan configuraciones entre sí y lo que importa es distinguir la mejor de la segunda. Tres repeticiones permiten estimar una dispersión --- necesaria para la anotación de óptimo incierto de la sección \ref{sec:fase2-target} --- y son el mínimo que lo permite; elevar ese número de forma uniforme multiplicaría el costo de una campaña ya extensa para reducir la incertidumbre también donde el margen es holgado y no aporta nada. La política de repeticiones adaptativa que se seguiría de este razonamiento --- escalar únicamente donde el margen resulte estrecho --- queda formulada como trabajo futuro y no se aplica aquí, de modo que el criterio permanece uniforme y por tanto auditable.
+
+El segundo es la cadencia de muestreo, fijada en 1~ms para los contadores del procesador y 5~ms para la interfaz de gestión del acelerador. La diferencia responde al costo de cada consulta: la lectura de contadores del procesador es barata y local, mientras que la consulta al acelerador atraviesa el bus y su costo es varios órdenes de magnitud mayor, hasta el punto de perturbar el estado que pretende observar --- efecto cuya magnitud se cuantifica en la sección \ref{sec:resultados-observador-nvml}. Una cadencia más fina en el acelerador aumentaría esa perturbación sin mejorar la integración, dado que el objetivo se construye sobre agregados de región y no sobre la forma instantánea de la señal.
+
+El tercero es la medición del sobrecosto del instrumento. La caracterización de la sección \ref{sec:overhead-instrumento} estableció que ese sobrecosto es del 1.95\,\% de media y estable entre cargas; una vez establecido, remedirlo en cada repetición de cada combinación no aporta información nueva. Estas campañas declaran por tanto el par de línea base únicamente sobre la primera repetición de cada combinación, como vigilancia contra una desviación futura del instrumento y no como remedición completa.
+
+\subsubsection*{Ejecución por sesiones y reanudación}
+
+La campaña del eje del acelerador excede lo que puede ejecutarse en una sola reserva del nodo compartido. Se ejecuta por tanto en sesiones sucesivas sobre un mismo directorio de salida, en el que el orquestador detecta las combinaciones ya aceptadas y las omite. La auditoría se aplica por sesión y no únicamente al final: un rechazo sistemático concentrado en un nivel debe detener la campaña y diagnosticarse, en lugar de relajar retrospectivamente los criterios para que los datos pasen. Los artefactos de calibración se miden en la primera sesión y las reanudaciones los cargan, fallando de forma cerrada si falta alguno, de modo que todas las sesiones compartan los mismos techos de referencia.
+
+\subsection{Frontera de medición de la energía}
+\label{sec:fase2-energia}
+
+Decidir entre dos dispositivos exige que la energía atribuida a cada uno se mida sobre la misma frontera. Si la energía de la CPU se contabilizara únicamente sobre sus propios dominios y la del acelerador incluyera además el consumo del anfitrión, la comparación estaría sesgada por construcción. La regla adoptada es por tanto simétrica: en ambos casos se contabiliza la energía del procesador --- dominios de paquete y de memoria --- \textbf{más} la del acelerador, con independencia de cuál de los dos ejecute la operación.
+
+La aplicación de esa regla al eje de la CPU obligó a una decisión que conviene documentar, porque de otro modo el conjunto de datos contendría un artefacto del instrumento presentado como consumo de la carga. Durante la campaña del eje de CPU, en la que ninguna carga ejecuta código en el acelerador y se verificó la ausencia de procesos ajenos sobre él, la interfaz de gestión del dispositivo reportó una potencia media por corrida de entre 49.9 y 67.6~W (mediana 59.5~W), con el dispositivo declarando cero por ciento de utilización y un reloj de 1410~MHz. Una sonda independiente del mismo dispositivo verdaderamente en reposo, con 300 muestras durante 60~s y consultas espaciadas, midió en cambio 34.84~W de media, con máximo de 35.20~W, y observó el reloj en 210~MHz.
+
+La interpretación que sostiene esa comparación es un \textbf{efecto del observador}: consultar la interfaz de gestión cada 5~ms impide que el dominio del acelerador alcance su estado profundo de reposo. La lectura no es falsa --- el dispositivo consume realmente esa potencia en el estado que el propio muestreo provoca ---, pero atribuir esa energía a la carga de CPU sí lo sería, porque una aplicación real que no instrumentara el acelerador no la pagaría. Por esa razón, para las corridas del eje de CPU la serie muestreada se conserva como evidencia del sobrecosto instrumental pero \textbf{no} se integra en el objetivo; en su lugar se imputa la línea base medida del dispositivo en reposo, multiplicada por la duración de la región:
+
+\begin{equation}
+\label{eq:energia-cpu}
+E_{\text{CPU}} \;=\; E_{\text{RAPL, paquete+DRAM}} \;+\; P_{\text{reposo}} \cdot t_{\text{región}},
+\qquad P_{\text{reposo}} = 34.84~\text{W}.
+\end{equation}
+
+Para las corridas del eje del acelerador, en cambio, la serie sí se integra dentro de cada región, porque allí el dispositivo ejecuta realmente la operación y su potencia dependiente del nivel forma parte del candidato que se evalúa. El acelerador ocioso no se imputa como cero en ningún caso: hacerlo favorecería artificialmente a la CPU en la comparación, ocultando que en este nodo el dispositivo consume del orden de 35~W aun sin trabajo asignado. Cada fila del conjunto de datos registra explícitamente cuál de las dos reglas produjo su término de acelerador, junto con el valor de la línea base y la corrida que lo midió, de modo que ninguna cantidad quede sin procedencia declarada.
+
 \subsection{Estructura del conjunto de datos en dos niveles}
 \label{sec:fase2-dataset}
 
@@ -949,40 +1084,169 @@ El conjunto de datos se organiza en dos niveles, y la distinción entre ambos es
 
 El \textbf{nivel 1} conserva una fila por ventana de muestreo, tal como la produce el instrumento descrito en la sección \ref{sec:overhead-instrumento}. Este nivel no alimenta directamente al modelo, pero su granularidad fina sigue siendo necesaria por dos razones independientes del aprendizaje: los contadores de energía RAPL son registros de 32 bits sujetos a desbordamiento, y solo el muestreo periódico con suma de diferencias permite integrar la energía correctamente a través de esos desbordamientos; y la depuración de calidad --- exclusión de arranque, verificación de la frecuencia efectiva por ventana, razón de ocupación de los contadores --- solo puede aplicarse a esa resolución.
 
-El \textbf{nivel 2} contiene una fila por configuración candidata. Se obtiene agregando las ventanas válidas de cada corrida sobre la región de despacho definida en la sección \ref{sec:contrato-coldwarm}, promediando después las repeticiones, y uniendo finalmente las variantes de CPU y de GPU de una misma configuración mediante un identificador compartido. Ese identificador es el que permite que una misma operación con un mismo tamaño de problema exista como dos filas comparables, una por dispositivo, y es lo que hace posible resolver la ecuación \eqref{eq:target-selector} sobre el producto $\mathcal{D}\times\mathcal{F}_d$ completo.
+El \textbf{nivel 2} contiene una fila por configuración candidata. Su construcción atraviesa cuatro pasos, cada uno de los cuales resuelve un problema concreto:
 
-Una consecuencia de este diseño debe declararse explícitamente, porque determina el tamaño efectivo de la muestra: el número de ejemplos de entrenamiento es el número de configuraciones distintas, no el número de corridas ni el de ventanas. Presentar como tamaño muestral las decenas de miles de ventanas del nivel 1 sería incorrecto, dado que las ventanas de una misma corrida no son observaciones independientes entre sí ni constituyen decisiones distintas.
+\begin{enumerate}
+    \item \textbf{Integración por región.} Tiempo y energía se acumulan sobre las ventanas que caen dentro de cada región del contrato temporal (sección \ref{sec:contrato-coldwarm}). Puesto que las fronteras de la región son marcas absolutas y las ventanas tienen duración propia, una ventana puede solaparse parcialmente con la región; en ese caso contribuye en proporción a la fracción solapada, y no se incluye ni se descarta por completo. Las lecturas del acelerador persisten únicamente su marca final, de modo que el inicio de su intervalo se reconstruye con la marca de la muestra anterior, que es el intervalo al que corresponde el incremento de energía reportado.
+    \item \textbf{Normalización por despacho.} Los totales de la región caliente se dividen por el número de iteraciones efectivamente ejecutadas, obtenido del catálogo y no del registro del lanzador. La región fría contiene exactamente un despacho y no se divide. El objetivo se construye entonces sobre magnitudes por despacho, $\mathrm{EDP}_{\text{despacho}} = (E/n)\cdot(T/n)$, únicas comparables entre dispositivos que ejecutan números distintos de iteraciones.
+    \item \textbf{Agregación de repeticiones.} Las tres repeticiones de cada combinación se promedian, conservando además desviación estándar, coeficiente de variación y extremos. Una combinación con menos repeticiones válidas de las exigidas se marca como no elegible y no participa en la construcción de la etiqueta.
+    \item \textbf{Unión de las variantes.} Las filas de CPU y de acelerador de una misma configuración se enlazan mediante el identificador compartido, lo que permite resolver la ecuación \eqref{eq:target-selector} sobre el producto completo de dispositivos y frecuencias.
+\end{enumerate}
 
-Puesto que el número de iteraciones que ejecuta cada variante se calibra por dispositivo para que ambas alcancen una duración medible comparable --- y por tanto no coincide entre la variante de CPU y la de GPU de una misma configuración ---, la agregación de nivel 2 normaliza tiempo y energía por iteración antes de cualquier comparación entre dispositivos. Omitir esa normalización invalidaría la etiqueta de la ecuación \eqref{eq:target-selector}, y por ello se implementa como paso obligatorio del constructor del conjunto y se verifica mediante prueba automatizada.
+Una consecuencia de este diseño debe declararse explícitamente, porque determina el tamaño efectivo de la muestra: el número de ejemplos de entrenamiento es el número de configuraciones distintas --- 68 ---, no el número de corridas ni el de ventanas. Presentar como tamaño muestral las decenas de miles de ventanas del nivel 1 sería incorrecto, dado que las ventanas de una misma corrida no son observaciones independientes entre sí ni constituyen decisiones distintas. Las 40 filas candidatas de una misma configuración tampoco lo son: describen alternativas de una única decisión, y por eso se mantienen siempre juntas en las particiones de validación.
+
+\subsubsection*{Completitud y falla cerrada}
+
+El constructor verifica que cada configuración disponga de todas sus acciones candidatas con el número exigido de repeticiones aceptadas, y produce un informe explícito de la matriz esperada, la presente y la faltante. Si a una configuración le falta alguna alternativa, no se calcula un $\arg\min$ parcial sobre las disponibles: el constructor falla de forma cerrada. Un mínimo tomado sobre un subconjunto incompleto sería indistinguible, en el conjunto de datos resultante, de un mínimo genuino, y esa ambigüedad no se puede corregir después.
+
+\subsubsection*{Resolución temporal de la región fría}
+
+La región fría de una configuración pequeña puede ser más breve que el intervalo de muestreo, en cuyo caso su energía se obtiene por integración proporcional de una única ventana parcial. Esas filas se conservan --- excluirlas sesgaría el conjunto justamente hacia las configuraciones grandes ---, pero se anotan como estimaciones de baja resolución, y las métricas puntuales de telemetría que dependerían de una ventana completa quedan ausentes con su indicador correspondiente, en lugar de rellenarse con cero o con valores de la región caliente. La sensibilidad de la etiqueta a estas filas se cuantifica explícitamente y se reporta en la sección \ref{sec:resultados-sensibilidad-fria}.
+
+\subsection{Las dos estrategias de decisión}
+\label{sec:fase2-estrategias}
+
+El vector de características que el modelo puede recibir no es el mismo en todas las situaciones de despliegue, porque la información disponible antes de decidir depende de si la aplicación ya ejecutó algo o no. En lugar de adoptar un único vector y suponer una situación, se formulan dos estrategias que corresponden a dos momentos distintos, y se evalúan por separado.
+
+\subsubsection*{Estrategia sin ejecución previa}
+
+Corresponde a la primera aparición de una operación: no se ha ejecutado nada, ningún dispositivo está inicializado y no existe telemetría alguna sobre esa carga. La decisión debe tomarse exclusivamente a partir de lo que se conoce por inspección: qué operación es, sobre qué tamaño, y qué predice la teoría sobre su costo. Todos los candidatos se evalúan bajo el costo de la región fría, dado que ninguno encuentra su dispositivo preparado.
+
+Su vector de entrada se compone de descriptores analíticos, calculados con las fórmulas cerradas de la Tabla \ref{tab:formulas-analiticas} sin medir nada, y de descriptores de la propia acción candidata:
+
+\begin{table}[H]
+\centering
+\caption{Fórmulas analíticas de trabajo y de tráfico lógico por despacho, empleadas como descriptores estáticos. $N$ es el parámetro de tamaño de la operación.}
+\label{tab:formulas-analiticas}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Operación} & \textbf{FLOPs por despacho} & \textbf{Bytes lógicos por despacho} \\
+\midrule
+Multiplicación densa & $2N^{3}$ & $24N^{2}$ \\
+Transformada de Fourier & $5N^{2}\log_{2}(N^{2})$ & $32N^{2}$ \\
+Combinación lineal de vectores & $2N$ & $24N$ \\
+Esquema de vecindad sobre malla & $5(N-2)^{2}$ & $16N^{2}$ \\
+Factorización de Cholesky & $N^{3}/3$ & $16N^{2}$ \\
+Matriz dispersa por vector & $14N$ & $104N + 4$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+A partir de estas magnitudes se derivan el logaritmo del tamaño, los logaritmos del trabajo y del tráfico, y la intensidad aritmética analítica --- su cociente ---, que es el descriptor que sitúa la operación respecto del punto de inflexión del modelo Roofline sin necesidad de medirla. Se añaden los descriptores de la acción: el dispositivo candidato, la fracción de rango de reloj solicitada en cada dispositivo, indicadores de si el nivel corresponde al gobernador nativo, y un indicador de si la acción exige inicializar el dispositivo.
+
+\subsubsection*{Estrategia con sondeo}
+
+Corresponde a la situación posterior a una primera ejecución real: la aplicación ya despachó esa operación una vez, en un estado de referencia, y esa ejecución produjo telemetría que puede informar las decisiones siguientes sobre la misma operación. La primera ejecución no se desperdicia --- es trabajo útil que la aplicación necesitaba de todos modos ---, y su costo es precisamente lo que el umbral de amortización de la Fase 4 debe evaluar.
+
+Al vector anterior se añade la telemetría agregada de esa única ejecución de sondeo, tomada de su región fría: tiempo y energía por despacho y sus componentes, potencia media, y --- según el dispositivo que haya realizado el sondeo --- instrucciones por ciclo, fallos por cada mil instrucciones, tasa de fallos del último nivel de caché, fracción de ciclos de estancamiento, tasa de instrucciones y reloj observado, o bien potencia, utilización de cómputo y de memoria, reloj y temperatura del acelerador. El dispositivo que realizó el sondeo entra también como característica, en lugar de suponerse siempre el mismo.
+
+Esta estrategia introduce además una noción que la anterior no necesita: el \textbf{estado de los recursos}. Una vez que un dispositivo fue inicializado, los candidatos que lo usan ya no pagan el costo de inicialización, mientras que los del otro dispositivo sí. El costo imputado a cada candidato depende por tanto de qué dispositivo realizó el sondeo, y esa dependencia se codifica explícitamente en la construcción del conjunto en lugar de promediarse.
+
+Dos precisiones metodológicas sobre el sondeo. La primera: se toma la \textbf{primera} repetición y no el promedio de las tres disponibles en el experimento, porque en despliegue solo existiría una; promediar retrospectivamente introduciría en el modelo una precisión que la situación real no ofrece. La segunda: cuando la región de sondeo es más breve que el intervalo de muestreo, sus métricas puntuales quedan ausentes con indicador explícito, y el modelo las trata como tales mediante imputación con indicador de ausencia, en lugar de recibir un cero que significaría algo distinto.
 
 \subsection{Características de entrada y prevención de fuga}
 \label{sec:fase2-features}
 
-Las características que recibe el modelo se agrupan en tres familias, delimitadas por un criterio único: solo puede entrar aquello que estaría disponible \textit{antes} de ejecutar la configuración candidata.
+El criterio que delimita qué puede entrar al modelo es único: solo aquello que estaría disponible \textit{antes} de ejecutar la configuración candidata. De ahí se sigue una lista explícita de columnas prohibidas --- el tiempo, la energía, la potencia y el EDP de la configuración evaluada, así como la propia etiqueta, el margen, el número de repeticiones y los identificadores de configuración y de grupo de decisión.
 
-La primera familia son los descriptores de la configuración, conocidos sin medir nada: la operación, su tamaño de problema, el dispositivo candidato y el estado de frecuencia candidato. La segunda son los descriptores estáticos de la plataforma, constantes en este nodo pero explicitados para que la formulación sea trasladable. La tercera es la telemetría de una \textbf{sonda}: una ejecución breve de la misma operación en un único estado de referencia, de la cual se derivan las métricas microarquitectónicas agregadas --- instrucciones por ciclo, tasa de fallos del último nivel de caché, fallos por cada mil instrucciones, fracción de ciclos de estancamiento, intensidad operacional medida y magnitudes energéticas.
+Esa prohibición no se confía a la inspección visual del conjunto de datos. La lista de columnas prohibidas está declarada en el código, y la construcción del vector de entrada la verifica en cada ajuste, interrumpiendo la ejecución si alguna característica prohibida alcanza el modelo. La distinción entre las matrices de correlación exploratorias --- que sí muestran los resultados medidos, porque su propósito es comprender el conjunto --- y la lista blanca de características que alimentan el entrenamiento se mantiene explícita por la misma razón: son dos usos distintos del mismo conjunto y confundirlos es la vía habitual hacia una fuga inadvertida.
 
-La prohibición de fuga es explícita y verificable por prueba automatizada: ninguna característica puede provenir de la ejecución de la configuración candidata --- ni su tiempo, ni su energía, ni su potencia ---, pues constituirían la variable que el modelo debe predecir. Esta restricción es la misma que ya regía en el diseño anterior y se conserva sin relajarla.
+Conviene señalar qué queda deliberadamente fuera. El número de iteraciones no es una característica: es un factor de normalización experimental, propio del banco de pruebas y ausente en despliegue. Tampoco lo es la frecuencia absoluta en unidades de reloj del candidato; en su lugar entra la fracción del rango, que es comparable entre dos dispositivos cuyos rangos absolutos difieren en un orden de magnitud, mientras que el valor absoluto no lo sería sin normalizar.
 
 \subsection{Protocolo de validación}
 \label{sec:fase2-validacion}
 
-Dado que el tamaño efectivo de la muestra es el número de configuraciones, y que las configuraciones de una misma operación a distintos tamaños comparten estructura algorítmica, una partición aleatoria a nivel de fila produciría una estimación optimista de la capacidad de generalización. La validación se realiza por tanto dejando fuera una operación completa en cada pliegue, de modo que el pliegue de prueba contenga únicamente configuraciones de una operación nunca vista en entrenamiento. Esta es la condición que el sistema enfrentaría en despliegue ante una aplicación cuyas fases no estuvieran representadas en el catálogo.
+\subsubsection*{Partición externa}
 
-La línea base contra la cual se mide el aporte del modelo --- la mejor configuración constante única --- se selecciona utilizando exclusivamente los pliegues de entrenamiento. Elegirla observando el pliegue de prueba incorporaría a la línea base información que no tendría en despliegue e inflaría artificialmente el margen atribuido al modelo.
+Dado que el tamaño efectivo de la muestra es el número de configuraciones, y que las configuraciones de una misma operación a distintos tamaños comparten estructura algorítmica, una partición aleatoria a nivel de fila produciría una estimación optimista de la capacidad de generalización. La validación se realiza por tanto dejando fuera \textbf{una operación completa} en cada pliegue --- seis pliegues, uno por operación ---, de modo que el pliegue de prueba contenga únicamente configuraciones de una operación nunca vista en entrenamiento. Esta es la condición que el sistema enfrentaría en despliegue ante una aplicación cuyas fases no estuvieran representadas en el catálogo, y es deliberadamente más exigente que una partición por configuración, que dejaría en entrenamiento otros tamaños de la misma operación.
 
-Se reportan, junto a las métricas de clasificación, dos magnitudes que expresan el resultado en los términos del cuarto objetivo específico: la pérdida de EDP respecto del óptimo alcanzable con conocimiento perfecto, y la latencia de inferencia medida.
+La ausencia de fuga entre particiones se verifica de forma automática: ninguna configuración, y por tanto ninguna de sus filas candidatas, puede aparecer simultáneamente en entrenamiento y en prueba.
+
+\subsubsection*{Búsqueda de hiperparámetros anidada}
+\label{sec:fase2-optuna}
+
+Dentro de cada pliegue externo, la búsqueda de hiperparámetros opera exclusivamente sobre las cinco operaciones de entrenamiento, y su propia validación vuelve a dejar fuera una operación de ese subconjunto. El pliegue externo no interviene en ninguna decisión de modelado, conforme a lo expuesto en la sección \ref{sec:marco-validacion-anidada}.
+
+La búsqueda es multiobjetivo y minimiza simultáneamente dos cantidades: la pérdida de EDP media en la validación interna, y la latencia de inferencia en su percentil 99. El segundo objetivo no es un refinamiento opcional sino una exigencia directa de la pregunta de investigación, que condiciona la utilidad del sistema a que el costo de la inferencia no degrade el rendimiento. La latencia se mide sobre la puntuación del conjunto completo de candidatos de una decisión --- que es la operación real del selector, no la predicción de una fila aislada --- e incluye el preprocesamiento; se toma con 50 ejecuciones de calentamiento y 200 repeticiones medidas, y se restringe explícitamente a un solo hilo, de modo que familias con distinta capacidad de paralelización interna se comparen sobre la misma base.
+
+De la aproximación al frente de Pareto resultante se elige un punto mediante una regla declarada: entre las configuraciones cuya pérdida de EDP no exceda en más de un 1\,\% a la mejor del frente, se toma la de menor latencia. Esta regla expresa la prioridad del problema --- se prefiere una decisión marginalmente peor si es sustancialmente más barata de emitir --- y se declara aquí para que la elección no quede como un criterio implícito de la implementación. La Tabla \ref{tab:hiperparametros} resume los espacios explorados.
+
+\begin{table}[H]
+\centering
+\caption{Espacios de hiperparámetros explorados por familia.}
+\label{tab:hiperparametros}
+\begin{tabular}{@{}p{3.1cm}p{11.4cm}@{}}
+\toprule
+\textbf{Familia} & \textbf{Hiperparámetros y rangos} \\
+\midrule
+Regresión logística & Inverso de la regularización $C\in[10^{-4},10^{3}]$ (escala logarítmica); penalización $\ell_1$ o $\ell_2$; tolerancia $\in[10^{-6},10^{-2}]$. \\
+\addlinespace
+Árbol de decisión & Profundidad máxima 1--12; criterio de impureza (Gini, entropía, pérdida logarítmica); mínimo de muestras para dividir 2--30; mínimo por hoja 1--20; fracción de características consideradas por división. \\
+\addlinespace
+Bosque aleatorio & Número de árboles 50--500; profundidad máxima 2--20; mínimo para dividir 2--30; mínimo por hoja 1--20; fracción de características por división; uso o no de remuestreo. \\
+\addlinespace
+XGBoost & Número de árboles 50--600; profundidad máxima 2--10; tasa de aprendizaje $\in[0.01,0.3]$ (logarítmica); peso mínimo por hijo $\in[1,20]$ (logarítmica); submuestreo de filas y de columnas $\in[0.5,1]$; complejidad mínima de división $\in[0,5]$; regularización $\ell_1$ y $\ell_2$ en escala logarítmica. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+El desbalance de clases --- una sola acción óptima entre 40 candidatos --- se compensa dentro de cada pliegue mediante ponderación de clases, calculada exclusivamente sobre el subconjunto de entrenamiento. El preprocesamiento --- imputación con indicador de ausencia, codificación de variables categóricas tolerante a categorías no vistas, y escalado solo para el modelo lineal --- se ajusta también únicamente sobre entrenamiento.
+
+\subsubsection*{Líneas base}
+
+El aporte del modelo se mide contra un conjunto de políticas de referencia que no participan de la búsqueda de hiperparámetros, porque no tienen ninguno que ajustar: ejecutar siempre en CPU bajo el gobernador nativo; ejecutar siempre en CPU a la frecuencia máxima; ejecutar siempre en el acelerador en su estado nativo; aplicar la mejor acción constante única; decidir al azar; y el oráculo con conocimiento posterior. La mejor acción constante se determina observando exclusivamente los pliegues de entrenamiento: elegirla mirando el pliegue de prueba le concedería información que en despliegue no tendría, e inflaría artificialmente el margen atribuido al modelo.
+
+\subsubsection*{Métricas reportadas}
+
+Se reportan, por familia y por pliegue, la pérdida de EDP respecto del óptimo alcanzable con conocimiento perfecto y el arrepentimiento porcentual asociado; la exactitud de la acción elegida y, por separado, la del dispositivo, dado que equivocar el dispositivo y equivocar el nivel de reloj tienen consecuencias distintas; la distancia en niveles entre el reloj elegido y el óptimo, que distingue un error contiguo de uno lejano; el valor F1 de la clase positiva y la precisión promedio como diagnósticos de desbalance; la latencia de inferencia en tres percentiles; el tamaño del modelo serializado; y el tiempo de ajuste. La métrica primaria es la pérdida de EDP: la exactitud de clasificación es diagnóstica, porque con una clase positiva entre cuarenta candidatos una exactitud alta puede obtenerse sin resolver el problema.
+
+\subsubsection*{Regla de selección de la familia final}
+
+La familia final se elige por menor pérdida de EDP externa media. Ahora bien, esa media se calcula sobre seis pliegues, y dos familias separadas por menos que la dispersión entre pliegues no son distinguibles con esa evidencia. Por eso la elegibilidad no se decide únicamente por una banda relativa fija: una familia es elegible si su pérdida cae dentro del 1\,\% de la mejor \textbf{o} dentro del error estándar combinado entre pliegues de ambas. Entre las elegibles se prefiere la de menor latencia en percentil 99 y, en caso de empate, el modelo serializado más pequeño. El conjunto de familias declaradas indistinguibles del ganador se reporta junto con el ganador, en lugar de presentar una única familia como vencedora inequívoca cuando la evidencia no lo sostiene.
+
+\subsection{Compuerta de validez sobre la distribución de la etiqueta}
+\label{sec:fase2-compuerta}
+
+Un aparato de comparación como el descrito puede ejecutarse sobre un conjunto de datos en el que la etiqueta carezca de estructura aprendible, y producir de todos modos una tabla de resultados con apariencia de comparación legítima. Ese riesgo es real cuando una sola acción resulta óptima en casi todas las configuraciones: en tal caso la política constante correspondiente alcanza una pérdida de EDP próxima a cero por construcción, ninguna familia puede superarla de forma significativa, y las diferencias observadas entre familias reflejan ruido de medición y no capacidad predictiva.
+
+Para que esa situación no se lea como un resultado, el análisis incorpora una compuerta explícita, evaluada \textit{antes} de interpretar cualquier comparación de modelos. Se calculan tres cantidades sobre la distribución de la etiqueta: la fracción de configuraciones en que gana la acción dominante, el número de acciones que ganan en una fracción no despreciable de los casos, y el margen relativo mediano entre la mejor y la segunda acción. Si la acción dominante supera el 90\,\% de los casos, o si menos de tres acciones alcanzan una masa del 5\,\%, o si el margen mediano cae por debajo del 2\,\% --- piso de ruido establecido a partir de la dispersión observada entre repeticiones ---, el resultado se declara \textbf{validación de tubería} y no comparación de modelos.
+
+Esta distinción no es una salvaguarda hipotética: determina cómo debe leerse el resultado del eje de CPU, y se aplica en la sección \ref{sec:resultados-compuerta}.
+
+\subsection{Alcance del eje de CPU en aislamiento}
+\label{sec:fase2-alcance-cpu}
+
+La campaña del eje de CPU concluyó antes que la del acelerador, y sobre ella puede ejecutarse el procedimiento completo. Conviene precisar qué establece y qué no ese ejercicio.
+
+Lo que establece es que la tubería funciona de extremo a extremo: que la integración por regiones produce las cantidades esperadas, que la normalización por despacho opera correctamente, que las particiones no filtran información, que la búsqueda de hiperparámetros converge y es reanudable, que las cuatro familias se ajustan y serializan, y que las métricas y la latencia se calculan sobre la decisión completa. Establece también los órdenes de magnitud de la latencia de inferencia, que son propios del modelo y no del conjunto de datos.
+
+Lo que no establece es cuál familia decide mejor el problema de esta investigación. El problema tiene dos ejes --- dispositivo y frecuencia --- y el eje de CPU en aislamiento contiene solo el segundo, precisamente aquel para el cual los resultados de la Fase 1 anticipan un margen estrecho en esta plataforma. Una comparación de familias sobre ese subconjunto respondería a una pregunta distinta de la formulada. Por esa razón, el resultado del eje de CPU se reporta como validación de la tubería, y la comparación de modelos que responde al cuarto objetivo específico se realiza sobre el conjunto completo, una vez incorporado el eje del acelerador.
+
+Esta decisión es también la razón por la que el orden de ejecución del trabajo no coincide con el orden de exposición: la tubería se construyó y se validó primero, sobre los datos disponibles, en lugar de esperar a la campaña completa para escribir código no probado.
+
+\subsection{Reproducibilidad del procedimiento de modelado}
+\label{sec:fase2-reproducibilidad}
+
+Las garantías de reproducibilidad de la sección \ref{sec:reproducibilidad} cubren la adquisición; el procedimiento de modelado añade las suyas, porque introduce fuentes de variación que un manifiesto de campaña no contempla.
+
+El procedimiento se ejecuta mediante etapas explícitas y encadenables --- construcción del conjunto de nivel 2, análisis exploratorio, búsqueda de hiperparámetros y evaluación ---, de modo que cada una pueda repetirse por separado sobre los artefactos de la anterior sin rehacer la cadena completa. Toda la aleatoriedad del procedimiento deriva de una semilla única declarada, que gobierna tanto el muestreo de configuraciones de hiperparámetros como los componentes estocásticos de los propios modelos.
+
+Junto con el conjunto de datos se persiste un registro de procedencia que documenta las campañas de origen, la revisión exacta del código, los manifiestos empleados, la regla energética aplicada con el valor de su línea base y la corrida que la midió, las versiones de todas las bibliotecas intervinientes y el nodo en el que se ejecutó. Este último dato no es redundante: las bibliotecas de aprendizaje automático se resuelven contra paquetes del sistema que difieren entre nodos del mismo clúster, de modo que registrar únicamente el número de versión no basta para reproducir el entorno.
+
+Los estudios de búsqueda de hiperparámetros se persisten en almacenamiento durable e identifican unívocamente la estrategia, la familia y el pliegue externo al que corresponden. Esa persistencia cumple dos funciones: permite reanudar una búsqueda interrumpida por el límite de tiempo del gestor de recursos desde los ensayos ya completados --- sin repetirlos ni duplicarlos ---, y deja auditable el recorrido completo de la búsqueda, no solo su resultado. Finalmente, el modelo seleccionado se serializa junto con su preprocesador, la lista de características empleadas y el contrato de acciones soportadas, de modo que la inferencia en despliegue no dependa de reconstruir esa configuración a partir del código.
 
 \section{Fase 3: Implementación del agente de selección}
 \label{sec:fase3}
 
 La tercera fase materializa el modelo en un agente de espacio de usuario que la aplicación consulta antes de despachar cada fase. Su ciclo de operación es, en consecuencia, distinto del de un demonio que muestrea periódicamente: no observa de forma continua para reaccionar, sino que responde a una consulta puntual con una decisión.
 
-Ante cada operación por despachar, el agente construye el vector de características descrito en la sección \ref{sec:fase2-features}, ejecuta la inferencia, y aplica la configuración resultante --- selección de la variante de ejecución correspondiente al dispositivo elegido y fijación del estado de frecuencia en ese dispositivo --- antes de ceder el control a la operación. La política es discreta: selecciona un elemento de un conjunto finito de configuraciones soportadas por el hardware, sin resolver un problema continuo de optimización.
+Ante cada operación por despachar, el agente construye el vector de características descrito en la sección \ref{sec:fase2-estrategias}, puntúa con él las 40 acciones candidatas, y aplica la de mayor probabilidad estimada --- selección de la rama de ejecución correspondiente al dispositivo elegido y fijación del estado de frecuencia en ese dispositivo --- antes de ceder el control a la operación. La política es discreta: selecciona un elemento de un conjunto finito de configuraciones soportadas por el hardware, sin resolver un problema continuo de optimización.
+
+Conviene precisar en qué consiste materialmente la ``selección de la rama de ejecución'', porque es la forma en que la decisión del modelo se traduce en código ejecutado. La aplicación contiene, para cada fase, ambas realizaciones de la operación --- la que despacha al acelerador y la que permanece en el anfitrión ---, y la decisión del selector determina cuál de las dos se invoca mediante un condicional situado antes del despacho. No se trata, por tanto, de un tercer grado de libertad independiente de los dos anteriores: elegido el dispositivo, la rama queda determinada de forma unívoca, dado que cada operación dispone de exactamente una realización por dispositivo. Esta correspondencia uno a uno es la que permite que el espacio de acciones se describa íntegramente mediante el par dispositivo--frecuencia.
 
 El diseño incorpora tres consideraciones derivadas del marco conceptual y de los resultados de la Fase 1. La primera es que el mecanismo de actuación debe adaptarse al controlador de frecuencia activo en cada dispositivo, dado que la vía para fijar un punto operativo difiere entre un controlador que expone un gobernador de espacio de usuario, uno que solo admite restringir el rango permitido, y la interfaz de bloqueo de reloj del acelerador. La segunda es que el costo de la propia decisión --- inferencia más actuación, incluida la latencia de conmutación de frecuencia --- debe amortizarse contra la duración de la operación que se va a despachar; una operación suficientemente corta no justifica el costo de decidir sobre ella, y ese umbral se determina empíricamente en la Fase 4 en lugar de fijarse a priori \cite{Hebbar2022,Velicka2025}. La tercera es que el costo de inicialización del acelerador se paga una sola vez por proceso y no en cada despacho, por lo que el agente debe distinguir entre la primera operación que se envía al dispositivo y las siguientes; esa distinción es exactamente la que el contrato temporal de la sección \ref{sec:contrato-coldwarm} hace medible.
 
-Cuando la sonda descrita en la sección \ref{sec:fase2-features} no esté disponible por tratarse de la primera aparición de una operación, el agente opera bajo una estrategia de decisión estática construida únicamente sobre los descriptores de configuración; a partir de la primera ejecución real, la telemetría observada alimenta las decisiones siguientes sobre esa misma operación. Ambas estrategias se evalúan por separado en la Fase 4, dado que corresponden a situaciones de despliegue distintas.
+El agente alterna entre las dos estrategias de la sección \ref{sec:fase2-estrategias} según la información de que disponga. Ante la primera aparición de una operación no existe telemetría sobre ella, y la decisión se emite con el vector puramente analítico; la ejecución resultante --- que es trabajo útil, no una medición desechable --- produce la telemetría que alimenta las decisiones siguientes sobre esa misma operación, que pasan a emitirse con el vector ampliado. El agente mantiene por tanto un registro por operación de si ya dispone de sondeo y de qué dispositivo lo produjo, dado que ese dato determina qué costo corresponde imputar a cada candidato. Ambas estrategias se evalúan por separado en la Fase 4, porque corresponden a situaciones de despliegue distintas y no a dos implementaciones alternativas de la misma.
 
 \section{Fase 4: Validación experimental y análisis de resultados}
 \label{sec:fase4}
@@ -1020,7 +1284,7 @@ En cuanto al uso de software de terceros, las suites de benchmarks empleadas se 
 
 \chapter{Resultados}
 
-Este capítulo reporta los resultados de la Fase 1: la construcción y validación del instrumento de medición, la campaña CPU solicitada en múltiples niveles --- junto con la verificación posterior que demostró que estos no constituyeron frecuencias físicas distintas --- y la caracterización de precisión aritmética del catálogo de GPU. Reporta además la campaña DVFS de GPU sobre el núcleo activo del catálogo, el efecto que la elección de la frontera de medición de energía tiene sobre la conclusión de viabilidad, y el margen que una política adaptativa puede reclamar por encima de la mejor frecuencia constante única en cada dispositivo --- tres análisis que no producen todavía un modelo entrenado, pero que determinan qué modelo tiene sentido entrenar y bajo qué métrica evaluarlo. El entrenamiento del clasificador, la implementación del agente y la evaluación de EDP frente a los gobernadores nativos, correspondientes a las Fases 2--4, están fuera del alcance de estos resultados y se reportarán al cerrarse el desarrollo completo del proyecto.
+Este capítulo reporta los resultados obtenidos hasta el cierre de este documento. Cubre, de la Fase 1, la construcción y validación del instrumento de medición, la campaña de CPU solicitada en múltiples niveles --- junto con la verificación posterior que demostró que estos no constituyeron frecuencias físicas distintas ---, la caracterización de precisión aritmética del catálogo de GPU, la campaña DVFS de GPU sobre el núcleo activo del catálogo, el efecto que la elección de la frontera de medición de energía tiene sobre la conclusión de viabilidad, y el margen que una política adaptativa puede reclamar por encima de la mejor frecuencia constante única en cada dispositivo. Cubre además, de la Fase 2, la campaña de adquisición del eje de CPU del catálogo dual, la corrección del efecto del observador sobre la medición energética del acelerador ocioso, la distribución de la configuración óptima resultante, la sensibilidad de esa distribución a la resolución temporal de la región fría, y la verificación de extremo a extremo del procedimiento de modelado. La comparación de familias de modelos que responde al cuarto objetivo específico requiere el eje del acelerador, cuya adquisición se encuentra en curso, y no se reporta aquí; la implementación del agente y la evaluación de EDP frente a los gobernadores nativos corresponden a las Fases 3 y 4.
 
 \section{Descripción del conjunto de datos experimental}
 
@@ -1278,18 +1542,16 @@ A diferencia del procesador, cuyo controlador de memoria constituye un dominio d
 
 La consulta directa (\texttt{nvidia-smi --query-supported-clocks=mem}) sobre la GPU de este nodo devuelve un único valor soportado, 1215~MHz, sin importar el reloj de núcleo solicitado. Confirmado además con el mecanismo de actuación (\texttt{nvidia-smi -lmc}, restringir el reloj de memoria), este acelerador no expone un segundo reloj de memoria configurable: \textbf{el resultado es negativo y cierra la pregunta, no la deja pendiente}. La línea de trabajo de escalado conjunto de núcleo y memoria de \cite{Fan2020,Mei2016} no es aplicable a este hardware concreto, y la ausencia de respuesta al reloj de núcleo en las cargas limitadas por ancho de banda de la sección \ref{sec:resultados-diversidad-catalogo} no puede atribuirse a la falta de un segundo mando --- ese mando no existe en esta plataforma.
 
-\section{Ampliación del catálogo con cargas multifásicas}
+\section{Verificación positiva del umbral de rentabilidad del DVFS}
 \label{sec:resultados-multifasico}
 
-Los resultados de las secciones \ref{sec:resultados-alpha} y \ref{sec:resultados-homogeneidad} identifican dos carencias del catálogo respecto del problema planteado, ambas atribuibles al mismo origen: la muestra intencional se compuso de ejemplos puros de cada régimen, y ninguno de ellos cae en la región donde el DVFS es rentable en esta plataforma ni presenta alternancia de régimen durante su ejecución.
+Los resultados de la sección \ref{sec:resultados-alpha} establecen que ninguna de las cargas del catálogo original cae en la región donde el escalado de frecuencia es rentable en esta plataforma. Ese hallazgo, por sí solo, admite dos lecturas incompatibles: que el umbral de la ecuación \ref{eq:alpha-umbral} describe correctamente la plataforma y el catálogo simplemente no lo cruza, o que el umbral está mal calibrado y ninguna carga lo cruzaría nunca. Distinguir entre ambas exige una carga construida deliberadamente para situarse del otro lado del umbral.
 
-Se incorporaron en consecuencia dos microbenchmarks propios, diseñados específicamente contra esas dos carencias y manteniendo el carácter intencional del muestreo declarado en el diseño metodológico.
+Se incorporó con ese fin un microbenchmark propio que recorre una permutación aleatoria de punteros sobre un ciclo hamiltoniano único, en un espacio de memoria muy superior a la caché de último nivel, con granularidad de línea de caché y una cadena de dependencias estrictamente serial. A diferencia de los microbenchmarks de ancho de banda, que saturan el bus y cuyo rendimiento sí depende parcialmente del reloj, este queda limitado por la latencia de acceso a memoria principal: cada carga depende del resultado de la anterior, de modo que el tiempo lo domina un retardo físico que no escala con el reloj de núcleo. Es, por construcción, la clase de carga con mayor probabilidad de situarse por debajo del umbral.
 
-El primero recorre una permutación aleatoria de punteros sobre un ciclo hamiltoniano único que abarca un espacio de memoria muy superior a la caché de último nivel, con granularidad de línea de caché y una cadena de dependencias estrictamente serial. A diferencia de los microbenchmarks de ancho de banda, que saturan el bus y cuyo rendimiento sí depende parcialmente del reloj, este queda limitado por la latencia de acceso a memoria principal: cada carga depende del resultado de la anterior, de modo que el tiempo lo domina un retardo físico que no escala con el reloj de núcleo. Es, por construcción, la clase de carga con mayor probabilidad de situarse por debajo del umbral de la ecuación \ref{eq:alpha-umbral}. Una medición preliminar sobre seis hilos reportó 146~ns por salto y hilo, consistente con latencia de memoria principal; la campaña completa confirma la predicción, con $\alpha = 0.122$ ($r^2=0.990$) sobre el barrido completo de frecuencia y $\alpha = 0.097$ ($r^2=1.000$) restringido a la ventana de frecuencia que una política de decisión efectivamente visitaría --- en ambos casos por debajo del umbral de la ecuación \ref{eq:alpha-umbral}.
+La predicción se confirma. Una medición preliminar sobre seis hilos reportó 146~ns por salto y hilo, consistente con latencia de memoria principal, y la campaña completa arroja $\alpha = 0.122$ ($r^2=0.990$) sobre el barrido completo de frecuencia y $\alpha = 0.097$ ($r^2=1.000$) restringido a la ventana de frecuencia que una política de decisión efectivamente visitaría --- en ambos casos por debajo del umbral de la ecuación \ref{eq:alpha-umbral}.
 
-El segundo alterna deliberadamente entre una fase de operaciones de multiplicación--suma fusionada encadenadas sobre registros, sin tráfico de memoria, y una fase de persecución de punteros idéntica a la del primero. La duración de cada fase se controla \textbf{por tiempo y no por número de iteraciones}: con un recuento fijo de iteraciones, una reducción de la frecuencia alargaría la fase de cómputo más que la de memoria, alterando la proporción entre ambas entre niveles del barrido e impidiendo comparar. El programa emite además el instante de cada transición, proporcionando una etiqueta de referencia independiente del modelo Roofline contra la cual contrastar tanto la etiqueta calculada como la respuesta del clasificador, y permitiendo medir el retardo de detección en número de ventanas. Se declararon tres variantes que difieren únicamente en el período de fase --- 10~ms, 100~ms y 1~s ---, con el fin de determinar empíricamente a partir de qué frecuencia de alternancia el costo de conmutación deja de amortizarse, que es el parámetro de diseño que la Fase 3 trata como magnitud a determinar y no como constante \cite{Hebbar2022,Velicka2025}.
-
-Ambos microbenchmarks se compilaron y verificaron funcionalmente sobre la plataforma, y la campaña que los ejercita a lo largo de la rejilla de frecuencias ampliada se ejecutó íntegramente: 320 de 320 combinaciones aceptadas, sin rechazos. El primero confirma la predicción de diseño, según se reportó más arriba. El segundo produjo un resultado de otro orden y no directamente comparable: sus tres variantes muestran $\alpha \approx 0.002$--$0.003$, muy por debajo incluso del microbenchmark de persecución de punteros puro, pero su duración total permanece prácticamente constante entre el estado de máximo y mínimo reloj (variación menor al 1\%) --- consecuencia esperada del propio diseño, que fija la duración de cada fase por tiempo y no por trabajo (párrafo anterior). Ese $\alpha$ describe, por tanto, una propiedad del instrumento de control experimental y no evidencia de que una carga real pueda alcanzar una insensibilidad al reloj de esa magnitud; su función en este trabajo es la de control positivo --- confirma que el instrumento detecta correctamente un régimen \textit{memory-bound} extremo cuando existe --- y de fuente de la etiqueta de referencia independiente descrita en el párrafo anterior, no la de un tercer candidato de catálogo.
+El valor de este resultado es metodológico y no anecdótico: establece que el umbral es alcanzable en esta plataforma y que su no cruce por parte del catálogo original es una propiedad de esas cargas concretas, no un artefacto de la calibración. Sostiene por tanto la interpretación de la sección \ref{sec:resultados-rango-dinamico}, según la cual el margen del escalado de frecuencia en la CPU de este nodo está acotado por su rango dinámico de potencia, y no una afirmación más fuerte sobre la imposibilidad del mecanismo.
 
 \section{Campaña DVFS de GPU sobre el núcleo activo del catálogo}
 \label{sec:resultados-gpu-campana}
@@ -1343,7 +1605,7 @@ Conviene precisar que la vía para recuperar esa fracción no es reducir la frec
 \section{Margen de una política adaptativa sobre la mejor frecuencia constante}
 \label{sec:resultados-margen-politica}
 
-Que exista ahorro respecto del estado de máximo reloj no implica que exista margen para un modelo. La comparación pertinente para justificar un clasificador no es contra la frecuencia máxima sino contra la mejor \textit{frecuencia constante única} --- una regla trivial que no requiere modelo alguno ---, y el aporte atribuible al modelo es la distancia entre esa constante y el óptimo por carga que un oráculo con conocimiento perfecto alcanzaría. Ese margen se cuantificó para ambos dispositivos.
+Que exista ahorro respecto del estado de máximo reloj no implica que exista margen para un modelo. La comparación pertinente para justificar un modelo no es contra la frecuencia máxima sino contra la mejor \textit{frecuencia constante única} --- una regla trivial que no requiere modelo alguno ---, y el aporte atribuible al modelo es la distancia entre esa constante y el óptimo por carga que un oráculo con conocimiento perfecto alcanzaría. Ese margen se cuantificó para ambos dispositivos.
 
 En GPU, sobre las seis cargas con energía de acelerador medible --- se excluye \texttt{rodinia\_backprop}, cuya energía de GPU en el estado de máximo reloj es de 8.2~J, dos órdenes de magnitud por debajo del resto, de modo que sus porcentajes son ruido dividido por una magnitud casi nula ---, el resultado depende fuertemente del presupuesto de degradación admitido (Tabla \ref{tab:margen-politica}).
 
@@ -1383,14 +1645,14 @@ La biblioteca de gestión del dispositivo expone potencia, utilización, reloj y
 
 Por ese motivo la intensidad operacional de las cargas de GPU se declara estática por kernel en el catálogo, medida fuera de línea (sección \ref{sec:gpu-calibracion}), y por ese motivo el mecanismo de clasificación por ventana no es trasladable al acelerador. Se verificó además que no se trata de una restricción de privilegios que pudiera levantarse: el parámetro del controlador que restringe el perfilado a usuarios administradores no está activo en esta plataforma, y la herramienta de perfilado se ejecuta sin privilegios elevados.
 
-Es importante delimitar qué se sigue de esto y qué no. De que el óptimo de frecuencia sea constante a lo largo de una corrida completa \textbf{no se sigue} que no exista alternancia de régimen dentro de ella: la alternancia es precisamente el fenómeno que esta instrumentación no puede observar, y afirmar su ausencia a partir de la imposibilidad de medirla sería circular. Lo que este trabajo puede sostener es más débil y suficiente para la decisión de diseño: con la telemetría disponible no hay evidencia de alternancia explotable, y no existe vía de medición que pudiera producirla. Cerrar ese hueco con evidencia positiva y no con ausencia de medición requiere una carga que alterne regímenes por construcción y emita su propia marca de transición --- que es exactamente el segundo microbenchmark de la sección \ref{sec:resultados-multifasico}, cuya variante para GPU permite contrastar fuera de línea la fase real declarada contra la potencia y el reloj observados por ventana, sin depender del etiquetado automático que esta asimetría impide.
+Esta asimetría tiene una consecuencia directa sobre el diseño del selector, y explica por qué la etiqueta de régimen se emplea aquí como herramienta de caracterización y no como variable a predecir. Un sistema que dependiera de clasificar el régimen en tiempo de ejecución necesitaría medir la intensidad operacional en ambos dispositivos con la misma resolución, y en este nodo eso no es posible sin distorsionar las propias variables dependientes del estudio. La formulación adoptada evita esa dependencia: el vector de entrada de la sección \ref{sec:fase2-estrategias} emplea la intensidad aritmética \textit{analítica}, calculada con las fórmulas cerradas de la Tabla \ref{tab:formulas-analiticas}, que está disponible por igual para ambos dispositivos y antes de ejecutar nada. La telemetría medida entra únicamente como descriptor de sondeo del dispositivo que realizó la primera ejecución, donde la asimetría no es un obstáculo porque cada dispositivo aporta las señales que sí expone de forma barata.
 
 \section{Regresión del permiso de contadores de \textit{uncore} y su alcance real}
 \label{sec:resultados-regresion-permiso}
 
 El permiso de acceso a contadores de \textit{uncore}, cuya concesión y verificación se reportan en la sección \ref{sec:resultados-uncore}, dejó de estar disponible con posterioridad a la campaña DVFS válida de CPU. Se trata de la regresión de un permiso previamente concedido y no de una restricción nueva de la plataforma, y su efecto es el descrito en la sección \ref{sec:paranoid}: sin la capacidad correspondiente, la apertura de esos contadores falla.
 
-El alcance de ese bloqueo debe precisarse, porque afecta a una fase del trabajo y no a otra. Bloquea la \textbf{generación de conjuntos de datos nuevos de CPU con etiqueta de verdad}, dado que la etiqueta se deriva de la intensidad operacional y esta requiere bytes reales de \textit{uncore}. No bloquea, en cambio, ni el análisis de los datos ya recolectados ni el despliegue del modelo: las características de entrada del clasificador --- instrucciones por ciclo, fallos de caché por millar de instrucciones, tasa de fallos de último nivel, fracción de ciclos detenidos en el extremo posterior, instrucciones por segundo, fracción de tiempo en ejecución y frecuencia observada --- no incluyen ninguna magnitud de \textit{uncore}. Esa exclusión estaba decidida desde el diseño y no como respuesta al bloqueo: la intensidad operacional y los contadores de los que se deriva estaban declarados como características prohibidas por ser la fuente de la etiqueta, de modo que emplearlos como entrada constituiría fuga de datos. En consecuencia, el agente de control de la Fase 3 nunca dependió de este permiso, y la actuación sobre la frecuencia se apoya en una capacidad distinta y no afectada.
+El alcance de ese bloqueo debe precisarse, porque afecta a una fase del trabajo y no a otra. Bloquea la \textbf{generación de conjuntos de datos nuevos de CPU con etiqueta de verdad}, dado que la etiqueta se deriva de la intensidad operacional y esta requiere bytes reales de \textit{uncore}. No bloquea, en cambio, ni el análisis de los datos ya recolectados ni el despliegue del modelo: las características de entrada derivadas de telemetría de CPU --- instrucciones por ciclo, fallos de caché por millar de instrucciones, tasa de fallos de último nivel, fracción de ciclos detenidos en el extremo posterior, instrucciones por segundo, fracción de tiempo en ejecución y frecuencia observada --- no incluyen ninguna magnitud de \textit{uncore}. Esa exclusión estaba decidida desde el diseño y no como respuesta al bloqueo: la intensidad operacional y los contadores de los que se deriva estaban declarados como características prohibidas por ser la fuente de la etiqueta, de modo que emplearlos como entrada constituiría fuga de datos. En consecuencia, el agente de control de la Fase 3 nunca dependió de este permiso, y la actuación sobre la frecuencia se apoya en una capacidad distinta y no afectada.
 
 La campaña DVFS válida de CPU (sección \ref{sec:resultados-campana-final}) se ejecutó antes de la regresión y conserva su etiqueta completa, de modo que los resultados de las secciones \ref{sec:resultados-alpha} a \ref{sec:resultados-margen-politica} no dependen de que el permiso se restablezca. Lo que sí depende de ello es la ampliación del catálogo de CPU con etiqueta de verdad, descrita en la sección siguiente.
 
@@ -1411,6 +1673,53 @@ En paralelo a esa reevaluación, dos cargas quedaron confirmadas por debajo del 
 
 %==============================================================================
 % CAPÍTULO 4: DISCUSIÓN
+\section{Campaña del catálogo dual sobre el eje de CPU}
+\label{sec:resultados-campana-dual}
+
+La campaña del eje de CPU descrita en la sección \ref{sec:fase2-campanas} se ejecutó completa: 1\,632 de 1\,632 combinaciones aceptadas, sin rechazos ni reutilización de intentos anteriores. Las 68 configuraciones del catálogo dual quedaron cubiertas en los ocho niveles de la rejilla fina con sus tres repeticiones.
+
+La aceptación íntegra no es en sí misma la verificación relevante --- una campaña puede aceptar todas sus corridas y haber medido algo distinto de lo que declara ---, de modo que se comprobaron por separado las tres condiciones de las que depende la validez del conjunto. Primera, la frecuencia efectivamente aplicada: los ocho niveles solicitados correspondieron a ocho frecuencias físicas distintas, verificadas por relectura sobre cada núcleo delegado, con los valores de la Tabla \ref{tab:frecuencias-fina}. Segunda, el contrato temporal: las cinco marcas de la sección \ref{sec:contrato-coldwarm} están presentes, son monótonas y no duplicadas en la totalidad de las corridas aceptadas, condición que el instrumento verifica de forma cerrada. Tercera, la disponibilidad de las tres fuentes energéticas --- dominios de paquete y de memoria del procesador, y serie del acelerador --- en todas ellas.
+
+Sobre esa base, el constructor de nivel 2 produjo las 68 decisiones esperadas con sus ocho acciones candidatas por decisión, sin exclusiones. El informe de completitud no registró ninguna configuración incompleta, de modo que ninguna etiqueta se construyó sobre un mínimo parcial.
+
+\section{Efecto del observador en la medición energética del acelerador ocioso}
+\label{sec:resultados-observador-nvml}
+
+La campaña anterior reveló un artefacto del instrumento cuya corrección se describió en la sección \ref{sec:fase2-energia}, y cuya magnitud conviene reportar aquí porque condiciona el objetivo del eje de CPU.
+
+Ninguna carga de esa campaña ejecuta código en el acelerador, y se verificó la ausencia de procesos ajenos sobre él. Aun así, la interfaz de gestión del dispositivo, consultada cada 5~ms, reportó una potencia media por corrida de entre 49.93 y 67.60~W, con mediana de 59.53~W, mientras declaraba cero por ciento de utilización. Una sonda independiente del mismo dispositivo en reposo, con consultas espaciadas, midió 34.84~W de media, 35.05~W en el percentil 95 y 35.20~W como máximo; relecturas posteriores confirmaron el dispositivo ocioso en torno a 36~W. La diferencia observada en el reloj es coherente con esa lectura: 1410~MHz durante el muestreo a alta cadencia, frente a 210~MHz en reposo genuino.
+
+La magnitud del artefacto es por tanto de aproximadamente un 68\,\% sobre la línea base de reposo. Atribuirlo a la carga habría inflado el término de acelerador del objetivo de CPU en esa proporción, en una comparación cuyo propósito es precisamente contrastar dos dispositivos. Se subraya que la lectura instrumental no es incorrecta --- el dispositivo consume realmente esa potencia en el estado que el propio sondeo provoca --- y que este comportamiento no se extrapola a otros modelos de acelerador: es una propiedad observada en esta plataforma, no una afirmación general sobre la interfaz de gestión.
+
+\section{Distribución de la configuración óptima en el eje de CPU}
+\label{sec:resultados-compuerta}
+
+Con el conjunto de nivel 2 construido, la compuerta de la sección \ref{sec:fase2-compuerta} se aplicó sobre la distribución de la etiqueta antes de interpretar comparación alguna entre familias de modelos. Los dos vectores de entrada de la sección \ref{sec:fase2-estrategias} arrojan veredictos distintos, y la diferencia es informativa por sí misma.
+
+Para la estrategia sin ejecución previa, la acción dominante --- el gobernador nativo --- resulta óptima en el 36.8\,\% de las 68 configuraciones, cinco de las ocho acciones alcanzan una masa apreciable, y el margen relativo mediano entre la mejor y la segunda acción es del 11.3\,\%. Los tres criterios de la compuerta se satisfacen: la etiqueta posee variedad y sus márgenes superan holgadamente el piso de ruido de medición.
+
+Para la estrategia con sondeo, en cambio, la acción dominante alcanza el 54.4\,\% de los casos, solo dos acciones superan la masa mínima, y el margen mediano cae al 0.73\,\%, por debajo del piso del 2\,\%. La compuerta declara ese resultado como validación de tubería. La razón de la divergencia es atribuible a la construcción del vector: la estrategia con sondeo imputa a los candidatos que comparten dispositivo con la sonda el costo de la región caliente, en la que el efecto de la frecuencia sobre un despacho aislado queda diluido por el costo fijo ya amortizado, mientras que la estrategia sin ejecución previa evalúa todos los candidatos sobre la región fría, donde ese efecto permanece visible.
+
+Este resultado tiene una consecuencia práctica directa que conviene declarar sin ambigüedad, y es la que sostiene la sección \ref{sec:fase2-alcance-cpu}: aun cuando la etiqueta de la primera estrategia sí posee estructura, el eje de CPU contiene únicamente uno de los dos grados de libertad del problema. La comparación de familias que responde al cuarto objetivo específico requiere el eje del acelerador, y hasta disponer de él el resultado del eje de CPU se reporta como validación del procedimiento.
+
+\section{Sensibilidad de la etiqueta a la resolución temporal de la región fría}
+\label{sec:resultados-sensibilidad-fria}
+
+La estrategia sin ejecución previa construye tanto sus candidatos como su etiqueta exclusivamente sobre la región fría, sin telemetría de la región caliente que la respalde. Dado que esa región es, en las configuraciones más pequeñas, más breve que el intervalo de muestreo, procede cuantificar en qué medida la etiqueta depende de mediciones de baja resolución en lugar de asumir que el efecto es despreciable.
+
+De las 544 acciones candidatas del conjunto, 32 --- un 5.9\,\% --- corresponden a corridas cuya región fría no alcanza un intervalo de muestreo completo. La dependencia de la etiqueta respecto de ellas se distribuye como sigue: en 5 de las 68 decisiones la acción ganadora es una de baja resolución; en 3 decisiones ninguna acción alcanza resolución nominal, de modo que no existe alternativa contra la cual contrastar; y al recalcular el óptimo excluyendo las acciones de baja resolución, el ganador cambia en 2 decisiones de 68. Ambos casos pertenecen a la operación de combinación lineal de vectores, que es la de menor trabajo por despacho del catálogo y por tanto aquella en la que la región fría es más breve.
+
+Estas filas no se excluyen del conjunto. Excluirlas sesgaría la muestra en contra de las configuraciones pequeñas, que son precisamente aquellas en las que la frontera de conveniencia entre dispositivos resulta más interesante. Se conservan con su anotación de baja resolución, y esta auditoría se reporta junto con los resultados del modelo para que la fracción de la etiqueta que descansa sobre mediciones de resolución limitada sea explícita y no haya que inferirla.
+
+\section{Verificación de extremo a extremo del procedimiento de modelado}
+\label{sec:resultados-tuberia}
+
+Sobre el conjunto del eje de CPU se ejecutó el procedimiento completo de la sección \ref{sec:fase2-validacion}: seis pliegues externos por operación, búsqueda multiobjetivo de hiperparámetros anidada dentro de cada pliegue para las cuatro familias, medición de latencia a un hilo, y serialización del modelo seleccionado.
+
+La verificación confirmó los aspectos del procedimiento que no dependen de que la etiqueta tenga estructura: que ninguna configuración aparece simultáneamente en entrenamiento y prueba; que la búsqueda de hiperparámetros crea estudios reanudables, de modo que una interrupción por límite de tiempo del gestor de recursos continúa desde los ensayos ya completados en lugar de repetirlos; que las cuatro familias se ajustan, puntúan y serializan a través de la misma interfaz; y que las métricas de decisión y de latencia se calculan sobre el conjunto completo de candidatos de cada decisión.
+
+Conforme a lo establecido en las secciones \ref{sec:fase2-compuerta} y \ref{sec:fase2-alcance-cpu}, las magnitudes comparativas entre familias obtenidas en esta ejecución no se reportan como resultado de la investigación: el eje de CPU en aislamiento no contiene el grado de libertad de dispositivo, y la comparación que responde al cuarto objetivo específico se realizará sobre el conjunto completo. Lo que esta ejecución sí establece es que el procedimiento está operativo y auditado, de modo que la incorporación del eje del acelerador no exige construir ni depurar la tubería sobre datos ya adquiridos.
+
 %==============================================================================
 
 \chapter{Discusión}
@@ -1436,9 +1745,9 @@ Finalmente, el resultado sobre precisión de \texttt{gpu\_dgemm\_n4096} (secció
 
 Los resultados de las secciones \ref{sec:resultados-alpha} y \ref{sec:resultados-homogeneidad} plantean, en conjunto, una cuestión de naturaleza distinta a las anteriores: no se refieren a un defecto del instrumento, sino al alcance de lo que un catálogo concreto permite demostrar.
 
-El diseño metodológico definió una muestra intencional compuesta por benchmarks representativos de cuatro escenarios base, es decir, por ejemplos deliberadamente puros de cada régimen de ejecución. Esa elección es coherente y el catálogo la cumple con precisión: la fracción media de ventanas de clase minoritaria dentro de cada carga es del 4.0\%, y cuatro cargas son de un solo régimen en la totalidad de sus ventanas. La consecuencia, sin embargo, es que el conjunto resultante permite caracterizar regímenes de carga pero no contiene alternancia de régimen durante una misma ejecución --- que es precisamente el fenómeno cuya adaptación fina el estado del arte identifica como vacío abierto y sobre el que este trabajo propone actuar.
+El diseño metodológico definió para esta fase una muestra intencional compuesta por benchmarks representativos de cuatro escenarios base, es decir, por ejemplos deliberadamente puros de cada régimen de ejecución. Esa elección es coherente con el propósito de la caracterización y el catálogo la cumple con precisión: la fracción media de ventanas de clase minoritaria dentro de cada carga es del 4.0\%, y cuatro cargas son de un solo régimen en la totalidad de sus ventanas. Esa homogeneidad interna es, de hecho, uno de los resultados que sostienen la unidad de decisión adoptada (sección \ref{sec:fase2-unidad}): si el comportamiento no varía apreciablemente dentro de una ejecución, la variación aprendible está en el eje de la operación.
 
-Esta distancia se manifiesta de dos formas independientes y mutuamente consistentes. En la evaluación del clasificador, ningún modelo supera al predictor trivial bajo partición por carga, porque el pliegue de prueba carece de la variación que se le pide distinguir. En el análisis de viabilidad energética, las nueve cargas quedan por encima del umbral de la ecuación \ref{eq:alpha-umbral}, de modo que la política óptima para todas ellas coincide con la frecuencia máxima y no existe decisión que un agente pueda tomar mejor que una constante.
+Lo que ese catálogo no permite, por su propia composición, es demostrar margen en el eje de la frecuencia: las nueve cargas quedan por encima del umbral de la ecuación \ref{eq:alpha-umbral}, de modo que la política óptima para todas ellas coincide con la frecuencia máxima. Sobre ese subconjunto no existe decisión que un agente pueda tomar mejor que una constante, y ninguna cantidad de modelado lo cambiaría.
 
 Es importante precisar qué afirma y qué no afirma este resultado. No afirma que el DVFS sea inútil en esta plataforma: afirma que ninguna de las cargas caracterizadas se sitúa en la región donde el escalado de frecuencia por sí solo resulta rentable en la CPU de este nodo, y el mismo modelo que lo establece predice, para una carga con $\alpha$ próximo a cero, una mejora del 28\% del producto energía--retardo sin degradación de rendimiento. Tampoco afirma que el régimen de ejecución carezca de valor: la correlación de $-0.82$ entre la etiqueta y la sensibilidad a la frecuencia sostiene su utilidad como herramienta de caracterización, que es el papel que cumple en este trabajo.
 
@@ -1488,7 +1797,9 @@ Esta observación tiene además una consecuencia sobre cómo debe interpretarse 
 
 Este trabajo completó la construcción y validación empírica del instrumento de caracterización CPU--GPU de la Fase 1 y determinó, sobre evidencia propia, la formulación que debe adoptar el sistema de decisión de las fases siguientes. Respecto al primer objetivo específico --- caracterizar cargas representativas bajo distintos estados de frecuencia ---, el resultado es parcial pero sustantivo: la caracterización estableció que el margen energético del escalado de frecuencia está distribuido de forma marcadamente asimétrica entre los dispositivos de este nodo, con un rango dinámico de potencia en CPU que impide que el alargamiento del tiempo de ejecución se compense, y un comportamiento distinto en el acelerador. Ese hallazgo, junto con el desplazamiento del punto de inflexión del modelo Roofline con la frecuencia, es lo que fija la unidad de decisión y la variable objetivo descritas en la sección \ref{sec:fase2-unidad}.
 
-En consecuencia, el aporte propio de esta fase respecto de las siguientes no es únicamente el conjunto de datos ni el instrumento, sino una formulación fundamentada empíricamente: decidir conjuntamente dispositivo y frecuencia, sobre la unidad de una llamada a una operación, prediciendo directamente la configuración de mínimo EDP en lugar de una etiqueta de régimen intermedia cuya estabilidad la propia medición desmiente. Los objetivos específicos segundo, tercero y cuarto --- entrenamiento del modelo, implementación del agente y evaluación de EDP --- corresponden a las Fases 2--4 y no se presentan como ejecutados.
+En consecuencia, el aporte propio de esta fase respecto de las siguientes no es únicamente el conjunto de datos ni el instrumento, sino una formulación fundamentada empíricamente: decidir conjuntamente dispositivo y frecuencia, sobre la unidad de una llamada a una operación, prediciendo directamente la configuración de mínimo EDP en lugar de una etiqueta de régimen intermedia cuya estabilidad la propia medición desmiente.
+
+Respecto del segundo objetivo específico, el trabajo se encuentra parcialmente ejecutado y el alcance de lo conseguido debe declararse con precisión. El catálogo dual está construido y verificado, la campaña de adquisición de su eje de CPU concluyó íntegramente (sección \ref{sec:resultados-campana-dual}), y el procedimiento completo de construcción del conjunto de nivel 2, de entrenamiento y de validación anidada está implementado y auditado de extremo a extremo (sección \ref{sec:resultados-tuberia}). Lo que no está ejecutado es la comparación de modelos que responde a la pregunta de investigación, porque requiere el eje del acelerador: el eje de CPU en aislamiento contiene solo uno de los dos grados de libertad del problema, y la compuerta de validez de la sección \ref{sec:fase2-compuerta} lo hace explícito en lugar de dejar que una tabla de métricas se lea como si respondiera a algo que no responde. Los objetivos específicos tercero y cuarto --- implementación del agente y evaluación de EDP --- corresponden a las Fases 3 y 4 y no se presentan como ejecutados.
 
 El aporte metodológico central de esta fase, más allá de los datos concretos recolectados, es haber demostrado --- y no solo enunciado --- que ningún mecanismo de este instrumento se dio por funcional sin verificación directa contra el estado real del hardware: ni la disponibilidad de un contador de PMU, ni el presupuesto físico de contadores simultáneos, ni su persistencia en el tiempo frente a mecanismos ajenos al instrumento, ni la escritura de frecuencia de CPU, ni la precisión aritmética declarada de un kernel de GPU, ni la calibración de los propios techos del modelo Roofline. En varias ocasiones documentadas en este trabajo, esa verificación expuso una falla real que una confianza no verificada en la documentación del fabricante, en una medición previa ya dada por válida, o en el diseño original del instrumento, habría dejado pasar silenciosamente hacia el conjunto de datos.
 
@@ -1512,116 +1823,28 @@ Décima, el margen que una política adaptativa puede reclamar sobre la mejor fr
 
 Undécima, el permiso de acceso a contadores de \textit{uncore} dejó de estar disponible con posterioridad a la campaña DVFS válida de CPU (sección \ref{sec:resultados-regresion-permiso}). Los resultados de CPU aquí reportados no dependen de su restablecimiento, y el agente de la Fase 3 tampoco; sí depende de él la ampliación del catálogo de CPU con etiqueta de verdad, que queda condicionada a un permiso fuera del control de este trabajo.
 
+Duodécima, el producto energía--retardo sobre el que se construye la etiqueta del selector mide exclusivamente el despacho de la operación y \textbf{no incluye el costo de actuar la frecuencia} entre decisiones sucesivas. Esa separación es deliberada --- el costo de conmutación depende del estado previo y no de la operación, por lo que mezclarlo con el costo del núcleo de cómputo produciría una cantidad que no describe ninguno de los dos ---, pero implica que toda ganancia derivada de este objetivo debe leerse como una \textbf{cota superior} y no como ganancia neta. El costo de actuación se mide por separado en la Fase 4, y es uno de los dos términos del umbral de amortización allí determinado.
+
+Decimotercera, la etiqueta del vector de entrada con sondeo resultó, sobre el eje de CPU en aislamiento, prácticamente degenerada: una sola acción óptima en más de la mitad de las configuraciones y un margen mediano del 0.73\%, por debajo del piso de ruido de medición (sección \ref{sec:resultados-compuerta}). Ese resultado no invalida la estrategia --- su veredicto puede cambiar al incorporar el eje del acelerador, donde el margen entre dispositivos es de otro orden ---, pero sí impide extraer conclusión alguna sobre familias de modelos a partir de ese subconjunto, y así se reporta.
+
+Decimocuarta, el vector de entrada sin ejecución previa construye tanto sus candidatos como su etiqueta sobre la región fría, que en las configuraciones más pequeñas es más breve que el intervalo de muestreo. Un 5.9\% de sus acciones descansa sobre estimaciones de baja resolución, y excluirlas cambiaría la acción óptima en 2 de las 68 decisiones (sección \ref{sec:resultados-sensibilidad-fria}). La magnitud es acotada y está cuantificada, pero no es nula, y las conclusiones sobre configuraciones pequeñas de la operación de combinación lineal de vectores deben leerse con esa reserva.
+
 \section{Trabajo Futuro}
 
-El trabajo inmediato consiste en cerrar la adquisición del conjunto de datos del selector y ejecutar sobre él las tres fases restantes.
+El trabajo inmediato consiste en cerrar la adquisición del eje del acelerador y ejecutar sobre el conjunto completo las tres fases restantes.
 
-Primero, completar la campaña del catálogo dual. El eje de CPU está cerrado: la totalidad de sus combinaciones se ejecutó y aceptó bajo el contrato temporal de la sección \ref{sec:contrato-coldwarm}, con verificación por corrida de las fronteras cold/warm, de la frecuencia efectivamente aplicada en cada nivel y de la presencia de las tres fuentes energéticas. El eje de GPU, cuyo producto cartesiano de frecuencias de ambos dispositivos lo hace considerablemente más costoso, se ejecuta en sesiones sucesivas sobre un mismo directorio de salida, reanudando desde las combinaciones ya aceptadas. La auditoría por sesión, y no solo al final, es parte del procedimiento: un rechazo sistemático concentrado en un nivel intermedio debe detener la campaña y diagnosticarse, en lugar de relajar retrospectivamente los márgenes para que los datos pasen.
+Primero, completar la campaña del catálogo dual. El eje de CPU está cerrado: la totalidad de sus 1\,632 combinaciones se ejecutó y aceptó bajo el contrato temporal de la sección \ref{sec:contrato-coldwarm}, con verificación por corrida de las fronteras de sus dos regiones, de la frecuencia efectivamente aplicada en cada nivel y de la presencia de las tres fuentes energéticas. El eje del acelerador, cuyo producto cartesiano de frecuencias de ambos dispositivos lo hace considerablemente más costoso, se ejecuta en sesiones sucesivas sobre un mismo directorio de salida, reanudando desde las combinaciones ya aceptadas, con auditoría por sesión y no solo al final.
 
-Segundo, construir el conjunto de datos de nivel 2 y entrenar el modelo de selección. Ese constructor debe agregar por identificador de configuración, restringir la integración de tiempo y energía a la región de despacho, normalizar por iteración antes de comparar dispositivos --- puesto que el número de iteraciones se calibra por dispositivo y no coincide entre las dos variantes de una misma configuración --- y resolver la ecuación \eqref{eq:target-selector} sobre el producto de dispositivos y frecuencias. La validación dejando fuera una operación completa en cada pliegue (sección \ref{sec:fase2-validacion}) es la que determinará si la formulación generaliza hacia operaciones no observadas, que es la pregunta que decide su utilidad práctica.
+Segundo, repetir sobre el conjunto completo el procedimiento ya implementado y auditado. Esto no exige construir nada nuevo: la tubería descrita en la sección \ref{sec:fase2-validacion} está operativa y verificada de extremo a extremo (sección \ref{sec:resultados-tuberia}), y el modo de operación que exige las 40 acciones candidatas por configuración falla de forma cerrada si alguna falta. Lo que cambia con el eje del acelerador es que el espacio de decisión pasa a contener el grado de libertad de dispositivo, y con él la compuerta de la sección \ref{sec:fase2-compuerta} podrá declarar --- o no --- que la comparación entre familias de modelos es interpretable. Ambos resultados son publicables: que una familia supere a las líneas base, o que ninguna lo haga y la mejor política sea una constante bien elegida.
 
-Tercero, implementar el agente y evaluarlo. La comparación de cuatro escenarios descrita en la sección \ref{sec:fase4} --- ejecución íntegra en CPU, íntegra en GPU, guiada por el selector, y guiada por un oráculo con conocimiento posterior --- es la que permite atribuir un resultado insuficiente a la ausencia de margen en la plataforma o a la incapacidad del modelo para capturarlo, distinción que sin el cuarto escenario resultaría ambigua. La medición del umbral de amortización del costo de decisión responde directamente a la cláusula de la pregunta de investigación relativa al \textit{overhead} de la inferencia.
+Tercero, implementar el agente y evaluarlo. La comparación de cuatro escenarios descrita en la sección \ref{sec:fase4} --- ejecución íntegra en CPU, íntegra en el acelerador, guiada por el selector, y guiada por un oráculo con conocimiento posterior --- es la que permite atribuir un resultado insuficiente a la ausencia de margen en la plataforma o a la incapacidad del modelo para capturarlo, distinción que sin el cuarto escenario resultaría ambigua. La medición del umbral de amortización del costo de decisión --- inferencia más actuación de frecuencia, este último excluido deliberadamente del objetivo de entrenamiento según la duodécima limitación --- responde directamente a la cláusula de la pregunta de investigación relativa al \textit{overhead} de la inferencia.
 
-Más allá del alcance comprometido, dos extensiones quedan abiertas. La primera es la política de repeticiones adaptativa: la evidencia recogida sobre convergencia del coeficiente de variación indica que tres repeticiones son un mínimo operativo defendible para la mayoría de las operaciones del catálogo, pero no para todas, y una política que escale las repeticiones únicamente donde el margen entre las dos mejores configuraciones sea estrecho o la dispersión observada lo exija aprovecharía mejor el tiempo de cómputo que un valor uniforme. La segunda es la extensión del criterio de calidad por ventana al eje del acelerador: el instrumento registra por muestra el reloj y la temperatura del dispositivo, pero no los emplea todavía como compuerta automática, de modo que una eventual limitación térmica durante una sesión prolongada se detectaría hoy mediante análisis posterior y no durante la propia campaña.
+Más allá del alcance comprometido, tres extensiones quedan abiertas. La primera es la política de repeticiones adaptativa: la evidencia recogida sobre convergencia del coeficiente de variación indica que tres repeticiones son un mínimo operativo defendible para la mayoría de las operaciones del catálogo, pero no para todas, y una política que escale las repeticiones únicamente donde el margen entre las dos mejores configuraciones sea estrecho --- que es exactamente la condición que la anotación de óptimo incierto de la sección \ref{sec:fase2-target} ya identifica --- aprovecharía mejor el tiempo de cómputo que un valor uniforme.
 
-%==============================================================================
-% REFERENCIAS BIBLIOGRÁFICAS
-%==============================================================================
+La segunda es la extensión del criterio de calidad por ventana al eje del acelerador: el instrumento registra por muestra el reloj y la temperatura del dispositivo, pero no los emplea todavía como compuerta automática, de modo que una eventual limitación térmica durante una sesión prolongada se detectaría hoy mediante análisis posterior y no durante la propia campaña.
 
-\begin{sloppypar}
-\begin{thebibliography}{99}
+La tercera es una variante del sondeo que la formulación actual no contempla. En el diseño vigente, la ejecución que produce la telemetría de sondeo es la primera ejecución real de la operación, con su resultado íntegro; una alternativa sería ejecutar una réplica reducida de la operación con el único fin de observarla, antes de comprometer la ejecución real. Esa variante permitiría sondear sin arriesgar una decisión sobre trabajo útil, pero introduce un costo que la formulación actual no paga y que debería contabilizarse en el mismo umbral de amortización, junto con la pregunta de si conviene pagarlo siempre o solo cuando el margen entre las dos mejores acciones sea estrecho. No se adopta aquí porque su diseño no está resuelto, y se registra para que la omisión sea deliberada y no un olvido.
 
-\bibitem{Simsek2024} O. S. Simsek, J.-G. Piccinali, and F. M. Ciorba, ``Increasing Energy Efficiency of Astrophysics Simulations Through GPU Frequency Scaling,'' in \textit{SC24-W: Workshops of the International Conference for High Performance Computing, Networking, Storage and Analysis}, Atlanta, GA, USA, 2024, pp. 1826--1834. doi: 10.1109/SCW63240.2024.00229.
-
-\bibitem{Costa2025} M. T. Costa et al., ``Characterizing the Impact of GPU Power Management on an Exascale System,'' in \textit{Proc. SC '25 Workshops of the International Conference for High Performance Computing, Networking, Storage and Analysis (SC Workshops '25)}, New York, NY, USA, 2025, pp. 1524--1533. doi: 10.1145/3731599.3767702.
-
-\bibitem{Antici2024} F. Antici, A. Bartolini, Z. Kiziltan, O. Babaoglu, and Y. Kodama, ``MCBound: An Online Framework to Characterize and Classify Memory/Compute-bound HPC Jobs,'' in \textit{SC24: International Conference for High Performance Computing, Networking, Storage and Analysis}, Atlanta, GA, USA, 2024, pp. 1--15. doi: 10.1109/SC41406.2024.00062.
-
-\bibitem{Calore2017} E. Calore, A. Gabbana, S. F. Schifano, and R. Tripiccione, ``Evaluation of DVFS techniques on modern HPC processors and accelerators for energy-aware applications,'' \textit{Concurrency Comput. Pract. Exper.}, vol. 29, no. 12, p. e4143, 2017. doi: 10.1002/cpe.4143.
-
-\bibitem{Ali2023} G. Ali, M. Side, S. Bhalachandra, N. J. Wright, and Y. Chen, ``An automated and portable method for selecting an optimal GPU frequency,'' \textit{Future Generation Computer Systems}, vol. 149, pp. 71--88, Dec. 2023. doi: 10.1016/j.future.2023.07.011.
-
-\bibitem{Gonzalez1997} R. Gonzalez, B. M. Gordon, and M. A. Horowitz, ``Supply and threshold voltage scaling for low power CMOS,'' \textit{IEEE J. Solid-State Circuits}, vol. 32, no. 8, pp. 1210--1216, Aug. 1997. doi: 10.1109/4.604018.
-
-\bibitem{Williams2009} S. Williams, A. Waterman, and D. Patterson, ``Roofline: An Insightful Visual Performance Model for Multicore Architectures,'' \textit{Commun. ACM}, vol. 52, no. 4, pp. 65--76, Apr. 2009. doi: 10.1145/1498765.1498785.
-
-\bibitem{Liu2024} T.-Y. Liu, J. Guo, and B. Huang, ``Efficient Cross-Platform Multiplexing of Hardware Performance Counters via Adaptive Grouping,'' \textit{ACM Trans. Archit. Code Optim.}, vol. 21, no. 1, pp. 1--26, Mar. 2024. doi: 10.1145/3629525.
-
-\bibitem{Shekofteh2019} S.-K. Shekofteh et al., ``Metric selection for GPU kernel classification,'' \textit{ACM Trans. Archit. Code Optim.}, vol. 15, no. 4, pp. 1--27, Jan. 2019. doi: 10.1145/3295690.
-
-\bibitem{Littman2025} L. Littman and T. Deakin, ``Classifying Performance Bounds Using Machine Learning,'' in \textit{Proc. SC25: Int. Conf. High Perform. Comput. Netw. Storage Anal.}, 2025.
-
-\bibitem{Gregg2020} B. Gregg, \textit{Systems Performance: Enterprise and the Cloud}, 2nd ed. Upper Saddle River, NJ, USA: Prentice Hall, 2020.
-
-\bibitem{Kerrisk2010} M. Kerrisk, \textit{The Linux Programming Interface: A Linux and UNIX System Programming Handbook}. San Francisco, CA, USA: No Starch Press, 2010.
-
-\bibitem{McCarty2015} S. McCarty, ``Architecting Containers Part 1: Why Understanding User Space vs. Kernel Space Matters,'' Red Hat Blog, Jul. 29, 2015. [Online]. Available: \url{https://www.redhat.com/en/blog/architecting-containers-part-1-why-understanding-user-space-vs-kernel-space-matters}. [Accessed: Apr. 3, 2025].
-
-\bibitem{Weaver2015} V. M. Weaver, ``Self-monitoring overhead of the Linux perf event performance counter interface,'' in \textit{Proc. IEEE Int. Symp. Performance Analysis of Systems and Software (ISPASS)}, 2015, pp. 102--111.
-
-\bibitem{David2010} H. David, E. Gorbatov, U. R. Hanebutte, R. Khanna, and C. Le, ``RAPL: Memory power estimation and capping,'' in \textit{Proc. 16th ACM/IEEE Int. Symp. Low Power Electron. Des. (ISLPED)}, Aug. 2010, pp. 189--194. doi: 10.1145/1840845.1840883.
-
-\bibitem{NVML2026} NVIDIA, ``NVIDIA Management Library (NVML),'' NVIDIA Developer Documentation, 2026. [Online]. Available: \url{https://docs.nvidia.com/deploy/nvml-api/index.html}. [Accessed: Apr. 3, 2026].
-
-\bibitem{Thamm2025} P. Thamm and U. Leser, ``Strategies to measure energy consumption using RAPL during workflow execution on commodity clusters,'' arXiv preprint arXiv:2505.09375, 2025.
-
-\bibitem{Hebbar2022} R. Hebbar and A. Milenković, ``PMU-events-driven DVFS techniques for improving energy efficiency of modern processors,'' \textit{ACM Trans. Model. Perform. Eval. Comput. Syst.}, vol. 7, no. 1, pp. 1--31, May 2022. doi: 10.1145/3538645.
-
-\bibitem{Mei2016} X. Mei, Q. Wang, and X. Chu, ``A Survey and Measurement Study of GPU DVFS on Energy Conservation,'' arXiv preprint arXiv:1610.01784, Oct. 2016. doi: 10.48550/arXiv.1610.01784.
-
-\bibitem{Fan2020} K. Fan, B. Cosenza, and B. Juurlink, ``Accurate Energy and Performance Prediction for Frequency-Scaled GPU Kernels,'' \textit{Computation}, vol. 8, no. 2, art. 37, 2020. doi: 10.3390/computation8020037.
-
-\bibitem{Guerreiro2019} J. Guerreiro, N. Roma, P. Tomás, F. Pratas, L. S. G. Carvalho, and G. Gaydadjiev, ``DVFS-aware application classification to improve GPGPUs energy efficiency,'' \textit{Parallel Comput.}, vol. 83, pp. 93--117, May 2019. doi: 10.1016/j.parco.2018.02.001.
-
-\bibitem{SDKernel2026} ScienceDirect, ``Computational Kernel,'' Computer Science Topics, 2026. [Online]. Available: \url{https://www.sciencedirect.com/topics/computer-science/computational-kernel}. [Accessed: Apr. 3, 2026].
-
-\bibitem{Pandey2019} D. Pandey, K. Niwaria, and B. Chourasia, ``Machine Learning Algorithms: A Review,'' \textit{Int. J. Mach. Learn. Netw. Appl.}, vol. 6, no. 2, pp. 916--922, Jan. 2019. doi: 10.21275/ART20203995.
-
-\bibitem{IBMRF2026} IBM, ``What is random forest?'' IBM Think Topics, 2026. [Online]. Available: \url{https://www.ibm.com/think/topics/random-forest}. [Accessed: Apr. 3, 2026].
-
-\bibitem{IBMLR2026} IBM, ``What is logistic regression?'' IBM Think Topics, 2026. [Online]. Available: \url{https://www.ibm.com/think/topics/logistic-regression}. [Accessed: Apr. 3, 2026].
-
-\bibitem{IBMXGB2026} IBM, ``What is XGBoost?'' IBM Think Topics, 2026. [Online]. Available: \url{https://www.ibm.com/think/topics/xgboost}. [Accessed: Apr. 3, 2026].
-
-\bibitem{Laros2013} J. H. Laros III, K. Pedretti, S. M. Kelly, W. Shu, K. Ferreira, J. Van Dyke, and C. Vaughan, ``Energy Delay Product,'' in \textit{Energy-Efficient High Performance Computing: Measurement and Tuning}, SpringerBriefs in Computer Science. London, UK: Springer, 2013, ch. 6, pp. 51--55. doi: 10.1007/978-1-4471-4492-2\_9.
-
-\bibitem{Wang2024} Y. Wang, M. Hao, H. He, W. Zhang, Q. Tang, X. Sun, and Z. Wang, ``DRLCap: Runtime GPU Frequency Capping with Deep Reinforcement Learning,'' \textit{IEEE Trans. Sustain. Comput.}, vol. 9, no. 5, pp. 712--726, Sept.--Oct. 2024. doi: 10.1109/TSUSC.2024.3361596.
-
-\bibitem{Velicka2025} D. Velicka, O. Vysocky, and L. Riha, ``Methodology for GPU frequency switching latency measurement,'' in \textit{Proc. 2025 IEEE Int. Parallel Distrib. Process. Symp. Workshops (IPDPSW)}, 2025, pp. 830--839. doi: 10.1109/IPDPSW66978.2025.00133.
-
-\bibitem{Zhang2026} Z. Zhang, Z. Wu, J. Liu, and L. Mottola, ``SparseDVFS: Sparse-Aware DVFS for Energy-Efficient Edge Inference,'' arXiv preprint arXiv:2603.21908, Mar. 23, 2026.
-
-\bibitem{Treibig2010} J. Treibig, G. Hager, and G. Wellein, ``LIKWID: A Lightweight Performance-Oriented Tool Suite for x86 Multicore Environments,'' in \textit{Proc. 39th Int. Conf. Parallel Processing Workshops (ICPPW)}, San Diego, CA, USA, 2010, pp. 207--216. doi: 10.1109/ICPPW.2010.38.
-
-\bibitem{Hamerly2005} G. Hamerly, E. Perelman, J. Sherwood, and B. Calder, ``SimPoint 3.0: Faster and More Flexible Program Phase Analysis,'' \textit{Journal of Instruction-Level Parallelism}, vol. 7, pp. 1--28, 2005.
-
-\bibitem{VTune2026} Intel, ``CPU Metrics Reference,'' Intel VTune Profiler User Guide, 2026. [Online]. Available: \url{https://www.intel.com/content/www/us/en/docs/vtune-profiler/user-guide/2026-1/cpu-metrics-reference.html}. [Accessed: Aug. 7, 2026].
-
-\bibitem{PAPI2026} Innovative Computing Laboratory, University of Tennessee, ``PAPI: Performance Application Programming Interface,'' 2026. [Online]. Available: \url{https://icl.utk.edu/papi/}. [Accessed: Aug. 7, 2026].
-
-\bibitem{IntelPerfmon2026} Intel Corporation, ``perfmon: Performance Monitoring Events for Intel Architecture Processors'' (evento \texttt{FP\_ARITH\_INST\_RETIRED}, familia Ice Lake), 2026. [Online]. Available: \url{https://github.com/intel/perfmon}. [Accessed: Aug. 10, 2026].
-
-\bibitem{NERSC2026} National Energy Research Scientific Computing Center (NERSC), ``Roofline Performance Model,'' NERSC Documentation, 2026. [Online]. Available: \url{https://docs.nersc.gov/tools/performance/roofline/}. [Accessed: Aug. 7, 2026].
-
-\bibitem{Weaver2008} V. M. Weaver and S. A. McKee, ``Can hardware performance counters be trusted?,'' in \textit{Proc. IEEE Int. Symp. Workload Characterization (IISWC)}, Seattle, WA, USA, 2008, pp. 141--150. doi: 10.1109/IISWC.2008.4636099.
-
-\bibitem{PEBIL2010} M. A. Laurenzano, M. M. Tikir, L. Carrington, and A. Snavely, ``PEBIL: Efficient static binary instrumentation for Linux,'' in \textit{Proc. IEEE Int. Symp. Performance Analysis of Systems \& Software (ISPASS)}, White Plains, NY, USA, 2010, pp. 175--183. doi: 10.1109/ISPASS.2010.5452024.
-
-\bibitem{Georges2007} A. Georges, D. Buytaert, and L. Eeckhout, ``Statistically rigorous Java performance evaluation,'' in \textit{Proc. 22nd Annu. ACM SIGPLAN Conf. Object-Oriented Program. Syst. Appl. (OOPSLA '07)}, Montreal, QC, Canada, 2007, pp. 57--76. doi: 10.1145/1297027.1297033.
-
-\bibitem{Barrett2017} E. Barrett, C. F. Bolz-Tereick, R. Killick, S. Mount, and L. Tratt, ``Virtual Machine Warmup Blows Hot and Cold,'' \textit{Proc. ACM Program. Lang.}, vol. 1, no. OOPSLA, art. 52, pp. 1--27, Oct. 2017. doi: 10.1145/3133876.
-
-\bibitem{Nsight2026} NVIDIA, ``Nsight Compute,'' NVIDIA Developer Documentation, 2026. [Online]. Available: \url{https://docs.nvidia.com/nsight-compute/}. [Accessed: Aug. 8, 2026].
-
-\bibitem{Advisor2026} Intel Corporation, ``Roofline Analysis with Intel Advisor,'' Intel Advisor User Guide, 2026. [Online]. Available: \url{https://www.intel.com/content/www/us/en/docs/advisor/user-guide/2026-0/roofline-perspective-in-intel-advisor.html}. [Accessed: Aug. 12, 2026].
-
-\bibitem{IntelSDM2026} Intel Corporation, ``Intel\textregistered{} 64 and IA-32 Architectures Software Developer's Manual, Volume 3B: System Programming Guide, Part 2'' (Performance Monitoring, NMI watchdog interaction with fixed-function and general-purpose counters), 2026. [Online]. Available: \url{https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html}. [Accessed: Aug. 12, 2026].
-
-\end{thebibliography}
-\end{sloppypar}
-
-%==============================================================================
-% REPOSITORIO Y RECURSOS COMPLEMENTARIOS
 %==============================================================================
 
 \chapter*{Repositorio y recursos complementarios}
