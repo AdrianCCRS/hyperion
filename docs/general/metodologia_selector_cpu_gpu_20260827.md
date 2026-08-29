@@ -123,27 +123,50 @@ CPU y GPU de la misma configuración (§3).
 
 `warmup_seconds` queda **fijo en 0.05 s** en las 136 entradas — no
 depende del tamaño (corrige el bug del smoke, ver §6.1). Lo que sí
-depende del tamaño es `--iterations`, calculado por
-`iterations_for(op, n)` en `gen_dual_full_catalog.py`:
+depende del tamaño **y del dispositivo** es `--iterations`, calculado por
+`iterations_for(op, n, device)` en `gen_dual_full_catalog.py`. **CPU y
+GPU ya no comparten el mismo número de iteraciones** para el mismo
+`config_id` — esta sección describía antes una fórmula única con un
+`t_ref` compartido; se reemplazó por dos rutas de estimación
+independientes, cada una calibrada con datos reales del dispositivo que
+le corresponde:
 
 ```
-k = t_ref / fn(n_ref)              # tiempo por "unidad de complejidad", medido de verdad
-raw = TARGET_SECONDS / (k * fn(n)) # TARGET_SECONDS = 1.5 s
-it = clamp(round(raw), MIN_ITERATIONS=5, MAX_ITERATIONS=2_000_000)
+# CPU: tabla empírica de medianas medidas, no extrapolación
+t_per_it = CPU_TIME_PER_ITERATION[op][n]     # medido en las 1632 corridas del job 6696
+raw = TARGET_SECONDS / t_per_it              # TARGET_SECONDS = 1.5 s
+it_cpu = clamp(ceil(raw), MIN_ITERATIONS=5, MAX_ITERATIONS=2_000_000)
+
+# GPU: modelo de dos términos (costo fijo de despacho + costo variable)
+t_per_it = A_fixed[op] + B_variable[op] * fn(n)   # ajustado sobre 486 corridas reales (pase 6689)
+raw = TARGET_SECONDS / t_per_it
+it_gpu = clamp(round(raw), MIN_ITERATIONS=5, MAX_ITERATIONS=2_000_000)
 ```
 
-`t_ref` es el **mayor** entre el tiempo por iteración medido en CPU y en
-GPU en el tamaño de referencia (`calibrate_iterations.sh`, medido real
-en pacca, no supuesto) — así el mismo `--iterations` garantiza margen de
-warmup en el lado más lento de cada config_id, y es comparable entre
-ambos devices. `fn` es la función de escalado asintótico de cada
-operación (`n**3`, `n*n*log2(n*n)`, `n`, etc.).
+`CPU_TIME_PER_ITERATION[op][n]` es una tabla de medianas reales por
+par (operación, tamaño), sin extrapolación entre tamaños. El modelo GPU
+sí extrapola, pero con dos términos en vez de uno: un costo fijo por
+despacho (dominante en tamaños pequeños, donde el lanzamiento del
+kernel pesa más que el cómputo) y un costo variable que escala con
+`fn(n)` (la misma función de escalado asintótico que antes: `n**3`,
+`n*n*log2(n*n)`, `n`, etc.). CPU usa techo (`ceil`) para no quedar por
+debajo de la duración objetivo medida; GPU conserva el redondeo estándar
+del modelo validado por el pase 6689.
 
-**Riesgo conocido, no bloqueante**: esta fórmula asume que el
-escalamiento asintótico medido en el tamaño de referencia se mantiene en
-los extremos de la rejilla (N=4096, N=3.16e7), donde pueden aparecer
-efectos de caché no capturados por el modelo. No se ha validado
-empíricamente en los extremos — ver §9.
+**Consecuencia para el dataset de nivel 2**: como las dos variantes de
+un mismo `config_id` ya no ejecutan el mismo número de iteraciones,
+tiempo y energía de la región `warm` no son comparables en bruto entre
+CPU y GPU — hay que normalizar por despacho antes de comparar
+dispositivos. Esto está resuelto en el constructor (§10) mediante
+`EDP_dispatch = (E_warm/iterations) * (T_warm/iterations)`, con `cold`
+tratado aparte porque contiene exactamente un despacho.
+
+**Riesgo conocido, no bloqueante**: el término variable del modelo GPU
+asume que el escalamiento asintótico medido sobre las 486 corridas del
+pase 6689 se mantiene en los extremos de la rejilla (N=4096, N=3.16e7),
+donde pueden aparecer efectos de caché no capturados por el modelo. No
+se ha validado empíricamente en los extremos — ver §9. La tabla CPU no
+tiene este riesgo porque no extrapola.
 
 ---
 
