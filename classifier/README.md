@@ -103,6 +103,59 @@ estándar combinado entre los folds externos (`edp_loss_std / sqrt(n_folds)`
 de ambas familias) — evita que 6 números con dispersión decidan la familia
 "ganadora" cuando la diferencia real es ruido entre pliegues.
 
+## Dataset dual final (`selector_final_20260830`, catálogo completo)
+
+El `--mode cpu-provisional` de arriba fue siempre una validación parcial:
+solo cubría el eje de CPU (68 config_id × 8 niveles × 3 repeticiones),
+sin el grado de libertad de dispositivo. La campaña GPU dual
+(`pacca_dual_gpu_full_20260828`, 68 config_id × 4 niveles CPU × 8 niveles
+GPU × 3 repeticiones = 6528 corridas) terminó completa el 2026-08-29
+(0 rechazos sin resolver), y `--mode final` sobre ambos ejes juntos
+confirma **68/68 config_id con las 40 acciones completas** por primera vez
+en el proyecto.
+
+Construir este dataset expuso un bug real en `_accepted_run_dirs()`
+(`dataset.py`): una campaña reanudada en varias sesiones (CAM-11) solo
+agrega a `accepted_run_ids` lo que cada sesión acepta *de nuevo* — las
+corridas ya aceptadas en sesiones previas quedan en `skipped_run_ids`, sin
+duplicarse. Como la última sesión de la campaña GPU no aceptó nada nuevo
+(todo ya estaba hecho), `accepted_run_ids` quedó vacío y el constructor
+devolvía un dataset vacío en silencio (`matriz final incompleta: 0/68`)
+pese a que los 6528 archivos eran válidos en disco. Corregido leyendo la
+unión de ambas listas, con las mismas verificaciones de duplicados y
+contraste contra `verdict.json` que ya tenía `accepted_run_ids` (4 tests
+de regresión nuevos en `tests/classifier/test_selector_dataset.py`).
+
+`label_health.json` sobre el catálogo completo:
+
+| | Estrategia A (sin sondeo) | Estrategia C (con sondeo) |
+|---|---|---|
+| Veredicto | **`comparison_valid`** | `pipeline_smoke_only` |
+| Acción dominante | `cpu:REF`, 36.8 % | `cpu:F0`, 29.4 % |
+| Acciones con masa ≥5 % | 5 de 6 | 2 de 22 |
+| Margen EDP mediano | 11.3 % | 1.03 % (bajo el piso de 2 %) |
+| GPU óptima en algún `config_id` | **0/68 — nunca** | 43/136 grupos |
+
+Hallazgo central: en Estrategia A la GPU **nunca** es la acción óptima en
+ninguna de las 68 configuraciones — el costo de inicializar contexto CUDA
+en la región `cold` (un solo despacho) supera sistemáticamente lo que gana
+el acelerador a estos tamaños de operación. Esto resuelve la limitación
+Decimotercera del libro ("su veredicto puede cambiar al incorporar el eje
+del acelerador"): **no cambia** — A sigue siendo `comparison_valid`, pero
+su etiqueta es estructuralmente CPU-only, así que el modelo que se
+entrene sobre A no puede aprender a preferir GPU nunca, por diseño de la
+propia estrategia. Estrategia C sí ve la GPU ganar en `cholesky`/`fft`
+(~50 % de sus grupos) y `stencil` (46 %), pero el margen es demasiado
+ruidoso (1.03 % < piso de 2 %) para servir de etiqueta confiable.
+
+Consecuencia práctica: `tune` (Optuna + LOKO anidado, 100 *trials*, 4
+familias) se lanzó únicamente sobre Estrategia A
+(`orchestrator/schemas/scripts/launchers/run_selector_tune_strategy_a_final.sbatch`,
+partición `normal`/`pacca01`, no requiere `paccaA100`) — es la única con
+señal real según su propio veredicto. No se lanzó para C: su
+`pipeline_smoke_only` significa que el resultado solo validaría que la
+tubería corre, no que compara familias.
+
 ## Datos y entorno
 
 Los crudos permanecen en `~/hyperion-results/` y no se versionan. Los
