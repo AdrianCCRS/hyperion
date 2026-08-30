@@ -1599,7 +1599,7 @@ En cuanto al uso de software de terceros, las suites de benchmarks empleadas se 
 
 \chapter{Resultados}
 
-Este capítulo reporta los resultados obtenidos hasta el cierre de este documento. Cubre la campaña de adquisición del eje de CPU del catálogo dual, la corrección del efecto del observador sobre la medición energética del acelerador ocioso, la distribución de la configuración óptima resultante, el catálogo dual completo con el eje del acelerador y el costo de arranque de CUDA, la sensibilidad de esa distribución a la resolución temporal de la región fría, y la verificación de extremo a extremo del procedimiento de modelado. La implementación del agente y la evaluación de EDP frente a los gobernadores nativos corresponden a las Fases 3 y 4.
+Este capítulo reporta los resultados obtenidos hasta el cierre de este documento. Cubre la campaña de adquisición del eje de CPU del catálogo dual, la corrección del efecto del observador sobre la medición energética del acelerador ocioso, la distribución de la configuración óptima resultante, el catálogo dual completo con el eje del acelerador y el costo de arranque de CUDA, la sensibilidad de esa distribución a la resolución temporal de la región fría, la verificación de extremo a extremo del procedimiento de modelado, y el reanálisis exploratorio de la Fase R1 --- el mapa de amortización $K_{\text{break\_even}}$, la separación entre dispositivo y frecuencia, el \textit{headroom} de DVFS, el piso de ruido, el resultado de baselines y el comportamiento de movimiento de datos --- que reformula el selector como una decisión de dispositivo por tamaño y horizonte de reutilización. La implementación del agente y la evaluación de EDP frente a los gobernadores nativos corresponden a las Fases 3 y 4.
 
 \section{Campaña del catálogo dual sobre el eje de CPU}
 \label{sec:resultados-campana-dual}
@@ -1691,6 +1691,169 @@ Sobre el conjunto del eje de CPU se ejecutó el procedimiento completo de la sec
 La verificación confirmó los aspectos del procedimiento que no dependen de que la etiqueta tenga estructura: que ninguna configuración aparece simultáneamente en entrenamiento y prueba; que la búsqueda de hiperparámetros crea estudios reanudables, de modo que una interrupción por límite de tiempo del gestor de recursos continúa desde los ensayos ya completados en lugar de repetirlos; que las cuatro familias se ajustan, puntúan y serializan a través de la misma interfaz; y que las métricas de decisión y de latencia se calculan sobre el conjunto completo de candidatos de cada decisión.
 
 Conforme a lo establecido en las secciones \ref{sec:fase2-compuerta} y \ref{sec:fase2-alcance-cpu}, las magnitudes comparativas entre familias obtenidas en esta ejecución no se reportan como resultado de la investigación: el eje de CPU en aislamiento no contiene el grado de libertad de dispositivo, y la comparación que responde al cuarto objetivo específico se realizará sobre el conjunto completo. Lo que esta ejecución sí establece es que el procedimiento está operativo y auditado, de modo que la incorporación del eje del acelerador no exige construir ni depurar la tubería sobre datos ya adquiridos.
+
+\section{Reanálisis por tamaño y amortización (Fase R1)}
+\label{sec:resultados-r1-intro}
+
+Las secciones siguientes reportan la Fase R1 de la reformulación del selector: un reanálisis exploratorio de las 8\,160 corridas ya aceptadas del catálogo dual, ejecutado antes de solicitar cualquier hora de cómputo adicional. La unidad independiente sigue siendo \texttt{config\_id} (operación $\times$ tamaño): 68 configuraciones. El conjunto compacto que este reanálisis produce contiene 204 filas porque cada configuración se observa bajo tres estados de recurso --- \texttt{none\_ready}, \texttt{cpu\_ready} y \texttt{gpu\_ready} ---, y esas 204 filas son tres vistas correlacionadas de las mismas 68 configuraciones físicas, no 204 experimentos independientes.
+
+Este reanálisis es exploratorio y no sustituye la evaluación confirmatoria: una campaña separada reserva 9 configuraciones nuevas de \textit{GEMM}, \textit{Cholesky} y transformada de Fourier en $N \in \{8\,192, 12\,288, 16\,384\}$, bajo un protocolo congelado el mismo día antes de observar ninguna de sus mediciones. Esas 9 configuraciones \textbf{aún no se han observado} al momento de redactar este capítulo; los resultados que siguen se calculan exclusivamente sobre las 68 configuraciones exploratorias, y donde corresponda se señala qué pregunta queda pendiente de la evaluación confirmatoria.
+
+\subsection{El mapa de amortización \texorpdfstring{$K_{\text{break\_even}}$}{K\_break\_even}}
+\label{sec:resultados-r1-amortizacion}
+
+La estrategia sin ejecución previa (sección \ref{sec:resultados-compuerta-dual}) compara dispositivos sobre un único despacho frío, lo que estructuralmente impide que la GPU compita mientras el costo de arranque de CUDA domine la comparación. Esa comparación es incompleta si la operación se repite: el costo de arranque se paga una sola vez y se amortiza contra las repeticiones siguientes. Para cuantificar esa amortización se define, por dispositivo $d$ y horizonte de despachos $K$,
+
+\begin{align*}
+E_{\text{total}}(d, K) &= E_{\text{cold}}(d) + (K - 1) \cdot E_{\text{warm}}(d) \\
+T_{\text{total}}(d, K) &= T_{\text{cold}}(d) + (K - 1) \cdot T_{\text{warm}}(d) \\
+EDP_{\text{total}}(d, K) &= E_{\text{total}}(d, K) \cdot T_{\text{total}}(d, K)
+\end{align*}
+
+y se llama $K_{\text{break\_even}}$ al menor $K$ para el cual $EDP_{\text{total}}(\text{GPU}, K) < EDP_{\text{total}}(\text{CPU}, K)$. Por construcción, ese cruce existe si y solo si la GPU gana en la región caliente para esa configuración: si CPU domina también en caliente, ningún número de repeticiones hace que la curva de GPU cruce por debajo, y $K_{\text{break\_even}}$ es infinito.
+
+\begin{table}[H]
+\centering
+\caption[Mapa de amortización $K_{\text{break\_even}}$ por operación]{Cruces finitos de $K_{\text{break\_even}}$ por operación, sobre las medias de las tres repeticiones.}
+\label{tab:r1-amortizacion}
+\begin{tabular}{lrrrrr}
+\toprule
+\textbf{Operación} & \textbf{Configs.} & \textbf{$K$ finito} & \textbf{$K$ mínimo} & \textbf{$K$ mediano finito} & \textbf{$K$ máximo} \\
+\midrule
+AXPY      & 8  & 0 & --- & --- & --- \\
+Cholesky  & 13 & 8 & 2   & 49    & 2\,497  \\
+FFT       & 13 & 8 & 4   & 81,5  & 12\,294 \\
+GEMM      & 13 & 6 & 3   & 37,5  & 1\,075  \\
+SpMV      & 8  & 0 & --- & --- & --- \\
+\textit{Stencil} & 13 & 0 & --- & --- & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+En total, 22 de las 68 configuraciones presentan un cruce finito, y las 46 restantes no amortizan GPU bajo el contrato de transferencias medido dentro del horizonte analizado. \textit{Combinación lineal de vectores}, matriz--vector dispersa y \textit{stencil} no tienen ningún cruce finito: son las tres operaciones de baja intensidad operacional identificadas en la sección \ref{sec:resultados-warm-gpu}, en las que la CPU ya gana en la región caliente, de modo que ninguna cantidad de repeticiones favorece a la GPU. No es correcto, por tanto, afirmar que una operación completa amortiza GPU a todos sus tamaños solo porque sus tamaños grandes lo hagan: \textit{Cholesky}, la transformada de Fourier y la multiplicación de matrices densa tienen cruce en menos de la mitad de sus 13 tamaños cada una (8, 8 y 6 respectivamente).
+
+Los primeros tamaños con cruce observado son \textit{GEMM} en $N=768$ con $K_{\text{break\_even}}=1\,075$, la transformada de Fourier en $N=192$ con $K_{\text{break\_even}}=12\,294$, y \textit{Cholesky} en $N=384$ con $K_{\text{break\_even}}=2\,497$. La presencia del cruce no es monótona en el tamaño: la transformada de Fourier presenta un cruce aislado en $N=192$, vuelve a favorecer CPU en $N=256$ y $N=384$, y solo recupera cruces de forma sostenida desde $N=512$. Este comportamiento es en sí mismo una razón para tratar el tamaño como eje experimental medido en lugar de imponerle una frontera teórica suavizada.
+
+En el extremo superior del catálogo actual, el horizonte necesario para amortizar GPU se reduce drásticamente: \textit{GEMM} en $N=4096$ tiene $K_{\text{break\_even}}=3$, la transformada de Fourier en $N=4096$ tiene $K_{\text{break\_even}}=4$, y \textit{Cholesky} en $N=4096$ tiene $K_{\text{break\_even}}=2$. Con apenas dos a cuatro repeticiones, la GPU ya amortiza su arranque en las tres operaciones \textit{compute-bound} del catálogo a su mayor tamaño disponible.
+
+$K_{\text{break\_even}}$ no se presenta aquí como un entero exacto libre de incertidumbre. Los costos \texttt{cold} y \texttt{warm} se estiman a partir de tres repeticiones experimentales, y la región fría hereda el piso de ruido más alto de la sección \ref{sec:resultados-r1-piso-ruido}. Una envolvente conservadora --- que combina los extremos marginales observados de energía y tiempo en los sentidos favorable y desfavorable a GPU, sin suponer que el mínimo de energía y el de tiempo pertenecen a la misma repetición --- produce una banda de sensibilidad con mediana del 41\,\% y máximo del 78\,\% sobre el valor central de $K_{\text{break\_even}}$. Esa banda es una cota conservadora, no un intervalo probabilístico ni el resultado de un remuestreo pareado, y debe leerse junto con la cifra central en todo momento.
+
+\subsection{La decisión de dispositivo y su separación de la frecuencia}
+\label{sec:resultados-r1-dispositivo}
+
+La reformulación de la sección \ref{sec:resultados-r1-intro} separa la decisión de dispositivo de la decisión de frecuencia, en lugar de clasificar directamente entre las 40 acciones \texttt{dispositivo $\times$ frecuencia} como hacía la formulación anterior. Esa separación solo se justifica si la decisión de dispositivo obtenida a la frecuencia de referencia coincide con la que obtendría un oráculo que explora las 40 acciones.
+
+\begin{table}[H]
+\centering
+\caption[Coincidencia dispositivo REF vs.\ oráculo, por estado]{Dispositivo óptimo a frecuencia REF por estado de recurso, sobre las 204 filas del conjunto compacto (68 configuraciones $\times$ 3 estados).}
+\label{tab:r1-dispositivo-estado}
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{Estado} & \textbf{CPU óptima} & \textbf{GPU óptima} & \textbf{Separadas} & \textbf{Inciertas} \\
+\midrule
+\texttt{none\_ready} & 68 & 0  & 68 & 0 \\
+\texttt{cpu\_ready}  & 68 & 0  & 68 & 0 \\
+\texttt{gpu\_ready}  & 12 & 56 & 68 & 0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+La decisión de dispositivo obtenida comparando únicamente CPU y GPU a frecuencia REF coincide con la del oráculo que explora las 40 acciones en los 204 contextos, sin una sola discrepancia. El producto cartesiano completo de frecuencias no cambió ninguna etiqueta de dispositivo en el conjunto actual. Este resultado respalda la arquitectura de dos capas de la sección \ref{sec:resultados-r1-intro}: la decisión de dispositivo puede resolverse a REF, dejando la exploración de frecuencia como una capa posterior sobre el dispositivo ya elegido.
+
+\subsection{El \textit{headroom} de DVFS por estado}
+\label{sec:resultados-r1-headroom-dvfs}
+
+Una vez fijado el dispositivo, resta cuantificar cuánto puede ganar todavía la actuación de frecuencia frente a REF, antes de descontar el costo de la propia actuación. Se compara, por estado de recurso, la mejor frecuencia del dispositivo ganador contra REF:
+
+\begin{table}[H]
+\centering
+\caption[Headroom de frecuencia sobre REF, por estado]{Mejora potencial de frecuencia sobre REF, por estado de recurso, antes de descontar el costo de actuación.}
+\label{tab:r1-headroom-dvfs}
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{Estado} & \textbf{Casos sobre 3,11\,\%} & \textbf{Mediana} & \textbf{p95} & \textbf{Máxima} \\
+\midrule
+\texttt{none\_ready} & 38/68 & 4,98\,\% & 50,70\,\% & 57,96\,\% \\
+\texttt{cpu\_ready}  & 3/68  & 0,25\,\% & 2,77\,\%  & 8,54\,\%  \\
+\texttt{gpu\_ready}  & 56/68 & 9,45\,\% & 45,25\,\% & 68,47\,\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Sobre este resultado conviene distinguir dos afirmaciones que no son equivalentes y que deben mantenerse separadas. La primera es que el margen relativo mediano entre la mejor frecuencia y la segunda mejor, dentro de la estrategia con sondeo, es del 1,03\,\%: ese número indica que el \texttt{argmin} fino --- identificar exactamente cuál de las ocho frecuencias es la óptima puntual --- es inestable frente al ruido de medición. La segunda es que \texttt{gpu\_ready} conserva, en 56 de sus 68 configuraciones, una mejora potencial sobre REF por encima del piso de ruido del 3,11\,\% (sección \ref{sec:resultados-r1-piso-ruido}), con mediana del 9,45\,\%. Que el óptimo puntual sea inestable no implica que REF sea equivalente al conjunto de mejores frecuencias: hay un margen mediano recuperable de un orden de magnitud mayor que el piso de ruido en el estado que domina el catálogo tras la selección de dispositivo. La tarea pendiente para la capa DVFS no es, entonces, localizar el óptimo exacto entre ocho niveles, sino identificar un conjunto de frecuencias estadísticamente equivalentes y robustas frente al ruido, y descontar después el costo real de la actuación.
+
+\subsection{El piso de ruido y su descomposición regional}
+\label{sec:resultados-r1-piso-ruido}
+
+El piso de ruido de medición usado como referencia en las secciones anteriores se calibra como el coeficiente de variación mediano del EDP entre las tres repeticiones de una misma acción, sobre el conjunto exploratorio completo:
+
+\begin{table}[H]
+\centering
+\caption[Piso de ruido de medición, global y por región]{Coeficiente de variación mediano del EDP entre repeticiones, global, por dispositivo y por región temporal.}
+\label{tab:r1-piso-ruido}
+\begin{tabular}{lr}
+\toprule
+\textbf{Desglose} & \textbf{CV mediano} \\
+\midrule
+Global            & 3,11\,\% \\
+CPU               & 2,57\,\% \\
+GPU               & 3,16\,\% \\
+Región \texttt{cold} & 5,76\,\% \\
+Región \texttt{warm} & 1,80\,\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+La descomposición por región es la más relevante para interpretar los resultados anteriores: la región fría es aproximadamente tres veces más ruidosa que la región caliente. Esto no es un detalle secundario, porque el estado \texttt{none\_ready} --- y con él, la totalidad de los términos $E_{\text{cold}}$ y $T_{\text{cold}}$ que alimentan el mapa de amortización de la sección \ref{sec:resultados-r1-amortizacion} --- descansa enteramente sobre mediciones de la región más ruidosa del experimento. La banda de incertidumbre del 41\,\% mediano reportada para $K_{\text{break\_even}}$ es, en buena medida, una consecuencia directa de heredar ese piso más alto.
+
+\subsection{El resultado de baselines y su alcance}
+\label{sec:resultados-r1-baselines}
+
+En \texttt{none\_ready} y \texttt{cpu\_ready}, la política \texttt{always\_cpu\_ref} coincide con el oráculo de dispositivo en la totalidad de los pliegues evaluados, de modo que la única rama con una comparación no trivial es \texttt{gpu\_ready}. Sobre ella se evaluaron las ocho baselines obligatorias del protocolo (§9 del plan de reformulación) en los dos regímenes de partición por tamaño:
+
+\begin{table}[H]
+\centering
+\caption[Mejor baseline en \texttt{gpu\_ready}, por régimen]{Mejor baseline frente al oráculo de dispositivo en \texttt{gpu\_ready}, para los regímenes de interpolación y extrapolación.}
+\label{tab:r1-baselines}
+\begin{tabular}{lp{3.6cm}rrr}
+\toprule
+\textbf{Régimen} & \textbf{Mejor baseline} & \textbf{Balanced accuracy} & \textbf{Razón EDP/oráculo} & \textbf{Brecha recuperable} \\
+\midrule
+Interpolación  & umbral de tamaño            & 0,778 & 1,0029 & 0,285\,\% \\
+Extrapolación  & tabla de cruce por operación & 0,867 & 1,0130 & 1,283\,\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Ambas brechas recuperables --- 0,285\,\% en interpolación y 1,283\,\% en extrapolación --- quedan por debajo del piso de ruido global del 3,11\,\%. Bajo la regla bloqueante del protocolo congelado (superar la mejor baseline pertinente por encima del piso de ruido, o conservar la baseline), este resultado ya es suficiente para anticipar un veredicto negativo para el aprendizaje automático de dispositivo en estos pliegues: si ni siquiera el oráculo logra separarse de la mejor baseline por más del piso de ruido, ningún modelo entrenado sobre los mismos datos puede hacerlo mejor.
+
+Dos salvedades deben mantenerse explícitas al leer esta conclusión, y no deben omitirse. Primera, es una \textbf{conclusión contractual} derivada de una regla bloqueante predeclarada, no una prueba estadística de ausencia de señal: el 3,11\,\% es el coeficiente de variación mediano de acciones \textit{individuales} entre repeticiones, no una estimación de la incertidumbre de la diferencia \textit{agregada} entre dos políticas evaluadas sobre el conjunto de prueba completo; ambas cantidades responden preguntas distintas y no deben confundirse. Segunda, este resultado está acotado a $K=1$ --- un único despacho restante ---, porque ninguna de las ocho baselines de esta comparación plantea la pregunta de horizonte que introduce la sección \ref{sec:resultados-r1-gap-estado-k}. La Fase R2 del plan de reformulación sigue siendo obligatoria para completar la comparación predeclarada con los modelos candidatos, aun cuando este resultado ya acota por arriba la mejora que esos modelos podrán demostrar en $K=1$.
+
+\subsection{El \textit{gap} estado \texorpdfstring{$\times$}{x} \textit{K}}
+\label{sec:resultados-r1-gap-estado-k}
+
+Las secciones anteriores describen la decisión de dispositivo para el despacho siguiente, es decir, para $K=1$. La formulación original del estado \texttt{cpu\_ready} (sección \ref{sec:resultados-r1-dispositivo}) fija la regla ``permanecer en CPU'' porque CPU es óptima en los 68 grupos de ese estado a $K=1$. Esa regla es correcta solo para el despacho siguiente: al extender la comparación a un horizonte $K$ de despachos, mediante la misma formulación $EDP_{\text{total}}(d, K)$ de la sección \ref{sec:resultados-r1-amortizacion} --- pagando el costo de arranque únicamente cuando el dispositivo destino no está ya inicializado en ese estado ---, la decisión correcta deja de ser constante.
+
+Desde \texttt{cpu\_ready}, 22 de las 68 configuraciones migran a GPU en algún $K$ dentro del horizonte analizado; los primeros cruces son \textit{Cholesky} en $N=4096$ en $K=2$, \textit{GEMM} en $N=4096$ en $K=3$ y la transformada de Fourier en $N=4096$ en $K=5$. En sentido inverso, desde \texttt{gpu\_ready} 46 de las 68 configuraciones migran a CPU en algún $K$; los primeros cruces inversos son \textit{stencil} en $N=3072$ en $K=2$, combinación lineal de vectores en $N=31\,623$ en $K=3$ y matriz--vector dispersa en $N=1\,000\,000$ en $K=3$. Los tres estados de recurso convergen al mismo conjunto asintótico de 22 configuraciones en las que GPU gana en la región caliente ($22 + 46 = 68$), que es exactamente el conjunto identificado en la sección \ref{sec:resultados-r1-amortizacion}; esta coincidencia es una comprobación de consistencia interna del mapa de amortización, no un hallazgo independiente.
+
+La política de dispositivo correcta para los tres estados es entonces
+
+\begin{equation*}
+\text{decisión}(\text{estado}, K) = \operatorname*{argmin}_{d} \; EDP_{\text{total}}(d, K \mid \text{estado}),
+\end{equation*}
+
+y no una regla constante por estado. El resultado de la sección \ref{sec:resultados-r1-baselines} --- que una tabla de umbrales iguala al oráculo dentro del piso de ruido --- se conserva sin cambios, pero acotado explícitamente a $K=1$: ninguna de las ocho baselines evaluadas allí plantea la pregunta de horizonte, de modo que ese resultado no puede extenderse a $K>1$ sin baselines adicionales que resuelvan explícitamente $\operatorname*{argmin}_d EDP_{\text{total}}(d, K)$ y que se comparen contra la política de permanecer en el dispositivo preparado para todo el horizonte.
+
+\subsection{El comportamiento de movimiento de datos}
+\label{sec:resultados-r1-movimiento-datos}
+
+La sección \ref{sec:resultados-warm-gpu} mostró que, en la región caliente, la ventaja de la GPU se concentra en las tres operaciones de mayor intensidad operacional y desaparece --- e incluso se invierte --- en las tres de menor intensidad. Para entender por qué, se calculó un rendimiento implícito de movimiento de datos en GPU: los bytes lógicos por despacho (Tabla \ref{tab:formulas-analiticas}) divididos entre el tiempo por despacho en la región caliente, para cada operación.
+
+Ese rendimiento implícito converge a un rango estrecho de entre 8 y 10~GB/s en las seis operaciones del catálogo, con independencia de cuán distinta sea su intensidad aritmética: combinación lineal de vectores entre 9,4 y 9,5~GB/s, matriz--vector dispersa entre 9,9 y 10,1~GB/s, \textit{stencil} entre 9,2 y 9,4~GB/s, multiplicación de matrices densa entre 8,2 y 8,6~GB/s, \textit{Cholesky} entre 7,9 y 8,7~GB/s, y la transformada de Fourier entre 9,2 y 9,3~GB/s.
+
+Esta convergencia es \textbf{consistente con} un cuello de botella de movimiento de datos entre anfitrión y acelerador: un límite dominado por cómputo no produciría cifras tan parecidas entre operaciones cuya intensidad aritmética difiere en órdenes de magnitud, porque cada una satura un recurso de cómputo distinto a una tasa distinta. Sin embargo, esta observación debe leerse con dos salvedades que no se relajan. Primera, el número reportado es una \textbf{cota inferior} del ancho de banda real, no una medición de él: el tiempo por despacho incluye el kernel de cómputo y el \textit{overhead} de lanzamiento además de la transferencia, de modo que el ancho de banda efectivo de la transferencia aislada es, como mínimo, igual o mayor a esta cifra. Segunda, este proyecto no realizó ninguna medición aislada del bus PCIe entre anfitrión y acelerador, de modo que no se reporta --- ni se compara contra --- ninguna cifra de ancho de banda PCIe de la plataforma. La convergencia observada no constituye una demostración causal del mecanismo; es una observación consistente con él, y se reporta con ese alcance.
+
+Esta interpretación explica, sin necesidad de invocar una causa distinta por operación, por qué combinación lineal de vectores, matriz--vector dispersa y \textit{stencil} favorecen a la GPU en los tamaños pequeños del catálogo y dejan de hacerlo en los tamaños grandes (sección \ref{sec:resultados-warm-gpu}): si el tiempo por despacho está acotado por un recurso de transferencia que no escala con la intensidad de cómputo, entonces cualquier crecimiento del tamaño del problema en una operación de baja intensidad aritmética añade tiempo de transferencia sin que el cómputo, ya subordinado a ese cuello de botella, pueda compensarlo --- lo opuesto de lo que la intuición basada solo en el trabajo aritmético total sugeriría.
 
 %==============================================================================
 
