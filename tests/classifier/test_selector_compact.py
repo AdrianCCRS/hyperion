@@ -416,9 +416,14 @@ def test_run_baselines_no_mezcla_estados_y_reporta_el_regimen():
 def test_reporte_de_senal_aprendible_usa_el_piso_de_ruido():
     frame = compact.build_compact_dataset(_two_operation_candidates())
     resultados = sizes.run_baselines(sizes.extrapolation_folds(frame, n_largest=1))
-    reporte = sizes.learnable_signal_report(resultados)
+    reporte = sizes.baseline_headroom_report(resultados)
     assert "oracle" not in set(reporte["best_baseline"])
-    assert set(reporte.columns) >= {"learnable_signal", "headroom_over_best_baseline_pct"}
+    assert set(reporte.columns) >= {
+        "above_individual_action_cv_reference",
+        "oracle_headroom_over_best_baseline_pct",
+        "strict_frozen_protocol_pass_possible",
+        "inference_status",
+    }
 
 
 # --------------------------------------------------------------------------

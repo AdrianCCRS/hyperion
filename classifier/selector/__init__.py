@@ -6,5 +6,6 @@ unidad de decision es un conjunto de configuraciones candidatas.
 """
 
 from .dataset import BuildConfig, build_selector_datasets
+from .r1 import run_r1_analysis
 
-__all__ = ["BuildConfig", "build_selector_datasets"]
+__all__ = ["BuildConfig", "build_selector_datasets", "run_r1_analysis"]

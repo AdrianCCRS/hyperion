@@ -20,6 +20,28 @@ construye el dataset del selector cold/warm.
 - `evaluate`: resume una búsqueda ya terminada.
 - `all`: ejecuta la cadena completa.
 
+La reformulación orientada a tamaños añade un sexto comando:
+
+- `r1`: consume el nivel 2 ya construido y genera el dataset compacto REF,
+  el mapa de amortización `K_break_even`, el data card, el protocolo de
+  partición por tamaños, las baselines y la descomposición de headroom entre
+  dispositivo y frecuencia. No relee las carpetas crudas ni lanza campañas.
+
+```bash
+python -m classifier.selector r1 \
+  --dataset-dir ~/hyperion-results/analysis/selector_final_20260830 \
+  --output-dir ~/hyperion-results/analysis/selector_final_20260830/r1_reformulated_20260830
+```
+
+El contrato R1 trata `config_id` como unidad independiente, `K` como entrada
+suministrada y la generalización a tamaños no vistos dentro de las seis
+operaciones conocidas como dominio principal. La envolvente de
+`K_break_even` usa extremos marginales observados de energía y tiempo como
+análisis conservador de sensibilidad; no se presenta como intervalo de
+confianza. La salida incluye `datacard.json`/`datacard.md`, datasets compacto
+estático y con sondeo, pliegues por tamaño, baselines, brecha baseline-oráculo
+y headroom DVFS.
+
 Ejemplo de construcción provisional CPU:
 
 ```bash

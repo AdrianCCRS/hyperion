@@ -8,6 +8,7 @@ import pandas as pd
 
 from .dataset import BuildConfig, build_selector_datasets
 from .eda import generate_eda
+from .r1 import run_r1_analysis
 from .search import FAMILIES, evaluate_existing, run_nested_tuning
 
 
@@ -80,6 +81,13 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate = sub.add_parser("evaluate", help="resume una evaluacion ya ejecutada")
     evaluate.add_argument("--output-dir", required=True, type=Path)
 
+    r1 = sub.add_parser(
+        "r1", help="reanálisis REF, amortización K, baselines y headroom DVFS",
+    )
+    r1.add_argument("--dataset-dir", required=True, type=Path)
+    r1.add_argument("--output-dir", type=Path)
+    r1.add_argument("--z-score", type=float, default=1.96)
+
     all_parser = sub.add_parser("all", help="build + eda + tune A/C")
     _add_build_arguments(all_parser)
     all_parser.add_argument("--families", type=_families, default=FAMILIES)
@@ -110,6 +118,11 @@ def main(argv: list[str] | None = None) -> None:
             print(f"{name}: {path}")
     elif args.command == "evaluate":
         print(evaluate_existing(args.output_dir))
+    elif args.command == "r1":
+        for name, path in run_r1_analysis(
+            args.dataset_dir, args.output_dir, z_score=args.z_score,
+        ).items():
+            print(f"{name}: {path}")
     elif args.command == "all":
         paths = _build_from_args(args)
         generate_eda(args.output_dir)

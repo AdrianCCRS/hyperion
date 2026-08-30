@@ -334,12 +334,14 @@ def run_baselines(
     return pd.DataFrame(records)
 
 
-def learnable_signal_report(results: pd.DataFrame) -> pd.DataFrame:
-    """Cuanto margen deja la mejor baseline no-oraculo frente al oraculo.
+def baseline_headroom_report(results: pd.DataFrame) -> pd.DataFrame:
+    """Brecha descriptiva entre la mejor baseline y el oraculo.
 
-    Si el oraculo no mejora sensiblemente a la mejor baseline, no hay senal
-    que un modelo pueda capturar y la regla bloqueante de la seccion 9 se
-    resuelve a favor de la baseline sin necesidad de entrenar nada.
+    El CV mediano de acciones individuales se conserva solo como referencia
+    de cribado. No es la incertidumbre de la perdida agregada entre politicas
+    y, por tanto, esta tabla no decide por si sola si existe senal aprendible.
+    Esa conclusion requiere R2: modelo y baseline evaluados en los mismos
+    pliegues externos, con incertidumbre sobre su diferencia.
     """
     records: list[dict[str, Any]] = []
     for (regime, state), group in results.groupby(["regime", "resource_state"], observed=True):
@@ -352,6 +354,10 @@ def learnable_signal_report(results: pd.DataFrame) -> pd.DataFrame:
         if without_oracle.empty:
             continue
         best = without_oracle["edp_sum_ratio_vs_oracle"].idxmin()
+        oracle_headroom = float(
+            100.0 * (1.0 - 1.0 / without_oracle.loc[best, "edp_sum_ratio_vs_oracle"])
+        )
+        pass_possible = oracle_headroom >= NOISE_FLOOR_PCT
         records.append({
             "regime": regime,
             "resource_state": state,
@@ -362,12 +368,21 @@ def learnable_signal_report(results: pd.DataFrame) -> pd.DataFrame:
             "best_baseline_balanced_accuracy": float(
                 without_oracle.loc[best, "balanced_accuracy"]
             ),
-            "headroom_over_best_baseline_pct": float(
-                100.0 * (1.0 - 1.0 / without_oracle.loc[best, "edp_sum_ratio_vs_oracle"])
-            ),
-            "learnable_signal": bool(
-                100.0 * (1.0 - 1.0 / without_oracle.loc[best, "edp_sum_ratio_vs_oracle"])
-                >= NOISE_FLOOR_PCT
+            "oracle_headroom_over_best_baseline_pct": oracle_headroom,
+            "above_individual_action_cv_reference": pass_possible,
+            # El oraculo es una cota superior: si ni el puede mejorar la
+            # baseline por el umbral preregistrado, ningun modelo puede pasar
+            # la regla bloqueante. Esto es una conclusion bajo el protocolo
+            # congelado, no un intervalo estadistico sobre politicas.
+            "strict_frozen_protocol_pass_possible": pass_possible,
+            "inference_status": (
+                "requires_r2_model_comparison" if pass_possible
+                else "ruled_out_by_oracle_upper_bound_under_frozen_rule"
             ),
         })
     return pd.DataFrame(records)
+
+
+def learnable_signal_report(results: pd.DataFrame) -> pd.DataFrame:
+    """Alias de compatibilidad; no afirma que la senal sea aprendible."""
+    return baseline_headroom_report(results)
