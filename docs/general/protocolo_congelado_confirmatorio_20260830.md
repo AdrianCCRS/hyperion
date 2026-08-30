@@ -49,6 +49,13 @@ Implementación de referencia: `classifier.selector.compact.build_compact_datase
 
 ## 2. Estado de aprendizaje por estado de recurso
 
+> **SUPERSEDIDO PARCIALMENTE por la enmienda 2026-08-30-A (§12).** Las reglas
+> por estado de esta sección son correctas **únicamente para `K = 1`** (un solo
+> despacho restante). La política del agente se formula sobre
+> `resource_state × K`; ver §12. Las listas de "óptimo en 68/68" y "56/56 12/12"
+> se conservan aquí sin modificación porque describen correctamente el caso
+> `K = 1` y porque reescribirlas destruiría el registro de lo que se congeló.
+
 Fijado con los datos exploratorios, antes de ver los confirmatorios:
 
 - `none_ready`: CPU óptima en 68/68 → **no se entrena modelo**. Regla fija:
@@ -251,3 +258,112 @@ invalida el carácter confirmatorio de la evaluación.
 | fecha | cambio | ¿datos confirmatorios ya observados? |
 |-------|--------|--------------------------------------|
 | 2026-08-30 | versión inicial congelada | no |
+| 2026-08-30 | enmienda **2026-08-30-A**: política sobre `resource_state × K` (§12); §2 supersedida parcialmente | **no** — verificado: jobs 6763/6764 en estado `PENDING`, los directorios `pacca_dual_{cpu,gpu}_big_ref_20260830` no existían al redactar |
+
+---
+
+## 12. Enmienda 2026-08-30-A — política sobre `resource_state × K`
+
+**Fecha:** 2026-08-30
+**Datos confirmatorios observados al redactar:** ninguno (verificado por
+`squeue` y por ausencia de los directorios de salida)
+**Motivo:** la versión inicial formuló el horizonte `K` únicamente para
+`none_ready` (§6.2 del plan). Para `cpu_ready` y `gpu_ready` fijó reglas
+derivadas del despacho siguiente, es decir `K = 1`, y las presentó como la
+política del estado. Es un error de formulación, no de medición: las
+mediciones de §2 son correctas para `K = 1`.
+
+### 12.1 Formulación corregida
+
+La decisión de dispositivo del agente es, en los **tres** estados:
+
+```text
+decision(estado, K) = argmin_d  EDP_total(d, K | estado)
+```
+
+donde el término de arranque se paga solo cuando el dispositivo destino no
+está inicializado en ese estado:
+
+```text
+d ya inicializado:   E_total = K * E_warm(d)              T_total = K * T_warm(d)
+d no inicializado:   E_total = E_cold(d) + (K-1)*E_warm(d)
+                     T_total = T_cold(d) + (K-1)*T_warm(d)
+EDP_total(d,K)     = E_total(d,K) * T_total(d,K)
+```
+
+`K` es una **entrada conocida**, suministrada por la aplicación o por el
+escenario experimental (§6.2 y §16.2 del plan). Su estimación en línea es la
+Fase E2 y queda fuera del núcleo obligatorio. Todos los resultados de
+dispositivo se reportarán **como función de `K`**, no para un `K` implícito.
+
+### 12.2 Evidencia que motiva la enmienda
+
+Calculada sobre los datos exploratorios (8 160 corridas, 68 `config_id`), con
+dos implementaciones independientes que coinciden configuración a
+configuración:
+
+| desde | configuraciones que cambian de dispositivo en algún `K` |
+|---|---|
+| `cpu_ready` | **22/68** migran a GPU |
+| `gpu_ready` | **46/68** migran a CPU |
+
+Primeros cruces desde `cpu_ready`: Cholesky N=4096 en `K=2`, GEMM N=4096 en
+`K=3`, FFT N=4096 en `K=5`. Cruces inversos desde `gpu_ready`: Stencil N=3072
+en `K=2`, AXPY N=31623 y SpMV N=1 000 000 en `K=3`.
+
+Los tres estados convergen al mismo conjunto asintótico: las **22**
+configuraciones en que GPU gana en región caliente (`22 + 46 = 68`). Esta
+identidad es una comprobación de consistencia interna del mapa y debe
+verificarse en el conjunto confirmatorio.
+
+En consecuencia, la regla "en `cpu_ready` permanecer siempre en CPU" (§6.3 del
+plan y §2 de este protocolo) es verdadera para el despacho siguiente y falsa
+como política de horizonte.
+
+### 12.3 Alcance del resultado "política simple"
+
+El resultado congelado en §6 —una tabla de umbrales por operación iguala al
+oráculo dentro del piso de ruido, luego la regla bloqueante impide reclamar
+valor para el Aprendizaje Automático— **se conserva sin cambios, acotado a
+`K = 1`**. Ninguna de las ocho baselines de §6 plantea la pregunta de
+horizonte, de modo que ese resultado no puede extenderse a `K > 1` sin
+baselines que lo evalúen.
+
+### 12.4 Baselines adicionales (congeladas por esta enmienda)
+
+Se añaden a las ocho de §6, con los mismos requisitos de ajuste
+exclusivamente en entrenamiento:
+
+9. `stay_on_ready_device_k` — permanecer en el dispositivo preparado para todo
+   el horizonte; es la baseline que la política de §2 representa realmente.
+10. `k_break_even_table_train` — tabla empírica de `K_break_even` por operación
+    y tamaño, ajustada solo con tamaños de entrenamiento, aplicada por
+    interpolación al tamaño de prueba.
+11. `oracle_k` — oráculo con conocimiento posterior que resuelve
+    `argmin_d EDP_total(d, K | estado)` con los costos medidos.
+
+La regla bloqueante de §6 se aplica igualmente a estas tres.
+
+### 12.5 Reporte
+
+Los resultados de dispositivo se reportarán en una rejilla de `K` fijada aquí
+para impedir su elección posterior:
+
+```text
+K ∈ {1, 2, 3, 5, 10, 30, 100, 1000}
+```
+
+Se reportará además, por configuración, el `K` de cambio de dispositivo y su
+banda de sensibilidad. `K_break_even` no se presenta como entero exacto: los
+costos `cold` heredan un piso de ruido de 5,76 % frente al 1,80 % de la región
+caliente (§7), y la banda observada sobre las repeticiones tiene mediana 41 % y
+máximo 78 %.
+
+### 12.6 Lo que esta enmienda NO cambia
+
+- Los jobs 6763/6764 y sus manifiestos: los datos REF `cold`/`warm` que
+  producen son exactamente los que esta formulación necesita.
+- El target de §1, las características de §3, las familias de §4, el piso de
+  ruido y la regla de abstención de §7.
+- El estado de aprendizaje de §2 para `K = 1`.
+- La decisión de no ejecutar el barrido cartesiano de frecuencias.
