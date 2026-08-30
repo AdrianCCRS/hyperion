@@ -113,3 +113,34 @@ def test_optuna_reanuda_hasta_total_de_trials_sin_duplicarlos(tmp_path):
     )
     assert first["completed_trials"] == 1
     assert second["completed_trials"] == 1
+
+
+def test_best_baseline_comparison_marca_false_si_el_modelo_pierde():
+    baseline_records = [
+        {"family": "best_constant_train", "edp_loss": 1.114},
+        {"family": "always_cpu_ref", "edp_loss": 1.30},
+        {"family": "oracle", "edp_loss": 1.0},
+    ]
+    result = search.best_baseline_comparison(baseline_records, selected_edp_loss_mean=1.185)
+    assert result["best_baseline_family"] == "best_constant_train"
+    assert result["best_baseline_edp_loss"] == pytest.approx(1.114)
+    assert result["beats_best_baseline"] is False
+
+
+def test_best_baseline_comparison_marca_true_si_el_modelo_gana():
+    baseline_records = [
+        {"family": "best_constant_train", "edp_loss": 1.114},
+        {"family": "always_cpu_ref", "edp_loss": 1.30},
+        {"family": "oracle", "edp_loss": 1.0},
+    ]
+    result = search.best_baseline_comparison(baseline_records, selected_edp_loss_mean=1.05)
+    assert result["beats_best_baseline"] is True
+
+
+def test_best_baseline_comparison_sin_baselines_devuelve_none():
+    result = search.best_baseline_comparison([], selected_edp_loss_mean=1.05)
+    assert result == {
+        "best_baseline_family": None,
+        "best_baseline_edp_loss": None,
+        "beats_best_baseline": None,
+    }

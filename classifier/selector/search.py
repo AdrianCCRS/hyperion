@@ -268,6 +268,32 @@ def _baseline_fold(train: pd.DataFrame, test: pd.DataFrame, seed: int) -> list[d
     return rows
 
 
+def best_baseline_comparison(
+    baseline_records: list[dict[str, Any]], selected_edp_loss_mean: float,
+) -> dict[str, Any]:
+    """Compara la familia elegida contra la mejor baseline no-oraculo.
+
+    El contrato antes callaba cuando el modelo elegido quedaba peor que una
+    alternativa trivial (p.ej. best_constant_train); esto lo deja explicito.
+    """
+    baselines_df = pd.DataFrame(baseline_records)
+    non_oracle = baselines_df[baselines_df["family"] != "oracle"] if not baselines_df.empty else baselines_df
+    if non_oracle.empty:
+        return {
+            "best_baseline_family": None,
+            "best_baseline_edp_loss": None,
+            "beats_best_baseline": None,
+        }
+    summary = non_oracle.groupby("family", observed=True)["edp_loss"].mean()
+    best_baseline_family = str(summary.idxmin())
+    best_baseline_edp_loss = float(summary.min())
+    return {
+        "best_baseline_family": best_baseline_family,
+        "best_baseline_edp_loss": best_baseline_edp_loss,
+        "beats_best_baseline": bool(selected_edp_loss_mean < best_baseline_edp_loss),
+    }
+
+
 def run_nested_tuning(
     dataset_path: str | Path,
     output_dir: str | Path,
@@ -358,11 +384,15 @@ def run_nested_tuning(
     final_size = _serialize_model(final_model, output_dir / "selected_model.pkl")
     categorical, numeric = models.feature_columns(frame)
     health = label_health.assess_label_health(frame)
+    selected_edp_loss_mean = float(winner["edp_loss_mean"])
+    baseline_comparison = best_baseline_comparison(baseline_records, selected_edp_loss_mean)
     contract = {
         "strategy": strategy,
         "selected_family": winner_family,
         "selection_rule": "edp_loss_within_1pct_or_within_fold_dispersion_then_p99_then_size",
         "families_indistinguishable_from_winner": families_indistinguishable_from_winner,
+        "selected_family_edp_loss_mean": selected_edp_loss_mean,
+        **baseline_comparison,
         "external_folds": n_folds,
         "categorical_features": categorical,
         "numeric_features": numeric,
