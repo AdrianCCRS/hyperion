@@ -12,11 +12,22 @@ from .search import FAMILIES, evaluate_existing, run_nested_tuning
 
 
 def _add_build_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--cpu-campaign", required=True, type=Path)
-    parser.add_argument("--gpu-campaign", type=Path)
+    # --cpu-campaign/--gpu-campaign/--cpu-manifest/--gpu-manifest admiten
+    # repetirse (action="append") para combinar varios directorios de
+    # campana del mismo eje en un solo dataset -- ej. campana base (68
+    # config_id) + campana suplementaria "big" (9 config_id):
+    #   --cpu-campaign .../pacca_dual_cpu_full_20260828 \
+    #   --cpu-campaign .../pacca_dual_cpu_big_20260830 \
+    #   --cpu-manifest .../campaign_pacca_dual_cpu_full.yaml \
+    #   --cpu-manifest .../campaign_pacca_dual_cpu_big.yaml
+    # El conteo esperado de config_id se deriva de la union de kernel_ref de
+    # TODOS los --cpu-manifest pasados (ver dataset.expected_config_ids), no
+    # de un numero fijo.
+    parser.add_argument("--cpu-campaign", required=True, action="append", type=Path)
+    parser.add_argument("--gpu-campaign", action="append", type=Path)
     parser.add_argument("--catalog", required=True, type=Path)
-    parser.add_argument("--cpu-manifest", type=Path)
-    parser.add_argument("--gpu-manifest", type=Path)
+    parser.add_argument("--cpu-manifest", action="append", type=Path)
+    parser.add_argument("--gpu-manifest", action="append", type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--mode", choices=["cpu-provisional", "final"], default="cpu-provisional")
     parser.add_argument("--idle-gpu-power-w", type=float, default=34.8379)

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, Sequence
 import json
 import math
 import re
@@ -32,14 +32,30 @@ GPU_TELEMETRY = (
 )
 
 
+def _as_path_tuple(value: Path | Sequence[Path] | None) -> tuple[Path, ...]:
+    """Normaliza un campo Path-o-lista a tupla, para admitir campana unica
+    (uso historico) o varias campanas del mismo eje combinadas (base + big,
+    ver campaign_pacca_dual_cpu_big.yaml) sin dos formas de invocar la API."""
+    if value is None:
+        return ()
+    if isinstance(value, Path):
+        return (value,)
+    return tuple(value)
+
+
 @dataclass(frozen=True)
 class BuildConfig:
-    cpu_campaign_dir: Path
+    # Acepta un Path unico (compatibilidad historica) o una secuencia de
+    # Path -- ej. [campana_full, campana_big] -- para combinar varios
+    # directorios de campana del mismo eje en un solo dataset. Ver
+    # cpu_campaign_dirs/gpu_campaign_dirs/cpu_manifest_paths/gpu_manifest_paths
+    # (normalizados en __post_init__) para el acceso ya-en-tupla.
+    cpu_campaign_dir: Path | Sequence[Path]
     catalog_path: Path
     output_dir: Path
-    cpu_manifest_path: Path | None = None
-    gpu_campaign_dir: Path | None = None
-    gpu_manifest_path: Path | None = None
+    cpu_manifest_path: Path | Sequence[Path] | None = None
+    gpu_campaign_dir: Path | Sequence[Path] | None = None
+    gpu_manifest_path: Path | Sequence[Path] | None = None
     mode: str = "cpu-provisional"
     idle_gpu_power_w: float = IDLE_GPU_POWER_W
     idle_gpu_power_source_job: str = IDLE_GPU_POWER_SOURCE_JOB
@@ -48,7 +64,13 @@ class BuildConfig:
     def __post_init__(self) -> None:
         if self.mode not in {"cpu-provisional", "final"}:
             raise ValueError(f"modo desconocido: {self.mode}")
-        if self.mode == "final" and self.gpu_campaign_dir is None:
+        object.__setattr__(self, "cpu_campaign_dirs", _as_path_tuple(self.cpu_campaign_dir))
+        object.__setattr__(self, "gpu_campaign_dirs", _as_path_tuple(self.gpu_campaign_dir))
+        object.__setattr__(self, "cpu_manifest_paths", _as_path_tuple(self.cpu_manifest_path))
+        object.__setattr__(self, "gpu_manifest_paths", _as_path_tuple(self.gpu_manifest_path))
+        if not self.cpu_campaign_dirs:
+            raise ValueError("cpu_campaign_dir vacio")
+        if self.mode == "final" and not self.gpu_campaign_dirs:
             raise ValueError("modo final exige gpu_campaign_dir")
         if self.expected_repetitions <= 0:
             raise ValueError("expected_repetitions debe ser positivo")
@@ -130,17 +152,24 @@ def expected_actions(mode: str) -> tuple[str, ...]:
 
 
 def configured_actions(config: BuildConfig) -> tuple[str, ...]:
-    """Deriva el espacio de acciones de los manifiestos y verifica el contrato."""
-    if config.cpu_manifest_path is None:
+    """Deriva el espacio de acciones de los manifiestos y verifica el contrato.
+
+    Cuando el eje combina varias campanas (base + big), todas comparten la
+    misma rejilla de frecuencias por diseno (la campana "big" copia
+    frequency_levels/gpu_frequency_levels del manifiesto full sin cambios,
+    ver campaign_pacca_dual_cpu_big.yaml) -- basta leer el primer manifiesto
+    de cada eje para derivar el espacio de acciones.
+    """
+    if not config.cpu_manifest_paths:
         actions = expected_actions(config.mode)
     else:
-        cpu_manifest = _load_yaml(config.cpu_manifest_path)
+        cpu_manifest = _load_yaml(config.cpu_manifest_paths[0])
         cpu_levels = tuple(str(item["id"]) for item in cpu_manifest.get("frequency_levels", []))
         actions = tuple(action_id("cpu", level) for level in cpu_levels)
         if config.mode == "final":
-            if config.gpu_manifest_path is None:
+            if not config.gpu_manifest_paths:
                 raise DatasetContractError("modo final exige gpu_manifest_path para derivar acciones")
-            gpu_manifest = _load_yaml(config.gpu_manifest_path)
+            gpu_manifest = _load_yaml(config.gpu_manifest_paths[0])
             host_levels = tuple(str(item["id"]) for item in gpu_manifest.get("frequency_levels", []))
             gpu_levels = tuple(str(item["id"]) for item in gpu_manifest.get("gpu_frequency_levels", []))
             actions += tuple(action_id("gpu", host, gpu) for host in host_levels for gpu in gpu_levels)
@@ -150,6 +179,46 @@ def configured_actions(config: BuildConfig) -> tuple[str, ...]:
             f"espacio de acciones del manifiesto no coincide: observado={sorted(actions)}, esperado={sorted(canonical)}"
         )
     return actions
+
+
+# Fallback historico cuando build_selector_datasets no recibe
+# cpu_manifest_path (uso antiguo, sin verificacion de conteo dinamico): el
+# primer dataset del selector tenia 68 config_id (campaign_pacca_dual_*_full,
+# ver commit "prepare cold-warm dual dataset campaigns"). Cuando se pasa
+# cpu_manifest_path (recomendado, ver expected_config_ids), este valor no
+# se usa -- el conteo se deriva del/de los manifiesto(s) real(es).
+DEFAULT_EXPECTED_CONFIG_COUNT = 68
+
+
+def expected_config_ids(
+    manifest_paths: Sequence[Path], catalog: Mapping[str, Mapping[str, Any]],
+) -> set[str]:
+    """config_id distintos referenciados por uno o mas manifiestos de campana.
+
+    Fuente de verdad para el conteo esperado de config_id: en vez de un
+    numero magico fijo (bug real, ver commit que agrego la campana "big"
+    sin actualizar este chequeo), suma los kernel_ref de TODOS los
+    manifiestos pasados (ej. campana full + campana big) y los mapea a su
+    config_id via catalogo -- 68 + 9 = 77 automaticamente si se combinan
+    ambos directorios, sin tocar este archivo de nuevo.
+    """
+    config_ids: set[str] = set()
+    for manifest_path in manifest_paths:
+        manifest = _load_yaml(manifest_path)
+        kernel_refs = manifest.get("kernels", [])
+        if not isinstance(kernel_refs, list):
+            raise DatasetContractError(f"manifiesto sin lista kernels: {manifest_path}")
+        for item in kernel_refs:
+            if not isinstance(item, dict) or "kernel_ref" not in item:
+                continue
+            kernel_ref = str(item["kernel_ref"])
+            entry = catalog.get(kernel_ref)
+            if not entry or not entry.get("config_id"):
+                raise DatasetContractError(
+                    f"kernel_ref del manifiesto sin config_id en catalogo: {kernel_ref} ({manifest_path})"
+                )
+            config_ids.add(str(entry["config_id"]))
+    return config_ids
 
 
 def _bool_series(series: pd.Series) -> pd.Series:
@@ -690,9 +759,7 @@ def build_selector_datasets(config: BuildConfig) -> dict[str, Path]:
     catalog = _catalog_entries(config.catalog_path)
     all_frames: list[pd.DataFrame] = []
     campaign_reports: list[dict[str, Any]] = []
-    for campaign_dir in (config.cpu_campaign_dir, config.gpu_campaign_dir):
-        if campaign_dir is None:
-            continue
+    for campaign_dir in (*config.cpu_campaign_dirs, *config.gpu_campaign_dirs):
         frame, report = read_campaign_runs(
             campaign_dir, catalog, idle_gpu_power_w=config.idle_gpu_power_w,
         )
@@ -713,15 +780,21 @@ def build_selector_datasets(config: BuildConfig) -> dict[str, Path]:
     completeness = completeness_report(
         run_regions, candidates, config.mode, config.expected_repetitions, actions,
     )
+    if config.cpu_manifest_paths:
+        expected_config_count = len(expected_config_ids(config.cpu_manifest_paths, catalog))
+    else:
+        expected_config_count = DEFAULT_EXPECTED_CONFIG_COUNT
     if config.mode == "cpu-provisional":
         cpu_runs = run_regions[run_regions["device"] == "cpu"]
-        if cpu_runs["run_id"].nunique() != 68 * 8 * config.expected_repetitions:
+        expected_cpu_run_count = expected_config_count * len(CPU_LEVELS) * config.expected_repetitions
+        if cpu_runs["run_id"].nunique() != expected_cpu_run_count:
             raise DatasetContractError(
-                f"CPU provisional incompleto: {cpu_runs['run_id'].nunique()} corridas, esperadas {68*8*config.expected_repetitions}"
+                f"CPU provisional incompleto: {cpu_runs['run_id'].nunique()} corridas, "
+                f"esperadas {expected_cpu_run_count} ({expected_config_count} config_id)"
             )
-    if config.mode == "final" and completeness["complete_config_count"] != 68:
+    if config.mode == "final" and completeness["complete_config_count"] != expected_config_count:
         raise DatasetContractError(
-            f"matriz final incompleta: {completeness['complete_config_count']}/68 config_id"
+            f"matriz final incompleta: {completeness['complete_config_count']}/{expected_config_count} config_id"
         )
 
     strategy_a = build_strategy_a(candidates, actions)
@@ -745,8 +818,15 @@ def build_selector_datasets(config: BuildConfig) -> dict[str, Path]:
     provenance = {
         "builder": "classifier.selector.dataset",
         "git_commit": _git_commit(),
-        "configuration": {key: str(value) if isinstance(value, Path) else value
-                          for key, value in asdict(config).items()},
+        "configuration": {
+            key: (
+                str(value) if isinstance(value, Path)
+                else [str(item) for item in value] if isinstance(value, (list, tuple))
+                else value
+            )
+            for key, value in asdict(config).items()
+        },
+        "expected_config_count": expected_config_count,
         "energy_rule": {
             "cpu_gpu_idle_power_w": config.idle_gpu_power_w,
             "source_job": config.idle_gpu_power_source_job,

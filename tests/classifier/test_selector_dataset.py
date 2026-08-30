@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import sys
 
 import numpy as np
@@ -226,6 +227,186 @@ def test_accepted_run_dirs_falla_si_un_run_esta_en_ambas_listas(tmp_path):
 
     with pytest.raises(dataset.DatasetContractError, match="a la vez"):
         dataset._accepted_run_dirs(campaign_dir)
+
+
+def _write_yaml(path: Path, payload: dict) -> None:
+    import yaml as _yaml
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_yaml.safe_dump(payload), encoding="utf-8")
+
+
+def _catalog_entry(kernel_ref: str, config_id: str, device: str = "cpu") -> dict:
+    entry = {
+        "id": kernel_ref,
+        "config_id": config_id,
+        "exec_args": "--size 64 --iterations 5",
+    }
+    if device == "gpu":
+        entry["device"] = "gpu"
+    return entry
+
+
+def _write_accepted_run(
+    campaign_dir: Path, *, run_id: str, kernel_ref: str, freq_level_id: str,
+    repetition_index: int, campaign_id: str, device: str = "cpu",
+    gpu_freq_level_id: str | None = None,
+) -> None:
+    run_dir = campaign_dir / run_id
+    metadata = {
+        "run_id": run_id,
+        "campaign_id": campaign_id,
+        "kernel_ref": kernel_ref,
+        "freq_level_id": freq_level_id,
+        "gpu_freq_level_id": gpu_freq_level_id,
+        "repetition_index": repetition_index,
+        "iterations": 0,
+        "dispatch_timing_contract_valid": True,
+        "dispatch_timing": {
+            "contract_version": dataset.CONTRACT_VERSION,
+            "cold_t0_ns": 0, "setup_complete_ns": 1000,
+            "cold_t1_ns": 2000, "warm_t0_ns": 3000, "warm_t1_ns": 4000,
+        },
+        "interval_ns": 1_000_000,
+        "gpu_interval_ns": 5_000_000,
+    }
+    _write_json(run_dir / "metadata.json", metadata)
+    windows = pd.DataFrame({
+        "t_start_ns": [0], "t_end_ns": [5000],
+        "energy_valid": [1], "pkg_delta_uj": [900_000], "dram_delta_uj": [100_000],
+        "gpu_energy_valid": [1 if device == "gpu" else 0],
+        "gpu_energy_delta_mj": [1000.0 if device == "gpu" else np.nan],
+    })
+    windows.to_csv(run_dir / "windows.csv", index=False)
+    _write_json(run_dir / "verdict.json", {"accepted": True})
+
+
+def _write_campaign(
+    campaign_dir: Path, *, campaign_id: str, config_ids: list[str], catalog: dict[str, dict],
+    device: str = "cpu", levels: tuple[str, ...] = dataset.CPU_LEVELS, repetitions: int = 3,
+) -> None:
+    accepted_run_ids: list[str] = []
+    for config_id in config_ids:
+        kernel_ref = f"dual_{config_id}_{device}"
+        for level in levels:
+            for repetition in range(1, repetitions + 1):
+                run_id = f"{campaign_id}__{kernel_ref}__{level}__rep{repetition:02d}"
+                _write_accepted_run(
+                    campaign_dir, run_id=run_id, kernel_ref=kernel_ref, freq_level_id=level,
+                    repetition_index=repetition, campaign_id=campaign_id, device=device,
+                )
+                accepted_run_ids.append(run_id)
+    _write_json(campaign_dir / "campaign_metadata.json", {
+        "accepted_run_ids": accepted_run_ids, "skipped_run_ids": [],
+    })
+
+
+def _write_manifest(path: Path, kernel_refs: list[str]) -> None:
+    _write_yaml(path, {
+        "kernels": [{"kernel_ref": ref} for ref in kernel_refs],
+        "frequency_levels": [{"id": level} for level in dataset.CPU_LEVELS],
+    })
+
+
+def test_expected_config_ids_deriva_de_manifiestos_combinados(tmp_path):
+    catalog = {
+        "dual_gemm_N64_cpu": _catalog_entry("dual_gemm_N64_cpu", "gemm_N64"),
+        "dual_gemm_N128_cpu": _catalog_entry("dual_gemm_N128_cpu", "gemm_N128"),
+        "dual_gemm_N8192_cpu": _catalog_entry("dual_gemm_N8192_cpu", "gemm_N8192"),
+    }
+    manifest_a = tmp_path / "manifest_a.yaml"
+    manifest_b = tmp_path / "manifest_b.yaml"
+    _write_manifest(manifest_a, ["dual_gemm_N64_cpu", "dual_gemm_N128_cpu"])
+    _write_manifest(manifest_b, ["dual_gemm_N8192_cpu"])
+
+    combined = dataset.expected_config_ids((manifest_a, manifest_b), catalog)
+
+    assert combined == {"gemm_N64", "gemm_N128", "gemm_N8192"}
+
+
+def test_build_selector_datasets_un_directorio_por_eje_deriva_conteo_dinamico(tmp_path):
+    config_ids = ["gemm_N64", "gemm_N128", "gemm_N192"]
+    catalog = {
+        f"dual_{cid}_cpu": _catalog_entry(f"dual_{cid}_cpu", cid) for cid in config_ids
+    }
+    catalog_path = tmp_path / "catalog.yaml"
+    _write_yaml(catalog_path, {"kernels": list(catalog.values())})
+
+    campaign_dir = tmp_path / "campaign_full"
+    _write_campaign(campaign_dir, campaign_id="full", config_ids=config_ids, catalog=catalog)
+    manifest_path = tmp_path / "manifest_full.yaml"
+    _write_manifest(manifest_path, [f"dual_{cid}_cpu" for cid in config_ids])
+
+    output_dir = tmp_path / "out"
+    result = dataset.build_selector_datasets(dataset.BuildConfig(
+        cpu_campaign_dir=campaign_dir,
+        catalog_path=catalog_path,
+        output_dir=output_dir,
+        cpu_manifest_path=manifest_path,
+    ))
+
+    completeness = json.loads((output_dir / "completeness.json").read_text())
+    assert completeness["complete_config_count"] == len(config_ids)
+    provenance = json.loads((output_dir / "provenance.json").read_text())
+    assert provenance["expected_config_count"] == len(config_ids)
+    assert result["run_regions"].exists()
+
+
+def test_build_selector_datasets_combina_dos_directorios_del_mismo_eje(tmp_path):
+    base_ids = ["gemm_N64", "gemm_N128"]
+    big_ids = ["gemm_N8192"]
+    all_ids = base_ids + big_ids
+    catalog = {
+        f"dual_{cid}_cpu": _catalog_entry(f"dual_{cid}_cpu", cid) for cid in all_ids
+    }
+    catalog_path = tmp_path / "catalog.yaml"
+    _write_yaml(catalog_path, {"kernels": list(catalog.values())})
+
+    base_dir = tmp_path / "campaign_full"
+    big_dir = tmp_path / "campaign_big"
+    _write_campaign(base_dir, campaign_id="full", config_ids=base_ids, catalog=catalog)
+    _write_campaign(big_dir, campaign_id="big", config_ids=big_ids, catalog=catalog)
+
+    manifest_full = tmp_path / "manifest_full.yaml"
+    manifest_big = tmp_path / "manifest_big.yaml"
+    _write_manifest(manifest_full, [f"dual_{cid}_cpu" for cid in base_ids])
+    _write_manifest(manifest_big, [f"dual_{cid}_cpu" for cid in big_ids])
+
+    output_dir = tmp_path / "out"
+    dataset.build_selector_datasets(dataset.BuildConfig(
+        cpu_campaign_dir=[base_dir, big_dir],
+        catalog_path=catalog_path,
+        output_dir=output_dir,
+        cpu_manifest_path=[manifest_full, manifest_big],
+    ))
+
+    completeness = json.loads((output_dir / "completeness.json").read_text())
+    assert completeness["complete_config_count"] == len(all_ids)
+    provenance = json.loads((output_dir / "provenance.json").read_text())
+    assert provenance["expected_config_count"] == len(all_ids)
+    assert set(provenance["campaigns"][0]["campaign_dir"] for _ in [0]) or True  # sanity: no explota
+    assert len(provenance["campaigns"]) == 2
+
+
+def test_build_selector_datasets_detecta_run_id_duplicado_entre_campanas(tmp_path):
+    config_ids = ["gemm_N64"]
+    catalog = {f"dual_{cid}_cpu": _catalog_entry(f"dual_{cid}_cpu", cid) for cid in config_ids}
+    catalog_path = tmp_path / "catalog.yaml"
+    _write_yaml(catalog_path, {"kernels": list(catalog.values())})
+
+    dir_a = tmp_path / "campaign_a"
+    dir_b = tmp_path / "campaign_b"
+    # Misma campaign_id/kernel_ref/nivel/repeticion -> mismos run_id: debe
+    # fallar en vez de mezclar silenciosamente.
+    _write_campaign(dir_a, campaign_id="dup", config_ids=config_ids, catalog=catalog)
+    _write_campaign(dir_b, campaign_id="dup", config_ids=config_ids, catalog=catalog)
+
+    with pytest.raises(dataset.DatasetContractError, match="duplicado"):
+        dataset.build_selector_datasets(dataset.BuildConfig(
+            cpu_campaign_dir=[dir_a, dir_b],
+            catalog_path=catalog_path,
+            output_dir=tmp_path / "out",
+        ))
 
 
 def test_accepted_run_dirs_falla_si_verdict_contradice_skipped(tmp_path):
