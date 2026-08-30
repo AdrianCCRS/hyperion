@@ -1,0 +1,253 @@
+# Protocolo congelado para la evaluación confirmatoria por tamaño
+
+**Fecha de congelamiento:** 2026-08-30
+**Estado:** congelado — modificable solo mediante enmienda fechada (§11)
+**Ámbito:** §8.2 del `plan_reformulacion_selector_tamanos_20260830.md`
+**Datos exploratorios permitidos:** exclusivamente
+`~/hyperion-results/analysis/selector_final_20260830/` (8 160 corridas
+aceptadas, 68 `config_id`)
+**Datos confirmatorios reservados:** campañas `pacca_dual_cpu_big_ref_20260830`
+y `pacca_dual_gpu_big_ref_20260830` (9 `config_id` nuevos: gemm, cholesky y
+fft en N = 8192, 12288, 16384)
+
+Este documento existe para impedir un ajuste retrospectivo. Todo lo que se
+fija aquí quedó decidido **antes** de observar cualquier medición de las
+campañas `*_big_ref_*`. Un resultado confirmatorio solo es válido si se
+produce ejecutando exactamente lo que sigue.
+
+---
+
+## 1. Formulación del target
+
+Unidad experimental: **`config_id` = operación × tamaño**. Nunca la fila
+candidata, nunca la ventana de telemetría, nunca la repetición.
+
+Target primario, por `config_id` y estado de recurso:
+
+```text
+y = log( EDP_GPU_REF / EDP_CPU_REF )
+```
+
+El EDP de cada dispositivo se lee en la región que ese dispositivo ve en el
+estado correspondiente:
+
+| estado        | región CPU | región GPU |
+|---------------|-----------|-----------|
+| `none_ready`  | `cold`    | `cold`    |
+| `cpu_ready`   | `warm`    | `cold`    |
+| `gpu_ready`   | `cold`    | `warm`    |
+
+Interpretación: `y < 0` favorece GPU, `y > 0` favorece CPU, `|y|` pequeño es
+zona de abstención (§7). La etiqueta derivada es
+`device_label = "gpu" if y < 0 else "cpu"`.
+
+Se congela la **regresión** como formulación primaria porque conserva la
+magnitud del error; la clasificación binaria se reporta como contraste
+secundario y no puede sustituir a la regresión si esta resulta peor.
+
+Implementación de referencia: `classifier.selector.compact.build_compact_dataset`.
+
+## 2. Estado de aprendizaje por estado de recurso
+
+Fijado con los datos exploratorios, antes de ver los confirmatorios:
+
+- `none_ready`: CPU óptima en 68/68 → **no se entrena modelo**. Regla fija:
+  CPU a REF. El conjunto confirmatorio puede refutar esta regla; si aparece
+  un solo cruce a GPU, se reporta como hallazgo y no se corrige la regla
+  retroactivamente.
+- `cpu_ready`: CPU óptima en 68/68 → **no se entrena modelo**. Regla fija:
+  permanecer en CPU (§6.3 del plan).
+- `gpu_ready`: 56 GPU / 12 CPU → **única tarea de aprendizaje**. Todo lo que
+  sigue sobre modelos se refiere a este estado.
+
+Entrenar un modelo para reproducir una constante mide ruido, no capacidad
+predictiva; por eso los dos primeros estados quedan excluidos por protocolo y
+no por conveniencia posterior.
+
+## 3. Lista exacta de características
+
+### 3.1 Modelo estático (obligatorio)
+
+Congeladas, en este orden:
+
+1. `operation` (categórica, one-hot sobre las seis operaciones conocidas)
+2. `size`
+3. `log10_n`
+4. `flops_per_dispatch_analytic`
+5. `log10_flops_per_dispatch`
+6. `logical_bytes_per_dispatch`
+7. `log10_logical_bytes`
+8. `arithmetic_intensity_analytic`
+9. `resource_state` (categórica)
+
+### 3.2 Modelo con sondeo (contraste de H2)
+
+Las nueve anteriores más, del dispositivo que produjo el sondeo y de una
+**única** ejecución (la primera repetición, nunca el promedio de las tres):
+
+- `probe_time_per_dispatch_s`, `probe_energy_per_dispatch_j`,
+  `probe_avg_power_w`, `probe_region_to_sampling_ratio`
+- CPU: `probe_ipc`, `probe_mpki`, `probe_llc_miss_rate`,
+  `probe_stall_backend_ratio`, `probe_ips`, `probe_freq_khz_observed`,
+  `probe_running_ratio`
+- GPU: `probe_gpu_power_mw`, `probe_gpu_util_pct`, `probe_gpu_mem_util_pct`,
+  `probe_gpu_sm_clock_mhz`, `probe_gpu_temperature_c`
+- el indicador `*_missing` de cada una de las anteriores
+- `probe_device`
+
+La ausencia estructural (no hay métricas CPU en un sondeo GPU y viceversa, y
+`none_ready` no tiene sondeo alguno) se representa con el indicador
+`*_missing`, nunca con una imputación silenciosa.
+
+### 3.3 Prohibiciones de fuga (§7.3)
+
+Queda **prohibido** usar como entrada: EDP de cualquier acción candidata,
+acción ganadora, margen contra el segundo lugar, `is_optimal`,
+`optimum_stability`, identificadores de corrida o repetición, cualquier
+estadístico construido con las tres repeticiones, y cualquier información
+proveniente de los tamaños reservados.
+
+El chequeo es automático y bloqueante:
+`classifier.selector.compact.assert_no_leakage`. Ninguna evaluación cuyo
+conjunto de características no pase ese chequeo puede reportarse.
+
+## 4. Familias de modelos candidatas
+
+Deliberadamente simples: con 68 `config_id` y una sola tarea real
+(`gpu_ready`), un modelo de alta capacidad ajustaría ruido.
+
+1. Ridge
+2. ElasticNet
+3. regresión de Huber
+4. árbol de regresión con `max_depth <= 3`
+5. RandomForest regressor (`n_estimators = 200`, `max_depth <= 5`)
+
+No se añadirá ninguna familia después de ver los datos confirmatorios. No se
+usará gradient boosting ni ninguna familia ausente de esta lista.
+
+## 5. Procedimiento de selección
+
+1. Las particiones son **agrupadas por `config_id`** y estratificadas dentro
+   de cada operación. Las tres filas de estado de un `config_id` viajan
+   siempre juntas: comparten las mismas mediciones físicas.
+2. Dos regímenes, ambos reportados
+   (`classifier.selector.sizes.interpolation_folds` /
+   `extrapolation_folds`):
+   - **interpolación:** tamaños internos retenidos, con un tamaño menor y uno
+     mayor de la misma operación siempre presentes en entrenamiento;
+   - **extrapolación:** entrenamiento solo con los tamaños menores, prueba en
+     el extremo superior.
+3. Los hiperparámetros se eligen **dentro** del conjunto de entrenamiento de
+   cada pliegue, mediante validación cruzada interna también agrupada por
+   `config_id`. Ningún dato de prueba interviene en la selección.
+4. El modelo final es uno solo: la familia con mejor `edp_sum_ratio_vs_oracle`
+   promedio en **extrapolación** sobre los datos exploratorios. Esa elección
+   se hace y se registra antes de tocar los datos confirmatorios.
+5. Semilla fija `20260830`.
+
+## 6. Baselines obligatorias
+
+Las ocho de §9 del plan, implementadas en
+`classifier.selector.sizes.BASELINES`, todas con parámetros ajustados
+únicamente en entrenamiento:
+
+1. `always_cpu_ref`
+2. `always_gpu_ref`
+3. `stay_on_ready_device`
+4. `best_constant_device_train`
+5. `size_threshold_train`
+6. `intensity_threshold_train`
+7. `operation_crossover_table_train`
+8. `oracle`
+
+Para la frecuencia: siempre REF; mejor frecuencia constante por dispositivo
+estimada en entrenamiento; y no actuar si la mejora esperada no supera el
+costo de conmutación.
+
+**Regla bloqueante.** Si el modelo no supera a la mejor baseline pertinente
+en la evaluación externa, se conserva la baseline y se reporta que el
+Aprendizaje Automático no aportó valor adicional. Esta regla no admite
+excepción por "cercanía": superar significa mejorar `edp_sum_ratio_vs_oracle`
+por encima del piso de ruido de §7.
+
+## 7. Piso de ruido y regla de abstención
+
+Piso de ruido de medición, calibrado sobre los datos exploratorios como CV
+mediano del EDP entre repeticiones de la misma acción:
+
+- global: **3,11 %**
+- por dispositivo: CPU 2,57 %, GPU 3,16 %
+- **por región: `cold` 5,76 %, `warm` 1,80 %**
+
+La descomposición por región se congela junto con el valor global porque la
+región fría es aproximadamente tres veces más ruidosa que la caliente, y las
+decisiones de `none_ready` descansan enteramente sobre mediciones frías.
+
+**Regla de abstención (congelada).** El selector se abstiene de migrar de
+dispositivo cuando
+
+```text
+|y_predicho| < log(1 + 0.0311)   ~= 0.0306
+```
+
+Al abstenerse aplica la política segura del estado: permanecer en el
+dispositivo preparado, y CPU a REF en `none_ready`. La abstención se reporta
+como cobertura y calidad, **no** se contabiliza como error del selector.
+
+Para la capa DVFS, la actuación se habilita únicamente si se cumplen las tres
+condiciones de §6.5 del plan: la ventaja supera la incertidumbre combinada,
+la ganancia esperada supera el costo de actuación, y el modelo supera una
+política REF en validación externa. En cualquier otro caso se usa REF.
+
+## 8. Métricas que se reportarán
+
+Del selector de dispositivo (§10.2), calculadas por
+`classifier.selector.sizes.evaluate_devices`:
+
+matriz de confusión (`tp_gpu`, `fp_gpu`, `fn_gpu`, `tn_cpu`);
+`balanced_accuracy`; `mcc`; `precision_migrate_gpu` y `recall_migrate_gpu`;
+error de la razón logarítmica de EDP; regret medio, mediano, p95 y máximo
+(`regret_ratio_*`); `oracle_savings_captured_pct`; desglose por operación y
+por régimen de tamaños; cobertura y calidad de la abstención.
+
+Se reportan **las dos agregaciones de EDP** de §10.4 por separado y sin
+mezclarlas: la media de razones por despacho (`regret_ratio_mean`) y la razón
+de sumas (`edp_sum_ratio_vs_oracle`). En los datos exploratorios ambas ya
+discrepan de forma material — una baseline con `edp_sum_ratio` de 1,003 tiene
+`regret_ratio_mean` de 1,197 — de modo que reportar solo una sería
+seleccionar la métrica más favorable.
+
+## 9. Qué constituye un resultado confirmatorio
+
+Los 9 `config_id` nuevos se evalúan **una sola vez**, con el modelo y los
+umbrales ya fijados. Se reportará, en este orden y sin omitir ninguno:
+
+1. la predicción de dispositivo por `config_id`, contra el resultado medido;
+2. si `K_break_even` cae dentro de la banda extrapolada desde los tamaños
+   conocidos;
+3. aciertos, fallos y cambio de dominio, incluidos los fallos.
+
+No se ajustarán hiperparámetros ni umbrales con estos datos. Después de
+publicar el resultado confirmatorio se podrá reentrenar con todo el conjunto,
+manteniendo el resultado original reportado por separado.
+
+## 10. Lo que este protocolo NO afirma
+
+- No se afirmará generalización a una séptima operación desconocida.
+- No se afirmará generalización a otra plataforma.
+- No se presentará el EDP por despacho como EDP de una aplicación completa.
+- No se presentará una ganancia como neta antes de medir inferencia,
+  actuación y transferencias.
+- `K_break_even` no se presentará como entero exacto: se reporta siempre con
+  su banda.
+
+## 11. Enmiendas
+
+Cualquier cambio a este documento posterior al 2026-08-30 debe registrarse
+aquí como una entrada fechada que indique qué cambió, por qué, y si en ese
+momento ya se habían observado datos confirmatorios. Un cambio no registrado
+invalida el carácter confirmatorio de la evaluación.
+
+| fecha | cambio | ¿datos confirmatorios ya observados? |
+|-------|--------|--------------------------------------|
+| 2026-08-30 | versión inicial congelada | no |
