@@ -313,18 +313,34 @@ def _validate_timing(metadata: Mapping[str, Any]) -> tuple[dict[str, Any], tuple
 
 
 def _accepted_run_dirs(campaign_dir: Path) -> list[Path]:
+    # ARC: campaign_metadata.json de una campana reanudada en varias sesiones
+    # solo registra en accepted_run_ids lo que ESA sesion acepto de nuevo; las
+    # corridas ya aceptadas en sesiones anteriores quedan en skipped_run_ids
+    # (CAM-11, resumen automatico via _has_existing_campaign_artifacts), no
+    # duplicadas en accepted_run_ids. Ambas listas describen corridas reales
+    # con verdict.json valido en disco -- leer solo accepted_run_ids deja el
+    # dataset vacio en cuanto una campana termina en una sesion de puro
+    # resumen (accepted=0, skipped=total), aunque los datos esten completos.
     campaign_meta = _read_json(campaign_dir / "campaign_metadata.json")
     accepted = campaign_meta.get("accepted_run_ids")
     if not isinstance(accepted, list):
         raise DatasetContractError(f"campaign_metadata sin accepted_run_ids: {campaign_dir}")
+    skipped = campaign_meta.get("skipped_run_ids")
+    if not isinstance(skipped, list):
+        raise DatasetContractError(f"campaign_metadata sin skipped_run_ids: {campaign_dir}")
     if len(set(map(str, accepted))) != len(accepted):
         raise DatasetContractError(f"accepted_run_ids duplicados: {campaign_dir}")
+    if len(set(map(str, skipped))) != len(skipped):
+        raise DatasetContractError(f"skipped_run_ids duplicados: {campaign_dir}")
+    overlap = set(map(str, accepted)) & set(map(str, skipped))
+    if overlap:
+        raise DatasetContractError(f"run_id en accepted_run_ids y skipped_run_ids a la vez: {sorted(overlap)[:3]}")
     result: list[Path] = []
-    for run_id in accepted:
+    for run_id in (*accepted, *skipped):
         run_dir = campaign_dir / str(run_id)
         verdict = _read_json(run_dir / "verdict.json")
         if verdict.get("accepted") is not True:
-            raise DatasetContractError(f"accepted_run_ids contradice verdict: {run_id}")
+            raise DatasetContractError(f"accepted_run_ids/skipped_run_ids contradice verdict: {run_id}")
         result.append(run_dir)
     return result
 

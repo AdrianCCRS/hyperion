@@ -178,3 +178,64 @@ def test_aggregate_candidates_conserva_cv_y_repeticiones():
 def test_iterations_del_launcher_en_cero_usa_exec_args_del_catalogo():
     entry = {"id": "dual_gemm_cpu_N64", "exec_args": "--size 64 --iterations 975"}
     assert dataset._iterations(entry, {"iterations": 0}) == 975
+
+
+def _write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(__import__("json").dumps(payload))
+
+
+def test_accepted_run_dirs_incluye_corridas_saltadas_de_sesiones_previas(tmp_path):
+    # ARC: una campana reanudada en varias sesiones (CAM-11) solo agrega a
+    # accepted_run_ids lo que la sesion actual acepto de nuevo; las corridas
+    # ya aceptadas antes quedan en skipped_run_ids, no duplicadas. Si la
+    # ultima sesion no acepta nada nuevo (todo ya estaba hecho),
+    # accepted_run_ids queda vacio aunque la campana este completa -- leer
+    # solo esa lista deja el dataset vacio en silencio.
+    campaign_dir = tmp_path / "campaign"
+    run_new = "run_new"
+    run_old = "run_old"
+    _write_json(campaign_dir / "campaign_metadata.json", {
+        "accepted_run_ids": [run_new],
+        "skipped_run_ids": [run_old],
+    })
+    _write_json(campaign_dir / run_new / "verdict.json", {"accepted": True})
+    _write_json(campaign_dir / run_old / "verdict.json", {"accepted": True})
+
+    result = dataset._accepted_run_dirs(campaign_dir)
+
+    assert {p.name for p in result} == {run_new, run_old}
+
+
+def test_accepted_run_dirs_falla_si_skipped_run_ids_ausente(tmp_path):
+    campaign_dir = tmp_path / "campaign"
+    _write_json(campaign_dir / "campaign_metadata.json", {"accepted_run_ids": []})
+
+    with pytest.raises(dataset.DatasetContractError, match="skipped_run_ids"):
+        dataset._accepted_run_dirs(campaign_dir)
+
+
+def test_accepted_run_dirs_falla_si_un_run_esta_en_ambas_listas(tmp_path):
+    campaign_dir = tmp_path / "campaign"
+    run_id = "run_dup"
+    _write_json(campaign_dir / "campaign_metadata.json", {
+        "accepted_run_ids": [run_id],
+        "skipped_run_ids": [run_id],
+    })
+    _write_json(campaign_dir / run_id / "verdict.json", {"accepted": True})
+
+    with pytest.raises(dataset.DatasetContractError, match="a la vez"):
+        dataset._accepted_run_dirs(campaign_dir)
+
+
+def test_accepted_run_dirs_falla_si_verdict_contradice_skipped(tmp_path):
+    campaign_dir = tmp_path / "campaign"
+    run_id = "run_bad"
+    _write_json(campaign_dir / "campaign_metadata.json", {
+        "accepted_run_ids": [],
+        "skipped_run_ids": [run_id],
+    })
+    _write_json(campaign_dir / run_id / "verdict.json", {"accepted": False})
+
+    with pytest.raises(dataset.DatasetContractError, match="contradice verdict"):
+        dataset._accepted_run_dirs(campaign_dir)
