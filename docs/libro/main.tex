@@ -61,6 +61,8 @@
 \usepackage{adjustbox}
 \usepackage{tabularx}
 \usepackage{ltablex}
+\usepackage{tikz}
+\usetikzlibrary{positioning,fit,backgrounds,arrows.meta,calc}
 \usepackage[indent=2em]{parskip}
 
 %==============================================================================
@@ -76,6 +78,7 @@
 \pagestyle{fancy}
 \fancyhf{}
 \fancyhead[R]{\thepage}
+\setlength{\headheight}{14.5pt}
 \renewcommand{\headrulewidth}{0pt}
 \renewcommand{\footrulewidth}{0pt}
 
@@ -534,27 +537,87 @@ operacional observada y el punto de inflexión correspondiente.
 \subsubsection{Ventanas de muestreo y naturaleza temporal de la observación}
 \label{sec:ventanas}
 
-En el modo de conteo empleado para los eventos de núcleo, cada lectura
-representa el valor acumulado desde la habilitación o el último reinicio del
-contador. La unidad de análisis no es, por tanto, una lectura individual, sino
-la diferencia entre dos lecturas consecutivas, teniendo en cuenta posibles
-desbordamientos. Las lecturas periódicas de \textit{uncore} empleadas en este
-trabajo, en cambio, ya expresan conteos por intervalo y no deben volver a
-diferenciarse.
+En modo de conteo, cada lectura representa el valor acumulado desde la
+habilitación o el último reinicio del contador
+\cite{LinuxPerfEventOpen2026}. Por ello, la unidad de análisis no es una lectura
+individual, sino la diferencia entre dos lecturas consecutivas, teniendo en
+cuenta posibles desbordamientos \cite{IntelSDM2026}. En contraste, el modo de
+reporte periódico de \texttt{perf stat} entrega deltas por intervalo, que no
+deben volver a diferenciarse \cite{LinuxPerfStat2026}.
 
-La elección del período de muestreo es un compromiso: un período corto ofrece
-mayor resolución temporal pero reduce el número de eventos acumulados por
-ventana, degradando la relación señal--ruido de las métricas derivadas; un
-período largo produce métricas más estables pero promedia intervalos que pueden
-abarcar varias fases. Adicionalmente, el intervalo efectivo entre lecturas no
-coincide exactamente con el período nominal solicitado, porque el hilo de
-muestreo está sujeto a la planificación de un sistema operativo de propósito
-general. Por ello, toda métrica derivada debe calcularse sobre el intervalo
-realmente transcurrido, medido con un reloj monótono.
+La elección del período de muestreo establece un compromiso. Un período corto
+ofrece mayor resolución temporal, pero exige observaciones más frecuentes; en
+herramientas de reporte intervalado como \texttt{perf stat}, esta frecuencia
+puede elevar la sobrecarga de medición \cite{LinuxPerfStat2026}. Un período
+largo acumula más eventos, pero puede integrar en una sola observación cambios
+ocurridos dentro del intervalo. Por ello, las tasas derivadas deben calcularse
+sobre el tiempo efectivamente transcurrido entre lecturas, empleando una base
+temporal que no experimente saltos discontinuos, como
+\texttt{CLOCK\_MONOTONIC} \cite{LinuxClockGettime2026}.
 
 \subsection{Espacios de ejecución: \textit{user-space} y \textit{kernel-space}}
 
-Los sistemas operativos modernos separan la ejecución en dominios de privilegio diferenciados, apoyados en modos de operación del procesador: en modo usuario, el software solo accede a memoria de espacio de usuario; en modo kernel, puede acceder también al espacio del kernel \cite[ch.~2]{Kerrisk2010}. Operaciones sensibles --- gestión de memoria, acceso a hardware, entrada/salida --- requieren privilegios de kernel, lo que impide que procesos ordinarios interfieran con estructuras críticas \cite[ch.~2]{Kerrisk2010}. Para el software de aplicación esto implica que el acceso a recursos privilegiados ocurre mediante mecanismos de mediación --- en sistemas Unix/Linux, principalmente llamadas al sistema \cite{McCarty2015} ---, así que cualquier mecanismo de monitoreo o control implementado fuera del kernel debe apoyarse en interfaces explícitamente expuestas por la plataforma.
+Los sistemas operativos modernos separan la ejecución en dominios de privilegio diferenciados, apoyados en modos de operación del procesador. En modo usuario, el software solo accede a memoria de espacio de usuario; en modo kernel, puede acceder también al espacio del kernel \cite[ch.~2]{Kerrisk2010}. Operaciones sensibles, como la gestión de memoria, el acceso a hardware y la entrada/salida, requieren privilegios de kernel, lo que impide que procesos ordinarios interfieran con estructuras críticas \cite[ch.~2]{Kerrisk2010}. Por eso el software de aplicación no accede a recursos privilegiados de forma directa, sino mediante mecanismos de mediación: en sistemas Unix y Linux, principalmente llamadas al sistema \cite{McCarty2015}. Cualquier mecanismo de monitoreo o control implementado fuera del kernel debe apoyarse, en consecuencia, en interfaces explícitamente expuestas por la plataforma.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    every node/.style={font=\small},
+    app/.style={rectangle, draw=green!45!black, fill=white,
+        minimum width=2.2cm, minimum height=0.90cm, align=center, rounded corners=1pt},
+    kmod/.style={rectangle, draw=blue!45!black, fill=white,
+        minimum width=2.3cm, minimum height=0.95cm, align=center, rounded corners=1pt},
+    zoneuser/.style={rectangle, draw=green!45!black, thick, fill=green!12,
+        rounded corners=2pt, inner xsep=0.4cm, inner ysep=0.4cm},
+    zonekernel/.style={rectangle, draw=blue!45!black, thick, fill=blue!8,
+        rounded corners=2pt, inner xsep=0.4cm, inner ysep=0.4cm},
+    hw/.style={rectangle, draw=black!55, thick, fill=black!8,
+        minimum width=6.4cm, minimum height=1.05cm, align=center, rounded corners=2pt},
+    arr/.style={-{Stealth[length=2mm]}, thick}
+]
+    \node[app] (app1) {Aplicación 1};
+    \node[app, right=0.5cm of app1] (app2) {Aplicación 2};
+    \node[font=\large, right=0.4cm of app2] (dots1) {$\cdots$};
+    \node[app, right=0.4cm of dots1] (appn) {Aplicación N};
+    \coordinate (uhead) at ($(app1.north)+(0,0.85)$);
+
+    \node[kmod, below=3.4cm of app1] (proc) {Gestión de\\procesos};
+    \node[kmod, right=0.4cm of proc] (mem) {Gestión de\\memoria};
+    \node[kmod, right=0.4cm of mem] (fs) {Sistema de\\archivos};
+    \node[kmod, right=0.4cm of fs] (drv) {Controladores\\de dispositivos};
+    \node[font=\large, right=0.3cm of drv] (dots2) {$\cdots$};
+    \coordinate (khead) at ($(proc.north)+(0,0.85)$);
+
+    \begin{pgfonlayer}{background}
+        % Se elimina la etiqueta 'label=above:...' para que no dibuje fuera del recuadro
+        \node[zoneuser, fit=(app1)(app2)(dots1)(appn)(uhead)] (userzone) {};
+        \node[zonekernel, fit=(proc)(mem)(fs)(drv)(dots2)(khead)] (kernelzone) {};
+        \node[fit=(userzone)(kernelzone), inner sep=0pt] (span) {};
+    \end{pgfonlayer}
+
+    % Títulos internos de USER SPACE
+    \node[font=\bfseries] at ([yshift=-0.28cm]userzone.north) {USER SPACE};
+    \node[font=\small] at ([yshift=-0.80cm]userzone.north) {(Espacio de usuario)};
+
+    % Títulos internos de KERNEL SPACE
+    \node[font=\bfseries] at ([yshift=-0.28cm]kernelzone.north) {KERNEL SPACE};
+    \node[font=\small] at ([yshift=-0.80cm]kernelzone.north) {(Espacio del kernel)};
+
+    \coordinate (boundaryY) at ($(userzone.south)!0.5!(kernelzone.north)$);
+    \draw[dashed, thick] (span.west |- boundaryY) -- (span.east |- boundaryY);
+    \node[font=\small, align=left, anchor=west]
+        at ($(span.east |- boundaryY)+(0.3,0)$)
+        {Interfaz de\\llamadas al sistema\\(límite)};
+
+    \draw[arr] (app1.south) -- (app1.south |- kernelzone.north);
+    \draw[arr] (appn.south |- kernelzone.north) -- (appn.south);
+
+    \node[hw, below=1.2cm of kernelzone] (hardware) {\textbf{HARDWARE}\\\small(Hardware físico)};
+    \draw[{Stealth[length=2mm]}-{Stealth[length=2mm]}, thick] (kernelzone.south) -- (hardware.north);
+\end{tikzpicture}
+\caption[Espacios de usuario y de kernel]{Relación conceptual entre \textit{user-space}, \textit{kernel-space} y el hardware físico, mediada por la interfaz de llamadas al sistema. Elaboración propia.}
+\label{fig:user-kernel-space}
+\end{figure}
 
 \subsection{Interfaces estándar de observabilidad e instrumentación}
 
@@ -563,12 +626,12 @@ La observabilidad de sistemas heterogéneos CPU--GPU depende de interfaces que e
 \subsubsection{La interfaz \texttt{perf\_event} y los modos de atribución}
 \label{sec:perfevent}
 
-\texttt{perf\_event} es la infraestructura estándar en Linux para acceder a la PMU desde \textit{user-space} \cite{Weaver2015}. El alcance de atribución de la medida es determinante para la validez experimental: la medición de alcance de CPU contabiliza todo lo que ocurre en un procesador dado, incluida actividad ajena al experimento; la medición por proceso contabiliza únicamente ese proceso, con independencia de sobre qué CPU se planifique. Cuando la carga es paralela, la interfaz permite heredar el contador a los descendientes creados tras habilitarlo, de modo que la medida abarque el árbol completo de ejecución y solo ese árbol --- combinación de atribución por proceso con herencia, adoptada en este trabajo. Una restricción asociada: con herencia habilitada la interfaz no admite lectura agrupada de varios contadores en una operación, así que cada evento se lee de forma independiente, introduciendo un desfase de orden microsegundo entre lecturas de una misma ventana --- despreciable frente a períodos de muestreo del orden del milisegundo, pero declarado como característica conocida del instrumento.
+\texttt{perf\_event} es la infraestructura estándar en Linux para acceder a la PMU desde \textit{user-space} \cite{Weaver2015}. El alcance de atribución de la medida es determinante para la validez experimental: la medición de alcance de CPU contabiliza todo lo que ocurre en un procesador dado, incluida actividad ajena al experimento; la medición por proceso contabiliza únicamente ese proceso, con independencia de sobre qué CPU se planifique. Cuando la carga es paralela, la interfaz permite heredar el contador a los descendientes creados tras habilitarlo, de modo que la medida abarque el árbol completo de ejecución y solo ese árbol: la combinación de atribución por proceso con herencia adoptada en este trabajo. Con herencia habilitada, sin embargo, la interfaz no admite lectura agrupada de varios contadores en una operación; cada evento se lee de forma independiente, lo que introduce un desfase de orden microsegundo entre lecturas de una misma ventana, despreciable frente a períodos de muestreo del orden del milisegundo pero declarado aquí como característica conocida del instrumento.
 
 \subsubsection{Niveles de privilegio en el acceso a contadores}
 \label{sec:paranoid}
 
-El acceso a la infraestructura de monitorización desde espacio de usuario no es irrestricto: Linux expone un parámetro de configuración que restringe progresivamente las capacidades disponibles para un usuario sin privilegios especiales, y en sus niveles más restrictivos permite medir contadores del propio proceso pero no eventos de alcance de sistema --- categoría de los contadores de \textit{uncore} (sección \ref{sec:uncore}). Esto tiene una consecuencia metodológica directa: la disponibilidad de la medición depende no solo del hardware, sino de la política de administración del sistema, así que caracterizar las capacidades efectivas de la plataforma es un paso previo obligatorio al diseño experimental.
+El acceso a la infraestructura de monitorización desde el espacio de usuario está regulado en Linux por el parámetro \texttt{perf\_event\_paranoid}, que limita de forma progresiva las capacidades de los usuarios sin privilegios \cite{LinuxPerfEventOpen2026}. En sus niveles más restrictivos, este parámetro impide recolectar eventos de ámbito de sistema, categoría a la que pertenecen los contadores de \textit{uncore} (sección \ref{sec:uncore}), y solo permite la medición del propio proceso. Esto tiene una implicación metodológica directa: la disponibilidad de las métricas no depende únicamente del hardware, sino de la política de administración del sistema, lo que convierte a la caracterización previa de la plataforma en un paso obligatorio para el diseño experimental.
 
 \subsubsection{Intel RAPL}
 
@@ -576,26 +639,26 @@ RAPL (\textit{Running Average Power Limit}) expone energía acumulada para domin
 
 \subsubsection{NVIDIA Management Library}
 
-NVML permite consultar el estado operativo de una GPU NVIDIA --- utilización, potencia, memoria y otros parámetros del dispositivo \cite{NVML2026} ---, orientada a la telemetría del acelerador como dispositivo completo y no a eventos microarquitectónicos de un kernel concreto \cite{Calore2017,NVML2026}. Esta diferencia de granularidad es relevante para el problema abordado: la utilización que NVML reporta indica qué fracción del tiempo hubo trabajo activo, no cuántas operaciones por byte realizó ese trabajo, así que caracterizar el régimen de ejecución en GPU exige una estrategia distinta a la de CPU (sección \ref{sec:gpu-calibracion}).
+NVML permite consultar el estado operativo de una GPU NVIDIA (utilización, potencia, memoria y otros parámetros del dispositivo) \cite{NVML2026}, orientada a la telemetría del acelerador como dispositivo completo y no a eventos microarquitectónicos de un kernel concreto \cite{Calore2017,NVML2026}. Esta diferencia de granularidad es relevante para el problema abordado: la utilización que NVML reporta indica qué fracción del tiempo hubo trabajo activo, no cuántas operaciones por byte realizó ese trabajo, así que caracterizar el régimen de ejecución en GPU exige una estrategia distinta a la de CPU (sección \ref{sec:gpu-calibracion}).
 
 \subsection{Gestión dinámica de frecuencia en sistemas operativos: DVFS, P-states y \textit{governors}}
 
 DVFS ajusta el punto operativo del hardware mediante cambios coordinados de frecuencia y voltaje, apoyado en reguladores de voltaje y unidades de control de potencia dedicadas que ejecutan las transiciones \cite{Hebbar2022}. El estándar ACPI formaliza esto mediante \textit{performance states} (P-states, niveles operativos dentro del estado activo, con P0 como el de mayor rendimiento) y \textit{C-states} (niveles de inactividad) \cite{Hebbar2022,Gregg2020}.
 
-Sobre esta base operan los \textit{governors}: políticas que deciden cuándo y cómo transicionar entre P-states, sin implementar el mecanismo físico. Las políticas de frecuencia fija (\texttt{performance}, \texttt{powersave}) sitúan al procesador en un extremo operativo; los gobernadores dinámicos (\texttt{ondemand}, \texttt{conservative}, \texttt{schedutil}) ajustan la frecuencia según carga observada o, en el caso de \texttt{schedutil}, integrada con el planificador \cite{Hebbar2022}. En Linux, dos controladores dominan: \texttt{acpi-cpufreq}, genérico, que expone un gobernador \texttt{userspace} capaz de fijar una frecuencia objetivo explícita; e \texttt{intel\_pstate}, por defecto en muchas generaciones Intel, que solo soporta \texttt{performance}/\texttt{powersave} --- sin gobernador \texttt{userspace} ---, de modo que fijar un punto operativo concreto se logra restringiendo el rango permitido mediante límites inferior y superior, no escribiendo una frecuencia objetivo directamente \cite{Hebbar2022}. Esta diferencia tiene consecuencias operativas directas: un agente de control portable debe detectar el controlador activo y adaptar su estrategia de actuación en consecuencia. Adicionalmente, las transiciones entre P-states no son instantáneas --- del orden de 10~ms, o ~1~ms con \textit{hardware P-states} \cite{Hebbar2022} ---, por lo que una política de control debe amortizar ese costo y no decidir a un ritmo superior al que el sistema puede materializar.
+Sobre esta base operan los \textit{governors}: políticas que deciden cuándo y cómo transicionar entre P-states, sin implementar el mecanismo físico. Las políticas de frecuencia fija (\texttt{performance}, \texttt{powersave}) sitúan al procesador en un extremo operativo; los gobernadores dinámicos (\texttt{ondemand}, \texttt{conservative}, \texttt{schedutil}) ajustan la frecuencia según carga observada o, en el caso de \texttt{schedutil}, integrada con el planificador \cite{Hebbar2022}. En Linux, dos controladores dominan: \texttt{acpi-cpufreq}, genérico, que expone un gobernador \texttt{userspace} capaz de fijar una frecuencia objetivo explícita, e \texttt{intel\_pstate}, por defecto en muchas generaciones Intel, que solo soporta \texttt{performance}/\texttt{powersave} y no incluye gobernador \texttt{userspace} \cite{Hebbar2022}. Bajo este segundo controlador, fijar un punto operativo concreto se logra restringiendo el rango permitido mediante límites inferior y superior, no escribiendo una frecuencia objetivo directamente. Esta diferencia tiene consecuencias operativas directas: un agente de control portable debe detectar el controlador activo y adaptar su estrategia de actuación en consecuencia. Adicionalmente, las transiciones entre P-states no son instantáneas: del orden de 10~ms, o ~1~ms con \textit{hardware P-states} \cite{Hebbar2022}, por lo que una política de control debe amortizar ese costo y no decidir a un ritmo superior al que el sistema puede materializar.
 
 \subsubsection{Dominios de frecuencia y aislamiento experimental}
 \label{sec:dominios}
 
-El dominio de frecuencia --- el conjunto de procesadores lógicos afectados simultáneamente por una misma solicitud de cambio --- puede abarcar un zócalo completo o reducirse a cada núcleo individual, según la generación de hardware. Si el dominio excede los núcleos asignados al experimento, la actuación puede alterar procesos ajenos y viceversa, comprometiendo tanto la validez interna del experimento como la convivencia en infraestructura compartida. Por ello, el dominio real de frecuencia --- consultado en la plataforma, no supuesto a partir del modelo de procesador --- es una verificación previa obligatoria antes de habilitar cualquier actuación. De forma relacionada, cuando \textit{simultaneous multithreading} comparte los recursos de un núcleo físico entre dos procesadores lógicos, la política de asignación debe declararse explícitamente y verificarse contra la topología real, para evitar que hilos de medición y de carga compitan por los mismos recursos.
+El dominio de frecuencia (el conjunto de procesadores lógicos afectados simultáneamente por una misma solicitud de cambio) puede abarcar un zócalo completo o reducirse a cada núcleo individual, según la generación de hardware. Si el dominio excede los núcleos asignados al experimento, la actuación puede alterar procesos ajenos y viceversa, comprometiendo tanto la validez interna del experimento como la convivencia en infraestructura compartida. Por ello, el dominio real de frecuencia, consultado en la plataforma y no supuesto a partir del modelo de procesador, es una verificación previa obligatoria antes de habilitar cualquier actuación. De forma relacionada, cuando \textit{simultaneous multithreading} comparte los recursos de un núcleo físico entre dos procesadores lógicos, la política de asignación debe declararse explícitamente y verificarse contra la topología real, para evitar que hilos de medición y de carga compitan por los mismos recursos.
 
-Conviene distinguir aquí dos decisiones que, por involucrar ambas a \textit{SMT}, pueden confundirse entre sí pese a operar en capas distintas del sistema. La primera es una política de \emph{colocación} de la carga: cuando dos procesadores lógicos comparten las unidades de ejecución y la jerarquía de caché de un mismo núcleo físico, ejecutar la medición en ambos simultáneamente introduce contención entre los propios hilos medidos, distorsionando el resultado por una razón ajena a la frecuencia. La mitigación --- restringir la carga a un único hilo lógico por núcleo físico, dejando el resto sin uso --- resuelve exactamente ese problema, y solo ese: decide dónde se \emph{ejecuta} la carga, no qué frecuencia puede \emph{solicitar} cada procesador lógico del sistema.
+Conviene distinguir aquí dos decisiones que, por involucrar ambas a \textit{SMT}, pueden confundirse entre sí pese a operar en capas distintas del sistema. La primera es una política de \emph{colocación} de la carga: cuando dos procesadores lógicos comparten las unidades de ejecución y la jerarquía de caché de un mismo núcleo físico, ejecutar la medición en ambos simultáneamente introduce contención entre los propios hilos medidos, distorsionando el resultado por una razón ajena a la frecuencia. La mitigación, restringir la carga a un único hilo lógico por núcleo físico y dejar el resto sin uso, resuelve exactamente ese problema, y solo ese: decide dónde se \emph{ejecuta} la carga, no qué frecuencia puede \emph{solicitar} cada procesador lógico del sistema.
 
-Esa distinción importa porque dejar sin uso al segundo procesador lógico de cada núcleo no equivale a deshabilitar \textit{SMT} --- una operación de firmware, fuera del alcance de un experimento sin privilegios administrativos sobre una plataforma compartida. El procesador lógico no utilizado sigue activo ante el sistema operativo, con su propia política de \texttt{cpufreq} independiente y escribible, y --- salvo que se le restrinja explícitamente --- con su gobernador en el extremo de mayor rendimiento por defecto, exactamente como cualquier otro procesador lógico del sistema. Que nunca ejecute la carga medida no le impide seguir solicitando el punto operativo más alto que el firmware permita; y como ambos hermanos comparten el mismo reloj físico subyacente pese a exponer políticas de control nominalmente independientes, el mecanismo de coordinación de límites del hardware puede conceder ese punto sobre el núcleo físico compartido con independencia del límite, más bajo, declarado en la política del hermano restringido y efectivamente en uso. Una política de colocación correcta y ya verificada no protege, por tanto, contra esta segunda vía de interferencia: la disciplina de aislamiento experimental --- declarar y verificar el dominio real de frecuencia --- debe extenderse también a los hermanos de \textit{SMT} que la política de colocación decidió dejar sin uso, no solo a los procesadores lógicos que efectivamente ejecutan la carga medida.
+Esa distinción importa porque dejar sin uso al segundo procesador lógico de cada núcleo no equivale a deshabilitar \textit{SMT}, una operación de firmware fuera del alcance de un experimento sin privilegios administrativos sobre una plataforma compartida. El procesador lógico no utilizado sigue activo ante el sistema operativo, con su propia política de \texttt{cpufreq} independiente y escribible, y su gobernador queda en el extremo de mayor rendimiento por defecto salvo que se le restrinja explícitamente, exactamente como cualquier otro procesador lógico del sistema. Que nunca ejecute la carga medida no le impide seguir solicitando el punto operativo más alto que el firmware permita, y como ambos hermanos comparten el mismo reloj físico subyacente pese a exponer políticas de control nominalmente independientes, el mecanismo de coordinación de límites del hardware puede conceder ese punto sobre el núcleo físico compartido con independencia del límite, más bajo, declarado en la política del hermano restringido y efectivamente en uso. Una política de colocación correcta y ya verificada no protege, por tanto, contra esta segunda vía de interferencia: la disciplina de aislamiento experimental, declarar y verificar el dominio real de frecuencia, debe extenderse también a los hermanos de \textit{SMT} que la política de colocación decidió dejar sin uso, no solo a los procesadores lógicos que efectivamente ejecutan la carga medida.
 
 \subsubsection{Particularidades de DVFS en GPU}
 
-En GPU, DVFS no se reduce al esquema de CPU: el comportamiento energético y temporal depende de la interacción entre al menos dos dominios funcionales --- procesamiento (multiprocesadores de \textit{streaming}) y memoria del dispositivo ---, que no responden igual a un cambio de frecuencia \cite{Guerreiro2019}. Cuando el rendimiento está limitado por cómputo, la frecuencia del dominio de procesamiento impacta más directamente el tiempo de ejecución; cuando predomina la limitación por memoria, esa sensibilidad disminuye y el dominio de memoria pasa a ser más determinante \cite{Guerreiro2019,Ali2023}. Además, potencia, rendimiento y energía no varían de forma independiente con la frecuencia: bajar la frecuencia puede reducir la potencia instantánea sin reducir la energía total si el tiempo de ejecución aumenta demasiado, y viceversa \cite{Guerreiro2019,Ali2023}.
+En GPU, DVFS no se reduce al esquema de CPU: el comportamiento energético y temporal depende de la interacción entre al menos dos dominios funcionales, procesamiento (multiprocesadores de \textit{streaming}) y memoria del dispositivo, que no responden igual a un cambio de frecuencia \cite{Guerreiro2019}. Cuando el rendimiento está limitado por cómputo, la frecuencia del dominio de procesamiento impacta más directamente el tiempo de ejecución; cuando predomina la limitación por memoria, esa sensibilidad disminuye y el dominio de memoria pasa a ser más determinante \cite{Guerreiro2019,Ali2023}. Además, potencia, rendimiento y energía no varían de forma independiente con la frecuencia: bajar la frecuencia puede reducir la potencia instantánea sin reducir la energía total si el tiempo de ejecución aumenta demasiado, y viceversa \cite{Guerreiro2019,Ali2023}.
 
 \subsection{Cargas de trabajo: kernels, benchmarks y microbenchmarks}
 
@@ -822,6 +885,12 @@ obtiene mediante la diferencia entre ambas lecturas; por esta razón, la
 primera lectura de una corrida no produce una ventana. Su duración corresponde
 al tiempo realmente transcurrido, medido con un reloj monótono, y no al
 período nominal solicitado.
+
+En el instrumento implementado, cada lectura de los contadores de núcleo se
+marca con \texttt{CLOCK\_MONOTONIC}. La duración de una ventana se obtiene de la
+diferencia entre marcas consecutivas y no del período nominal configurado. Las
+salidas de \textit{uncore} producidas por \texttt{perf stat -I} ya representan
+deltas por intervalo, por lo que se procesan sin volver a diferenciarlas.
 
 La Tabla \ref{tab:contadores} resume las señales de CPU capturadas por el
 instrumento. El conjunto de eventos de núcleo se dimensionó para permanecer
