@@ -531,8 +531,12 @@ extensión deseable. Esa ampliación no debe bloquear el controlador mínimo.
 - definir las particiones por tamaño;
 - medir el headroom real de dispositivo y frecuencia.
 
-**Salida:** decisión documentada sobre si existe señal suficiente para
-entrenar y si se justifica medir tamaños adicionales.
+**Salida:** diagnóstico documentado de la señal disponible, del margen máximo
+frente a las baselines y de si se justifica medir tamaños adicionales. Este
+diagnóstico **no puede cancelar ni omitir R2**: aunque la mejor baseline quede
+tan cerca del oráculo que anticipe un resultado negativo para ML, se deben
+entrenar y evaluar los modelos predeclarados. Lo condicionado por el resultado
+no es la evaluación del modelo, sino su adopción dentro del agente final.
 
 ### Fase R2 — Prototipo de modelos — obligatoria
 
@@ -635,6 +639,10 @@ DVFS por anticipado.
 
 Una tabla de cruces o un umbral simple iguala a los modelos. Se adopta la
 política simple y se reporta que la complejidad ML no está justificada.
+Esta conclusión solo puede declararse después de completar R2 y la evaluación
+confirmatoria aplicable con el protocolo congelado; el diagnóstico preliminar
+de R1, por sí solo, no autoriza abandonar el entrenamiento ni la evaluación de
+los modelos.
 
 ### Resultado negativo
 
