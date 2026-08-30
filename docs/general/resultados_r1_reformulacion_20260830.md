@@ -37,13 +37,20 @@ independientes.
 |---|---:|---:|---:|---:|
 | `none_ready` | 68 | 0 | 68 | 0 |
 | `cpu_ready` | 68 | 0 | 68 | 0 |
-| `gpu_ready` | 12 | 56 | 65 | 3 |
+| `gpu_ready` | 12 | 56 | 68 | 0 |
 
 La decisión de dispositivo obtenida comparando CPU REF contra GPU REF coincide
 en los 204 contextos con el dispositivo del oráculo que explora todas las
 frecuencias. Esto respalda separar primero dispositivo y frecuencia: el
 producto cartesiano completo no cambió ninguna etiqueta de dispositivo en el
 conjunto actual.
+
+La regla primaria anterior es exactamente la congelada: margen contra el piso
+global de 3,11 %. Como sensibilidad exploratoria adicional, una propagación
+normal aproximada de los errores estándar cruza cero en tres casos
+`gpu_ready` (`axpy_N316228`, `stencil_N3072` y `stencil_N4096`). Esa banda no
+está preregistrada, depende de supuestos fuertes con solo tres repeticiones y
+no reemplaza el veredicto principal de 204/204 separados.
 
 ## 3. Mapa de amortización
 

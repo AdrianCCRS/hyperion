@@ -100,6 +100,16 @@ def build_datacard(
             if "device_decision_uncertainty_method" in compact_frame else {}
         ),
     }
+    if "device_decision_ci_separated_normal_approx" in compact_frame:
+        ci = pd.to_numeric(
+            compact_frame["device_decision_ci_separated_normal_approx"], errors="coerce",
+        ).dropna().astype(bool)
+        card["device_margin"]["exploratory_normal_approximation"] = {
+            "available": int(len(ci)),
+            "separated": int(ci.sum()),
+            "uncertain": int((~ci).sum()),
+            "status": "sensitivity_only_not_the_frozen_abstention_rule",
+        }
 
     if headroom is not None:
         card["frequency_margin"] = {

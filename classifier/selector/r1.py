@@ -85,6 +85,18 @@ def _summary(
             }
             for state, group in compact.groupby("resource_state", observed=True)
         },
+        "device_decision_exploratory_ci_by_resource_state": {
+            str(state): {
+                "available": int(group["device_decision_ci_separated_normal_approx"].notna().sum()),
+                "separated": int(group["device_decision_ci_separated_normal_approx"].fillna(0).sum()),
+                "uncertain": int(
+                    group["device_decision_ci_separated_normal_approx"].notna().sum()
+                    - group["device_decision_ci_separated_normal_approx"].fillna(0).sum()
+                ),
+                "status": "exploratory_not_frozen_rule",
+            }
+            for state, group in compact.groupby("resource_state", observed=True)
+        },
         "amortization": {
             "finite_count": int(finite.sum()),
             "infinite_count": int((~finite).sum()),

@@ -220,18 +220,26 @@ def build_compact_dataset(
                     + (gpu_std / math.sqrt(gpu_n) / gpu_edp) ** 2
                 )
                 ci_low, ci_high = y - z_score * log_se, y + z_score * log_se
-                separated = ci_high < 0 or ci_low > 0
-                method = "normal_approx_log_ratio"
+                ci_separated = ci_high < 0 or ci_low > 0
+                ci_method = "normal_approx_log_ratio_exploratory"
             else:
                 log_se = ci_low = ci_high = float("nan")
-                separated = record["device_margin_pct"] >= NOISE_FLOOR_PCT
-                method = "noise_floor_fallback"
+                ci_separated = None
+                ci_method = "unavailable"
+            above_frozen_floor = record["device_margin_pct"] >= NOISE_FLOOR_PCT
             record.update({
                 "y_log_edp_ratio_se_normal_approx": log_se,
                 "y_log_edp_ratio_ci_low_normal_approx": ci_low,
                 "y_log_edp_ratio_ci_high_normal_approx": ci_high,
-                "device_decision_separated": int(separated),
-                "device_decision_uncertainty_method": method,
+                # Veredicto primario congelado en el protocolo: margen contra
+                # el piso global de 3.11 %. La banda normal es una sensibilidad
+                # exploratoria separada y no puede sustituir esta regla.
+                "device_decision_separated": int(above_frozen_floor),
+                "device_decision_uncertainty_method": "frozen_global_noise_floor",
+                "device_decision_ci_separated_normal_approx": (
+                    np.nan if ci_separated is None else int(ci_separated)
+                ),
+                "device_decision_ci_uncertainty_method": ci_method,
             })
             records.append(record)
     frame = pd.DataFrame(records)
