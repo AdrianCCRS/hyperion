@@ -11,6 +11,19 @@
 #SBATCH --output=/home/latorresn/hyperion-results/campaigns/dual_cpu_big_%j.out
 #SBATCH --error=/home/latorresn/hyperion-results/campaigns/dual_cpu_big_%j.err
 #
+# ############################################################
+# NO LANZAR TODAVIA (decision 2026-08-30).
+# Este es el barrido COMPLETO de frecuencias. Se decidio medir
+# primero solo REF (54 corridas totales entre ambos ejes) con
+# run_campaign_pacca_dual_{cpu,gpu}_big_ref.sbatch: la etiqueta
+# de dispositivo con solo REF coincide 136/136 con la del
+# barrido completo en el catalogo actual, y la decision de
+# dispositivo vale ordenes de magnitud mas que la de frecuencia.
+# La ampliacion de frecuencias se disenara DESPUES de analizar
+# REF, y sera selectiva (solo configuraciones cerca de un cruce
+# o con headroom demostrado), no este producto cartesiano.
+# ############################################################
+#
 # Campana suplementaria del selector CPU/GPU -- eje CPU, solo los 9
 # config_id "big" (GEMM/Cholesky/FFT N=8192/12288/16384). Ver
 # orchestrator/schemas/campaigns/campaign_pacca_dual_cpu_big.yaml. Manifiesto

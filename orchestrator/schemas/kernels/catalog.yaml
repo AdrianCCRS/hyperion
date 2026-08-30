@@ -2021,13 +2021,13 @@ kernels:
     phase_label_hint: intermedio
     size_variant: N8192
     exec_args: "--size 8192 --iterations 5"
-    expected_runtime_seconds: 55
+    expected_runtime_seconds: 5
     warmup_seconds: 0.05
     estimated_memory_bytes: 2093796556
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
-    operational_intensity_flops_per_byte: 0.062215  # ncu real, representativa de la operacion (no por tamano)
+    operational_intensity_flops_per_byte: 0.062215  # HEREDADO de N4096 sin re-perfilar (ARC pendiente, 2026-08-30): no hay medicion Nsight Compute propia para este tamano. NO usar para clasificacion Roofline sin perfilar u excluir explicitamente.
     binary_checksum:
       pacca-a100: "sha256:f5494ea4cef0cc1e909975e6370a0945c0a50337db8aeb28a2a71d2de54721eb"
 
@@ -2058,13 +2058,13 @@ kernels:
     phase_label_hint: intermedio
     size_variant: N12288
     exec_args: "--size 12288 --iterations 5"
-    expected_runtime_seconds: 177
+    expected_runtime_seconds: 10
     warmup_seconds: 0.05
     estimated_memory_bytes: 4711042252
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
-    operational_intensity_flops_per_byte: 0.062215  # ncu real, representativa de la operacion (no por tamano)
+    operational_intensity_flops_per_byte: 0.062215  # HEREDADO de N4096 sin re-perfilar (ARC pendiente, 2026-08-30): no hay medicion Nsight Compute propia para este tamano. NO usar para clasificacion Roofline sin perfilar u excluir explicitamente.
     binary_checksum:
       pacca-a100: "sha256:f5494ea4cef0cc1e909975e6370a0945c0a50337db8aeb28a2a71d2de54721eb"
 
@@ -2095,13 +2095,13 @@ kernels:
     phase_label_hint: intermedio
     size_variant: N16384
     exec_args: "--size 16384 --iterations 5"
-    expected_runtime_seconds: 412
+    expected_runtime_seconds: 20
     warmup_seconds: 0.05
     estimated_memory_bytes: 8375186227
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
-    operational_intensity_flops_per_byte: 0.062215  # ncu real, representativa de la operacion (no por tamano)
+    operational_intensity_flops_per_byte: 0.062215  # HEREDADO de N4096 sin re-perfilar (ARC pendiente, 2026-08-30): no hay medicion Nsight Compute propia para este tamano. NO usar para clasificacion Roofline sin perfilar u excluir explicitamente.
     binary_checksum:
       pacca-a100: "sha256:f5494ea4cef0cc1e909975e6370a0945c0a50337db8aeb28a2a71d2de54721eb"
 
@@ -2617,13 +2617,13 @@ kernels:
     phase_label_hint: intermedio
     size_variant: N8192
     exec_args: "--size 8192 --iterations 6"
-    expected_runtime_seconds: 31
+    expected_runtime_seconds: 5
     warmup_seconds: 0.05
     estimated_memory_bytes: 2791728742
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
-    operational_intensity_flops_per_byte: 2.498981  # ncu real, representativa de la operacion (no por tamano)
+    operational_intensity_flops_per_byte: 2.498981  # HEREDADO de N4096 sin re-perfilar (ARC pendiente, 2026-08-30): no hay medicion Nsight Compute propia para este tamano. NO usar para clasificacion Roofline sin perfilar u excluir explicitamente.
     binary_checksum:
       pacca-a100: "sha256:7de9abeb8dc3e6f0ccf724e18d8529b8c0bfb0a06848dfe968b43a9626f87035"
 
@@ -2654,13 +2654,13 @@ kernels:
     phase_label_hint: intermedio
     size_variant: N12288
     exec_args: "--size 12288 --iterations 5"
-    expected_runtime_seconds: 79
+    expected_runtime_seconds: 6
     warmup_seconds: 0.05
     estimated_memory_bytes: 6281389670
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
-    operational_intensity_flops_per_byte: 2.498981  # ncu real, representativa de la operacion (no por tamano)
+    operational_intensity_flops_per_byte: 2.498981  # HEREDADO de N4096 sin re-perfilar (ARC pendiente, 2026-08-30): no hay medicion Nsight Compute propia para este tamano. NO usar para clasificacion Roofline sin perfilar u excluir explicitamente.
     binary_checksum:
       pacca-a100: "sha256:7de9abeb8dc3e6f0ccf724e18d8529b8c0bfb0a06848dfe968b43a9626f87035"
 
@@ -2691,13 +2691,13 @@ kernels:
     phase_label_hint: intermedio
     size_variant: N16384
     exec_args: "--size 16384 --iterations 5"
-    expected_runtime_seconds: 113
+    expected_runtime_seconds: 9
     warmup_seconds: 0.05
     estimated_memory_bytes: 11166914969
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
-    operational_intensity_flops_per_byte: 2.498981  # ncu real, representativa de la operacion (no por tamano)
+    operational_intensity_flops_per_byte: 2.498981  # HEREDADO de N4096 sin re-perfilar (ARC pendiente, 2026-08-30): no hay medicion Nsight Compute propia para este tamano. NO usar para clasificacion Roofline sin perfilar u excluir explicitamente.
     binary_checksum:
       pacca-a100: "sha256:7de9abeb8dc3e6f0ccf724e18d8529b8c0bfb0a06848dfe968b43a9626f87035"
 
@@ -3987,13 +3987,13 @@ kernels:
     phase_label_hint: intermedio
     size_variant: N8192
     exec_args: "--size 8192 --iterations 5"
-    expected_runtime_seconds: 64
+    expected_runtime_seconds: 7
     warmup_seconds: 0.05
     estimated_memory_bytes: 1395864371
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
-    operational_intensity_flops_per_byte: 9.887307  # ncu real, representativa de la operacion (no por tamano)
+    operational_intensity_flops_per_byte: 9.887307  # HEREDADO de N4096 sin re-perfilar (ARC pendiente, 2026-08-30): no hay medicion Nsight Compute propia para este tamano. NO usar para clasificacion Roofline sin perfilar u excluir explicitamente.
     binary_checksum:
       pacca-a100: "sha256:0df46019e61e6cffdb3e7df55370bc9407bc1fc2a8bbc7b5fb4b6b90581f0058"
 
@@ -4024,13 +4024,13 @@ kernels:
     phase_label_hint: intermedio
     size_variant: N12288
     exec_args: "--size 12288 --iterations 5"
-    expected_runtime_seconds: 131
+    expected_runtime_seconds: 16
     warmup_seconds: 0.05
     estimated_memory_bytes: 3140694835
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
-    operational_intensity_flops_per_byte: 9.887307  # ncu real, representativa de la operacion (no por tamano)
+    operational_intensity_flops_per_byte: 9.887307  # HEREDADO de N4096 sin re-perfilar (ARC pendiente, 2026-08-30): no hay medicion Nsight Compute propia para este tamano. NO usar para clasificacion Roofline sin perfilar u excluir explicitamente.
     binary_checksum:
       pacca-a100: "sha256:0df46019e61e6cffdb3e7df55370bc9407bc1fc2a8bbc7b5fb4b6b90581f0058"
 
@@ -4061,13 +4061,13 @@ kernels:
     phase_label_hint: intermedio
     size_variant: N16384
     exec_args: "--size 16384 --iterations 5"
-    expected_runtime_seconds: 304
+    expected_runtime_seconds: 35
     warmup_seconds: 0.05
     estimated_memory_bytes: 5583457484
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
-    operational_intensity_flops_per_byte: 9.887307  # ncu real, representativa de la operacion (no por tamano)
+    operational_intensity_flops_per_byte: 9.887307  # HEREDADO de N4096 sin re-perfilar (ARC pendiente, 2026-08-30): no hay medicion Nsight Compute propia para este tamano. NO usar para clasificacion Roofline sin perfilar u excluir explicitamente.
     binary_checksum:
       pacca-a100: "sha256:0df46019e61e6cffdb3e7df55370bc9407bc1fc2a8bbc7b5fb4b6b90581f0058"
 
