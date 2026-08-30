@@ -6,7 +6,7 @@
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:1
 #SBATCH --exclusive
-#SBATCH --mem=24G
+#SBATCH --mem=16G
 #SBATCH --time=05:30:00
 #SBATCH --output=/home/latorresn/hyperion-results/campaigns/dual_gpu_full_%j.out
 #SBATCH --error=/home/latorresn/hyperion-results/campaigns/dual_gpu_full_%j.err

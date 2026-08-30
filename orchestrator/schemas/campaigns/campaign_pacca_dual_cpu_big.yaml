@@ -1,0 +1,131 @@
+# Campana suplementaria "big" del selector CPU/GPU -- eje CPU (2026-08-30).
+# 9 config_id nuevos (GEMM/Cholesky/FFT, N=8192/12288/16384) x 8 niveles
+# finos de CPU x 3 rep = 216 corridas. Identidad propia (campaign_id +
+# output_dir nuevos) a proposito: los 9 kernel_ref viven en catalog.yaml
+# junto a los 68 originales, pero agregarlos al manifiesto
+# campaign_pacca_dual_cpu_full.yaml (que ya tiene corridas aceptadas)
+# cambia compute_protocol_fingerprint() -- ver orchestrator/campaign.py
+# ~L81 (incluye kernel_refs en el payload hasheado) -- y dispara
+# CampaignProtocolMismatchError (fail-closed correcto, pero bloquea toda
+# la campana, vieja y nueva). Con manifiesto separado, la campana de 68
+# original queda intacta y reanudable, y esta campana "big" resuelve sus
+# propios kernel_ref/frecuencias/cores sin tocar ese fingerprint.
+#
+# El dataset combinado (68 + 9 = 77 config_id) se arma DESPUES, en
+# classifier/selector build, pasando ambos output_dir por eje -- ver
+# classifier/selector/cli.py (--cpu-campaign admite --append--) y
+# classifier/selector/dataset.py (build_selector_datasets ya no asume un
+# solo directorio ni un conteo de config_id fijo).
+#
+# Presupuesto de tiempo: ver run_campaign_pacca_dual_cpu_big.sbatch para el
+# calculo real (~17-22h de ejecucion efectiva, requiere varias sesiones).
+#
+# Recomendacion: antes de lanzar la campana completa, correr un smoke
+# REF-only de los 3 kernels N=16384 (el tamano mas caro de cada operacion)
+# para confirmar tiempos reales y memoria antes de comprometer una sesion
+# larga -- ver campaign_pacca_dual_cpu_big_smoke.yaml.
+
+campaign_id: pacca_dual_cpu_big_20260830
+environment_tier: hpc_sc3
+seed: 20260830
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_dual_cpu_big_20260830
+overwrite: true
+
+catalog_path: ../kernels/catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: dual_gemm_cpu_N8192
+  - kernel_ref: dual_gemm_cpu_N12288
+  - kernel_ref: dual_gemm_cpu_N16384
+  - kernel_ref: dual_fft_cpu_N8192
+  - kernel_ref: dual_fft_cpu_N12288
+  - kernel_ref: dual_fft_cpu_N16384
+  - kernel_ref: dual_cholesky_cpu_N8192
+  - kernel_ref: dual_cholesky_cpu_N12288
+  - kernel_ref: dual_cholesky_cpu_N16384
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F0, mode: fixed, fraction: 1.0}
+  - {id: F1, mode: fixed, fraction: 0.833}
+  - {id: F2, mode: fixed, fraction: 0.667}
+  - {id: F3, mode: fixed, fraction: 0.5}
+  - {id: F4, mode: fixed, fraction: 0.333}
+  - {id: F5, mode: fixed, fraction: 0.167}
+  - {id: F6, mode: fixed, fraction: 0.0}
+
+repetitions_per_combination: 3
+baseline_repetition_indices: [1]
+target_windows_per_repetition: 5
+interval_ns: 1000000  # 1 ms
+gpu_interval_ns: 5000000  # 5 ms; GPU ociosa entra al mismo subtotal energetico
+
+running_ratio_min: 0.90
+
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+  grace_seconds: 0.05
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+
+rapl:
+  enabled: true
+
+uncore:
+  enabled: true
+
+turbo:
+  require_disabled: true
+
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+
+gpu:
+  # Mismo alcance energetico que el lado GPU: RAPL package+DRAM + NVML.
+  # En corridas CPU la contribucion GPU es la potencia ociosa, no cero.
+  # Propiedad de la plataforma, no del tamano del kernel -- sigue valida.
+  enabled: true
+
+timeouts_seconds:
+  ready: 15
+  # run: solo el piso generico (_resolve_timeout_seconds en runner.py usa
+  # max(expected_runtime_seconds x slowdown_DVFS x SAFETY_MARGIN, run) --
+  # los kernels big declaran expected_runtime_seconds real en el catalogo,
+  # asi que el timeout efectivo por corrida ya escala solo, este piso no
+  # se toca).
+  run: 180
+  shutdown: 15
+
+hardware_datasheet:
+  # Mismos valores medidos que la campana full -- propiedad del nodo, no
+  # del kernel.
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 509083000000
+
+projected_campaign_bytes: 100000000
+remaining_core_hours: 1000.0
+projected_core_hours: 20.0
