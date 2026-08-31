@@ -907,3 +907,31 @@ después de descontar el sondeo REF y el costo físico de cambiar frecuencia
   falta medir para revisarla.
 - No modifica la arquitectura de `dvfs.py`; es una enmienda documental y de
   interpretación, no de código.
+
+## 18. Inicio de R3-B — máquina de estados y adaptador de actuación
+
+**Fecha:** 2026-08-31
+
+**Datos confirmatorios observados al implementar:** ninguno.
+
+**Alcance:** implementación del armazón del agente; no cambia la selección
+`adopt_model: false` de R3-A ni constituye validación sobre hardware.
+
+La política implementada mantiene la baseline de dispositivo y restringe la
+consulta de `power_law` a `gpu_ready -> gpu`. Todos los demás estados usan
+REF; el modelo también se abstiene si falta el sondeo REF, si REF pertenece
+al conjunto equivalente o si ocurre un error de inferencia. Cada decisión
+registra motivo, política, estado, acción y tiempo de inferencia.
+
+La actuación se delega a un adaptador que reutiliza los controladores CPU/GPU
+ya verificados. El adaptador toma una sola instantánea del estado CPU, acepta
+solo acciones con forma `cpu:NIVEL` o `gpu:HOST:GPU`, mide el intervalo de
+actuación y restaura los dos ejes ante una aplicación parcial, una excepción
+de la carga, salida normal o señal. El estado `*_ready` solo se confirma
+después de finalizar correctamente la carga.
+
+La prueba en entorno simulado cubre las transiciones, abstención, fallback,
+medición separada y restauración. Permanece bloqueante para declarar R3-B
+completo una prueba real en pacca que verifique reloj efectivo durante carga,
+costo de actuación y restauración final; las pruebas existentes no sustituyen
+esa evidencia física.

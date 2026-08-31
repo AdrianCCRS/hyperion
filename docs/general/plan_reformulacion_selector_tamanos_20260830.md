@@ -576,6 +576,33 @@ eje de dispositivo). No se ha redactado todavía.
 > sección "Contextualización del resultado frente a la baseline y a la
 > magnitud del EDP".
 
+### 6.6 Inicio de R3-B — agente híbrido mínimo (2026-08-31)
+
+Se implementó el núcleo de la máquina de estados en
+`classifier/selector/agent.py` y el adaptador de actuación en
+`orchestrator/agent_actuator.py`. El alcance implementado conserva la
+conclusión de R3-A, sin promover retrospectivamente el modelo:
+
+- la política simple sigue resolviendo el dispositivo;
+- la compuerta de ML solo se abre en la transición
+  `gpu_ready -> gpu`;
+- `power_law` requiere un sondeo REF real para reconstruir tiempo y energía;
+- ausencia de sondeo, equivalencia estadística o error del modelo producen
+  abstención explícita y acción `REF`;
+- el estado preparado solo cambia después de que la carga termina con éxito;
+- inferencia y actuación se cronometran por separado, y la energía de
+  actuación puede medirse mediante un lector inyectado;
+- una actuación parcial o una carga fallida restaura CPU y GPU antes de
+  propagar el error.
+
+El adaptador reutiliza exclusivamente `orchestrator.freqctl` y
+`orchestrator.gpu_freqctl`: toma un único snapshot de los CPU delegados,
+aplica las acciones conjuntas `cpu:NIVEL`/`gpu:HOST:GPU` y restaura ambos
+ejes. Esta integración tiene pruebas con entornos simulados; **no constituye
+todavía una prueba de actuación del agente en hardware**. Quedan pendientes
+el empaquetado reproducible de la política de dispositivo, el ejecutable que
+envuelva una carga real y las mediciones R3/R4 en pacca.
+
 ## 7. Características de entrada
 
 ### 7.1 Modelo estático

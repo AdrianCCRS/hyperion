@@ -9,8 +9,10 @@ from .dataset import BuildConfig, build_selector_datasets
 from .r1 import run_r1_analysis
 from .r2 import run_r2_analysis
 from .dvfs import run_dvfs_analysis
+from .agent import HybridAgentPolicy, MinimalAgentController
 
 __all__ = [
     "BuildConfig", "build_selector_datasets", "run_r1_analysis",
     "run_r2_analysis", "run_dvfs_analysis",
+    "HybridAgentPolicy", "MinimalAgentController",
 ]
