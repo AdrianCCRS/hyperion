@@ -273,6 +273,8 @@ invalida el carácter confirmatorio de la evaluación.
 | 2026-08-30 | versión inicial congelada | no |
 | 2026-08-30 | enmienda **2026-08-30-A**: política sobre `resource_state × K` (§12); §2 supersedida parcialmente | **no** — verificado: jobs 6763/6764 en estado `PENDING`, los directorios `pacca_dual_{cpu,gpu}_big_ref_20260830` no existían al redactar |
 | 2026-08-30 | enmienda **2026-08-30-B**: target estructurado en tres capas (§13); §1 y §4 supersedidas parcialmente | **no** — verificado: jobs 6763/6764 en `PENDING`, sin directorios de salida al redactar |
+| 2026-08-30 | enmienda **2026-08-30-C**: corrección de selección y agregación de R2 (§14) | **no** — verificado: jobs 6763/6764 en `PENDING`, sin directorios de salida al redactar |
+| 2026-08-31 | enmienda **2026-08-31-A**: target relativo a REF y profundidad libre para R3-A (§15) | **no** — verificado por `squeue`: jobs 6763/6764 siguen en `PENDING` (razones "Nodes required... DOWN/DRAINED" y "Resources"), sin directorios de salida al redactar |
 
 ---
 
@@ -535,3 +537,73 @@ Este resultado no autoriza todavía adoptar ML como política general de
 dispositivo. Congela una política híbrida candidata —baseline por defecto y
 modelo solo en las compuertas que superaron el umbral exploratorio— para que
 la campaña confirmatoria decida si sobrevive fuera del conjunto de desarrollo.
+
+## 15. Enmienda 2026-08-31-A — target relativo a REF y profundidad libre para R3-A
+
+**Fecha:** 2026-08-31
+**Datos confirmatorios observados al redactar:** ninguno; los jobs 6763/6764
+continuaban en `PENDING` y no existían sus directorios de resultados.
+**Ámbito:** R3-A (capa DVFS offline, `classifier/selector/dvfs.py`), sección
+§6.5 del plan de reformulación. No toca R1 ni R2/estructurado.
+
+### 15.1 Error corregido: objetivo en magnitud absoluta
+
+La primera implementación de R3-A predecía `log(energía)` y `log(tiempo)`
+absolutos por acción y calibraba el error como
+`|predicho/real - 1| * 100`. Verificado sobre los 5.441 registros reales de
+pacca: en configuraciones con EDP diminuto (p. ej. `axpy_N10000` en frío,
+EDP≈1,66e-8 J·s) un error absoluto minúsculo del modelo se traduce en errores
+porcentuales de hasta 14.000.000%, porque se divide por una magnitud casi
+nula. El p95 de incertidumbre por contexto (`resource_state`, `device`)
+llegaba a 121.937% incluso en el contexto más limpio, forzando abstención al
+100% en todos los estados sin que eso reflejara una limitación real del
+modelo.
+
+**Corrección:** el objetivo pasa a ser el desvío logarítmico respecto a la
+acción REF del mismo `config_id × resource_state`
+(`log_energy_ratio = log(energía_acción) − log(energía_REF)`, análogo para
+tiempo). REF se mide, nunca se predice, y su costo real ancla la
+reconstrucción (`predicho = REF_medido × exp(desvío_predicho)`). Mismo split,
+mismos datos reales: el p95 de incertidumbre baja a 35%–125% según contexto
+(5 órdenes de magnitud de mejora). Sigue muy por encima del piso de ruido de
+§7 (1,80%–5,76%): la política se abstiene en el 100% de los casos con este
+solo cambio. Es un resultado honesto, no un modelo ya viable.
+
+### 15.2 Error corregido: profundidad congelada heredada de R2
+
+`tree` y `random_forest` heredaban de §4 el límite `max_depth <= 3 / 5`,
+congelado allí para el eje de dispositivo (R2): pocas categorías, margen de
+decisión enorme, la profundidad chica alcanza. R3-A tiene ~40 acciones de
+frecuencia × 6 operaciones interactuando con el tamaño — un árbol de
+profundidad 3 no puede ni codificar las categorías, y `fit_cost_models` de
+R3-A no hace búsqueda de hiperparámetros (a diferencia de §5.3 para R2), así
+que ese límite operaba sin ajuste alguno.
+
+**Verificación antes de decidir:** sobre el mismo pliegue de calibración,
+liberar `max_depth` en `random_forest` bajó la mediana del error de 36,8% a
+7,4%; el p95 mejoró de 73,2% a 57,2%; el máximo se mantuvo ~320%–350%. El
+error residual grande no es ruido difuso: se concentra en GPU con tamaño
+chico y reloj de host bajo (`fft_N64`, `spmv_N10000`, `stencil_N64` en
+`gpu:F6:*`/`gpu:F3:*`), un régimen donde el overhead de lanzamiento domina de
+forma no lineal y ningún modelo de esta lista lo captura todavía.
+
+**Decisión:** se libera `max_depth` (sin límite) para `tree` y
+`random_forest` **únicamente dentro de R3-A**
+(`classifier/selector/dvfs.py::_DVFS_DEPTH_OVERRIDE`). El límite de §4 para
+R2 (eje de dispositivo) no cambia — sigue congelado en `max_depth <= 3 / 5`
+tal como se decidió allí, porque ese límite fue correcto para ese problema
+(pocas categorías, margen enorme) y liberarlo ahí ajustaría ruido.
+
+### 15.3 Lo que esta enmienda NO cambia
+
+- No cambia la regla de abstención de §7 ni el piso de ruido por región.
+- No adopta R3-A como política operativa: con ambas correcciones aplicadas,
+  el p95 de incertidumbre sigue muy por encima del piso de ruido y la
+  abstención sigue siendo el resultado en la mayoría de los contextos.
+- No modifica §4 para R2/estructurado — el override de profundidad es local
+  al módulo `dvfs.py`, aplicado vía el parámetro `params` de
+  `r2._base_estimator`, no un cambio del valor congelado allí.
+- No resuelve el régimen de cola (GPU, N chico, reloj de host bajo)
+  identificado en §15.2; queda como diagnóstico abierto para una iteración
+  futura de R3-A (tratamiento aparte del overhead de lanzamiento, o
+  exclusión explícita de ese régimen de la banda de equivalencia).

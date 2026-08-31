@@ -24,6 +24,19 @@ from .sizes import assert_no_config_leak, extrapolation_folds, interpolation_fol
 
 REGION_NOISE_PCT: Mapping[str, float] = {"cold": 5.76, "warm": 1.80}
 DVFS_FAMILIES: tuple[str, ...] = ("power_law", *REGRESSOR_FAMILIES)
+
+# `tree`/`random_forest` heredan de r2.py un max_depth<=3/5 congelado en la
+# seccion 4 del protocolo para el eje de dispositivo (R2): pocas categorias,
+# margen enorme, la profundidad chica alcanza. R3 tiene ~40 acciones x 6
+# operaciones -- un arbol de profundidad 3 no puede ni codificar las
+# categorias. Verificado con datos reales (enmienda 2026-08-31-A): liberar la
+# profundidad baja la mediana de error de 36.8% a 7.4% (p95 de 73.2% a
+# 57.2%). Este override es local a R3, no cambia el limite congelado que usa
+# R2 para el eje de dispositivo.
+_DVFS_DEPTH_OVERRIDE: Mapping[str, dict[str, Any]] = {
+    "tree": {"max_depth": None},
+    "random_forest": {"max_depth": None},
+}
 DVFS_FEATURES: tuple[str, ...] = (
     "operation", "size", "log10_n", "flops_per_dispatch_analytic",
     "log10_flops_per_dispatch", "logical_bytes_per_dispatch",
@@ -228,7 +241,7 @@ def _fit_pair(train: pd.DataFrame, family: str, *, seed: int) -> tuple[Any, Any]
     def pipeline():
         return Pipeline([
             ("preprocessor", _preprocessor(categorical, numeric, scale=scale)),
-            ("model", _base_estimator(family, seed)),
+            ("model", _base_estimator(family, seed, _DVFS_DEPTH_OVERRIDE.get(family))),
         ])
 
     energy = pipeline()
