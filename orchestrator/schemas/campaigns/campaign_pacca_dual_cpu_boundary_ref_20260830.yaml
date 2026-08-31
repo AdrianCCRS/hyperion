@@ -1,0 +1,56 @@
+# Campana dirigida a las fronteras CPU/GPU; no forma parte del conjunto
+# confirmatorio big ya congelado. Ver docs/general/campana_fronteras_cpu_gpu_20260830.md.
+#
+# 9 configuraciones nuevas cerca de los tres cruces + 4 tamanos FFT ya
+# medidos, repetidos para contrastar su no monotonia = 13 config_id x REF x
+# 6 repeticiones = 78 corridas CPU. Cada corrida aporta cold y warm.
+campaign_id: pacca_dual_cpu_boundary_ref_20260830
+environment_tier: hpc_sc3
+seed: 20260830
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_dual_cpu_boundary_ref_20260830
+overwrite: true
+catalog_path: ../kernels/catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: dual_axpy_cpu_N160000
+  - kernel_ref: dual_axpy_cpu_N208000
+  - kernel_ref: dual_axpy_cpu_N250000
+  - kernel_ref: dual_spmv_cpu_N1600000
+  - kernel_ref: dual_spmv_cpu_N2080000
+  - kernel_ref: dual_spmv_cpu_N2500000
+  - kernel_ref: dual_stencil_cpu_N3328
+  - kernel_ref: dual_stencil_cpu_N3584
+  - kernel_ref: dual_stencil_cpu_N3840
+  - kernel_ref: dual_fft_cpu_N192
+  - kernel_ref: dual_fft_cpu_N256
+  - kernel_ref: dual_fft_cpu_N384
+  - kernel_ref: dual_fft_cpu_N512
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+repetitions_per_combination: 6
+baseline_repetition_indices: [1]
+target_windows_per_repetition: 5
+interval_ns: 1000000
+gpu_interval_ns: 5000000
+running_ratio_min: 0.90
+frequency_validation: {require_per_window: true, tolerance_fraction: 0.05, grace_seconds: 0.05}
+cores: {delegated_cpus: [0, 1, 2, 3, 4, 5], collector_cpu: 6, consumer_cpu: 7, numa_node_pin: 0}
+smt_policy: one_thread_per_physical_core
+cgroup_path: null
+perf_enabled: true
+frequency_settle: {enabled: true, timeout_seconds: 30.0, tolerance_fraction: 0.05, poll_interval_seconds: 0.5}
+rapl: {enabled: true}
+uncore: {enabled: true}
+turbo: {require_disabled: true}
+temperature: {require_package_sensor: true, minimum_c: 0, maximum_c: 90}
+gpu: {enabled: true}
+timeouts_seconds: {ready: 15, run: 180, shutdown: 15}
+hardware_datasheet: {bw_pico_bytes_per_s: 59500000000, p_pico_flops_per_s: 509083000000}
+projected_campaign_bytes: 100000000
+remaining_core_hours: 1000.0
+projected_core_hours: 2.0

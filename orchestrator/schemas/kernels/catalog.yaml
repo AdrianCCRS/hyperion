@@ -4108,6 +4108,341 @@ kernels:
     binary_checksum:
       pacca-a100: "sha256:9e8d32606ed1bcedf6a5a36666a9562c8a8400ee41f6b42680c3f336a807fdd8"
 
+  # Fronteras CPU/GPU predefinidas para la campana REF de seguimiento
+  # 2026-08-30. Generado por scripts/pacca/gen_dual_boundary_catalog.py.
+  - id: dual_axpy_cpu_N160000
+    suite: Dual-AXPY
+    role: dataset
+    exec_path: bin/axpy_cpu
+    config_id: axpy_N160000
+    phase_label_hint: intermedio
+    size_variant: N160000
+    exec_args: "--size 160000 --iterations 13701"
+    expected_runtime_seconds: 11
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 4992000
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:606bfdda781d6584846670ee67e9dc020c6fa2e62c0e3264443ca0cc96367d31"
+
+  - id: dual_axpy_gpu_N160000
+    suite: Dual-AXPY
+    role: dataset
+    device: gpu
+    gpu_precision: fp64
+    exec_path: bin/axpy_gpu
+    config_id: axpy_N160000
+    phase_label_hint: intermedio
+    size_variant: N160000
+    exec_args: "--size 160000 --iterations 2660"
+    expected_runtime_seconds: 11
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 4992000
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    operational_intensity_flops_per_byte: 0.12493  # heredada de la caracterizacion por operacion; no usar para afirmar Roofline por tamano
+    binary_checksum:
+      pacca-a100: "sha256:d3166ae3e44a83e8e4358f5676025a84f2db42339e30f9f916edee36436497fb"
+
+  - id: dual_axpy_cpu_N208000
+    suite: Dual-AXPY
+    role: dataset
+    exec_path: bin/axpy_cpu
+    config_id: axpy_N208000
+    phase_label_hint: intermedio
+    size_variant: N208000
+    exec_args: "--size 208000 --iterations 10652"
+    expected_runtime_seconds: 11
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 6489600
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:606bfdda781d6584846670ee67e9dc020c6fa2e62c0e3264443ca0cc96367d31"
+
+  - id: dual_axpy_gpu_N208000
+    suite: Dual-AXPY
+    role: dataset
+    device: gpu
+    gpu_precision: fp64
+    exec_path: bin/axpy_gpu
+    config_id: axpy_N208000
+    phase_label_hint: intermedio
+    size_variant: N208000
+    exec_args: "--size 208000 --iterations 2193"
+    expected_runtime_seconds: 11
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 6489600
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    operational_intensity_flops_per_byte: 0.12493  # heredada de la caracterizacion por operacion; no usar para afirmar Roofline por tamano
+    binary_checksum:
+      pacca-a100: "sha256:d3166ae3e44a83e8e4358f5676025a84f2db42339e30f9f916edee36436497fb"
+
+  - id: dual_axpy_cpu_N250000
+    suite: Dual-AXPY
+    role: dataset
+    exec_path: bin/axpy_cpu
+    config_id: axpy_N250000
+    phase_label_hint: intermedio
+    size_variant: N250000
+    exec_args: "--size 250000 --iterations 8916"
+    expected_runtime_seconds: 11
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 7800000
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:606bfdda781d6584846670ee67e9dc020c6fa2e62c0e3264443ca0cc96367d31"
+
+  - id: dual_axpy_gpu_N250000
+    suite: Dual-AXPY
+    role: dataset
+    device: gpu
+    gpu_precision: fp64
+    exec_path: bin/axpy_gpu
+    config_id: axpy_N250000
+    phase_label_hint: intermedio
+    size_variant: N250000
+    exec_args: "--size 250000 --iterations 1900"
+    expected_runtime_seconds: 11
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 7800000
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    operational_intensity_flops_per_byte: 0.12493  # heredada de la caracterizacion por operacion; no usar para afirmar Roofline por tamano
+    binary_checksum:
+      pacca-a100: "sha256:d3166ae3e44a83e8e4358f5676025a84f2db42339e30f9f916edee36436497fb"
+
+  - id: dual_spmv_cpu_N1600000
+    suite: Dual-SpMV
+    role: dataset
+    exec_path: bin/spmv_cpu
+    config_id: spmv_N1600000
+    phase_label_hint: intermedio
+    size_variant: N1600000
+    exec_args: "--size 1600000 --iterations 440"
+    expected_runtime_seconds: 11
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 216320005
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:7f4fd80c684e0f9958dfe4bf6f32e840c5a92c8d58d7991a36922ee6e9778bab"
+
+  - id: dual_spmv_gpu_N1600000
+    suite: Dual-SpMV
+    role: dataset
+    device: gpu
+    gpu_precision: fp64
+    exec_path: bin/spmv_gpu
+    config_id: spmv_N1600000
+    phase_label_hint: intermedio
+    size_variant: N1600000
+    exec_args: "--size 1600000 --iterations 504"
+    expected_runtime_seconds: 11
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 216320005
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    operational_intensity_flops_per_byte: 0.274176  # heredada de la caracterizacion por operacion; no usar para afirmar Roofline por tamano
+    binary_checksum:
+      pacca-a100: "sha256:9e8d32606ed1bcedf6a5a36666a9562c8a8400ee41f6b42680c3f336a807fdd8"
+
+  - id: dual_spmv_cpu_N2080000
+    suite: Dual-SpMV
+    role: dataset
+    exec_path: bin/spmv_cpu
+    config_id: spmv_N2080000
+    phase_label_hint: intermedio
+    size_variant: N2080000
+    exec_args: "--size 2080000 --iterations 337"
+    expected_runtime_seconds: 11
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 281216005
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:7f4fd80c684e0f9958dfe4bf6f32e840c5a92c8d58d7991a36922ee6e9778bab"
+
+  - id: dual_spmv_gpu_N2080000
+    suite: Dual-SpMV
+    role: dataset
+    device: gpu
+    gpu_precision: fp64
+    exec_path: bin/spmv_gpu
+    config_id: spmv_N2080000
+    phase_label_hint: intermedio
+    size_variant: N2080000
+    exec_args: "--size 2080000 --iterations 391"
+    expected_runtime_seconds: 11
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 281216005
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    operational_intensity_flops_per_byte: 0.274176  # heredada de la caracterizacion por operacion; no usar para afirmar Roofline por tamano
+    binary_checksum:
+      pacca-a100: "sha256:9e8d32606ed1bcedf6a5a36666a9562c8a8400ee41f6b42680c3f336a807fdd8"
+
+  - id: dual_spmv_cpu_N2500000
+    suite: Dual-SpMV
+    role: dataset
+    exec_path: bin/spmv_cpu
+    config_id: spmv_N2500000
+    phase_label_hint: intermedio
+    size_variant: N2500000
+    exec_args: "--size 2500000 --iterations 279"
+    expected_runtime_seconds: 11
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 338000005
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:7f4fd80c684e0f9958dfe4bf6f32e840c5a92c8d58d7991a36922ee6e9778bab"
+
+  - id: dual_spmv_gpu_N2500000
+    suite: Dual-SpMV
+    role: dataset
+    device: gpu
+    gpu_precision: fp64
+    exec_path: bin/spmv_gpu
+    config_id: spmv_N2500000
+    phase_label_hint: intermedio
+    size_variant: N2500000
+    exec_args: "--size 2500000 --iterations 328"
+    expected_runtime_seconds: 11
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 338000005
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    operational_intensity_flops_per_byte: 0.274176  # heredada de la caracterizacion por operacion; no usar para afirmar Roofline por tamano
+    binary_checksum:
+      pacca-a100: "sha256:9e8d32606ed1bcedf6a5a36666a9562c8a8400ee41f6b42680c3f336a807fdd8"
+
+  - id: dual_stencil_cpu_N3328
+    suite: Dual-Stencil
+    role: dataset
+    exec_path: bin/stencil_cpu
+    config_id: stencil_N3328
+    phase_label_hint: intermedio
+    size_variant: N3328
+    exec_args: "--size 3328 --iterations 132"
+    expected_runtime_seconds: 11
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 345558220
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:9b3e784bbb84f4826d9e27fc31a8785ed1ff592035a4b1a02a5dc753fcd781dd"
+
+  - id: dual_stencil_gpu_N3328
+    suite: Dual-Stencil
+    role: dataset
+    device: gpu
+    gpu_precision: fp64
+    exec_path: bin/stencil_gpu
+    config_id: stencil_N3328
+    phase_label_hint: intermedio
+    size_variant: N3328
+    exec_args: "--size 3328 --iterations 79"
+    expected_runtime_seconds: 11
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 345558220
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    operational_intensity_flops_per_byte: 0.49537  # heredada de la caracterizacion por operacion; no usar para afirmar Roofline por tamano
+    binary_checksum:
+      pacca-a100: "sha256:0678e6829048a38028c4e3770fc60d0bba5aaf80910abfb63334e7965d5b29d3"
+
+  - id: dual_stencil_cpu_N3584
+    suite: Dual-Stencil
+    role: dataset
+    exec_path: bin/stencil_cpu
+    config_id: stencil_N3584
+    phase_label_hint: intermedio
+    size_variant: N3584
+    exec_args: "--size 3584 --iterations 114"
+    expected_runtime_seconds: 11
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 400765747
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:9b3e784bbb84f4826d9e27fc31a8785ed1ff592035a4b1a02a5dc753fcd781dd"
+
+  - id: dual_stencil_gpu_N3584
+    suite: Dual-Stencil
+    role: dataset
+    device: gpu
+    gpu_precision: fp64
+    exec_path: bin/stencil_gpu
+    config_id: stencil_N3584
+    phase_label_hint: intermedio
+    size_variant: N3584
+    exec_args: "--size 3584 --iterations 68"
+    expected_runtime_seconds: 11
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 400765747
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    operational_intensity_flops_per_byte: 0.49537  # heredada de la caracterizacion por operacion; no usar para afirmar Roofline por tamano
+    binary_checksum:
+      pacca-a100: "sha256:0678e6829048a38028c4e3770fc60d0bba5aaf80910abfb63334e7965d5b29d3"
+
+  - id: dual_stencil_cpu_N3840
+    suite: Dual-Stencil
+    role: dataset
+    exec_path: bin/stencil_cpu
+    config_id: stencil_N3840
+    phase_label_hint: intermedio
+    size_variant: N3840
+    exec_args: "--size 3840 --iterations 100"
+    expected_runtime_seconds: 11
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 460062720
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:9b3e784bbb84f4826d9e27fc31a8785ed1ff592035a4b1a02a5dc753fcd781dd"
+
+  - id: dual_stencil_gpu_N3840
+    suite: Dual-Stencil
+    role: dataset
+    device: gpu
+    gpu_precision: fp64
+    exec_path: bin/stencil_gpu
+    config_id: stencil_N3840
+    phase_label_hint: intermedio
+    size_variant: N3840
+    exec_args: "--size 3840 --iterations 59"
+    expected_runtime_seconds: 11
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 460062720
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    operational_intensity_flops_per_byte: 0.49537  # heredada de la caracterizacion por operacion; no usar para afirmar Roofline por tamano
+    binary_checksum:
+      pacca-a100: "sha256:0678e6829048a38028c4e3770fc60d0bba5aaf80910abfb63334e7965d5b29d3"
+
   - id: dual_spmv_cpu_N31623
     suite: Dual-SpMV
     role: dataset
