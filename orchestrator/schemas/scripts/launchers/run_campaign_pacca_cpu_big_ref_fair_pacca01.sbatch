@@ -16,11 +16,14 @@
 # node_id, sin preflight corrido).
 #
 # Correccion del sesgo CPU/GPU (2026-08-31): mismos 9 config_id que la
-# campana cancelada (jobs 6763/6769), ahora con 24 nucleos fisicos
-# delegados (socket 0 completo menos 2 reservados para telemetria) en vez
-# de 6. Ver el manifiesto para el diseno completo de nucleos.
+# campana cancelada (jobs 6763/6769), ahora con los DOS sockets (50 nucleos
+# fisicos delegados) en vez de 6 -- configuracion NUMA por defecto, decision
+# explicita del usuario, no un descuido (ver el manifiesto para el riesgo
+# aceptado de memoria remota first-touch). RAPL corregido el mismo dia para
+# sumar ambos sockets (antes solo leia uno -- ver el manifiesto y
+# telemetry/include/telemetry/rapl_reader.hpp).
 #
-# --time=5h es mas holgado que el original (3h para 6 nucleos): con 4x mas
+# --time=5h es mas holgado que el original (3h para 6 nucleos): con 8x mas
 # nucleos delegados el trabajo por corrida no crece (el kernel ya paraleliza
 # sobre los nucleos disponibles), pero el presupuesto no esta calculado
 # todavia contra una medicion real en este nodo -- placeholder conservador,

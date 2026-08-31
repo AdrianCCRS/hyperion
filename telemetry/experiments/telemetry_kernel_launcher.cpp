@@ -360,14 +360,22 @@ namespace {
     }
 
     uint64_t read_rapl_max_range_uj(const std::string& domain_path) {
-        if(domain_path.empty()) return 0;
-
-        std::ifstream in(fs::path(domain_path) / "max_energy_range_uj");
-        std::string text;
-        if(!(in >> text)) return 0;
-
-        uint64_t parsed = 0;
-        return telemetry::detail::parse_uint64(text.c_str(), parsed) ? parsed : 0;
+        // domain_path puede ser una lista separada por comas cuando la corrida
+        // delega mas de un socket (ver RaplReader::open()). Este valor es
+        // diagnostico -- RaplReader ya desenvuelve cada paquete por su cuenta
+        // y expone un total logico que nunca envuelve, asi que el consumidor
+        // aguas abajo (next_rapl_delta) nunca depende de este numero para
+        // corregir un wrap real; se suma sobre TODOS los sockets para que el
+        // campo exportado siga siendo informativo, no solo el primero.
+        uint64_t total = 0;
+        for(const auto& single_path : telemetry::detail::split_comma_paths(domain_path)){
+            std::ifstream in(fs::path(single_path) / "max_energy_range_uj");
+            std::string text;
+            if(!(in >> text)) continue;
+            uint64_t parsed = 0;
+            if(telemetry::detail::parse_uint64(text.c_str(), parsed)) total += parsed;
+        }
+        return total;
     }
 
     telemetry::experiment::RaplExportConfig read_rapl_export_config(const Options& opt) {

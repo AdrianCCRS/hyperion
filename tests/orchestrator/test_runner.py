@@ -886,3 +886,67 @@ def test_run10_rechaza_contrato_incompleto_o_no_monotonico(tmp_path, contents):
     stdout.write_text(contents)
     with pytest.raises(ValueError, match="RUN-10"):
         runner._read_dispatch_timing(stdout)
+
+
+# --------------------------------------------------------------------------
+# Correccion del sesgo CPU/GPU (2026-08-31): delegated_cpus puede abarcar mas
+# de un socket -- RAPL debe sumar TODOS los sockets tocados, no solo
+# cores.numa_node_pin. Ver telemetry/include/telemetry/rapl_reader.hpp para
+# la mitad C++ (unwrap independiente por paquete, suma en read()).
+# --------------------------------------------------------------------------
+
+def test_rapl_un_solo_socket_usa_numa_node_pin_si_no_hay_mapa_delegado(tmp_path):
+    """Compatibilidad hacia atras: sin delegated_cpu_numa_nodes (entornos de
+    prueba viejos, o un EnvironmentProfile real pre-fix), se sigue usando
+    cores.numa_node_pin tal como antes."""
+    entry = _make_entry(tmp_path)
+    manifest = _make_manifest(tmp_path)
+    manifest.rapl = {"enabled": True}
+    manifest.cores.numa_node_pin = 0
+    env_profile = SimpleNamespace(
+        rapl_domain_paths={"package-0": "/sys/.../pkg0", "dram-package-0": "/sys/.../dram0"},
+    )
+    command = runner.build_command(entry, manifest, "run_x", _harness(), environment_profile=env_profile)
+    assert command[command.index("--rapl-pkg") + 1] == "/sys/.../pkg0"
+    assert command[command.index("--rapl-dram") + 1] == "/sys/.../dram0"
+
+
+def test_rapl_dos_sockets_suma_ambas_rutas_separadas_por_coma(tmp_path):
+    """El caso que el sesgo CPU/GPU exponia: delegated_cpus toca los dos
+    sockets (2 y 3 en este fixture, ambos delegados), asi que RAPL debe
+    activarse para AMBOS -- antes solo se activaba para numa_node_pin=0 y
+    el socket 1 quedaba sin medir, subcontando energia en silencio."""
+    entry = _make_entry(tmp_path)
+    manifest = _make_manifest(tmp_path)
+    manifest.rapl = {"enabled": True}
+    manifest.cores.numa_node_pin = 0  # el pin declarado, ya no la unica fuente
+    env_profile = SimpleNamespace(
+        rapl_domain_paths={
+            "package-0": "/sys/.../pkg0", "dram-package-0": "/sys/.../dram0",
+            "package-1": "/sys/.../pkg1", "dram-package-1": "/sys/.../dram1",
+        },
+        delegated_cpu_numa_nodes={2: 0, 3: 0, 4: 1, 5: 1},
+    )
+    command = runner.build_command(entry, manifest, "run_x", _harness(), environment_profile=env_profile)
+    assert command[command.index("--rapl-pkg") + 1] == "/sys/.../pkg0,/sys/.../pkg1"
+    assert command[command.index("--rapl-dram") + 1] == "/sys/.../dram0,/sys/.../dram1"
+
+
+def test_rapl_dram_parcial_se_omite_entera_en_vez_de_subcontar(tmp_path):
+    """Si un socket tocado no tiene ruta DRAM resuelta, no se manda DRAM a
+    medias -- se omite --rapl-dram por completo (el paquete SI se mide) en
+    vez de reportar un numero DRAM que en realidad solo cubre un socket."""
+    entry = _make_entry(tmp_path)
+    manifest = _make_manifest(tmp_path)
+    manifest.rapl = {"enabled": True}
+    manifest.cores.numa_node_pin = 0
+    env_profile = SimpleNamespace(
+        rapl_domain_paths={
+            "package-0": "/sys/.../pkg0", "dram-package-0": "/sys/.../dram0",
+            "package-1": "/sys/.../pkg1",  # sin dram-package-1
+        },
+        delegated_cpu_numa_nodes={2: 0, 3: 1},
+    )
+    command = runner.build_command(entry, manifest, "run_x", _harness(), environment_profile=env_profile)
+    assert command[command.index("--rapl-pkg") + 1] == "/sys/.../pkg0,/sys/.../pkg1"
+    assert "--rapl-dram" not in command

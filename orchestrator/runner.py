@@ -262,16 +262,41 @@ def build_command(
     # ("package-N"/"dram-package-N") -- nunca asume una ruta fija ni el
     # primer dominio disponible; si no hay coincidencia exacta, RAPL
     # simplemente no se activa para esta corrida en vez de adivinar.
+    #
+    # Corrección del sesgo CPU/GPU (2026-08-31): `numa_node_pin` es un solo
+    # entero, pero `delegated_cpus` puede abarcar más de un socket (correr
+    # con el nodo completo, no solo 6 núcleos). Si eso pasa, la energía del
+    # segundo socket nunca se capturaba -- un subconteo silencioso, no un
+    # error visible. Se resuelve ahora el conjunto REAL de nodos NUMA que
+    # tocan los CPUs delegados (`delegated_cpu_numa_nodes`, ya calculado por
+    # environment.py), no solo el nodo declarado como "pin". RaplReader (C++)
+    # ya sabe sumar varias rutas separadas por coma, cada una desenvuelta por
+    # separado (ver telemetry/include/telemetry/rapl_reader.hpp).
     if getattr(manifest, "rapl", {}).get("enabled") and environment_profile is not None:
         domain_paths = getattr(environment_profile, "rapl_domain_paths", None) or {}
-        numa_node = getattr(cores, "numa_node_pin", None)
-        if numa_node is not None:
-            pkg_path = domain_paths.get(f"package-{numa_node}")
-            if pkg_path:
-                command += ["--rapl-pkg", pkg_path]
-            dram_path = domain_paths.get(f"dram-package-{numa_node}")
-            if dram_path:
-                command += ["--rapl-dram", dram_path]
+        delegated_numa_nodes = getattr(environment_profile, "delegated_cpu_numa_nodes", None) or {}
+        touched_nodes = sorted(set(delegated_numa_nodes.values()))
+        if not touched_nodes:
+            numa_node = getattr(cores, "numa_node_pin", None)
+            touched_nodes = [numa_node] if numa_node is not None else []
+        pkg_paths = [
+            domain_paths[f"package-{node}"]
+            for node in touched_nodes
+            if f"package-{node}" in domain_paths
+        ]
+        dram_paths = [
+            domain_paths[f"dram-package-{node}"]
+            for node in touched_nodes
+            if f"dram-package-{node}" in domain_paths
+        ]
+        if pkg_paths:
+            command += ["--rapl-pkg", ",".join(pkg_paths)]
+            # DRAM solo se activa si CADA socket tocado tiene su propia ruta
+            # -- cobertura parcial subcontaría el dominio DRAM del socket sin
+            # ruta en vez de fallar visiblemente, así que se omite entero
+            # antes que adivinar.
+            if len(dram_paths) == len(pkg_paths):
+                command += ["--rapl-dram", ",".join(dram_paths)]
     # ARC-116: manifest.uncore.enabled -> --enable-uncore. A diferencia de
     # RAPL, uncore_imc no necesita una ruta resuelta aquí -- UncoreReader
     # descubre sus propios boxes desde sysfs en open() (ver
