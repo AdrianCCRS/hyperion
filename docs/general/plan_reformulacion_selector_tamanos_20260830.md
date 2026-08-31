@@ -227,6 +227,95 @@ iniciales serán deliberadamente simples:
 También se construirá una variante de clasificación binaria para contrastar,
 pero no se asumirá que es superior.
 
+> **Nota 2026-08-30 (post-R2), ver §6.4-bis más abajo.** El resultado de R2
+> con esta formulación directa (regresor sobre `y` completo, evaluado sobre
+> la rejilla de `K` de la enmienda 2026-08-30-A del protocolo congelado) fue
+> mixto: gana a la mejor baseline en 2 de 48 rebanadas de
+> `(régimen, estado, K)` -- justo en la zona de cruce de dispositivo (`K=3`,
+> `cpu_ready`/`none_ready`) -- y pierde de forma inestable en valores de `K`
+> cercanos (hasta -72,4 % en `none_ready` `K=10`). El diagnóstico y la
+> reformulación estructurada que responde a esto quedan en §6.4-bis; esta
+> sección se conserva sin editar como registro de lo que efectivamente se
+> ejecutó primero.
+
+### 6.4-bis Reformulación estructurada de la política de `gpu_ready` (nota 2026-08-30, post-R2)
+
+**Diagnóstico.** `y = log(EDP_GPU_REF / EDP_CPU_REF)` no es una cantidad
+primitiva: es una función cerrada de ocho costos medibles por separado (`E` y
+`T`, fríos y calientes, por dispositivo), compuestos según la fórmula de
+`EDP_total(d, K)` de §12.1 del protocolo congelado. Pedirle a un regresor que
+aprenda `y` directamente, para toda la rejilla de `K` a la vez, con 68
+`config_id`, es pedirle que redescubra esa composición sin dársela -- de ahí
+la inestabilidad entre valores de `K` cercanos observada en R2.
+
+Verificado sobre los datos exploratorios, antes de tocar ningún dato
+confirmatorio:
+
+- el costo **caliente** (`E_warm`, `T_warm`) sigue una ley de potencias casi
+  perfecta en `log(costo) ~ log(N)` por operación: R² entre 0,974 y 0,998 en
+  las cuatro combinaciones dispositivo×magnitud, en las seis operaciones;
+- el costo **frío** no correlaciona con el tamaño de la misma forma (R² entre
+  0,000 y 0,918, errático) porque está dominado por un término de arranque
+  aproximadamente constante: el arranque de GPU en tiempo tiene mediana
+  0,618 s con CV 0,09 a través de las seis operaciones y trece tamaños; el de
+  CPU es un orden de magnitud menor y sí depende de la operación;
+- la telemetría de una única ejecución de sondeo coincide con el costo
+  **frío** medido del dispositivo que la produjo (error relativo mediano
+  4,88 %, dentro del piso de ruido de la región fría, 5,76 %) -- no con el
+  costo caliente. Esto le da al sondeo un rol estructural preciso: mide
+  directamente uno de los ocho costos primitivos, no una aproximación de la
+  razón final.
+
+**Reformulación propuesta.** Reemplazar el objetivo de aprendizaje único por
+tres capas:
+
+1. **Predicción**: cuatro primitivas de costo **calientes** (`E_warm`,
+   `T_warm` × CPU, GPU), como función de `(operación, tamaño)` -- tarea de
+   regresión simple, ya validada con R² > 0,97 en la mayoría de las
+   operaciones.
+2. **Calibración**: arranque por dispositivo. GPU como constante (con su
+   incertidumbre); CPU por operación si la dependencia se sostiene bajo
+   validación cruzada.
+3. **Composición**: costo frío = caliente + arranque; `EDP_total(d, K)` y
+   `K_break_even` se derivan con la fórmula ya congelada en §12.1 del
+   protocolo, no se aprenden.
+
+La decisión de dispositivo y el `K` de cambio salen de la capa 3, no de un
+cuarto modelo. El sondeo, cuando está disponible, sustituye directamente la
+primitiva fría predicha por la medida real del dispositivo que sondeó
+(mejora esperable acotada por el 4,88 % de error ya verificado, no una
+mejora libre).
+
+**Qué modelos entran en cada capa.** No se introduce una familia nueva fuera
+de las ya congeladas en §6.4: Ridge es el candidato natural para la capa 1
+(un ajuste lineal en `log(costo)` contra `log(N)` es exactamente una ley de
+potencias); árbol de regresión chico y Random Forest siguen disponibles como
+contraste no lineal en la misma capa; Elastic Net y Huber quedan como
+contraste de regularización/robustez. La capa 2 (arranque) puede no
+necesitar ajuste de hiperparámetros -- los datos exploratorios sugieren una
+constante, verificable con una media y su intervalo. **XGBoost no se agrega**:
+ya se excluyó deliberadamente por el tamaño de muestra (n=68); el patrón de
+sobreajuste local ya observado en Random Forest (gana en `K=3`, pierde hasta
+-72 % en `K` cercanos) es una razón adicional para no incorporar un modelo
+todavía más flexible antes de resolver la inestabilidad con una reformulación
+más simple, no más compleja.
+
+**Extensión condicionada a evidencia, no obligatoria todavía**: una cuarta
+capa de corrección residual -- un modelo pequeño que aprenda el error entre
+la ley de potencias ideal y el costo medido, usando telemetría de sondeo
+como entrada -- queda registrada como extensión (mismo nivel que §19,
+punto 5) a evaluar solo si la composición de tres capas dejara un residual
+sistemático y aprendible después de aplicarse. No se implementa por
+anticipado.
+
+**Gobernanza.** Esta reformulación amplía §6.4 sin contradecir el núcleo
+obligatorio de §14 (R2 sigue siendo obligatoria; cambia su implementación,
+no su objetivo). Como toca la formulación del target que el protocolo
+congelado fija en su §1, requiere su propia enmienda fechada en
+`protocolo_congelado_confirmatorio_20260830.md` antes de tocar cualquier
+dato confirmatorio -- verificado al redactar esta nota: los jobs 6763/6764
+seguían sin producir datos. Ver la enmienda 2026-08-30-B en ese documento.
+
 ### 6.5 Política de frecuencia
 
 La frecuencia no se tratará inicialmente como una clase exacta obligatoria.

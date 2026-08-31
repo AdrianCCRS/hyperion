@@ -19,6 +19,14 @@ produce ejecutando exactamente lo que sigue.
 
 ## 1. Formulación del target
 
+> **SUPERSEDIDA PARCIALMENTE por la enmienda 2026-08-30-B (§13).** La
+> cantidad de interés (`y`, o su generalización a horizonte `K` de §12) no
+> cambia. Lo que cambia es cómo se produce: en vez de un regresor entrenado
+> directamente sobre `y`, se predicen cuatro primitivas de costo y `y` se
+> deriva de ellas con la fórmula ya congelada. Esta sección describe la
+> formulación directa, que sigue siendo la comparación primaria de R2 (no se
+> retira, se compara contra la estructurada).
+
 Unidad experimental: **`config_id` = operación × tamaño**. Nunca la fila
 candidata, nunca la ventana de telemetría, nunca la repetición.
 
@@ -119,6 +127,11 @@ El chequeo es automático y bloqueante:
 conjunto de características no pase ese chequeo puede reportarse.
 
 ## 4. Familias de modelos candidatas
+
+> **AMPLIADA por la enmienda 2026-08-30-B (§13.4).** Las cinco familias de
+> abajo se conservan, ahora aplicables tanto al target directo (§1) como a
+> las primitivas de costo estructuradas (§13). No se agrega XGBoost ni
+> ninguna familia de mayor capacidad -- ver §13.4 para la justificación.
 
 Deliberadamente simples: con 68 `config_id` y una sola tarea real
 (`gpu_ready`), un modelo de alta capacidad ajustaría ruido.
@@ -259,6 +272,7 @@ invalida el carácter confirmatorio de la evaluación.
 |-------|--------|--------------------------------------|
 | 2026-08-30 | versión inicial congelada | no |
 | 2026-08-30 | enmienda **2026-08-30-A**: política sobre `resource_state × K` (§12); §2 supersedida parcialmente | **no** — verificado: jobs 6763/6764 en estado `PENDING`, los directorios `pacca_dual_{cpu,gpu}_big_ref_20260830` no existían al redactar |
+| 2026-08-30 | enmienda **2026-08-30-B**: target estructurado en tres capas (§13); §1 y §4 supersedidas parcialmente | **no** — verificado: jobs 6763/6764 en `PENDING`, sin directorios de salida al redactar |
 
 ---
 
@@ -367,3 +381,109 @@ máximo 78 %.
   ruido y la regla de abstención de §7.
 - El estado de aprendizaje de §2 para `K = 1`.
 - La decisión de no ejecutar el barrido cartesiano de frecuencias.
+
+---
+
+## 13. Enmienda 2026-08-30-B — target estructurado en tres capas
+
+**Fecha:** 2026-08-30
+**Datos confirmatorios observados al redactar:** ninguno (verificado por
+`squeue`: jobs 6763/6764 en `PENDING`; sin directorios de salida)
+**Motivo:** el resultado real de R2 sobre el target directo de §1, evaluado
+en la rejilla de `K` de la enmienda 2026-08-30-A (`k_grid` congelada,
+folds de interpolación y extrapolación, comparación pareada contra las
+baselines) fue: el modelo supera a la mejor baseline en **2 de 48**
+rebanadas `(régimen, estado, K)` -- ambas en `K = 3`, en `cpu_ready` y
+`none_ready`, con mejora de 14,7 % y 13,0 % respectivamente sobre
+`intensity_threshold_train` -- y pierde de forma inestable en valores de `K`
+cercanos: -11,6 % en `cpu_ready` `K = 5`, -13,5 % en `none_ready` `K = 5`,
+-72,4 % en `none_ready` `K = 10`. `random_forest` fue la familia con mejor
+media global, pero esa media agrega comportamientos opuestos según `K`
+(media 1,94-3,92 en `K` entre 1 y 10; media ~1,02 en `K` entre 30 y 1000),
+señal de ajuste a un punto local y no de una curva aprendida.
+
+El diagnóstico: `y` no es una cantidad primitiva. Es una función cerrada de
+ocho costos medibles por separado -- `E` y `T`, frío y caliente, por
+dispositivo -- compuestos según la fórmula de `EDP_total(d, K)` de §12.1.
+Pedirle a un regresor que aprenda `y` para toda la rejilla de `K` a la vez,
+con 68 `config_id`, es pedirle que redescubra esa composición sin dársela.
+
+### 13.1 Evidencia de la reformulación (datos exploratorios, verificada)
+
+- el costo **caliente** (`E_warm`, `T_warm`) sigue una ley de potencias en
+  `log(costo) ~ log(N)` por operación, con R² entre 0,974 y 0,998 en las
+  cuatro combinaciones dispositivo×magnitud, en las seis operaciones;
+- el costo **frío** no correlaciona con el tamaño de la misma forma (R²
+  entre 0,000 y 0,918) porque está dominado por un término de arranque
+  aproximadamente constante: mediana 0,618 s con CV 0,09 para el arranque de
+  GPU en tiempo, a través de las seis operaciones y trece tamaños; el
+  arranque de CPU es un orden de magnitud menor y sí depende de la
+  operación (CV 0,95);
+- la telemetría de una única ejecución de sondeo coincide con el costo
+  **frío** medido del dispositivo que la produjo (error relativo mediano
+  4,88 %, dentro del piso de ruido de la región fría, 5,76 % de §7) -- no con
+  el costo caliente (error > 250 %). El sondeo mide directamente una
+  primitiva de costo, no una aproximación de `y`.
+
+### 13.2 Formulación
+
+Se reemplaza el objetivo de aprendizaje único por tres capas:
+
+1. **Predicción**: cuatro primitivas de costo calientes (`E_warm`, `T_warm`
+   × CPU, GPU), en función de `(operación, tamaño)`.
+2. **Calibración**: arranque por dispositivo -- GPU como constante con su
+   incertidumbre; CPU por operación si la dependencia se sostiene bajo
+   validación cruzada agrupada por `config_id`.
+3. **Composición**: costo frío = caliente + arranque; `EDP_total(d, K)` y
+   `K_break_even` se derivan con la fórmula ya congelada en §12.1, no se
+   aprenden. La decisión de dispositivo sale de esta capa, no de un cuarto
+   modelo.
+
+Cuando hay sondeo disponible, la primitiva fría predicha por la capa 1+2 se
+sustituye por la medida real del dispositivo que sondeó (mejora acotada por
+el 4,88 % de error ya verificado, no una mejora libre).
+
+### 13.3 Comparación obligatoria (no reemplaza a §1, compite con ella)
+
+El target estructurado se evalúa con el mismo procedimiento de §5, las
+mismas baselines de §6, el mismo piso de ruido y regla de abstención de §7,
+sobre los mismos folds que el target directo de §1. La regla bloqueante de
+§6 se aplica contra la mejor de las dos formulaciones de modelo (directa o
+estructurada), no solo contra las baselines: si ninguna de las dos supera a
+la mejor baseline por encima del piso de ruido, se reporta que ninguna
+formulación de ML aportó valor, no solo que la directa no lo hizo.
+
+### 13.4 Familias de modelos por capa (amplía §4, no lo reemplaza)
+
+No se introduce ninguna familia fuera de las cinco ya congeladas en §4.
+Ridge es el candidato natural para la capa 1 (un ajuste lineal en
+`log(costo)` contra `log(N)` es una ley de potencias); árbol de regresión
+chico y RandomForest quedan disponibles como contraste no lineal en la misma
+capa; ElasticNet y Huber como contraste de regularización/robustez. La capa
+2 (arranque) puede no requerir ajuste de hiperparámetros si los datos
+confirman que es una constante -- verificable con una media y su intervalo,
+sin GridSearchCV.
+
+**XGBoost no se agrega.** Ya se excluyó en §4 por el tamaño de muestra
+(n=68); el patrón de sobreajuste local ya observado en RandomForest sobre el
+target directo (gana en `K=3`, pierde hasta -72,4 % en `K` cercanos) es
+razón adicional para no incorporar un modelo todavía más flexible antes de
+resolver la inestabilidad con una reformulación más simple, no más compleja.
+
+### 13.5 Extensión condicionada, no obligatoria todavía
+
+Una cuarta capa de corrección residual -- un modelo pequeño que aprenda el
+error entre la ley de potencias ideal y el costo medido, usando telemetría
+de sondeo como entrada -- se registra como extensión a evaluar solo si la
+composición de tres capas deja un residual sistemático y aprendible después
+de aplicarse. No se implementa por anticipado.
+
+### 13.6 Lo que esta enmienda NO cambia
+
+- Los jobs 6763/6764 y sus manifiestos.
+- La cantidad de interés `y` y su generalización a `K` de §12.
+- Las características de §3, el piso de ruido y la regla de abstención de
+  §7, las baselines de §6.
+- El resultado de R2 sobre el target directo ya obtenido (§13 misma
+  sección, párrafo de motivo): se reporta como parte del resultado, no se
+  descarta.
