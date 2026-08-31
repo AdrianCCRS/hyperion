@@ -1,0 +1,111 @@
+{
+  "final_baseline_selection": {
+    "by_regime_resource_state_k": {
+      "extrapolation|cpu_ready|1": "always_cpu_ref",
+      "extrapolation|cpu_ready|10": "intensity_threshold_train",
+      "extrapolation|cpu_ready|100": "intensity_threshold_train",
+      "extrapolation|cpu_ready|1000": "intensity_threshold_train",
+      "extrapolation|cpu_ready|2": "always_cpu_ref",
+      "extrapolation|cpu_ready|3": "intensity_threshold_train",
+      "extrapolation|cpu_ready|30": "intensity_threshold_train",
+      "extrapolation|cpu_ready|5": "intensity_threshold_train",
+      "extrapolation|gpu_ready|1": "intensity_threshold_train",
+      "extrapolation|gpu_ready|10": "intensity_threshold_train",
+      "extrapolation|gpu_ready|100": "intensity_threshold_train",
+      "extrapolation|gpu_ready|1000": "intensity_threshold_train",
+      "extrapolation|gpu_ready|2": "intensity_threshold_train",
+      "extrapolation|gpu_ready|3": "intensity_threshold_train",
+      "extrapolation|gpu_ready|30": "intensity_threshold_train",
+      "extrapolation|gpu_ready|5": "intensity_threshold_train",
+      "extrapolation|none_ready|1": "always_cpu_ref",
+      "extrapolation|none_ready|10": "intensity_threshold_train",
+      "extrapolation|none_ready|100": "intensity_threshold_train",
+      "extrapolation|none_ready|1000": "intensity_threshold_train",
+      "extrapolation|none_ready|2": "always_cpu_ref",
+      "extrapolation|none_ready|3": "intensity_threshold_train",
+      "extrapolation|none_ready|30": "intensity_threshold_train",
+      "extrapolation|none_ready|5": "intensity_threshold_train",
+      "interpolation|cpu_ready|1": "always_cpu_ref",
+      "interpolation|cpu_ready|10": "k_break_even_table_train",
+      "interpolation|cpu_ready|100": "k_break_even_table_train",
+      "interpolation|cpu_ready|1000": "k_break_even_table_train",
+      "interpolation|cpu_ready|2": "always_cpu_ref",
+      "interpolation|cpu_ready|3": "always_cpu_ref",
+      "interpolation|cpu_ready|30": "k_break_even_table_train",
+      "interpolation|cpu_ready|5": "k_break_even_table_train",
+      "interpolation|gpu_ready|1": "size_threshold_train",
+      "interpolation|gpu_ready|10": "operation_crossover_table_train",
+      "interpolation|gpu_ready|100": "operation_crossover_table_train",
+      "interpolation|gpu_ready|1000": "operation_crossover_table_train",
+      "interpolation|gpu_ready|2": "size_threshold_train",
+      "interpolation|gpu_ready|3": "size_threshold_train",
+      "interpolation|gpu_ready|30": "operation_crossover_table_train",
+      "interpolation|gpu_ready|5": "size_threshold_train",
+      "interpolation|none_ready|1": "always_cpu_ref",
+      "interpolation|none_ready|10": "k_break_even_table_train",
+      "interpolation|none_ready|100": "k_break_even_table_train",
+      "interpolation|none_ready|1000": "k_break_even_table_train",
+      "interpolation|none_ready|2": "always_cpu_ref",
+      "interpolation|none_ready|3": "always_cpu_ref",
+      "interpolation|none_ready|30": "k_break_even_table_train",
+      "interpolation|none_ready|5": "k_break_even_table_train"
+    },
+    "criterion": "minimum_mean_edp_ratio_per_regime_resource_state_k_over_folds",
+    "mean_edp_sum_ratio_vs_oracle_extrapolation": 1.5167665823887428,
+    "name": "intensity_threshold_train"
+  },
+  "final_direct_selection": {
+    "criterion": "mean_edp_sum_ratio_vs_oracle_over_extrapolation_folds",
+    "family": "random_forest",
+    "mean_edp_sum_ratio_vs_oracle_extrapolation": 2.110657596051039,
+    "with_probe": true
+  },
+  "final_structured_selection": {
+    "criterion": "mean_edp_sum_ratio_over_extrapolation_folds",
+    "family": "elasticnet",
+    "mean_edp_sum_ratio_vs_oracle_extrapolation": 1.1627118427766967,
+    "with_probe": false
+  },
+  "input_sha256": {
+    "candidate_summary.csv": "0425f05d703ca164168a39bbade6e008157b063928eac32e3ae39e6ad3e0b586",
+    "run_regions.csv": "7ad1ea9258e3f7240c050f8306d0451c660e3cf750f40e4f7e2a3477d02fb821"
+  },
+  "interpretation_contract": {
+    "k_is_supplied_not_predicted": true,
+    "layer1_no_hyperparameter_search": true,
+    "layer2_mode_chosen_by_grouped_cv_not_assumed": true,
+    "layer3_reuses_horizon_edp_total_state_formula": true,
+    "probe_substitutes_layer1_2_cold_prediction_only": true
+  },
+  "k_grid": [
+    1,
+    2,
+    3,
+    5,
+    10,
+    30,
+    100,
+    1000
+  ],
+  "latency_and_size": {
+    "family": "elasticnet",
+    "fold_used": "extrapolation_top2",
+    "latency_p50_us": 18084.8665,
+    "latency_p95_us": 19154.656499999997,
+    "latency_p99_us": 19670.042579999994,
+    "model_size_bytes": 8179
+  },
+  "layer1_grouped_cv_r2_ridge": {
+    "cpu_e_warm": 0.982823807479075,
+    "cpu_t_warm": 0.9816701945519737,
+    "gpu_e_warm": 0.9442311586486872,
+    "gpu_t_warm": 0.9408576464301688
+  },
+  "n_folds": 5,
+  "three_way_aggregated_pass_count": 4,
+  "three_way_aggregated_total_slices": 72,
+  "three_way_direct_wins": 60,
+  "three_way_pass_count": 11,
+  "three_way_structured_wins": 60,
+  "three_way_total_slices": 120
+}

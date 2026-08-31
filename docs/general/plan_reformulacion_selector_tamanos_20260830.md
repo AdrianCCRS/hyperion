@@ -1,7 +1,7 @@
 # Plan de reformulación del selector CPU/GPU orientado a tamaños no vistos
 
 **Fecha:** 2026-08-30  
-**Estado:** propuesta de trabajo para discusión y aprobación  
+**Estado:** plan de trabajo activo; enmendado después de R1/R2
 **Alcance documental:** Fases 2–4 del selector; incluye una reformulación
 propuesta de objetivos específicos, pero no modifica por sí solo el libro ni
 los objetivos formales del trabajo de grado  
@@ -189,6 +189,11 @@ obtener un intervalo o análisis de sensibilidad de `K_break_even`.
 
 ### 6.3 Política para `cpu_ready`
 
+> **Supersedida para `K>1` por la enmienda 2026-08-30-A.** La regla fija de
+> esta subsección describe únicamente `K=1`. Para horizontes mayores se aplica
+> `argmin_d EDP_total(d,K|estado)`: 22 de las 68 configuraciones migran a GPU
+> desde `cpu_ready` dentro del horizonte explorado.
+
 En los datos actuales CPU resulta óptima en los 68 grupos `cpu_ready`. Por
 tanto, esta rama comenzará como una regla explícita: permanecer en CPU.
 
@@ -238,7 +243,7 @@ pero no se asumirá que es superior.
 > sección se conserva sin editar como registro de lo que efectivamente se
 > ejecutó primero.
 
-### 6.4-bis Reformulación estructurada de la política de `gpu_ready` (nota 2026-08-30, post-R2)
+### 6.4-bis Reformulación estructurada de la política de horizonte (nota 2026-08-30, post-R2)
 
 **Diagnóstico.** `y = log(EDP_GPU_REF / EDP_CPU_REF)` no es una cantidad
 primitiva: es una función cerrada de ocho costos medibles por separado (`E` y
@@ -316,6 +321,15 @@ congelado fija en su §1, requiere su propia enmienda fechada en
 dato confirmatorio -- verificado al redactar esta nota: los jobs 6763/6764
 seguían sin producir datos. Ver la enmienda 2026-08-30-B en ese documento.
 
+> **Corrección 2026-08-30-C.** Los conteos iniciales `2/48` y `4/48`
+> seleccionaban la mejor familia y una fila de pliegue después de observar
+> cada test. Quedan supersedidos por la evaluación de políticas únicas y
+> pliegues pareados documentada en
+> `resultados_selector_r2_corregidos_20260830.md`: la comparación de tres vías
+> supera la baseline en 2/24 rebanadas de interpolación agregada, 0/24 en
+> `extrapolation_top1` y 2/24 en `extrapolation_top2`. La formulación
+> estructurada reduce la inestabilidad del target directo, pero no la elimina.
+
 ### 6.5 Política de frecuencia
 
 La frecuencia no se tratará inicialmente como una clase exacta obligatoria.
@@ -340,6 +354,19 @@ resultado negativo es admisible —por ejemplo, demostrar que REF o F0 no son
 superados después del overhead—, pero la capa no puede omitirse sin ser
 implementada y evaluada. La selección de dispositivo complementa a DVFS; no lo
 reemplaza como objeto del trabajo.
+
+La implementación candidata reutilizará la separación estructurada de R2 sin
+presuponer una forma funcional antes de contrastarla:
+
+1. predecir tiempo y energía o potencia por nivel de frecuencia;
+2. calibrar los términos que no escalan con frecuencia;
+3. componer EDP por nivel y devolver un conjunto de frecuencias equivalentes,
+   no un `argmin` puntual cuando las diferencias estén bajo incertidumbre.
+
+Las formas tipo Amdahl para tiempo y potencia estática más un término
+dependiente de frecuencia se tratarán como hipótesis candidatas que deben
+compararse contra los datos y contra REF, no como leyes ya demostradas en esta
+plataforma. No se incorporan aquí afirmaciones bibliográficas nuevas.
 
 ## 7. Características de entrada
 

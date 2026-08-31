@@ -96,7 +96,10 @@ def _base_estimator(family: str, seed: int, params: Mapping[str, Any] | None = N
         return Ridge(**{"alpha": 1.0, **params})
     if family == "elasticnet":
         from sklearn.linear_model import ElasticNet
-        return ElasticNet(**{"alpha": 0.1, "l1_ratio": 0.5, "max_iter": 10_000, "random_state": seed, **params})
+        return ElasticNet(**{
+            "alpha": 0.1, "l1_ratio": 0.5, "max_iter": 100_000,
+            "random_state": seed, **params,
+        })
     if family == "huber":
         from sklearn.linear_model import HuberRegressor
         return HuberRegressor(**{"epsilon": 1.35, "alpha": 1e-3, "max_iter": 2_000, **params})
@@ -356,48 +359,156 @@ def select_final_model(results: pd.DataFrame) -> dict[str, Any]:
     }
 
 
-def blocking_rule_report(results: pd.DataFrame) -> pd.DataFrame:
-    """Aplica la regla bloqueante de la seccion 6, por `(regime, resource_state, k)`.
+def select_final_baseline(results: pd.DataFrame) -> dict[str, Any]:
+    """Congela la baseline pertinente por `(resource_state, k)`.
 
-    Compara la MEJOR baseline pertinente (excluyendo `oracle`/`oracle_k`, que
-    son cotas superiores con conocimiento posterior, no politicas desplegables)
-    contra el MEJOR modelo (cualquier familia/variante de sondeo) en la misma
-    rebanada de `test`. "Superar" significa mejorar `edp_sum_ratio_vs_oracle`
-    por encima del piso de ruido global (seccion 7); no admite excepcion por
-    cercania.
+    El oraculo no es desplegable y queda excluido. Igual que la familia de
+    modelo, el mapa se congela una vez sobre los datos exploratorios; una
+    entrada puede depender de estado y horizonte, que son entradas conocidas
+    de la politica, pero nunca del pliegue ni del resultado confirmatorio.
     """
+    baselines = results[
+        (results["method"] == "baseline")
+        & (results["regime"] == "extrapolation")
+        & (~results["name"].isin({"oracle", "oracle_k"}))
+    ]
+    if baselines.empty:
+        return {"name": None, "reason": "sin_filas_de_extrapolacion"}
+    aggregated = baselines.groupby("name", observed=True)["edp_sum_ratio_vs_oracle"].mean()
+    best_name = str(aggregated.idxmin())
+    eligible = results[
+        (results["method"] == "baseline")
+        & (~results["name"].isin({"oracle", "oracle_k"}))
+    ]
+    by_regime_state_k: dict[str, str] = {}
+    grouped = eligible.groupby(
+        ["regime", "resource_state", "k", "name"], observed=True,
+    )["edp_sum_ratio_vs_oracle"].mean()
+    for (regime, state, k), values in grouped.groupby(level=[0, 1, 2]):
+        by_regime_state_k[f"{regime}|{state}|{int(k)}"] = str(values.idxmin()[3])
+    return {
+        "name": best_name,
+        "by_regime_resource_state_k": by_regime_state_k,
+        "mean_edp_sum_ratio_vs_oracle_extrapolation": float(aggregated.loc[best_name]),
+        "criterion": "minimum_mean_edp_ratio_per_regime_resource_state_k_over_folds",
+    }
+
+
+def _probe_mask(frame: pd.DataFrame, expected: bool) -> pd.Series:
+    """Mascara robusta para la columna nullable `with_probe`."""
+    return frame["with_probe"].map(
+        lambda value: False if pd.isna(value) else bool(value)
+    ) == bool(expected)
+
+
+def blocking_rule_report(
+    results: pd.DataFrame,
+    *,
+    model_selection: Mapping[str, Any] | None = None,
+    baseline_selection: Mapping[str, Any] | None = None,
+) -> pd.DataFrame:
+    """Aplica la regla bloqueante a politicas unicas, dentro de cada pliegue.
+
+    La version anterior eliminaba `fold` de la clave y luego aplicaba
+    `idxmin`: podia comparar filas provenientes de pliegues distintos y
+    elegir una familia diferente despues de observar cada test. Aqui se
+    congelan una baseline y un modelo para toda la evaluacion, y cada fila
+    compara exactamente el mismo `(fold, resource_state, k)`.
+    """
+    model_selection = dict(model_selection or select_final_model(results))
+    baseline_selection = dict(baseline_selection or select_final_baseline(results))
+    if model_selection.get("family") is None or baseline_selection.get("name") is None:
+        return pd.DataFrame()
+
     records: list[dict[str, Any]] = []
-    keys = results[["regime", "resource_state", "k"]].drop_duplicates()
+    keys = results[["fold", "regime", "resource_state", "k"]].drop_duplicates()
     for _, key in keys.iterrows():
-        regime, state, k = key["regime"], key["resource_state"], key["k"]
+        fold, regime = key["fold"], key["regime"]
+        state, k = key["resource_state"], key["k"]
         subset = results[
-            (results["regime"] == regime) & (results["resource_state"] == state) & (results["k"] == k)
+            (results["fold"] == fold)
+            & (results["resource_state"] == state)
+            & (results["k"] == k)
         ]
+        baseline_name = baseline_selection.get("by_regime_resource_state_k", {}).get(
+            f"{regime}|{state}|{int(k)}", baseline_selection["name"],
+        )
         baselines = subset[
-            (subset["method"] == "baseline") & (~subset["name"].isin({"oracle", "oracle_k"}))
+            (subset["method"] == "baseline")
+            & (subset["name"] == baseline_name)
         ]
-        models = subset[subset["method"].isin({"model_regression", "model_classification"})]
+        models = subset[
+            (subset["method"] == "model_regression")
+            & (subset["name"] == model_selection["family"])
+            & _probe_mask(subset, bool(model_selection["with_probe"]))
+        ]
         if baselines.empty or models.empty:
             continue
-        best_baseline_row = baselines.loc[baselines["edp_sum_ratio_vs_oracle"].idxmin()]
-        best_model_row = models.loc[models["edp_sum_ratio_vs_oracle"].idxmin()]
+        baseline_row = baselines.iloc[0]
+        model_row = models.iloc[0]
         improvement_pct = 100.0 * (
-            1.0 - best_model_row["edp_sum_ratio_vs_oracle"] / best_baseline_row["edp_sum_ratio_vs_oracle"]
+            1.0 - model_row["edp_sum_ratio_vs_oracle"] / baseline_row["edp_sum_ratio_vs_oracle"]
         )
         model_wins = improvement_pct > NOISE_FLOOR_PCT
         records.append({
-            "regime": regime, "resource_state": state, "k": int(k),
-            "best_baseline": str(best_baseline_row["name"]),
-            "best_baseline_edp_sum_ratio_vs_oracle": float(best_baseline_row["edp_sum_ratio_vs_oracle"]),
-            "best_model": f"{best_model_row['method']}:{best_model_row['name']}"
-                          f"{'+probe' if best_model_row.get('with_probe') else ''}",
-            "best_model_edp_sum_ratio_vs_oracle": float(best_model_row["edp_sum_ratio_vs_oracle"]),
+            "fold": fold, "regime": regime, "resource_state": state, "k": int(k),
+            "selected_baseline": str(baseline_row["name"]),
+            "selected_baseline_edp_sum_ratio_vs_oracle": float(baseline_row["edp_sum_ratio_vs_oracle"]),
+            "selected_model": f"{model_row['method']}:{model_row['name']}"
+                              f"{'+probe' if model_row.get('with_probe') else ''}",
+            "selected_model_edp_sum_ratio_vs_oracle": float(model_row["edp_sum_ratio_vs_oracle"]),
+            "n": int(model_row["n"]),
+            "oracle_edp_sum_js": float(
+                model_row["edp_sum_js"] / model_row["edp_sum_ratio_vs_oracle"]
+            ),
+            "selected_baseline_edp_sum_js": float(baseline_row["edp_sum_js"]),
+            "selected_model_edp_sum_js": float(model_row["edp_sum_js"]),
             "model_improvement_pct": float(improvement_pct),
             "model_beats_baseline_above_noise_floor": bool(model_wins),
             "adopted_policy": "model" if model_wins else "baseline",
         })
     return pd.DataFrame(records).sort_values(
-        ["regime", "resource_state", "k"], kind="mergesort",
+        ["regime", "fold", "resource_state", "k"], kind="mergesort",
+    ).reset_index(drop=True)
+
+
+def aggregate_blocking_rule_report(report: pd.DataFrame) -> pd.DataFrame:
+    """Agrega pliegues de interpolacion disjuntos; conserva cada extrapolacion.
+
+    `extrapolation_top1` esta contenido en `extrapolation_top2`, por lo que
+    sumarlos duplicaria configuraciones. Se reportan como alcances separados.
+    Los tres pliegues de interpolacion si particionan los tamanos interiores y
+    pueden sumarse para obtener una razon EDP conjunta.
+    """
+    if report.empty:
+        return pd.DataFrame()
+    work = report.copy()
+    work["evaluation_scope"] = np.where(
+        work["regime"] == "interpolation", "interpolation_all", work["fold"],
+    )
+    records: list[dict[str, Any]] = []
+    for (scope, state, k), group in work.groupby(
+        ["evaluation_scope", "resource_state", "k"], observed=True,
+    ):
+        oracle = float(group["oracle_edp_sum_js"].sum())
+        baseline = float(group["selected_baseline_edp_sum_js"].sum())
+        model = float(group["selected_model_edp_sum_js"].sum())
+        improvement = 100.0 * (1.0 - model / baseline)
+        records.append({
+            "evaluation_scope": scope,
+            "resource_state": state,
+            "k": int(k),
+            "n": int(group["n"].sum()),
+            "selected_baseline": str(group["selected_baseline"].iloc[0]),
+            "selected_model": str(group["selected_model"].iloc[0]),
+            "selected_baseline_edp_sum_ratio_vs_oracle": baseline / oracle,
+            "selected_model_edp_sum_ratio_vs_oracle": model / oracle,
+            "model_improvement_pct": improvement,
+            "model_beats_baseline_above_noise_floor": bool(improvement > NOISE_FLOOR_PCT),
+            "adopted_policy": "model" if improvement > NOISE_FLOOR_PCT else "baseline",
+        })
+    return pd.DataFrame(records).sort_values(
+        ["evaluation_scope", "resource_state", "k"], kind="mergesort",
     ).reset_index(drop=True)
 
 
@@ -476,6 +587,7 @@ def run_r2_analysis(
     """Ejecuta R2 sobre `selector_final_20260830`: horizonte, modelos, regla bloqueante."""
     from pathlib import Path as _Path
     import json
+    import hashlib
 
     from .compact import attach_probe_features
     from .sizes import extrapolation_folds, interpolation_folds
@@ -500,6 +612,7 @@ def run_r2_analysis(
 
     results = evaluate_r2(folds, seed=seed, k_grid=k_grid)
     blocking = blocking_rule_report(results)
+    blocking_aggregated = aggregate_blocking_rule_report(blocking)
     static_vs_probe = static_vs_probe_report(results)
     final_selection = select_final_model(results)
 
@@ -518,21 +631,36 @@ def run_r2_analysis(
         "horizon_dataset": output_dir / "horizon_dataset.csv",
         "r2_results": output_dir / "r2_results.csv",
         "blocking_rule": output_dir / "blocking_rule.csv",
+        "blocking_rule_aggregated": output_dir / "blocking_rule_aggregated.csv",
         "static_vs_probe": output_dir / "static_vs_probe.csv",
         "summary": output_dir / "r2_summary.json",
     }
     horizon_probe.to_csv(paths["horizon_dataset"], index=False)
     results.to_csv(paths["r2_results"], index=False)
     blocking.to_csv(paths["blocking_rule"], index=False)
+    blocking_aggregated.to_csv(paths["blocking_rule_aggregated"], index=False)
     static_vs_probe.to_csv(paths["static_vs_probe"], index=False)
     paths["summary"].write_text(
         json.dumps({
+            "input_sha256": {
+                "candidate_summary.csv": hashlib.sha256(
+                    (dataset_dir / "candidate_summary.csv").read_bytes()
+                ).hexdigest(),
+                "run_regions.csv": hashlib.sha256(run_regions_path.read_bytes()).hexdigest()
+                if run_regions_path.is_file() else None,
+            },
             "final_model_selection": final_selection,
+            "final_baseline_selection": select_final_baseline(results),
             "latency_and_size": latency,
             "n_folds": len(folds),
             "k_grid": list(k_grid),
             "blocking_rule_pass_count": int(blocking["model_beats_baseline_above_noise_floor"].sum())
             if not blocking.empty else 0,
+            "blocking_rule_total_fold_slices": int(len(blocking)),
+            "blocking_rule_aggregated_pass_count": int(
+                blocking_aggregated["model_beats_baseline_above_noise_floor"].sum()
+            ) if not blocking_aggregated.empty else 0,
+            "blocking_rule_total_aggregated_slices": int(len(blocking_aggregated)),
             "blocking_rule_total_count": int(len(blocking)),
             "interpretation_contract": {
                 "k_is_supplied_not_predicted": True,

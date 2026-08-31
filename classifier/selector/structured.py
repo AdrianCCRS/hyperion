@@ -2,14 +2,16 @@
 
 Implementa la enmienda **2026-08-30-B** del protocolo congelado
 (`docs/general/protocolo_congelado_confirmatorio_20260830.md`, seccion 13) y
-la nota `6.4-bis` del plan de reformulacion. Sustituye el regresor directo
-sobre ``y_log_edp_ratio_k`` (`r2.py`, que gana en 2/48 rebanadas y pierde de
-forma inestable en valores de `K` cercanos) por tres capas separadas:
+la nota `6.4-bis` del plan de reformulacion. Contrasta el regresor directo
+sobre ``y_log_edp_ratio_k`` con tres capas separadas. Los conteos exploratorios
+iniciales quedaron supersedidos por la enmienda 2026-08-30-C: la evaluacion
+vigente congela una politica por formulacion y conserva `fold` en toda
+comparacion.
 
 1. **Prediccion** (`fit_layer1`/`predict_layer1`): cuatro primitivas de costo
    **calientes** (`E_warm`, `T_warm` x CPU, GPU), en funcion de
-   `(operacion, tamano)` -- ley de potencias en log-log, R^2 > 0.97 verificado
-   en la sesion exploratoria.
+   `(operacion, tamano)` -- ley de potencias en log-log, con R^2 agrupado
+   fuera de muestra entre 0.941 y 0.983 en los datos exploratorios.
 2. **Calibracion** (`calibrate_startup`): arranque por dispositivo,
    ``costo_frio(d) - costo_caliente(d)``, calculado SOLO con datos de
    entrenamiento. Decide constante global vs. tabla por operacion mediante
@@ -481,74 +483,158 @@ def evaluate_structured(
 # --------------------------------------------------------------------------
 
 
-def three_way_blocking_rule(
-    direct_results: pd.DataFrame, structured_results: pd.DataFrame,
-) -> pd.DataFrame:
-    """Regla bloqueante aplicada contra la MEJOR de las dos formulaciones de modelo.
+def select_final_structured_model(results: pd.DataFrame) -> dict[str, Any]:
+    """Congela una familia estructurada y una variante de sondeo."""
+    models = results[
+        (results["method"] == "model_structured")
+        & (results["regime"] == "extrapolation")
+    ]
+    if models.empty:
+        return {"family": None, "with_probe": None, "reason": "sin_filas_de_extrapolacion"}
+    aggregated = models.groupby(["name", "with_probe"], observed=True)[
+        "edp_sum_ratio_vs_oracle"
+    ].mean()
+    best_key = aggregated.idxmin()
+    return {
+        "family": str(best_key[0]),
+        "with_probe": bool(best_key[1]),
+        "mean_edp_sum_ratio_vs_oracle_extrapolation": float(aggregated.loc[best_key]),
+        "criterion": "mean_edp_sum_ratio_over_extrapolation_folds",
+    }
 
-    Seccion 13.3: "la regla bloqueante... se aplica contra la mejor de las
-    dos formulaciones de modelo (directa o estructurada), no solo contra las
-    baselines". Por cada rebanada `(regime, resource_state, k)` se reporta el
-    mejor de {baseline, directo, estructurado} y si ese mejor supera a la
-    mejor baseline por encima del piso de ruido.
+
+def three_way_blocking_rule(
+    direct_results: pd.DataFrame,
+    structured_results: pd.DataFrame,
+    *,
+    baseline_selection: Mapping[str, Any] | None = None,
+    direct_selection: Mapping[str, Any] | None = None,
+    structured_selection: Mapping[str, Any] | None = None,
+) -> pd.DataFrame:
+    """Compara tres politicas congeladas dentro del mismo pliegue de test.
+
+    No se elige familia, variante de sondeo ni pliegue despues de observar
+    cada rebanada. Las tres politicas se seleccionan una vez sobre el conjunto
+    exploratorio y despues se enfrentan sobre el mismo
+    `(fold, resource_state, k)`.
     """
+    from . import r2
+
+    baseline_selection = dict(baseline_selection or r2.select_final_baseline(direct_results))
+    direct_selection = dict(direct_selection or r2.select_final_model(direct_results))
+    structured_selection = dict(
+        structured_selection or select_final_structured_model(structured_results)
+    )
+    if any(selection.get("name", selection.get("family")) is None for selection in (
+        baseline_selection, direct_selection, structured_selection,
+    )):
+        return pd.DataFrame()
+
     combined = pd.concat([direct_results, structured_results], ignore_index=True, sort=False)
     records: list[dict[str, Any]] = []
-    keys = combined[["regime", "resource_state", "k"]].drop_duplicates()
+    keys = combined[["fold", "regime", "resource_state", "k"]].drop_duplicates()
     for _, key in keys.iterrows():
-        regime, state, k = key["regime"], key["resource_state"], key["k"]
+        fold, regime = key["fold"], key["regime"]
+        state, k = key["resource_state"], key["k"]
         subset = combined[
-            (combined["regime"] == regime) & (combined["resource_state"] == state) & (combined["k"] == k)
+            (combined["fold"] == fold)
+            & (combined["resource_state"] == state)
+            & (combined["k"] == k)
         ]
+        baseline_name = baseline_selection.get("by_regime_resource_state_k", {}).get(
+            f"{regime}|{state}|{int(k)}", baseline_selection["name"],
+        )
         baselines = subset[
-            (subset["method"] == "baseline") & (~subset["name"].isin({"oracle", "oracle_k"}))
+            (subset["method"] == "baseline")
+            & (subset["name"] == baseline_name)
         ]
-        direct = subset[subset["method"].isin({"model_regression", "model_classification"})]
-        structured = subset[subset["method"] == "model_structured"]
-        if baselines.empty:
+        direct = subset[
+            (subset["method"] == "model_regression")
+            & (subset["name"] == direct_selection["family"])
+            & r2._probe_mask(subset, bool(direct_selection["with_probe"]))
+        ]
+        structured = subset[
+            (subset["method"] == "model_structured")
+            & (subset["name"] == structured_selection["family"])
+            & r2._probe_mask(subset, bool(structured_selection["with_probe"]))
+        ]
+        if baselines.empty or direct.empty or structured.empty:
             continue
-        best_baseline = baselines.loc[baselines["edp_sum_ratio_vs_oracle"].idxmin()]
-        best_direct = (
-            direct.loc[direct["edp_sum_ratio_vs_oracle"].idxmin()] if not direct.empty else None
-        )
-        best_structured = (
-            structured.loc[structured["edp_sum_ratio_vs_oracle"].idxmin()]
-            if not structured.empty else None
-        )
-        contenders: list[tuple[str, pd.Series]] = []
-        if best_direct is not None:
-            contenders.append(("direct", best_direct))
-        if best_structured is not None:
-            contenders.append(("structured", best_structured))
-        if not contenders:
-            continue
+        baseline_row, direct_row, structured_row = baselines.iloc[0], direct.iloc[0], structured.iloc[0]
+        contenders = [("direct", direct_row), ("structured", structured_row)]
         winner_kind, winner_row = min(contenders, key=lambda item: item[1]["edp_sum_ratio_vs_oracle"])
         improvement = 100.0 * (
-            1.0 - float(winner_row["edp_sum_ratio_vs_oracle"]) / float(best_baseline["edp_sum_ratio_vs_oracle"])
+            1.0 - float(winner_row["edp_sum_ratio_vs_oracle"])
+            / float(baseline_row["edp_sum_ratio_vs_oracle"])
         )
         records.append({
-            "regime": regime, "resource_state": state, "k": int(k),
-            "best_baseline": str(best_baseline["name"]),
-            "best_baseline_edp_sum_ratio_vs_oracle": float(best_baseline["edp_sum_ratio_vs_oracle"]),
-            "best_direct_name": None if best_direct is None else (
-                f"{best_direct['name']}{'+probe' if best_direct.get('with_probe') else ''}"
+            "fold": fold, "regime": regime, "resource_state": state, "k": int(k),
+            "selected_baseline": str(baseline_row["name"]),
+            "selected_baseline_edp_sum_ratio_vs_oracle": float(baseline_row["edp_sum_ratio_vs_oracle"]),
+            "selected_direct_name": (
+                f"{direct_row['name']}{'+probe' if direct_row.get('with_probe') else ''}"
             ),
-            "best_direct_edp_sum_ratio_vs_oracle": (
-                float("nan") if best_direct is None else float(best_direct["edp_sum_ratio_vs_oracle"])
+            "selected_direct_edp_sum_ratio_vs_oracle": float(direct_row["edp_sum_ratio_vs_oracle"]),
+            "selected_structured_name": (
+                f"{structured_row['name']}{'+probe' if structured_row.get('with_probe') else ''}"
             ),
-            "best_structured_name": None if best_structured is None else (
-                f"{best_structured['name']}{'+probe' if best_structured.get('with_probe') else ''}"
-            ),
-            "best_structured_edp_sum_ratio_vs_oracle": (
-                float("nan") if best_structured is None else float(best_structured["edp_sum_ratio_vs_oracle"])
+            "selected_structured_edp_sum_ratio_vs_oracle": float(
+                structured_row["edp_sum_ratio_vs_oracle"]
             ),
             "winner_formulation": winner_kind,
             "winner_edp_sum_ratio_vs_oracle": float(winner_row["edp_sum_ratio_vs_oracle"]),
+            "n": int(winner_row["n"]),
+            "oracle_edp_sum_js": float(
+                winner_row["edp_sum_js"] / winner_row["edp_sum_ratio_vs_oracle"]
+            ),
+            "selected_baseline_edp_sum_js": float(baseline_row["edp_sum_js"]),
+            "selected_direct_edp_sum_js": float(direct_row["edp_sum_js"]),
+            "selected_structured_edp_sum_js": float(structured_row["edp_sum_js"]),
+            "winner_edp_sum_js": float(winner_row["edp_sum_js"]),
             "improvement_pct_over_best_baseline": improvement,
             "beats_baseline_above_noise_floor": bool(improvement > NOISE_FLOOR_PCT),
         })
     return pd.DataFrame(records).sort_values(
-        ["regime", "resource_state", "k"], kind="mergesort",
+        ["regime", "fold", "resource_state", "k"], kind="mergesort",
+    ).reset_index(drop=True)
+
+
+def aggregate_three_way_report(report: pd.DataFrame) -> pd.DataFrame:
+    """Suma interpolacion disjunta y mantiene separados top1/top2."""
+    if report.empty:
+        return pd.DataFrame()
+    work = report.copy()
+    work["evaluation_scope"] = np.where(
+        work["regime"] == "interpolation", "interpolation_all", work["fold"],
+    )
+    records: list[dict[str, Any]] = []
+    for (scope, state, k), group in work.groupby(
+        ["evaluation_scope", "resource_state", "k"], observed=True,
+    ):
+        oracle = float(group["oracle_edp_sum_js"].sum())
+        baseline = float(group["selected_baseline_edp_sum_js"].sum())
+        direct = float(group["selected_direct_edp_sum_js"].sum())
+        structured_cost = float(group["selected_structured_edp_sum_js"].sum())
+        winner_kind, winner = min(("direct", direct), ("structured", structured_cost), key=lambda x: x[1])
+        improvement = 100.0 * (1.0 - winner / baseline)
+        records.append({
+            "evaluation_scope": scope,
+            "resource_state": state,
+            "k": int(k),
+            "n": int(group["n"].sum()),
+            "selected_baseline": str(group["selected_baseline"].iloc[0]),
+            "selected_direct_name": str(group["selected_direct_name"].iloc[0]),
+            "selected_structured_name": str(group["selected_structured_name"].iloc[0]),
+            "selected_baseline_edp_sum_ratio_vs_oracle": baseline / oracle,
+            "selected_direct_edp_sum_ratio_vs_oracle": direct / oracle,
+            "selected_structured_edp_sum_ratio_vs_oracle": structured_cost / oracle,
+            "winner_formulation": winner_kind,
+            "winner_edp_sum_ratio_vs_oracle": winner / oracle,
+            "improvement_pct_over_best_baseline": improvement,
+            "beats_baseline_above_noise_floor": bool(improvement > NOISE_FLOOR_PCT),
+        })
+    return pd.DataFrame(records).sort_values(
+        ["evaluation_scope", "resource_state", "k"], kind="mergesort",
     ).reset_index(drop=True)
 
 
@@ -617,6 +703,7 @@ def run_structured_analysis(
     """
     from pathlib import Path as _Path
     import json
+    import hashlib
 
     from .sizes import extrapolation_folds, interpolation_folds
 
@@ -643,14 +730,24 @@ def run_structured_analysis(
     extrapolation = extrapolation_folds(horizon_probe)
     folds = [*interpolation, *extrapolation]
 
+    from . import r2 as _r2
     if direct_results is None:
-        from . import r2 as _r2
         direct_results = _r2.evaluate_r2(folds, seed=seed, k_grid=k_grid)
 
     structured_results = evaluate_structured(
         folds, candidates, run_regions=run_regions, seed=seed, k_grid=k_grid,
     )
-    three_way = three_way_blocking_rule(direct_results, structured_results)
+    baseline_selection = _r2.select_final_baseline(direct_results)
+    direct_selection = _r2.select_final_model(direct_results)
+    structured_selection = select_final_structured_model(structured_results)
+    three_way = three_way_blocking_rule(
+        direct_results,
+        structured_results,
+        baseline_selection=baseline_selection,
+        direct_selection=direct_selection,
+        structured_selection=structured_selection,
+    )
+    three_way_aggregated = aggregate_three_way_report(three_way)
 
     latency: dict[str, Any] = {}
     if extrapolation:
@@ -660,35 +757,53 @@ def run_structured_analysis(
         ]
         if not primitives_train.empty:
             calibration = calibrate_startup(primitives_train)
-            layer1_models = fit_layer1(primitives_train, "ridge", seed=seed)
+            selected_family = str(structured_selection["family"])
+            layer1_models = fit_layer1(primitives_train, selected_family, seed=seed)
             latency = {
                 **measure_structured_latency(layer1_models, calibration, primitives_train),
                 "model_size_bytes": structured_model_size_bytes(layer1_models, calibration),
                 "fold_used": extrapolation[-1][0],
+                "family": selected_family,
             }
 
     paths = {
         "primitives_dataset": output_dir / "primitives_dataset.csv",
         "structured_results": output_dir / "structured_results.csv",
         "three_way_blocking_rule": output_dir / "three_way_blocking_rule.csv",
+        "three_way_blocking_rule_aggregated": output_dir / "three_way_blocking_rule_aggregated.csv",
         "summary": output_dir / "structured_summary.json",
     }
     primitives.to_csv(paths["primitives_dataset"], index=False)
     structured_results.to_csv(paths["structured_results"], index=False)
     three_way.to_csv(paths["three_way_blocking_rule"], index=False)
+    three_way_aggregated.to_csv(paths["three_way_blocking_rule_aggregated"], index=False)
     n_slices = int(len(three_way))
     n_pass = int(three_way["beats_baseline_above_noise_floor"].sum()) if n_slices else 0
     n_structured_wins = int((three_way["winner_formulation"] == "structured").sum()) if n_slices else 0
     n_direct_wins = int((three_way["winner_formulation"] == "direct").sum()) if n_slices else 0
     paths["summary"].write_text(
         json.dumps({
+            "input_sha256": {
+                "candidate_summary.csv": hashlib.sha256(
+                    (dataset_dir / "candidate_summary.csv").read_bytes()
+                ).hexdigest(),
+                "run_regions.csv": hashlib.sha256(run_regions_path.read_bytes()).hexdigest()
+                if run_regions_path.is_file() else None,
+            },
             "layer1_grouped_cv_r2_ridge": layer1_r2,
+            "final_baseline_selection": baseline_selection,
+            "final_direct_selection": direct_selection,
+            "final_structured_selection": structured_selection,
             "n_folds": len(folds),
             "k_grid": list(k_grid),
             "three_way_total_slices": n_slices,
             "three_way_pass_count": n_pass,
             "three_way_structured_wins": n_structured_wins,
             "three_way_direct_wins": n_direct_wins,
+            "three_way_aggregated_total_slices": int(len(three_way_aggregated)),
+            "three_way_aggregated_pass_count": int(
+                three_way_aggregated["beats_baseline_above_noise_floor"].sum()
+            ) if not three_way_aggregated.empty else 0,
             "latency_and_size": latency,
             "interpretation_contract": {
                 "k_is_supplied_not_predicted": True,

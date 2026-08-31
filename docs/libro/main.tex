@@ -1938,7 +1938,35 @@ Esta interpretación explica, sin necesidad de invocar una causa distinta por op
 \section{Prototipo de modelos y reformulación estructurada (Fase R2)}
 \label{sec:resultados-r2-intro}
 
-La Fase R2 del plan de reformulación evaluó el objetivo de aprendizaje directo --- el regresor entrenado sobre $y = \log(EDP_{\text{GPU\_REF}} / EDP_{\text{CPU\_REF}})$, o su generalización a horizonte $K$ mediante $EDP_{\text{total}}(d,K)$ --- contra las baselines del protocolo congelado, sobre la rejilla de $K$ fijada en la enmienda 2026-08-30-A. Esta sección reporta ese resultado, el diagnóstico que motivó una reformulación estructurada del \textit{target} (enmienda 2026-08-30-B del protocolo congelado) y la formulación de tres capas que resulta de ese diagnóstico, todavía sin evaluar.
+La Fase R2 del plan de reformulación evaluó el objetivo de aprendizaje directo --- el regresor entrenado sobre $y = \log(EDP_{\text{GPU\_REF}} / EDP_{\text{CPU\_REF}})$, o su generalización a horizonte $K$ mediante $EDP_{\text{total}}(d,K)$ --- contra las baselines del protocolo congelado, sobre la rejilla de $K$ fijada en la enmienda 2026-08-30-A. Después se implementó y evaluó la formulación estructurada de tres capas de la enmienda 2026-08-30-B. Una auditoría posterior encontró que el primer resumen eliminaba la identidad del pliegue antes de escoger el mínimo y, por ello, podía seleccionar familias y pliegues después de observar cada prueba. La enmienda 2026-08-30-C corrige esa agregación; todas las cifras que siguen corresponden a políticas únicas y comparaciones dentro del mismo pliegue.
+
+\subsection{Resultado corregido del \textit{target} directo}
+\label{sec:resultados-r2-directo}
+
+Se congeló un único modelo directo --- \textit{RandomForest} con sondeo, elegido por su razón EDP/oráculo media en extrapolación --- y una baseline pertinente por combinación de régimen, estado y $K$, estimada por promedio entre pliegues exploratorios y nunca por el resultado de un pliegue individual. Los tres pliegues de interpolación se agregaron sumando EDP porque sus conjuntos de prueba son disjuntos; \texttt{extrapolation\_top1} y \texttt{extrapolation\_top2} se conservaron separados porque el primero está contenido en el segundo.
+
+\begin{table}[H]
+\centering
+\caption[Resultado corregido del modelo directo en R2]{Rebanadas en las que la política directa congelada supera a la baseline por más del piso de ruido. Cada alcance contiene 24 combinaciones de estado y $K$.}
+\label{tab:r2-directo-corregido}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Alcance} & \textbf{Victorias} & \textbf{Total} \\
+\midrule
+Interpolación agregada       & 0 & 24 \\
+\texttt{extrapolation\_top1} & 0 & 24 \\
+\texttt{extrapolation\_top2} & 2 & 24 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Las dos ventajas se concentran en $K=3$ dentro de \texttt{extrapolation\_top2}: 10,46\,% en \texttt{cpu\_ready} y 7,40\,% en \texttt{none\_ready}. No son estables frente al horizonte: en los mismos estados, el modelo pierde aproximadamente 95--99\,% frente a la baseline en $K=5$ y más de 364\,% en $K=10$. En \texttt{extrapolation\_top1}, el extremo superior más cercano al conjunto confirmatorio, no supera la baseline en ninguna rebanada.
+
+El modelo directo ocupa 968.495 bytes y su latencia de inferencia es $p_{50}=20,17$~ms, $p_{95}=21,60$~ms y $p_{99}=22,37$~ms en el entorno donde se ejecutó el análisis. Incluso si su exactitud fuera suficiente, este costo impediría inferir antes de cada despacho corto; la decisión tendría que almacenarse y amortizarse sobre el horizonte.
+
+Los conteos anteriores de 2/48, obtenidos escogiendo la mejor fila de modelo dentro de cada rebanada ya observada, quedan supersedidos y no se utilizan para sostener ninguna conclusión.
+
+\iffalse
 
 \subsection{El resultado del \textit{target} directo}
 \label{sec:resultados-r2-directo}
@@ -1970,11 +1998,12 @@ La hipótesis H2 (valor del sondeo frente al modelo estático) obtuvo un resulta
 Sobre latencia y tamaño, el modelo final seleccionado por el procedimiento del protocolo (\textit{RandomForest} con sondeo, mejor \texttt{edp\_sum\_ratio\_vs\_oracle} promedio en extrapolación) tiene latencia de inferencia $p_{50}=19,7\,\text{ms}$, $p_{95}=25,8\,\text{ms}$, $p_{99}=28,5\,\text{ms}$, y un tamaño serializado de 968\,KB.
 
 Este resultado no admite una lectura de ``el aprendizaje automático gana'' ni de ``el aprendizaje automático pierde'' de forma limpia. Existe una ventana localizada --- cercana al cruce de dispositivo que documenta la enmienda 2026-08-30-A --- donde el modelo aporta una señal medible y superior a la mejor baseline; fuera de esa ventana, el mismo modelo se desestabiliza y pierde frente a esa baseline por márgenes mayores que la ganancia que obtuvo dentro de ella.
+\fi
 
 \subsection{Diagnóstico: por qué \texorpdfstring{$y$}{y} no es una cantidad primitiva}
 \label{sec:resultados-r2-diagnostico}
 
-El patrón de inestabilidad de la sección \ref{sec:resultados-r2-directo} --- una victoria puntual en $K=3$ rodeada de pérdidas en $K=5$ y $K=10$ --- tiene una explicación estructural. $y = \log(EDP_{\text{GPU\_REF}}/EDP_{\text{CPU\_REF}})$, y su generalización $EDP_{\text{total}}(d,K)$, no son cantidades primitivas: son una función cerrada de ocho costos medibles por separado --- energía y tiempo, en región fría y caliente, para cada dispositivo --- compuestos mediante la fórmula ya congelada en la sección \ref{sec:resultados-r1-amortizacion}. Pedirle a un regresor que aprenda $y$ directamente, para toda la rejilla de $K$ a la vez y con solo 68 \texttt{config\_id}, equivale a pedirle que redescubra esa composición sin dársela como estructura.
+El patrón corregido de la sección \ref{sec:resultados-r2-directo} --- ventajas localizadas en $K=3$, ausencia de ventaja en \texttt{extrapolation\_top1} y pérdidas crecientes en $K=5$ y $K=10$ --- tiene una explicación estructural. $y = \log(EDP_{\text{GPU\_REF}}/EDP_{\text{CPU\_REF}})$, y su generalización $EDP_{\text{total}}(d,K)$, no son cantidades primitivas: son una función cerrada de ocho costos medibles por separado --- energía y tiempo, en región fría y caliente, para cada dispositivo --- compuestos mediante la fórmula ya congelada en la sección \ref{sec:resultados-r1-amortizacion}. Pedirle a un regresor que aprenda $y$ directamente, para toda la rejilla de $K$ a la vez y con solo 68 \texttt{config\_id}, equivale a pedirle que redescubra esa composición sin dársela como estructura.
 
 Tres verificaciones sobre los datos exploratorios, hechas antes de tocar cualquier dato confirmatorio, sostienen esta lectura:
 
@@ -1986,7 +2015,7 @@ Tres verificaciones sobre los datos exploratorios, hechas antes de tocar cualqui
 \toprule
 \textbf{Observación} & \textbf{Evidencia} \\
 \midrule
-Costo caliente sigue ley de potencias & $R^2$ entre 0,974 y 0,998 en $\log(\text{costo}) \sim \log(N)$, en las cuatro combinaciones dispositivo$\times$magnitud ($E_{\text{warm}}$, $T_{\text{warm}}$ $\times$ CPU, GPU), en las seis operaciones. \\
+Costo caliente sigue ley de potencias & El ajuste exploratorio por operación produjo $R^2$ entre 0,974 y 0,998. La validación agrupada fuera de muestra de Ridge, más exigente, produjo $R^2$ entre 0,941 y 0,983 en las cuatro combinaciones dispositivo$\times$magnitud ($E_{\text{warm}}$, $T_{\text{warm}}$ $\times$ CPU, GPU). \\
 Costo frío no correlaciona igual con $N$ & $R^2$ entre 0,000 y 0,918, errático; dominado por un arranque aproximadamente constante: mediana 0,618\,s, CV 0,09 para el arranque de GPU en tiempo, a través de las seis operaciones y trece tamaños. El arranque de CPU es un orden de magnitud menor y sí depende de la operación (CV 0,95). \\
 El sondeo mide el costo frío, no aproxima $y$ & Error relativo mediano del sondeo frente al costo \textbf{frío} medido del dispositivo que sondeó: 4,88\,\%, dentro del piso de ruido de la región fría (5,76\,\%, sección \ref{sec:resultados-r1-piso-ruido}). Error frente al costo \textbf{caliente}: superior al 250\,\%. \\
 \bottomrule
@@ -1995,6 +2024,7 @@ El sondeo mide el costo frío, no aproxima $y$ & Error relativo mediano del sond
 
 La tercera fila le da al sondeo un rol estructural preciso, distinto del que le asignaba la formulación directa: una única ejecución de sondeo mide directamente una de las ocho primitivas de costo del dispositivo que la produjo, no una aproximación de la razón final $y$. Esto explica por qué el sondeo ayuda de forma inconsistente en la sección \ref{sec:resultados-r2-directo}: cuando el regresor tiene que aprender $y$ completo, una entrada que solo informa con precisión sobre uno de sus ocho componentes aporta señal parcial y ruidosa, no una aproximación directa del objetivo.
 
+\iffalse
 \subsection{Formulación estructurada en tres capas (propuesta, no evaluada)}
 \label{sec:resultados-r2-estructurada}
 
@@ -2011,6 +2041,35 @@ Cuando hay sondeo disponible, sustituye directamente la primitiva fría predicha
 No se introduce ninguna familia de modelo fuera de las cinco ya congeladas en el protocolo. Ridge es el candidato natural para la capa 1, porque un ajuste lineal en $\log(\text{costo})$ contra $\log(N)$ es, literalmente, un ajuste de ley de potencias; árbol de regresión y \textit{RandomForest} quedan disponibles como contraste no lineal en la misma capa; ElasticNet y Huber, como contraste de regularización y robustez. \textbf{XGBoost se excluye explícitamente}: ya estaba fuera del protocolo por el tamaño de muestra ($n=68$), y el sobreajuste local ya observado en \textit{RandomForest} sobre el \textit{target} directo (sección \ref{sec:resultados-r2-directo}) es razón adicional para no incorporar un modelo todavía más flexible antes de resolver la inestabilidad con una reformulación más simple, no más compleja.
 
 Esta formulación se evaluará con el mismo procedimiento, las mismas baselines y los mismos pliegues que el \textit{target} directo de la sección \ref{sec:resultados-r2-directo} --- compite con él, no lo reemplaza automáticamente. La comparación entre ambas formulaciones aún no se ha ejecutado: se registra aquí como la enmienda 2026-08-30-B del protocolo congelado, y su legitimidad como comparación confirmatoria depende de que los datos de las campañas \texttt{pacca\_dual\_cpu\_big\_ref\_20260830} y \texttt{pacca\_dual\_gpu\_big\_ref\_20260830} (jobs 6763/6764) sigan sin observarse al momento de fijarla, condición que se verificó explícitamente antes de redactar la enmienda.
+\fi
+
+\subsection{Resultado corregido de la formulación estructurada}
+\label{sec:resultados-r2-estructurada}
+
+La formulación de tres capas se implementó y se enfrentó al mismo conjunto de pliegues. El procedimiento corregido congeló \textit{ElasticNet} sin sondeo como una única familia estructurada y la comparó, en cada pliegue, contra la política directa congelada y la baseline pertinente. La Tabla \ref{tab:r2-estructurado-corregido} presenta el resultado después de agregar únicamente los pliegues disjuntos.
+
+\begin{table}[H]
+\centering
+\caption[Resultado corregido de la comparación de tres vías]{Rebanadas en las que la mejor de las dos formulaciones congeladas supera a la baseline por más del piso de ruido.}
+\label{tab:r2-estructurado-corregido}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Alcance} & \textbf{Victorias} & \textbf{Total} \\
+\midrule
+Interpolación agregada       & 2 & 24 \\
+\texttt{extrapolation\_top1} & 0 & 24 \\
+\texttt{extrapolation\_top2} & 2 & 24 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+En interpolación, las dos ventajas aparecen en \texttt{gpu\_ready}: 9,64\,% para $K=1$ y 4,85\,% para $K=2$. En \texttt{extrapolation\_top2}, la formulación estructurada alcanza al oráculo en $K=3$ y mejora la baseline en 38,02\,% para \texttt{cpu\_ready} y 36,16\,% para \texttt{none\_ready}. No presenta ninguna ventaja en \texttt{extrapolation\_top1}.
+
+La estructura reduce el error extremo del target directo, pero no lo elimina. En \texttt{extrapolation\_top2}, $K=10$, las pérdidas del directo superiores a 364\,% se reducen a 47,03\,% y 48,76\,%; siguen siendo pérdidas materialmente grandes. En $K=5$, la diferencia frente a la baseline es de +0,71\,% en \texttt{cpu\_ready} y $-$1,51\,% en \texttt{none\_ready}, ambas dentro del piso de ruido. Por ello no se sostiene que la formulación estructurada haya resuelto la curva completa del horizonte: únicamente demuestra una mejora localizada y una reducción del fallo del target directo.
+
+El modelo estructurado seleccionado ocupa 8.179 bytes y presenta latencias $p_{50}=18,08$~ms, $p_{95}=19,15$~ms y $p_{99}=19,67$~ms. Es aproximadamente 118 veces menor que el directo, pero solo un 10\,% más rápido en la implementación Python medida. El agente deberá almacenar la decisión para amortizar este costo; estas cifras no se presentan como latencia definitiva de una implementación optimizada.
+
+El veredicto de R2 es, por tanto, conservador: la baseline permanece como política general de dispositivo. La formulación estructurada se conserva como candidata únicamente en las cuatro compuertas exploratorias identificadas, que deberán evaluarse sin reajuste sobre los tamaños confirmatorios. Si no sobreviven allí, el resultado del eje de dispositivo será una política simple; ello no elimina la capa DVFS, que todavía no fue modelada ni evaluada y conserva el margen descrito en la sección \ref{sec:resultados-r1-headroom-dvfs}.
 
 %==============================================================================
 
@@ -2036,11 +2095,11 @@ Conviene subrayar que esta unidad no es una particularidad de este trabajo. Los 
 
 \chapter{Conclusiones}
 
-Este trabajo completó la construcción y validación empírica del instrumento de caracterización CPU--GPU y determinó, sobre evidencia propia, la formulación que debe adoptar el sistema de decisión de las fases siguientes: decidir conjuntamente dispositivo y frecuencia, sobre la unidad de una llamada a una operación, prediciendo directamente la configuración de mínimo EDP en lugar de una etiqueta de régimen intermedia cuya estabilidad depende del punto de operación en el que se mide. Esa formulación fija la unidad de decisión y la variable objetivo descritas en la sección \ref{sec:fase2-unidad}.
+Este trabajo completó la construcción y validación empírica del instrumento de caracterización CPU--GPU y determinó, sobre evidencia propia, una formulación jerárquica para las fases siguientes: decidir dispositivo como función del estado y del horizonte mediante costos primitivos y composición analítica; después decidir frecuencia únicamente cuando su ventaja sea distinguible de la incertidumbre y del costo de actuación. La unidad sigue siendo una llamada a una operación conocida, pero la configuración completa ya no se trata como una clase monolítica de 40 acciones.
 
-En consecuencia, el aporte propio de esta fase respecto de las siguientes no es únicamente el conjunto de datos ni el instrumento, sino esa formulación fundamentada, que se sostiene sobre el catálogo dual y no sobre una etiqueta de régimen intermedia.
+En consecuencia, el aporte propio de esta fase no es únicamente el conjunto de datos ni el instrumento, sino la identificación de qué parte de la decisión admite reglas simples, dónde aparecen los cruces por amortización y en qué estado permanece margen suficiente para evaluar DVFS. La etiqueta de régimen conserva valor descriptivo, pero no se utiliza como sustituto de la cantidad que el agente debe optimizar.
 
-Respecto del segundo objetivo específico, el trabajo se encuentra parcialmente ejecutado y el alcance de lo conseguido debe declararse con precisión. El catálogo dual está construido y verificado, la campaña de adquisición de su eje de CPU concluyó íntegramente (sección \ref{sec:resultados-campana-dual}), y el procedimiento completo de construcción del conjunto de nivel 2, de entrenamiento y de validación anidada está implementado y auditado de extremo a extremo (sección \ref{sec:resultados-tuberia}). Lo que no está ejecutado es la comparación de modelos que responde a la pregunta de investigación, porque requiere el eje del acelerador: el eje de CPU en aislamiento contiene solo uno de los dos grados de libertad del problema, y la compuerta de validez de la sección \ref{sec:fase2-compuerta} lo hace explícito en lugar de dejar que una tabla de métricas se lea como si respondiera a algo que no responde. Los objetivos específicos tercero y cuarto --- implementación del agente y evaluación de EDP --- corresponden a las Fases 3 y 4 y no se presentan como ejecutados.
+Respecto del segundo objetivo específico, el catálogo dual y sus 8.160 corridas aceptadas están construidos y verificados, y R1/R2 evaluaron baselines, modelos directos y una formulación estructurada bajo particiones por tamaño. El resultado corregido no justifica reemplazar de forma general las baselines por ML: la comparación de tres vías supera el umbral en 2/24 rebanadas de interpolación, 0/24 de \texttt{extrapolation\_top1} y 2/24 de \texttt{extrapolation\_top2}. Estas cuatro compuertas quedan pendientes de la prueba confirmatoria. La selección de frecuencia todavía no se modeló; los objetivos específicos tercero y cuarto --- implementación del agente, actuación DVFS y evaluación del EDP neto --- corresponden a R3/R4 y no se presentan como ejecutados.
 
 El aporte metodológico central de esta fase, más allá de los datos concretos recolectados, es haber demostrado --- y no solo enunciado --- que ningún mecanismo de este instrumento se dio por funcional sin verificación directa contra el estado real del hardware: ni la escritura de frecuencia de CPU y GPU, ni la disponibilidad de los contadores de rendimiento, ni la frontera de medición de energía, ni el efecto del propio muestreo sobre el estado del dispositivo observado. En varias ocasiones documentadas en este trabajo, esa verificación expuso una falla real que una confianza no verificada en la documentación del fabricante, en una medición previa ya dada por válida, o en el diseño original del instrumento, habría dejado pasar silenciosamente hacia el conjunto de datos.
 
@@ -2064,7 +2123,7 @@ Las dos primeras tareas de esta sección, cerrar la adquisición del eje del ace
 
 Primero --- ya completado. El eje de CPU quedó cerrado con la totalidad de sus 1\,632 combinaciones aceptadas bajo el contrato temporal de la sección \ref{sec:contrato-coldwarm}. El eje del acelerador, cuyo producto cartesiano de frecuencias de ambos dispositivos lo hace considerablemente más costoso, se ejecutó en sesiones sucesivas sobre un mismo directorio de salida, reanudando desde las combinaciones ya aceptadas: 6\,528 de 6\,528 combinaciones aceptadas, sin rechazos sin resolver.
 
-Segundo --- ya ejecutado, con un hallazgo de implementación real en el camino. Reconstruir el conjunto de nivel 2 en modo final expuso que el mecanismo de reanudación entre sesiones (registrar por separado lo aceptado en la sesión actual y lo ya aceptado en sesiones previas) no se propagaba al constructor del dataset: una sesión final que no acepta combinaciones nuevas --- todo ya estaba hecho --- dejaba la lista de corridas nuevas vacía, y el constructor leía solo esa lista, produciendo un conjunto vacío en silencio pese a que los 6\,528 archivos eran válidos en disco. Corregido antes de construir el conjunto reportado en la sección \ref{sec:resultados-compuerta-dual}, con pruebas de regresión específicas para el caso que lo expuso. Con él, la compuerta de la sección \ref{sec:fase2-compuerta} se recalculó por primera vez sobre el catálogo íntegro: la estrategia sin ejecución previa mantiene su veredicto interpretable sin que una sola etiqueta cambie al incorporar la GPU, y la estrategia con sondeo confirma su veredicto de validación de tubería. Ambos resultados son publicables --- que una familia supere a las líneas base, o que ninguna lo haga y la mejor política sea una constante bien elegida --- y la búsqueda de familias sobre la estrategia sin ejecución previa, la única con veredicto interpretable, ya está en ejecución al momento de escribir esta sección.
+Segundo --- ya ejecutado, con un hallazgo de implementación real en el camino. Reconstruir el conjunto de nivel 2 en modo final expuso que el mecanismo de reanudación entre sesiones (registrar por separado lo aceptado en la sesión actual y lo ya aceptado en sesiones previas) no se propagaba al constructor del dataset: una sesión final que no acepta combinaciones nuevas --- todo ya estaba hecho --- dejaba la lista de corridas nuevas vacía, y el constructor leía solo esa lista, produciendo un conjunto vacío en silencio pese a que los 6\,528 archivos eran válidos en disco. Corregido antes de construir el conjunto reportado en la sección \ref{sec:resultados-compuerta-dual}, con pruebas de regresión específicas para el caso que lo expuso. El reanálisis posterior R1/R2 reemplazó la clasificación monolítica por una política sobre estado y horizonte y comparó familias directas y estructuradas contra baselines simples. Su resultado corregido se presenta en la sección \ref{sec:resultados-r2-estructurada}: la baseline permanece como política general y el modelo estructurado conserva únicamente cuatro compuertas candidatas para confirmación externa.
 
 Tercero, implementar el agente y evaluarlo. La comparación de cuatro escenarios descrita en la sección \ref{sec:fase4} --- ejecución íntegra en CPU, íntegra en el acelerador, guiada por el selector, y guiada por un oráculo con conocimiento posterior --- es la que permite atribuir un resultado insuficiente a la ausencia de margen en la plataforma o a la incapacidad del modelo para capturarlo, distinción que sin el cuarto escenario resultaría ambigua. La medición del umbral de amortización del costo de decisión --- inferencia más actuación de frecuencia, este último excluido deliberadamente del objetivo de entrenamiento según la quinta limitación --- responde directamente a la cláusula de la pregunta de investigación relativa al \textit{overhead} de la inferencia.
 

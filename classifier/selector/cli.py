@@ -10,6 +10,7 @@ from .dataset import BuildConfig, build_selector_datasets
 from .eda import generate_eda
 from .r1 import run_r1_analysis
 from .r2 import run_r2_analysis
+from .structured import run_structured_analysis
 from .search import FAMILIES, evaluate_existing, run_nested_tuning
 
 
@@ -96,6 +97,14 @@ def build_parser() -> argparse.ArgumentParser:
     r2.add_argument("--output-dir", type=Path)
     r2.add_argument("--seed", type=int, default=20260830)
 
+    r2_structured = sub.add_parser(
+        "r2-structured",
+        help="target estructurado y comparacion pareada baseline/directo/estructurado",
+    )
+    r2_structured.add_argument("--dataset-dir", required=True, type=Path)
+    r2_structured.add_argument("--output-dir", type=Path)
+    r2_structured.add_argument("--seed", type=int, default=20260830)
+
     all_parser = sub.add_parser("all", help="build + eda + tune A/C")
     _add_build_arguments(all_parser)
     all_parser.add_argument("--families", type=_families, default=FAMILIES)
@@ -133,6 +142,11 @@ def main(argv: list[str] | None = None) -> None:
             print(f"{name}: {path}")
     elif args.command == "r2":
         for name, path in run_r2_analysis(
+            args.dataset_dir, args.output_dir, seed=args.seed,
+        ).items():
+            print(f"{name}: {path}")
+    elif args.command == "r2-structured":
+        for name, path in run_structured_analysis(
             args.dataset_dir, args.output_dir, seed=args.seed,
         ).items():
             print(f"{name}: {path}")

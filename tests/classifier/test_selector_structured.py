@@ -275,6 +275,15 @@ def test_three_way_blocking_rule_reporta_las_tres_vias():
     )
     report = structured.three_way_blocking_rule(direct, struct)
     assert not report.empty
+    assert set(report["fold"]) == {name for name, _, _ in folds}
+    # La baseline puede depender de (regimen, estado, K), pero no del pliegue.
+    assert (
+        report.groupby(["regime", "resource_state", "k"], observed=True)[
+            "selected_baseline"
+        ].nunique() == 1
+    ).all()
+    assert report["selected_direct_name"].nunique() == 1
+    assert report["selected_structured_name"].nunique() == 1
     assert set(report["winner_formulation"]) <= {"direct", "structured"}
     assert report["beats_baseline_above_noise_floor"].dtype == bool
 
@@ -313,7 +322,10 @@ def test_run_structured_analysis_escribe_los_artefactos_esperados(tmp_path):
 
     paths = structured.run_structured_analysis(dataset_dir, k_grid=(1, 10, 1000))
 
-    expected = {"primitives_dataset", "structured_results", "three_way_blocking_rule", "summary"}
+    expected = {
+        "primitives_dataset", "structured_results", "three_way_blocking_rule",
+        "three_way_blocking_rule_aggregated", "summary",
+    }
     assert set(paths) == expected
     assert all(path.exists() for path in paths.values())
 

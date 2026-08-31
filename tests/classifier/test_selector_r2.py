@@ -154,6 +154,9 @@ def test_regla_bloqueante_declara_perdida_del_modelo_cuando_la_baseline_ya_es_op
     results = r2.evaluate_r2(_folds(frame), k_grid=(1, 10, 1000), with_probe_variants=(False,))
     report = r2.blocking_rule_report(results)
     assert not report.empty
+    assert set(report["fold"]) == {name for name, _, _ in _folds(frame)}
+    assert report["selected_model"].nunique() == 1
+    assert report["selected_baseline"].nunique() == 1
     assert set(report["adopted_policy"]) <= {"model", "baseline"}
     # La regla es binaria por renglon: no hay una tercera categoria "casi".
     assert report["model_beats_baseline_above_noise_floor"].dtype == bool
@@ -165,6 +168,39 @@ def test_seleccion_final_usa_solo_extrapolacion_y_es_una_sola_familia():
     selection = r2.select_final_model(results)
     assert selection["family"] in r2.REGRESSOR_FAMILIES
     assert isinstance(selection["with_probe"], bool)
+    baseline = r2.select_final_baseline(results)
+    assert isinstance(baseline["name"], str)
+    assert baseline["by_regime_resource_state_k"]
+
+
+def test_regla_bloqueante_no_elige_modelo_ni_pliegue_despues_de_ver_test():
+    rows = []
+    for fold, model_ratio, baseline_ratio in (
+        ("extrapolation_top1", 1.01, 1.20),
+        ("extrapolation_top2", 2.00, 1.05),
+    ):
+        common = {"fold": fold, "regime": "extrapolation", "resource_state": "gpu_ready", "k": 3}
+        rows.extend([
+            {**common, "method": "baseline", "name": "fixed_baseline", "with_probe": None,
+             "n": 1, "edp_sum_js": baseline_ratio,
+             "edp_sum_ratio_vs_oracle": baseline_ratio},
+            {**common, "method": "baseline", "name": "other_baseline", "with_probe": None,
+             "n": 1, "edp_sum_js": 1.0, "edp_sum_ratio_vs_oracle": 1.0},
+            {**common, "method": "model_regression", "name": "fixed_model", "with_probe": False,
+             "n": 1, "edp_sum_js": model_ratio, "edp_sum_ratio_vs_oracle": model_ratio},
+            {**common, "method": "model_regression", "name": "other_model", "with_probe": True,
+             "n": 1, "edp_sum_js": 1.0, "edp_sum_ratio_vs_oracle": 1.0},
+        ])
+    report = r2.blocking_rule_report(
+        pd.DataFrame(rows),
+        model_selection={"family": "fixed_model", "with_probe": False},
+        baseline_selection={"name": "fixed_baseline"},
+    )
+    assert len(report) == 2
+    assert set(report["fold"]) == {"extrapolation_top1", "extrapolation_top2"}
+    assert set(report["selected_model"]) == {"model_regression:fixed_model"}
+    assert set(report["selected_baseline"]) == {"fixed_baseline"}
+    assert report.loc[report["fold"] == "extrapolation_top2", "model_improvement_pct"].iloc[0] < 0
 
 
 def test_estatico_contra_sondeo_reporta_ambas_variantes_por_familia():
@@ -202,7 +238,10 @@ def test_run_r2_analysis_escribe_los_artefactos_esperados(tmp_path):
 
     paths = r2.run_r2_analysis(dataset_dir, k_grid=(1, 10, 1000))
 
-    expected = {"horizon_dataset", "r2_results", "blocking_rule", "static_vs_probe", "summary"}
+    expected = {
+        "horizon_dataset", "r2_results", "blocking_rule",
+        "blocking_rule_aggregated", "static_vs_probe", "summary",
+    }
     assert set(paths) == expected
     assert all(path.exists() for path in paths.values())
 

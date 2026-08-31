@@ -487,3 +487,51 @@ de aplicarse. No se implementa por anticipado.
 - El resultado de R2 sobre el target directo ya obtenido (§13 misma
   sección, párrafo de motivo): se reporta como parte del resultado, no se
   descarta.
+
+---
+
+## 14. Enmienda 2026-08-30-C — corrección de selección y agregación de R2
+
+**Fecha:** 2026-08-30
+**Datos confirmatorios observados al redactar:** ninguno; los jobs 6763/6764
+continuaban en `PENDING` y no existían sus directorios de resultados.
+
+### 14.1 Error corregido
+
+El reporte inicial de §13 eliminaba `fold` de la clave antes de seleccionar
+con `idxmin` la mejor baseline y el mejor modelo. Esto permitía enfrentar
+filas de pliegues distintos y elegir una familia diferente después de
+observar cada rebanada de prueba. Los conteos `2/48` del target directo y
+`4/48` de la comparación estructurada quedan supersedidos; se conservan en
+§13 solo como registro histórico del diagnóstico que motivó la enmienda B.
+
+### 14.2 Política de evaluación corregida
+
+1. El modelo directo se selecciona una sola vez según §5.4 y se aplica a
+   todos los pliegues, estados y valores de `K`.
+2. El modelo estructurado se selecciona una sola vez con el mismo criterio.
+3. La baseline pertinente se congela por `(régimen, resource_state, K)` a
+   partir del promedio entre pliegues exploratorios; nunca puede depender del
+   pliegue individual ni del dato confirmatorio.
+4. Toda comparación elemental usa exactamente el mismo
+   `(fold, resource_state, K)` para las tres políticas.
+5. Los tres pliegues de interpolación se agregan sumando EDP porque sus
+   conjuntos de prueba son disjuntos.
+6. `extrapolation_top1` y `extrapolation_top2` se reportan por separado: el
+   primero está contenido en el segundo y sumarlos duplicaría configuraciones.
+7. El conjunto confirmatorio recibirá estas políticas ya congeladas una sola
+   vez; no se repetirá la selección después de observarlo.
+
+### 14.3 Resultado exploratorio corregido
+
+La comparación de tres vías supera la baseline por encima del piso de ruido
+en 2/24 rebanadas de interpolación agregada, 0/24 de
+`extrapolation_top1` y 2/24 de `extrapolation_top2`. El detalle, las huellas
+de entrada y los artefactos por pliegue están en
+`resultados_selector_r2_corregidos_20260830.md` y
+`resultados_selector_r2_20260830/`.
+
+Este resultado no autoriza todavía adoptar ML como política general de
+dispositivo. Congela una política híbrida candidata —baseline por defecto y
+modelo solo en las compuertas que superaron el umbral exploratorio— para que
+la campaña confirmatoria decida si sobrevive fuera del conjunto de desarrollo.
