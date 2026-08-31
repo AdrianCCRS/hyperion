@@ -8,5 +8,9 @@ unidad de decision es un conjunto de configuraciones candidatas.
 from .dataset import BuildConfig, build_selector_datasets
 from .r1 import run_r1_analysis
 from .r2 import run_r2_analysis
+from .dvfs import run_dvfs_analysis
 
-__all__ = ["BuildConfig", "build_selector_datasets", "run_r1_analysis", "run_r2_analysis"]
+__all__ = [
+    "BuildConfig", "build_selector_datasets", "run_r1_analysis",
+    "run_r2_analysis", "run_dvfs_analysis",
+]

@@ -11,6 +11,7 @@ from .eda import generate_eda
 from .r1 import run_r1_analysis
 from .r2 import run_r2_analysis
 from .structured import run_structured_analysis
+from .dvfs import run_dvfs_analysis
 from .search import FAMILIES, evaluate_existing, run_nested_tuning
 
 
@@ -105,6 +106,16 @@ def build_parser() -> argparse.ArgumentParser:
     r2_structured.add_argument("--output-dir", type=Path)
     r2_structured.add_argument("--seed", type=int, default=20260830)
 
+    r3_dvfs = sub.add_parser(
+        "r3-dvfs",
+        help="modela tiempo/energia por frecuencia y evalua abstencion contra REF",
+    )
+    r3_dvfs.add_argument("--dataset-dir", required=True, type=Path)
+    r3_dvfs.add_argument("--output-dir", type=Path)
+    r3_dvfs.add_argument("--seed", type=int, default=20260830)
+    r3_dvfs.add_argument("--overhead-energy-j", type=float, default=0.0)
+    r3_dvfs.add_argument("--overhead-time-s", type=float, default=0.0)
+
     all_parser = sub.add_parser("all", help="build + eda + tune A/C")
     _add_build_arguments(all_parser)
     all_parser.add_argument("--families", type=_families, default=FAMILIES)
@@ -148,6 +159,13 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "r2-structured":
         for name, path in run_structured_analysis(
             args.dataset_dir, args.output_dir, seed=args.seed,
+        ).items():
+            print(f"{name}: {path}")
+    elif args.command == "r3-dvfs":
+        for name, path in run_dvfs_analysis(
+            args.dataset_dir, args.output_dir, seed=args.seed,
+            overhead_energy_j=args.overhead_energy_j,
+            overhead_time_s=args.overhead_time_s,
         ).items():
             print(f"{name}: {path}")
     elif args.command == "all":
