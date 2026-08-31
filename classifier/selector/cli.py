@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
+import hashlib
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -12,6 +15,10 @@ from .r1 import run_r1_analysis
 from .r2 import run_r2_analysis
 from .structured import run_structured_analysis
 from .dvfs import run_dvfs_analysis
+from .agent import (
+    DecisionRequest, FrozenDevicePolicy, PowerLawRuntimePolicy,
+    load_policy_bundle, write_policy_bundle,
+)
 from .search import FAMILIES, evaluate_existing, run_nested_tuning
 
 
@@ -116,6 +123,25 @@ def build_parser() -> argparse.ArgumentParser:
     r3_dvfs.add_argument("--overhead-energy-j", type=float, default=0.0)
     r3_dvfs.add_argument("--overhead-time-s", type=float, default=0.0)
 
+    r3_bundle = sub.add_parser(
+        "r3-agent-bundle", help="congela baseline de dispositivo y power_law en JSON",
+    )
+    r3_bundle.add_argument("--horizon-dataset", required=True, type=Path)
+    r3_bundle.add_argument("--r2-summary", required=True, type=Path)
+    r3_bundle.add_argument("--dvfs-dataset", required=True, type=Path)
+    r3_bundle.add_argument("--output", required=True, type=Path)
+
+    r3_decide = sub.add_parser(
+        "r3-agent-decide", help="ejecuta una decisión seca desde un bundle R3-B",
+    )
+    r3_decide.add_argument("--bundle", required=True, type=Path)
+    r3_decide.add_argument("--operation", required=True)
+    r3_decide.add_argument("--size", required=True, type=int)
+    r3_decide.add_argument("--k", required=True, type=int)
+    r3_decide.add_argument("--ready-device", choices=("none", "cpu", "gpu"), default="none")
+    r3_decide.add_argument("--ref-energy-j", type=float)
+    r3_decide.add_argument("--ref-time-s", type=float)
+
     all_parser = sub.add_parser("all", help="build + eda + tune A/C")
     _add_build_arguments(all_parser)
     all_parser.add_argument("--families", type=_families, default=FAMILIES)
@@ -168,6 +194,36 @@ def main(argv: list[str] | None = None) -> None:
             overhead_time_s=args.overhead_time_s,
         ).items():
             print(f"{name}: {path}")
+    elif args.command == "r3-agent-bundle":
+        horizon = pd.read_csv(args.horizon_dataset, low_memory=False)
+        dvfs = pd.read_csv(args.dvfs_dataset, low_memory=False)
+        summary = json.loads(args.r2_summary.read_text(encoding="utf-8"))
+        device = FrozenDevicePolicy.fit(horizon, summary, regime="extrapolation")
+        frequency = PowerLawRuntimePolicy.fit(dvfs)
+
+        def sha256(path: Path) -> str:
+            digest = hashlib.sha256()
+            with path.open("rb") as source:
+                for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            return digest.hexdigest()
+
+        path = write_policy_bundle(args.output, device, frequency, provenance={
+            "horizon_dataset_sha256": sha256(args.horizon_dataset),
+            "r2_summary_sha256": sha256(args.r2_summary),
+            "dvfs_dataset_sha256": sha256(args.dvfs_dataset),
+            "device_regime": "extrapolation",
+            "frequency_family": "power_law",
+        })
+        print(f"bundle: {path}")
+    elif args.command == "r3-agent-decide":
+        policy = load_policy_bundle(args.bundle)
+        request = DecisionRequest(
+            operation=args.operation, size=args.size, horizon_k=args.k,
+            ref_energy_j=args.ref_energy_j, ref_time_s=args.ref_time_s,
+        )
+        ready = None if args.ready_device == "none" else args.ready_device
+        print(json.dumps(asdict(policy.decide(request, ready_device=ready)), sort_keys=True))
     elif args.command == "all":
         paths = _build_from_args(args)
         generate_eda(args.output_dir)

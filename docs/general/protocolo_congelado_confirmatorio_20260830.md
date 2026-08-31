@@ -935,3 +935,18 @@ medición separada y restauración. Permanece bloqueante para declarar R3-B
 completo una prueba real en pacca que verifique reloj efectivo durante carga,
 costo de actuación y restauración final; las pruebas existentes no sustituyen
 esa evidencia física.
+
+### 18.1 Paquete reproducible de políticas
+
+La segunda entrega de R3-B congela en un JSON inspeccionable:
+
+1. la baseline seleccionada por R2 para cada `(extrapolation, estado, K)` y
+   sus parámetros reajustados únicamente con el conjunto completo de
+   desarrollo;
+2. las curvas, fallbacks, incertidumbres y acciones de `power_law`;
+3. las huellas SHA-256 del dataset de horizonte, resumen R2 y dataset DVFS.
+
+El agente exige coincidencia exacta de `K` con la rejilla congelada; no
+interpola una política no evaluada. La decisión seca verificada con los datos
+reales no aplica frecuencias y, por tanto, no modifica el carácter pendiente
+de la validación física de esta sección.

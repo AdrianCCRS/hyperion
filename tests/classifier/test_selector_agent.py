@@ -7,9 +7,12 @@ from classifier.selector.agent import (
     CallableDevicePolicy,
     DecisionRequest,
     FrequencyRecommendation,
+    FrozenDevicePolicy,
     HybridAgentPolicy,
     MinimalAgentController,
     PowerLawRuntimePolicy,
+    load_policy_bundle,
+    write_policy_bundle,
 )
 from classifier.selector.dataset import _static_descriptors
 
@@ -193,3 +196,65 @@ def test_r3b_power_law_runtime_sin_sondeo_ref_se_abstiene():
     assert recommendation.action == "gpu:REF:REF"
     assert recommendation.abstained
     assert recommendation.reason == "missing_ref_probe"
+
+
+def _r2_summary_for_test():
+    selected = {}
+    for state in ("none_ready", "cpu_ready", "gpu_ready"):
+        for k in (1, 2):
+            selected[f"extrapolation|{state}|{k}"] = (
+                "always_cpu_ref" if state != "gpu_ready" else "intensity_threshold_train"
+            )
+    return {"final_baseline_selection": {"by_regime_resource_state_k": selected}}
+
+
+def _horizon_for_test():
+    rows = []
+    for state in ("none_ready", "cpu_ready", "gpu_ready"):
+        for k in (1, 2):
+            for operation, size, intensity, cpu, gpu in (
+                ("gemm", 128, 10.0, 2.0, 1.0),
+                ("gemm", 256, 20.0, 2.0, 1.0),
+                ("stencil", 128, 0.5, 1.0, 2.0),
+                ("stencil", 256, 1.0, 1.0, 2.0),
+            ):
+                rows.append({
+                    "config_id": f"{operation}_N{size}", "operation": operation,
+                    "size": size, "log10_n": math.log10(size),
+                    "arithmetic_intensity_analytic": intensity,
+                    "resource_state": state, "k": k,
+                    "cpu_ref_edp_js": cpu, "gpu_ref_edp_js": gpu,
+                })
+    return pd.DataFrame(rows)
+
+
+def test_r3b_bundle_json_preserva_decisiones(tmp_path):
+    device = FrozenDevicePolicy.fit(_horizon_for_test(), _r2_summary_for_test())
+    frequency = PowerLawRuntimePolicy.fit(_power_law_training_frame())
+    path = write_policy_bundle(tmp_path / "policy.json", device, frequency)
+    loaded = load_policy_bundle(path)
+    request = _request(size=2048, horizon_k=1)
+    before = HybridAgentPolicy(device, frequency).decide(request, ready_device="gpu")
+    after = loaded.decide(request, ready_device="gpu")
+    assert after.device == before.device
+    assert after.frequency_action == before.frequency_action
+    assert after.abstained == before.abstained
+
+
+def test_r3b_dispositivo_rechaza_k_no_congelado():
+    device = FrozenDevicePolicy.fit(_horizon_for_test(), _r2_summary_for_test())
+    with pytest.raises(AgentContractError, match="no hay regla congelada"):
+        device.choose_device(_request(horizon_k=3), "gpu_ready")
+
+
+def test_r3b_umbral_degenerado_se_serializa_como_constante(tmp_path):
+    horizon = _horizon_for_test()
+    horizon.loc[horizon["resource_state"] == "gpu_ready", "gpu_ref_edp_js"] = 10.0
+    summary = _r2_summary_for_test()
+    device = FrozenDevicePolicy.fit(horizon, summary)
+    rule = device.rules[("gpu_ready", 1)]
+    assert rule["kind"] == "constant"
+    assert rule["device"] == "cpu"
+    frequency = PowerLawRuntimePolicy.fit(_power_law_training_frame())
+    path = write_policy_bundle(tmp_path / "policy.json", device, frequency)
+    assert "Infinity" not in path.read_text(encoding="utf-8")

@@ -599,9 +599,28 @@ El adaptador reutiliza exclusivamente `orchestrator.freqctl` y
 `orchestrator.gpu_freqctl`: toma un único snapshot de los CPU delegados,
 aplica las acciones conjuntas `cpu:NIVEL`/`gpu:HOST:GPU` y restaura ambos
 ejes. Esta integración tiene pruebas con entornos simulados; **no constituye
-todavía una prueba de actuación del agente en hardware**. Quedan pendientes
-el empaquetado reproducible de la política de dispositivo, el ejecutable que
-envuelva una carga real y las mediciones R3/R4 en pacca.
+todavía una prueba de actuación del agente en hardware**. Al cerrar este
+primer incremento quedaban pendientes el empaquetado reproducible, el
+ejecutable que envuelva una carga real y las mediciones R3/R4 en pacca.
+
+**Segundo incremento, mismo día.** Se añadió un paquete de política JSON
+versionado por esquema y con huellas SHA-256 de sus tres entradas. La política
+de dispositivo no se reescribe a mano: lee del resumen corregido de R2 qué
+baseline quedó congelada para cada `(régimen, estado, K)` y ajusta sobre todo
+el desarrollo únicamente los parámetros de esa baseline. Para el régimen de
+extrapolación vigente, las reglas resultantes son `always_cpu_ref` o
+`intensity_threshold_train`; cualquier baseline no serializable o un valor de
+`K` fuera de la rejilla congelada produce error explícito. El mismo paquete
+serializa los coeficientes, fallbacks, acciones y bandas de incertidumbre de
+`power_law` en JSON, sin cargar código ejecutable mediante `pickle`.
+
+Los comandos `r3-agent-bundle` y `r3-agent-decide` permiten construir el
+paquete y reproducir una decisión seca. Sobre los artefactos reales de 68
+configuraciones se generó un paquete de 24 reglas de dispositivo: para
+`gemm`, tamaño 8192, `K=10`, estado `gpu_ready`, el agente conserva GPU y
+propone `gpu:REF:F3`; para `stencil` con los mismos tamaño, horizonte y estado,
+la baseline migra a CPU y la compuerta ML permanece cerrada. Estas son pruebas
+de integración offline, no mediciones de beneficio ni actuación física.
 
 ## 7. Características de entrada
 

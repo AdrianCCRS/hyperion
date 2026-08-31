@@ -8,8 +8,11 @@ controladores verificados de ``orchestrator.freqctl``/``gpu_freqctl``.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+import math
+from pathlib import Path
 from time import perf_counter_ns
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Mapping, Protocol
 
 import pandas as pd
 
@@ -18,6 +21,7 @@ from .dataset import _static_descriptors
 from .dvfs import (
     DVFS_FEATURES,
     CostModels,
+    PowerLawCostModel,
     REGION_NOISE_PCT,
     _net_edp,
     _ref_action,
@@ -25,6 +29,7 @@ from .dvfs import (
     fit_cost_models,
     predict_costs,
 )
+from .sizes import _fit_threshold
 
 
 class AgentContractError(RuntimeError):
@@ -111,6 +116,91 @@ class CallableDevicePolicy:
         return str(self._choose(request, resource_state))
 
 
+class FrozenDevicePolicy:
+    """Baseline de dispositivo congelada para despliegue por estado × K."""
+
+    name = "frozen_r2_baseline"
+
+    def __init__(self, rules: Mapping[tuple[str, int], Mapping[str, Any]], *, regime: str):
+        self.rules = {tuple(key): dict(value) for key, value in rules.items()}
+        self.regime = regime
+
+    @classmethod
+    def fit(
+        cls, horizon: pd.DataFrame, r2_summary: Mapping[str, Any], *, regime: str = "extrapolation",
+    ) -> "FrozenDevicePolicy":
+        selection = r2_summary["final_baseline_selection"]["by_regime_resource_state_k"]
+        rules: dict[tuple[str, int], dict[str, Any]] = {}
+        for key, name in selection.items():
+            selected_regime, state, k_text = str(key).split("|")
+            if selected_regime != regime:
+                continue
+            k = int(k_text)
+            train = horizon[
+                (horizon["resource_state"].astype(str) == state)
+                & (pd.to_numeric(horizon["k"], errors="coerce") == k)
+            ]
+            if train.empty:
+                raise AgentContractError(f"sin datos para congelar {state}, K={k}")
+            if name in ("always_cpu_ref", "always_gpu_ref"):
+                rule = {"kind": "constant", "device": "cpu" if name == "always_cpu_ref" else "gpu"}
+            elif name in ("intensity_threshold_train", "size_threshold_train"):
+                column = (
+                    "arithmetic_intensity_analytic"
+                    if name == "intensity_threshold_train" else "log10_n"
+                )
+                threshold, side = _fit_threshold(train, column)
+                if math.isfinite(threshold):
+                    rule = {
+                        "kind": "threshold", "column": column,
+                        "threshold": float(threshold), "gpu_side": side,
+                    }
+                else:
+                    gpu = (threshold < 0 and side == "above") or (
+                        threshold > 0 and side == "below"
+                    )
+                    rule = {"kind": "constant", "device": "gpu" if gpu else "cpu"}
+            else:
+                raise AgentContractError(
+                    f"baseline {name!r} no es serializable por el agente para {regime}",
+                )
+            rule["source_baseline"] = str(name)
+            rules[(state, k)] = rule
+        if not rules:
+            raise AgentContractError(f"el resumen no contiene reglas para {regime!r}")
+        return cls(rules, regime=regime)
+
+    def choose_device(self, request: DecisionRequest, resource_state: str) -> str:
+        rule = self.rules.get((resource_state, int(request.horizon_k)))
+        if rule is None:
+            raise AgentContractError(
+                f"no hay regla congelada para {resource_state}, K={request.horizon_k}",
+            )
+        if rule["kind"] == "constant":
+            return str(rule["device"])
+        descriptors = _static_descriptors(request.operation, request.size)
+        value = float(descriptors[rule["column"]])
+        threshold = float(rule["threshold"])
+        gpu = value > threshold if rule["gpu_side"] == "above" else value < threshold
+        return "gpu" if gpu else "cpu"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name, "regime": self.regime,
+            "rules": {
+                f"{state}|{k}": rule for (state, k), rule in sorted(self.rules.items())
+            },
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "FrozenDevicePolicy":
+        rules = {}
+        for key, rule in payload["rules"].items():
+            state, k = str(key).split("|")
+            rules[(state, int(k))] = dict(rule)
+        return cls(rules, regime=str(payload["regime"]))
+
+
 class PowerLawRuntimePolicy:
     """Adaptador desplegable de la familia ``power_law`` de R3-A.
 
@@ -186,6 +276,97 @@ class PowerLawRuntimePolicy:
             return FrequencyRecommendation(reference, True, uncertainty, "ref_inside_equivalent_set")
         action = str(predicted.loc[predicted["pred_net_edp_js"].idxmin(), "frequency_action"])
         return FrequencyRecommendation(action, False, uncertainty, "model_advantage_above_gate")
+
+    @staticmethod
+    def _model_to_dict(model: PowerLawCostModel) -> dict[str, Any]:
+        return {
+            "curves": {"|".join(key): list(value) for key, value in model.curves.items()},
+            "fallbacks": {"|".join(key): value for key, value in model.fallbacks.items()},
+            "global_value": model.global_value,
+        }
+
+    @staticmethod
+    def _model_from_dict(payload: Mapping[str, Any]) -> PowerLawCostModel:
+        model = PowerLawCostModel()
+        model.curves = {
+            tuple(key.split("|")): (float(value[0]), float(value[1]))
+            for key, value in payload["curves"].items()
+        }
+        model.fallbacks = {
+            tuple(key.split("|")): float(value) for key, value in payload["fallbacks"].items()
+        }
+        model.global_value = float(payload["global_value"])
+        return model
+
+    def to_dict(self) -> dict[str, Any]:
+        if not isinstance(self.models.energy, PowerLawCostModel) or not isinstance(
+            self.models.time, PowerLawCostModel,
+        ):
+            raise AgentContractError("solo la familia power_law puede serializarse en R3-B")
+        return {
+            "name": self.name,
+            "energy_model": self._model_to_dict(self.models.energy),
+            "time_model": self._model_to_dict(self.models.time),
+            "uncertainty_pct": self.models.uncertainty_pct,
+            "uncertainty_pct_by_context": {
+                "|".join(key): value
+                for key, value in self.models.uncertainty_pct_by_context.items()
+            },
+            "size_thresholds": dict(self.models.size_thresholds),
+            "actions": {"|".join(key): list(value) for key, value in self.actions.items()},
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "PowerLawRuntimePolicy":
+        models = CostModels(
+            energy=cls._model_from_dict(payload["energy_model"]),
+            time=cls._model_from_dict(payload["time_model"]),
+            uncertainty_pct=float(payload["uncertainty_pct"]),
+            uncertainty_pct_by_context={
+                tuple(key.split("|")): float(value)
+                for key, value in payload["uncertainty_pct_by_context"].items()
+            },
+            size_thresholds={str(key): float(value) for key, value in payload["size_thresholds"].items()},
+        )
+        actions = {
+            tuple(key.split("|")): tuple(map(str, value))
+            for key, value in payload["actions"].items()
+        }
+        return cls(models, actions)
+
+
+def write_policy_bundle(
+    path: str | Path, device: FrozenDevicePolicy, frequency: PowerLawRuntimePolicy,
+    *, provenance: Mapping[str, Any] | None = None,
+) -> Path:
+    """Escribe un paquete JSON inspeccionable; no usa pickle ejecutable."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "device_policy": device.to_dict(),
+                "frequency_policy": frequency.to_dict(),
+                "provenance": dict(provenance or {}),
+            },
+            allow_nan=False,
+            indent=2,
+            sort_keys=True,
+        ) + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def load_policy_bundle(path: str | Path) -> HybridAgentPolicy:
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    if payload.get("schema_version") != 1:
+        raise AgentContractError("versión de policy bundle no soportada")
+    return HybridAgentPolicy(
+        FrozenDevicePolicy.from_dict(payload["device_policy"]),
+        PowerLawRuntimePolicy.from_dict(payload["frequency_policy"]),
+    )
 
 
 class HybridAgentPolicy:
