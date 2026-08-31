@@ -1935,6 +1935,83 @@ Esta convergencia es \textbf{consistente con} un cuello de botella de movimiento
 
 Esta interpretación explica, sin necesidad de invocar una causa distinta por operación, por qué combinación lineal de vectores, matriz--vector dispersa y \textit{stencil} favorecen a la GPU en los tamaños pequeños del catálogo y dejan de hacerlo en los tamaños grandes (sección \ref{sec:resultados-warm-gpu}): si el tiempo por despacho está acotado por un recurso de transferencia que no escala con la intensidad de cómputo, entonces cualquier crecimiento del tamaño del problema en una operación de baja intensidad aritmética añade tiempo de transferencia sin que el cómputo, ya subordinado a ese cuello de botella, pueda compensarlo --- lo opuesto de lo que la intuición basada solo en el trabajo aritmético total sugeriría.
 
+\section{Prototipo de modelos y reformulación estructurada (Fase R2)}
+\label{sec:resultados-r2-intro}
+
+La Fase R2 del plan de reformulación evaluó el objetivo de aprendizaje directo --- el regresor entrenado sobre $y = \log(EDP_{\text{GPU\_REF}} / EDP_{\text{CPU\_REF}})$, o su generalización a horizonte $K$ mediante $EDP_{\text{total}}(d,K)$ --- contra las baselines del protocolo congelado, sobre la rejilla de $K$ fijada en la enmienda 2026-08-30-A. Esta sección reporta ese resultado, el diagnóstico que motivó una reformulación estructurada del \textit{target} (enmienda 2026-08-30-B del protocolo congelado) y la formulación de tres capas que resulta de ese diagnóstico, todavía sin evaluar.
+
+\subsection{El resultado del \textit{target} directo}
+\label{sec:resultados-r2-directo}
+
+Se entrenaron los cinco regresores predeclarados en el protocolo congelado --- Ridge, ElasticNet, regresión de Huber, árbol de regresión y \textit{RandomForest} --- sobre la misma partición usada por las baselines, en comparación pareada. La evaluación cubrió la rejilla completa $K \in \{1, 2, 3, 5, 10, 30, 100, 1000\}$, los tres estados de recurso y los dos regímenes de partición (interpolación y extrapolación), para un total de 48 combinaciones \texttt{(régimen, estado, $K$)} evaluadas.
+
+El modelo superó a la mejor baseline en 2 de esas 48 combinaciones. Ambas victorias ocurren en $K=3$, en régimen de extrapolación, y coinciden con la zona de cruce de dispositivo identificada en la sección \ref{sec:resultados-r1-gap-estado-k}:
+
+\begin{table}[H]
+\centering
+\caption[Victorias del modelo sobre la mejor baseline en R2]{Las dos combinaciones \texttt{(régimen, estado, $K$)} en las que el modelo supera a la mejor baseline (\texttt{intensity\_threshold\_train}), régimen de extrapolación.}
+\label{tab:r2-victorias}
+\begin{tabular}{llrr}
+\toprule
+\textbf{Estado} & \textbf{Modelo ganador} & \textbf{$K$} & \textbf{Mejora sobre baseline} \\
+\midrule
+\texttt{cpu\_ready}  & ElasticNet + sondeo & 3 & +14,7\,\% \\
+\texttt{none\_ready} & Huber + sondeo      & 3 & +13,0\,\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Ninguna de las dos victorias es estable frente a un desplazamiento pequeño de $K$. En los mismos dos estados, en $K=5$ el modelo pierde frente a la baseline: $-$11,6\,\% en \texttt{cpu\_ready} y $-$13,5\,\% en \texttt{none\_ready}; en \texttt{none\_ready} $K=10$ la pérdida llega a $-$72,4\,\%. La ganancia en $K=3$ no se sostiene como tendencia a lo largo del horizonte.
+
+\textit{RandomForest} con sondeo obtuvo la mejor media global en extrapolación (2,11), pero esa media agrega comportamientos opuestos según el rango de $K$: entre 1,94 y 3,92 para $K$ entre 1 y 10, y aproximadamente 1,02 para $K$ entre 30 y 1000. Una media favorable que combina un ajuste local fuerte en $K$ pequeño con un comportamiento casi neutro en $K$ grande es evidencia de sobreajuste a un punto de la rejilla, no de una curva aprendida en función de $K$.
+
+La hipótesis H2 (valor del sondeo frente al modelo estático) obtuvo un resultado mixto y no consistente entre familias de modelo: ElasticNet y \textit{RandomForest} mejoran con sondeo en extrapolación ($+$25,7\,\% y $+$6,9\,\% respectivamente), pero \textit{RandomForest} empeora con sondeo en interpolación ($-$36,7\,\%). No existe una respuesta única a si el sondeo ayuda; depende de la familia de modelo y del régimen de evaluación.
+
+Sobre latencia y tamaño, el modelo final seleccionado por el procedimiento del protocolo (\textit{RandomForest} con sondeo, mejor \texttt{edp\_sum\_ratio\_vs\_oracle} promedio en extrapolación) tiene latencia de inferencia $p_{50}=19,7\,\text{ms}$, $p_{95}=25,8\,\text{ms}$, $p_{99}=28,5\,\text{ms}$, y un tamaño serializado de 968\,KB.
+
+Este resultado no admite una lectura de ``el aprendizaje automático gana'' ni de ``el aprendizaje automático pierde'' de forma limpia. Existe una ventana localizada --- cercana al cruce de dispositivo que documenta la enmienda 2026-08-30-A --- donde el modelo aporta una señal medible y superior a la mejor baseline; fuera de esa ventana, el mismo modelo se desestabiliza y pierde frente a esa baseline por márgenes mayores que la ganancia que obtuvo dentro de ella.
+
+\subsection{Diagnóstico: por qué \texorpdfstring{$y$}{y} no es una cantidad primitiva}
+\label{sec:resultados-r2-diagnostico}
+
+El patrón de inestabilidad de la sección \ref{sec:resultados-r2-directo} --- una victoria puntual en $K=3$ rodeada de pérdidas en $K=5$ y $K=10$ --- tiene una explicación estructural. $y = \log(EDP_{\text{GPU\_REF}}/EDP_{\text{CPU\_REF}})$, y su generalización $EDP_{\text{total}}(d,K)$, no son cantidades primitivas: son una función cerrada de ocho costos medibles por separado --- energía y tiempo, en región fría y caliente, para cada dispositivo --- compuestos mediante la fórmula ya congelada en la sección \ref{sec:resultados-r1-amortizacion}. Pedirle a un regresor que aprenda $y$ directamente, para toda la rejilla de $K$ a la vez y con solo 68 \texttt{config\_id}, equivale a pedirle que redescubra esa composición sin dársela como estructura.
+
+Tres verificaciones sobre los datos exploratorios, hechas antes de tocar cualquier dato confirmatorio, sostienen esta lectura:
+
+\begin{table}[H]
+\centering
+\caption[Evidencia del diagnóstico estructural]{Comportamiento de los costos primitivos que componen $y$, verificado sobre los datos exploratorios.}
+\label{tab:r2-diagnostico}
+\begin{tabular}{lp{9.5cm}}
+\toprule
+\textbf{Observación} & \textbf{Evidencia} \\
+\midrule
+Costo caliente sigue ley de potencias & $R^2$ entre 0,974 y 0,998 en $\log(\text{costo}) \sim \log(N)$, en las cuatro combinaciones dispositivo$\times$magnitud ($E_{\text{warm}}$, $T_{\text{warm}}$ $\times$ CPU, GPU), en las seis operaciones. \\
+Costo frío no correlaciona igual con $N$ & $R^2$ entre 0,000 y 0,918, errático; dominado por un arranque aproximadamente constante: mediana 0,618\,s, CV 0,09 para el arranque de GPU en tiempo, a través de las seis operaciones y trece tamaños. El arranque de CPU es un orden de magnitud menor y sí depende de la operación (CV 0,95). \\
+El sondeo mide el costo frío, no aproxima $y$ & Error relativo mediano del sondeo frente al costo \textbf{frío} medido del dispositivo que sondeó: 4,88\,\%, dentro del piso de ruido de la región fría (5,76\,\%, sección \ref{sec:resultados-r1-piso-ruido}). Error frente al costo \textbf{caliente}: superior al 250\,\%. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+La tercera fila le da al sondeo un rol estructural preciso, distinto del que le asignaba la formulación directa: una única ejecución de sondeo mide directamente una de las ocho primitivas de costo del dispositivo que la produjo, no una aproximación de la razón final $y$. Esto explica por qué el sondeo ayuda de forma inconsistente en la sección \ref{sec:resultados-r2-directo}: cuando el regresor tiene que aprender $y$ completo, una entrada que solo informa con precisión sobre uno de sus ocho componentes aporta señal parcial y ruidosa, no una aproximación directa del objetivo.
+
+\subsection{Formulación estructurada en tres capas (propuesta, no evaluada)}
+\label{sec:resultados-r2-estructurada}
+
+El diagnóstico de la sección \ref{sec:resultados-r2-diagnostico} motiva una reformulación del \textit{target}, registrada como enmienda 2026-08-30-B del protocolo congelado. \textbf{Esta formulación es una propuesta pendiente de su propia evaluación; ninguna cifra de esta subsección proviene de haberla ejecutado.} Reemplaza el objetivo de aprendizaje único por tres capas:
+
+\begin{enumerate}
+    \item \textbf{Predicción}: las cuatro primitivas de costo \textit{calientes} ($E_{\text{warm}}$, $T_{\text{warm}}$ $\times$ CPU, GPU) en función de (operación, tamaño) --- una tarea de regresión simple, ya validada indirectamente por el ajuste de ley de potencias de la Tabla \ref{tab:r2-diagnostico}.
+    \item \textbf{Calibración}: el arranque por dispositivo. GPU como constante (con su incertidumbre); CPU por operación, si la dependencia se sostiene bajo validación cruzada agrupada por \texttt{config\_id}.
+    \item \textbf{Composición}: el costo frío se reconstruye como caliente más arranque; $EDP_{\text{total}}(d,K)$ y $K_{\text{break\_even}}$ se \textbf{derivan} con la fórmula ya congelada en la sección \ref{sec:resultados-r1-amortizacion}, no se aprenden. La decisión de dispositivo sale de esta capa, no de un cuarto modelo.
+\end{enumerate}
+
+Cuando hay sondeo disponible, sustituye directamente la primitiva fría predicha por la capa 1+2 por la medida real del dispositivo que sondeó --- una mejora acotada por el 4,88\,\% de error ya verificado en la Tabla \ref{tab:r2-diagnostico}, no una mejora libre.
+
+No se introduce ninguna familia de modelo fuera de las cinco ya congeladas en el protocolo. Ridge es el candidato natural para la capa 1, porque un ajuste lineal en $\log(\text{costo})$ contra $\log(N)$ es, literalmente, un ajuste de ley de potencias; árbol de regresión y \textit{RandomForest} quedan disponibles como contraste no lineal en la misma capa; ElasticNet y Huber, como contraste de regularización y robustez. \textbf{XGBoost se excluye explícitamente}: ya estaba fuera del protocolo por el tamaño de muestra ($n=68$), y el sobreajuste local ya observado en \textit{RandomForest} sobre el \textit{target} directo (sección \ref{sec:resultados-r2-directo}) es razón adicional para no incorporar un modelo todavía más flexible antes de resolver la inestabilidad con una reformulación más simple, no más compleja.
+
+Esta formulación se evaluará con el mismo procedimiento, las mismas baselines y los mismos pliegues que el \textit{target} directo de la sección \ref{sec:resultados-r2-directo} --- compite con él, no lo reemplaza automáticamente. La comparación entre ambas formulaciones aún no se ha ejecutado: se registra aquí como la enmienda 2026-08-30-B del protocolo congelado, y su legitimidad como comparación confirmatoria depende de que los datos de las campañas \texttt{pacca\_dual\_cpu\_big\_ref\_20260830} y \texttt{pacca\_dual\_gpu\_big\_ref\_20260830} (jobs 6763/6764) sigan sin observarse al momento de fijarla, condición que se verificó explícitamente antes de redactar la enmienda.
+
 %==============================================================================
 
 \chapter{Discusión}
