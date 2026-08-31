@@ -196,6 +196,76 @@ def _stay_on_ready_device(frame: pd.DataFrame) -> np.ndarray:
     return np.where(state == "gpu_ready", "gpu", "cpu")
 
 
+# --------------------------------------------------------------------------
+# Baselines de horizonte K (enmienda 2026-08-30-A, seccion 12.4)
+# --------------------------------------------------------------------------
+
+#: Columnas de costo `cold`/`warm` que produce `horizon.build_horizon_dataset`.
+#: Solo estan presentes en el dataset de horizonte, nunca en el compacto
+#: (K=1) -- por eso `_fit_k_break_even_table` degrada con seguridad cuando
+#: faltan en vez de fallar.
+_HORIZON_COST_COLUMNS = tuple(
+    f"cost_{device}_{field}"
+    for device in ("cpu", "gpu")
+    for field in ("e_cold", "t_cold", "e_warm", "t_warm")
+)
+
+
+def _interpolate_log_k_break_even(points: Sequence[tuple[float, float]], x: float) -> float:
+    """Interpola ``log10(K_break_even)`` sobre ``log10(size)`` de entrenamiento.
+
+    Los puntos con `K_break_even` infinito (sin cruce) se excluyen del ajuste:
+    no aportan magnitud, solo la ausencia de una. Fuera del rango observado se
+    extrapola de forma constante (`np.interp` recorta al extremo mas cercano)
+    en vez de proyectar una tendencia exponencial sin respaldo.
+    """
+    finite = sorted((lx, k) for lx, k in points if np.isfinite(k) and k > 0)
+    if not finite:
+        return float("inf")
+    xs = np.array([p[0] for p in finite], dtype=float)
+    ys = np.log10(np.array([p[1] for p in finite], dtype=float))
+    return float(10.0 ** np.interp(x, xs, ys))
+
+
+def _fit_k_break_even_table(train: pd.DataFrame):
+    """Tabla empirica de `K_break_even` por operacion, ajustada solo en train.
+
+    Requiere las columnas de costo `cold`/`warm` que solo trae el dataset de
+    horizonte (`horizon.build_horizon_dataset`). Sin ellas -- por ejemplo
+    sobre el dataset compacto K=1 -- no hay forma de reconstruir un cruce, asi
+    que se degrada a `_stay_on_ready_device` en lugar de fallar: sigue siendo
+    una politica segura y valida, solo que no usa la informacion de horizonte.
+    """
+    if not all(column in train.columns for column in _HORIZON_COST_COLUMNS):
+        return _stay_on_ready_device
+    if train.empty:
+        return _stay_on_ready_device
+    from .horizon import switch_k_for_state
+
+    state = str(train["resource_state"].iloc[0])
+    unique = train.drop_duplicates("config_id")
+    table: dict[str, list[tuple[float, float]]] = {}
+    for operation, group in unique.groupby("operation", observed=True):
+        points: list[tuple[float, float]] = []
+        for row in group.to_dict("records"):
+            cpu = {field: row[f"cost_cpu_{field}"] for field in ("e_cold", "t_cold", "e_warm", "t_warm")}
+            gpu = {field: row[f"cost_gpu_{field}"] for field in ("e_cold", "t_cold", "e_warm", "t_warm")}
+            k_be = switch_k_for_state(cpu, gpu, state)
+            points.append((math.log10(float(row["size"])), k_be))
+        table[str(operation)] = points
+
+    def predict(test: pd.DataFrame) -> np.ndarray:
+        devices = []
+        for row in test.to_dict("records"):
+            points = table.get(str(row["operation"]), [])
+            k_pred = _interpolate_log_k_break_even(points, math.log10(float(row["size"])))
+            k_row = float(row["k"]) if "k" in row and pd.notna(row.get("k")) else 1.0
+            devices.append("gpu" if np.isfinite(k_pred) and k_row >= k_pred else "cpu")
+        return np.array(devices, dtype=object)
+
+    return predict
+
+
 #: Nombre -> funcion ``fit(train) -> predict(test) -> devices``.
 BASELINES: dict[str, Callable[[pd.DataFrame], Callable[[pd.DataFrame], np.ndarray]]] = {
     "always_cpu_ref": lambda train: (lambda test: np.full(len(test), "cpu", dtype=object)),
@@ -223,6 +293,27 @@ BASELINES: dict[str, Callable[[pd.DataFrame], Callable[[pd.DataFrame], np.ndarra
         ], dtype=object)
     ),
     "oracle": lambda train: (
+        lambda test: np.where(
+            test["gpu_ref_edp_js"].to_numpy(dtype=float)
+            < test["cpu_ref_edp_js"].to_numpy(dtype=float),
+            "gpu", "cpu",
+        )
+    ),
+    # -- Enmienda 2026-08-30-A, seccion 12.4 -- las tres baselines de horizonte.
+    # `stay_on_ready_device_k` es identica a `stay_on_ready_device`: permanecer
+    # en el dispositivo preparado no depende de K, solo del estado. Se declara
+    # aparte porque semanticamente es "la baseline que la politica de la
+    # seccion 2 representa realmente" bajo la formulacion de horizonte, no un
+    # duplicado accidental.
+    "stay_on_ready_device_k": lambda train: _stay_on_ready_device,
+    "k_break_even_table_train": lambda train: _fit_k_break_even_table(train),
+    # `oracle_k` reutiliza la misma comparacion que `oracle`: sobre el dataset
+    # de horizonte, `cpu_ref_edp_js`/`gpu_ref_edp_js` YA son EDP_total(d, K)
+    # (ver `horizon.build_horizon_dataset`), asi que "elegir el EDP total mas
+    # bajo" es exactamente `argmin_d EDP_total(d, K | estado)` de la seccion
+    # 12.1. En K=1 sobre el dataset compacto coincide numericamente con
+    # `oracle`.
+    "oracle_k": lambda train: (
         lambda test: np.where(
             test["gpu_ref_edp_js"].to_numpy(dtype=float)
             < test["cpu_ref_edp_js"].to_numpy(dtype=float),

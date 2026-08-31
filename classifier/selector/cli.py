@@ -9,6 +9,7 @@ import pandas as pd
 from .dataset import BuildConfig, build_selector_datasets
 from .eda import generate_eda
 from .r1 import run_r1_analysis
+from .r2 import run_r2_analysis
 from .search import FAMILIES, evaluate_existing, run_nested_tuning
 
 
@@ -88,6 +89,13 @@ def build_parser() -> argparse.ArgumentParser:
     r1.add_argument("--output-dir", type=Path)
     r1.add_argument("--z-score", type=float, default=1.96)
 
+    r2 = sub.add_parser(
+        "r2", help="regresores de horizonte K, contraste sondeo y regla bloqueante",
+    )
+    r2.add_argument("--dataset-dir", required=True, type=Path)
+    r2.add_argument("--output-dir", type=Path)
+    r2.add_argument("--seed", type=int, default=20260830)
+
     all_parser = sub.add_parser("all", help="build + eda + tune A/C")
     _add_build_arguments(all_parser)
     all_parser.add_argument("--families", type=_families, default=FAMILIES)
@@ -121,6 +129,11 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "r1":
         for name, path in run_r1_analysis(
             args.dataset_dir, args.output_dir, z_score=args.z_score,
+        ).items():
+            print(f"{name}: {path}")
+    elif args.command == "r2":
+        for name, path in run_r2_analysis(
+            args.dataset_dir, args.output_dir, seed=args.seed,
         ).items():
             print(f"{name}: {path}")
     elif args.command == "all":

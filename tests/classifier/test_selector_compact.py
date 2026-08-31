@@ -330,9 +330,12 @@ def test_una_config_nunca_aparece_en_train_y_test_pese_a_tener_tres_estados():
 # --------------------------------------------------------------------------
 
 
-def test_estan_las_ocho_baselines_obligatorias():
-    assert len(sizes.BASELINES) == 8
+def test_estan_las_once_baselines_obligatorias():
+    # Ocho de la seccion 6 del protocolo + tres de la enmienda 2026-08-30-A
+    # (seccion 12.4): stay_on_ready_device_k, k_break_even_table_train, oracle_k.
+    assert len(sizes.BASELINES) == 11
     assert "oracle" in sizes.BASELINES and "always_cpu_ref" in sizes.BASELINES
+    assert {"stay_on_ready_device_k", "k_break_even_table_train", "oracle_k"} <= set(sizes.BASELINES)
 
 
 def test_el_oraculo_alcanza_exactamente_el_edp_minimo_y_las_constantes_no():
