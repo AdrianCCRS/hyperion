@@ -2081,7 +2081,7 @@ Con la decisión de dispositivo resuelta (sección \ref{sec:resultados-r2-estruc
 \subsection{Primer defecto: objetivo en magnitud absoluta}
 \label{sec:resultados-r3-escala}
 
-La primera implementación predecía $\log(\text{energía})$ y $\log(\text{tiempo})$ absolutos por acción, calibrando el error como $\left|\text{predicho}/\text{real} - 1\right| \times 100$. Verificado sobre los 5\,441 registros reales de pacca: en configuraciones con EDP diminuto (\textit{axpy} $N=10\,000$ en frío, $EDP \approx 1{,}66\times10^{-8}$~J\,s) un error absoluto minúsculo del modelo se traduce en errores porcentuales de hasta 14\,000\,000\,\%, porque se divide entre una magnitud casi nula. El percentil 95 de incertidumbre por contexto llegaba a 121\,937\,\% incluso en el contexto más limpio, forzando abstención en el 100\,\% de los casos sin que eso reflejara una limitación real del modelo.
+La primera implementación predecía $\log(\text{energía})$ y $\log(\text{tiempo})$ absolutos por acción, calibrando el error como $\left|\text{predicho}/\text{real} - 1\right| \times 100$. Verificado sobre los 5\,440 registros reales de pacca: en configuraciones con EDP diminuto (\textit{axpy} $N=10\,000$ en frío, $EDP \approx 1{,}66\times10^{-8}$~J\,s) un error absoluto minúsculo del modelo se traduce en errores porcentuales de hasta 14\,000\,000\,\%, porque se divide entre una magnitud casi nula. El percentil 95 de incertidumbre por contexto llegaba a 121\,937\,\% incluso en el contexto más limpio, forzando abstención en el 100\,\% de los casos sin que eso reflejara una limitación real del modelo.
 
 La corrección reemplaza el objetivo por el desvío logarítmico respecto a la acción REF del mismo \texttt{config\_id}$\times$\texttt{resource\_state} ($\log(\text{energía}_{\text{acción}}) - \log(\text{energía}_{\text{REF}})$, análogo para tiempo). REF se mide, nunca se predice, y ancla la reconstrucción. Mismos datos, mismo pliegue: el percentil 95 baja a 35\,\%--125\,\% según contexto --- cinco órdenes de magnitud de mejora --- aunque sigue muy por encima del piso de ruido (1,80\,\%--5,76\,\%), de modo que la abstención seguía siendo el resultado en el 100\,\% de los casos con este cambio únicamente.
 
@@ -2097,7 +2097,7 @@ Con las dos correcciones anteriores aplicadas, el modelo seguía absteniéndose 
 
 La causa fue de granularidad. La incertidumbre se calibraba por \texttt{(resource\_state, device)} únicamente, agregando en un solo balde 56 configuraciones de \texttt{gpu\_ready}/GPU con comportamiento muy distinto entre sí. Separando por tamaño relativo a cada operación --- mediana de \texttt{size} por operación, calculada solo con el conjunto de entrenamiento --- las 26 configuraciones de tamaño grande mostraron un error mediano del 3,7\,\% (percentil 95: 27,1\,\%), mientras las 30 de tamaño chico mostraron 9,6\,\% (percentil 95: 66,9\,\%). El balde único obligaba a las 26 configuraciones bien predichas a heredar la banda de incertidumbre inflada de las 30 mal predichas, y el margen real de la sección \ref{sec:resultados-r1-headroom-dvfs} --- mediana del 13,46\,\% en esas mismas 26 configuraciones, todas por encima del piso de ruido --- nunca llegaba a superar el umbral de abstención.
 
-No existe un umbral absoluto de tamaño válido entre operaciones: \textit{axpy} solo tiene los tamaños $N=31\,623$ y $N=100\,000$, mientras \textit{Cholesky} va de $N=64$ a miles. El corte se calcula, por tanto, relativo a la escala propia de cada operación. Con la calibración corregida, la abstención en \texttt{gpu\_ready} bajó de 100\,\% a 50\,\%--75\,\% con la familia \textit{power\_law}, capturando un ahorro real de aproximadamente 5,0\,\% de EDP contra REF en ese estado --- el primer resultado no nulo de R3-A, consistente en dos particiones de prueba disjuntas con configuraciones nunca vistas en entrenamiento. \textit{RandomForest} no mejoró de forma consistente en el mismo cambio; en \texttt{cpu\_ready}, la misma calibración produjo un ahorro levemente negativo en una partición ($-$0,22\,\%), que se reporta sin omitir.
+No existe un umbral absoluto de tamaño válido entre operaciones: \textit{axpy} solo tiene los tamaños $N=31\,623$ y $N=100\,000$, mientras \textit{Cholesky} va de $N=64$ a miles. El corte se calcula, por tanto, relativo a la escala propia de cada operación. Con la calibración corregida, la abstención en \texttt{gpu\_ready} con la familia \textit{power\_law} bajó de 100\,\% a 50\,\% en \texttt{extrapolation\_top1} ($n=6$) y a 25\,\% en \texttt{extrapolation\_top2} ($n=12$), capturando un ahorro real de 5,02\,\% y 4,98\,\% de EDP contra REF respectivamente --- el primer resultado no nulo de R3-A, verificado en configuraciones nunca vistas en entrenamiento. Las dos particiones \textbf{no son réplicas independientes}: \texttt{extrapolation\_top2} retiene los dos tamaños mayores por operación y \texttt{extrapolation\_top1} solo el mayor, de modo que sus seis configuraciones de prueba están contenidas dentro de las doce de \texttt{extrapolation\_top2}; se reportan ambas, como en la sección \ref{sec:resultados-r2-directo}, porque muestran cómo se degrada la extrapolación al alejarse del rango de entrenamiento, no como observaciones estadísticamente independientes. \textit{RandomForest} no mejoró de forma consistente en el mismo cambio; en \texttt{cpu\_ready}, la misma calibración produjo un ahorro levemente negativo en una partición ($-$0,22\,\%), que se reporta sin omitir.
 
 \subsection{Reformulación por curva física: hallazgo experimental}
 \label{sec:resultados-r3-curva-fisica}
@@ -2176,6 +2176,58 @@ La regla de selección del protocolo descartó \texttt{curve\_physical} correcta
 De paso se corrigió el supuesto de frecuencia: $f_{\min}=0{,}35$ (un piso único para CPU y GPU) se reemplazó por fracciones reales medidas contra la telemetría de campaña (\texttt{freq\_khz\_observed} en CPU, \texttt{gpu\_sm\_clock\_mhz} en GPU, 16\,320 filas). El nivel $F6$ real resultó $0{,}267$ en CPU y $0{,}149$ en GPU --- distintos entre sí, y ambos más bajos que el supuesto original, porque el hardware nunca llega exactamente al reloj mínimo nominal declarado en el manifiesto de campaña.
 
 Por último, se verificó si la calibración por tamaño de la sección \ref{sec:resultados-r3-calibracion-tamano} ayudaba también en \texttt{cpu\_ready} y \texttt{none\_ready}. En \texttt{cpu\_ready} no hay margen real que capturar (headroom mediano 0,25\,\%, solo 3 de 68 configuraciones sobre el piso de ruido): que el modelo se abstenga siempre ahí es la respuesta correcta. En \texttt{none\_ready} sí existe margen real (mediano 4,98\,\%, 38 de 68 sobre el piso), pero separar por tamaño no lo desbloquea: incluso las configuraciones grandes muestran un error mediano del 18,1\,\%, muy por encima del margen disponible. Una hipótesis no verificada todavía es que \texttt{none\_ready} depende enteramente de mediciones de la región fría --- con un piso de ruido casi tres veces mayor que el de la región caliente (sección \ref{sec:resultados-r1-piso-ruido}) --- la misma fuente de ruido que ya explicaba la banda de sensibilidad del $K_{\text{break\_even}}$ en la sección \ref{sec:resultados-r1-amortizacion}. Queda como diagnóstico abierto.
+
+\subsection{Contextualización del resultado frente a la baseline y a la magnitud del EDP}
+\label{sec:resultados-r3-contextualizacion}
+
+El 5,0\,\% de ahorro de \textit{power\_law} en \texttt{gpu\_ready} (sección \ref{sec:resultados-r3-calibracion-tamano}) es real y se midió contra REF. Pero la pregunta que decide si se adopta no es esa: es si supera a la mejor política \emph{no aprendida} lo suficiente como para justificar la complejidad adicional. La Tabla \ref{tab:r3-contextualizacion} responde esa pregunta directamente, en \texttt{gpu\_ready}, en las dos particiones de extrapolación.
+
+\begin{table}[H]
+\centering
+\caption[Ahorro contra REF por política, gpu\_ready]{Ahorro de EDP contra REF, por política, en \texttt{gpu\_ready}. \textit{power\_law} es el único modelo evaluado que aparece; las demás familias no superan la abstención total en este estado (sección \ref{sec:resultados-r3-calibracion-tamano}).}
+\label{tab:r3-contextualizacion}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Política} & \texttt{extrapolation\_top1} & \texttt{extrapolation\_top2} \\
+\midrule
+Siempre REF (\texttt{always\_ref})                  & 0,00\,\%  & 0,00\,\%  \\
+Mejor acción constante en \textit{train} (\texttt{best\_constant\_train}) & 4,65\,\%  & 2,48\,\%  \\
+\textit{power\_law} (compuerta activa)              & \textbf{5,02\,\%} & \textbf{4,98\,\%} \\
+Oráculo (techo teórico)                             & 14,05\,\% & 14,90\,\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textit{power\_law} sí supera a \texttt{best\_constant\_train} --- una regla sin aprendizaje, ajustada solo con datos de entrenamiento --- pero la ventaja adicional es de 0,37 puntos porcentuales en \texttt{extrapolation\_top1} y 2,49 en \texttt{extrapolation\_top2}. Agregando los tres estados de recurso, el modelo resulta 0,18\,\% \textbf{peor} que \texttt{best\_constant\_train} (\texttt{dvfs\_summary.json}, \texttt{model\_improvement\_pct}~=~$-0{,}18$), y el procedimiento de selección del protocolo (sección \ref{sec:resultados-r3-calibracion-tamano}) reporta \texttt{adopt\_model: false} como resultado oficial.
+
+La razón de que un resultado localizado positivo no mueva la conclusión agregada es de peso, no de señal: en \texttt{extrapolation\_top2}, el EDP total a REF de \texttt{gpu\_ready} es 3,20 --- frente a 44,65 en \texttt{cpu\_ready} y 50,11 en \texttt{none\_ready}, sobre un total de 97,96 (Tabla \ref{tab:r3-peso-edp}). \texttt{gpu\_ready} representa apenas el 3,3\,\% del EDP total del catálogo en esta partición; ahorrar 5\,\% sobre ese 3,3\,\% reduce el EDP global en apenas $\sim$0,16\,\%, muy por debajo de cualquier piso de ruido razonable.
+
+\begin{table}[H]
+\centering
+\caption[Peso del EDP por estado de recurso]{EDP total a REF por estado de recurso, \texttt{extrapolation\_top2} (12 configuraciones de prueba por estado).}
+\label{tab:r3-peso-edp}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Estado} & \textbf{EDP a REF (unidades arbitrarias)} & \textbf{\% del total} \\
+\midrule
+\texttt{none\_ready} & 50,11 & 51,1\,\% \\
+\texttt{cpu\_ready}  & 44,65 & 45,6\,\% \\
+\texttt{gpu\_ready}  & 3,20  & 3,3\,\%  \\
+\midrule
+Total                & 97,96 & 100\,\%  \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Tres salvedades operativas adicionales, ninguna reflejada todavía en la cifra de 5,0\,\%:
+
+\begin{enumerate}
+    \item \textbf{Es una cota superior offline, no un ahorro neto.} La evaluación de esta sección fija \texttt{overhead\_energy\_j = overhead\_time\_s = 0} --- el costo de conmutar realmente la frecuencia (sección \ref{sec:resultados-r3-dvfs}) todavía no se descuenta. El ahorro neto del agente real será menor.
+    \item \textbf{El modelo necesita el costo REF medido de la configuración, no solo sus descriptores estáticos.} La reconstrucción de la predicción (sección \ref{sec:resultados-r3-escala}) multiplica el desvío predicho por \texttt{ref\_energy\_j}/\texttt{ref\_time\_s} de esa misma fila --- una cantidad medida, no predicha. Operativamente esto exige ejecutar primero una acción REF de la configuración nueva y amortizar ese costo; el modelo, tal como está construido, no sirve todavía como selector inmediato para un kernel de una sola ejecución sin ese sondeo previo.
+    \item \textbf{Las bandas de incertidumbre siguen siendo grandes.} El percentil 95 de error fuera de muestra de \textit{power\_law} en \texttt{gpu\_ready} es 63,1\,\% en \texttt{extrapolation\_top1} y 92,2\,\% en \texttt{extrapolation\_top2} (sección \ref{sec:resultados-r3-calibracion-tamano}) --- muy por encima del piso de ruido. La política ahorra porque se abstiene con frecuencia y porque varias frecuencias forman mesetas de EDP casi equivalente, no porque distinga con precisión la acción óptima.
+\end{enumerate}
+
+La lectura que sostienen estos datos no es ``el modelo no aporta'' ni ``el modelo ya está listo''. Es más estrecha: \textit{power\_law} es un hallazgo exploratorio positivo y localizado en \texttt{gpu\_ready}, con evidencia reproducible en dos particiones no independientes, que todavía no demuestra ser suficientemente superior a una regla simple, robusto frente al ruido de calibración, ni neto de costo de actuación. La política oficial de R3-A sigue siendo la baseline (\texttt{adopt\_model: false}); una política híbrida candidata --- REF en \texttt{cpu\_ready} y \texttt{none\_ready}, consulta a \textit{power\_law} solo en \texttt{gpu\_ready} con abstención cuando la ventaja predicha no es clara --- queda registrada como la extensión más próxima a evaluar, condicionada a que R3-B (máquina de estados y actuación real) permita medir el ahorro neto de sondeo y conmutación, tal como exige el objetivo general (sección \ref{sec:resultados-r1-headroom-dvfs}).
 
 %==============================================================================
 

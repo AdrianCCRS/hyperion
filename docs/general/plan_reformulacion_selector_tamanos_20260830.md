@@ -403,9 +403,13 @@ modelo).
    13,46% en esas 26 configs) nunca superaba el umbral de abstención.
    Corregido añadiendo `size_regime` (`small`/`large`, umbral = mediana de
    `size` por operación en train) a la clave de calibración. Resultado:
-   abstención en `gpu_ready` baja de 100% a 50-75% con `power_law`,
-   capturando ~5,0% de ahorro real de EDP -- primer resultado no nulo de
-   R3-A, consistente en dos particiones de extrapolación disjuntas.
+   abstención en `gpu_ready` con `power_law` baja de 100% a 50%
+   (`extrapolation_top1`, n=6) y 25% (`extrapolation_top2`, n=12),
+   capturando 5,02% y 4,98% de ahorro real de EDP respectivamente -- primer
+   resultado no nulo de R3-A. Las dos particiones NO son independientes:
+   `extrapolation_top1` (6 configs) está contenido en `extrapolation_top2`
+   (12 configs), no son disjuntas -- se reportan ambas porque muestran cómo
+   se degrada la extrapolación, no como réplicas.
 
 Las tres correcciones están commiteadas (`48d57f2`, `143df22`, `e132e92`),
 con tests actualizados y documentadas en
@@ -529,6 +533,48 @@ eje de dispositivo). No se ha redactado todavía.
 > `tests/classifier/test_selector_dvfs.py` (15 pruebas, incluida una que
 > reproduce el caso degenerado de calibración). Sin datos confirmatorios
 > observados (verificado por `squeue` antes de escribir).
+
+> **Revisión externa (Codex) y contextualización 2026-08-31.** Una revisión
+> encontró tres errores documentales en la nota anterior y en el libro,
+> corregidos: (a) el catálogo tiene 5.440 registros, no 5.441; (b) la
+> abstención en `gpu_ready` con `power_law` es 50%/25% (top1/top2), no
+> "50-75%"; (c) `extrapolation_top1` y `extrapolation_top2` NO son
+> particiones disjuntas -- top1 (6 configs) está contenido en top2 (12
+> configs), así que no son réplicas independientes del mismo hallazgo.
+>
+> La revisión también contextualizó el resultado de 5,0% frente a la
+> baseline no aprendida (`best_constant_train`): la ventaja adicional de
+> `power_law` sobre esa baseline es de solo 0,37 puntos porcentuales en
+> `extrapolation_top1` (4,65% -> 5,02%) y 2,49 puntos en `extrapolation_top2`
+> (2,48% -> 4,98%). Agregando los tres estados de recurso, el modelo es
+> 0,18% peor que la baseline (`model_improvement_pct` = -0,18 en
+> `dvfs_summary.json`), consistente con `adopt_model: false`.
+>
+> Además, el EDP de `gpu_ready` pesa poco en el total: en
+> `extrapolation_top2`, `gpu_ready` es 3,20 de un EDP total de 97,96 (3,3%)
+> frente a 44,65 en `cpu_ready` y 50,11 en `none_ready` -- un ahorro del 5%
+> sobre esa porción reduce el EDP global en ~0,16%. Tres salvedades
+> operativas adicionales, verificadas: (1) la evaluación fija
+> `overhead_energy_j = overhead_time_s = 0`, así que 5,0% es una cota
+> superior offline, no ahorro neto de actuación; (2) el modelo reconstruye
+> su predicción multiplicando por `ref_energy_j`/`ref_time_s` medidos de esa
+> misma configuración -- necesita un sondeo REF previo, no sirve como
+> selector inmediato de un kernel de una sola ejecución; (3) el percentil 95
+> de error sigue siendo grande (63,1%/92,2% en `gpu_ready`), así que el
+> ahorro depende de que el modelo se abstenga con frecuencia y de que varias
+> frecuencias formen mesetas de EDP casi equivalente, no de que distinga con
+> precisión la acción óptima.
+>
+> **Conclusión revisada:** `power_law` es un hallazgo exploratorio positivo
+> y localizado en `gpu_ready`, no todavía una política ganadora. La política
+> oficial sigue siendo la baseline. Se registra como candidata una política
+> híbrida -- REF en `cpu_ready`/`none_ready`, consulta a `power_law` solo en
+> `gpu_ready` con abstención ante duda -- condicionada a que R3-B (máquina
+> de estados y actuación real) permita medir el ahorro neto de sondeo y
+> conmutación de frecuencia. Detalle completo, con tablas, en
+> `protocolo_congelado_confirmatorio_20260830.md` §17 y en el libro,
+> sección "Contextualización del resultado frente a la baseline y a la
+> magnitud del EDP".
 
 ## 7. Características de entrada
 

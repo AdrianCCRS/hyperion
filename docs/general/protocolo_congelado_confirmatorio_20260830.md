@@ -276,6 +276,7 @@ invalida el carácter confirmatorio de la evaluación.
 | 2026-08-30 | enmienda **2026-08-30-C**: corrección de selección y agregación de R2 (§14) | **no** — verificado: jobs 6763/6764 en `PENDING`, sin directorios de salida al redactar |
 | 2026-08-31 | enmienda **2026-08-31-A**: target relativo a REF y profundidad libre para R3-A (§15) | **no** — verificado por `squeue`: jobs 6763/6764 siguen en `PENDING` (razones "Nodes required... DOWN/DRAINED" y "Resources"), sin directorios de salida al redactar |
 | 2026-08-31 | enmienda **2026-08-31-B**: integración de `curve_physical`, autocorrección del hallazgo de 6.5-bis bajo compuerta honesta, frecuencias reales, diagnóstico `cpu_ready`/`none_ready` (§16) | **no** — verificado por `squeue`: jobs 6763/6764 siguen en `PENDING`, sin directorios de salida al redactar |
+| 2026-08-31 | enmienda **2026-08-31-C**: contextualización del 5,0% frente a `best_constant_train` y al peso del EDP, correcciones documentales (5.440 registros, abstención 50%/25%, particiones no disjuntas) (§17) | **no** — verificado por `squeue`: jobs 6763/6764 (y 6769/6770) siguen sin directorios de salida al redactar |
 
 ---
 
@@ -551,7 +552,7 @@ continuaban en `PENDING` y no existían sus directorios de resultados.
 
 La primera implementación de R3-A predecía `log(energía)` y `log(tiempo)`
 absolutos por acción y calibraba el error como
-`|predicho/real - 1| * 100`. Verificado sobre los 5.441 registros reales de
+`|predicho/real - 1| * 100`. Verificado sobre los 5.440 registros reales de
 pacca: en configuraciones con EDP diminuto (p. ej. `axpy_N10000` en frío,
 EDP≈1,66e-8 J·s) un error absoluto minúsculo del modelo se traduce en errores
 porcentuales de hasta 14.000.000%, porque se divide por una magnitud casi
@@ -633,11 +634,14 @@ relativo a la escala propia de cada operación.
 
 **Resultado verificado (extrapolación, mismos pliegues, familia
 `power_law`):** la abstención en `gpu_ready` baja de 100% a 50%
-(`extrapolation_top1`, n=6) y 75% (`extrapolation_top2`, n=12), y en ambos
-casos el modelo captura un ahorro real y positivo de **~5,0%** de EDP contra
-REF en ese estado — el primer resultado no nulo de R3-A. `random_forest` no
-mejora de forma consistente (savings ≈0% o levemente negativo); `power_law`
-es, por ahora, la única familia con señal positiva repetida.
+(`extrapolation_top1`, n=6) y 25% (`extrapolation_top2`, n=12), y el modelo
+captura un ahorro real y positivo de 5,02% y 4,98% de EDP contra REF
+respectivamente — el primer resultado no nulo de R3-A. Estas dos
+particiones NO son réplicas independientes: `extrapolation_top1` (6
+configs) está contenido en `extrapolation_top2` (12 configs), no son
+disjuntas. `random_forest` no mejora de forma consistente (savings ≈0% o
+levemente negativo); `power_law` es, por ahora, la única familia con señal
+positiva repetida.
 
 Este resultado sigue **sin superar la baseline no aprendida**
 (`best_constant_train`) en la comparación agregada de §5.4, y en
@@ -782,3 +786,124 @@ del libro (`dvfs_headroom.csv`):
   regularización más fuerte, más datos por grupo, o predecir los parámetros
   por separado en vez de conjuntamente podrían revertir esta conclusión;
   ninguna de esas variantes se probó todavía.
+
+## 17. Enmienda 2026-08-31-C — contextualización del resultado de R3-A frente a la baseline, correcciones documentales
+
+**Fecha:** 2026-08-31
+**Datos confirmatorios observados al redactar:** ninguno; verificado por
+`squeue`, jobs 6763/6764 (y 6769/6770, campañas relacionadas que aparecieron
+en la cola en esta fecha) siguen sin producir directorios de salida.
+**Origen:** revisión externa (Codex) sobre el estado del repositorio después
+de la enmienda 2026-08-31-B, sin modificar archivos. Verificado de forma
+independiente antes de aceptar cada punto.
+
+### 17.1 Correcciones documentales (errores reales, no de interpretación)
+
+1. El catálogo real tiene **5.440** registros
+   (`wc -l candidate_summary.csv` menos encabezado), no 5.441 como decía
+   §15.1 y el libro. Corregido en ambos lugares.
+2. La abstención de `power_law` en `gpu_ready` reportada en §15.4 como
+   "50-75%" era incorrecta. El valor real, verificado contra
+   `dvfs_results.csv`, es **50% en `extrapolation_top1` (n=6) y 25% en
+   `extrapolation_top2` (n=12)** — no 75%. Corregido en §15.4, en el plan
+   de reformulación y en el libro.
+3. `extrapolation_top1` y `extrapolation_top2` se describían como
+   "particiones disjuntas" en el libro y en el plan. Son lo contrario:
+   `extrapolation_top2` retiene los dos tamaños mayores por operación y
+   `extrapolation_top1` solo el mayor, así que las 6 configuraciones de
+   prueba de `top1` están **contenidas** dentro de las 12 de `top2`
+   (`classifier.selector.sizes.extrapolation_folds`, confirmado leyendo el
+   código). No son réplicas estadísticamente independientes del mismo
+   hallazgo; se reportan ambas porque muestran cómo se degrada la
+   extrapolación al alejarse del rango de entrenamiento, como ya hacía
+   correctamente la sección de R2 (§14.2, punto 6).
+
+### 17.2 El resultado de 5,0% contextualizado frente a `best_constant_train`
+
+La pregunta relevante para adoptar un modelo no es si mejora sobre REF —
+mejora, y de forma real — sino si mejora **lo suficiente sobre la mejor
+política no aprendida**. Verificado contra `dvfs_results.csv`
+(`extrapolation_top1`/`top2`, `gpu_ready`):
+
+| política | `extrapolation_top1` | `extrapolation_top2` |
+|---|---|---|
+| siempre REF | 0,00% | 0,00% |
+| `best_constant_train` | 4,65% | 2,48% |
+| `power_law` (compuerta activa) | **5,02%** | **4,98%** |
+| oráculo (techo teórico) | 14,05% | 14,90% |
+
+La ventaja adicional de `power_law` sobre `best_constant_train` es de
+**0,37 puntos porcentuales en `top1` y 2,49 en `top2`** — no cero, pero
+lejos de ser una ventaja robusta. Agregando los tres estados de recurso, el
+modelo resulta **0,18% peor** que `best_constant_train`
+(`dvfs_summary.json`, `model_improvement_pct = -0,18`), consistente con
+`adopt_model: false`.
+
+### 17.3 Por qué un resultado localizado no mueve la conclusión agregada: peso del EDP
+
+En `extrapolation_top2`, el EDP total a REF por estado es:
+
+| estado | EDP a REF | % del total |
+|---|---|---|
+| `none_ready` | 50,11 | 51,1% |
+| `cpu_ready` | 44,65 | 45,6% |
+| `gpu_ready` | 3,20 | 3,3% |
+| **total** | **97,96** | **100%** |
+
+`gpu_ready` --- el único estado donde el modelo aporta algo --- pesa apenas
+3,3% del EDP total del catálogo en esta partición. Un ahorro del 5% sobre
+esa porción reduce el EDP global en ~0,16%, muy por debajo de cualquier piso
+de ruido razonable. Esto no invalida el hallazgo local; explica por qué no
+se traduce en una mejora agregada visible.
+
+### 17.4 Tres salvedades operativas verificadas, no reflejadas en el 5,0%
+
+1. **Cota superior offline, no ahorro neto.** La evaluación fija
+   `overhead_energy_j = overhead_time_s = 0` (confirmado en
+   `dvfs_summary.json`, `overhead_status: not_measured_upper_bound`). El
+   costo real de conmutar frecuencia todavía no se descuenta.
+2. **El modelo necesita el costo REF medido de la configuración nueva, no
+   solo sus descriptores estáticos.** `predict_costs` reconstruye
+   multiplicando el desvío predicho por `ref_energy_j`/`ref_time_s` de esa
+   misma fila (§15.1) — una cantidad medida, no predicha, para todas las
+   familias de R3-A incluida `power_law`. Operativamente exige ejecutar
+   primero una acción REF de la configuración nueva; no sirve todavía como
+   selector inmediato de un kernel de una sola ejecución sin ese sondeo
+   previo.
+3. **Las bandas de incertidumbre siguen siendo grandes.** El p95 de error
+   de `power_law` en `gpu_ready` es 63,1% (`top1`) y 92,2% (`top2`) — muy
+   por encima del piso de ruido. La política ahorra porque se abstiene con
+   frecuencia y porque varias frecuencias forman mesetas de EDP casi
+   equivalente, no porque distinga con precisión la acción óptima.
+
+### 17.5 Conclusión revisada y política candidata
+
+`power_law` es un hallazgo exploratorio positivo y localizado en
+`gpu_ready`, no todavía una política ganadora. La política oficial de R3-A
+sigue siendo la baseline (`adopt_model: false`, sin cambios respecto a
+§15.4/§16). Se registra como candidata, sin adoptarla, una política híbrida:
+
+```text
+cpu_ready  -> REF (sin margen real, §16.4)
+none_ready -> REF (margen real pero error de modelo demasiado alto, §16.4)
+gpu_ready  -> consultar power_law
+                -> ventaja predicha clara (supera piso + incertidumbre) -> actuar
+                -> duda o margen pequeño -> REF (abstención)
+```
+
+Esta política queda condicionada a que R3-B (máquina de estados y actuación
+real sobre hardware, §13 del plan) permita medir si el ~5,0% sobrevive
+después de descontar el sondeo REF y el costo físico de cambiar frecuencia
+— la pregunta que esta enmienda deja explícitamente abierta, no cerrada.
+
+### 17.6 Lo que esta enmienda NO cambia
+
+- No cambia ninguna cifra de fondo de §15/§16 salvo las tres correcciones
+  documentales de §17.1 — los hallazgos (fix de escala, profundidad libre,
+  calibración por tamaño, integración de `curve_physical` y su descarte)
+  se mantienen.
+- No adopta ni descarta R3-A; formaliza por qué la decisión oficial
+  (`adopt_model: false`) es la correcta con la evidencia actual, y qué
+  falta medir para revisarla.
+- No modifica la arquitectura de `dvfs.py`; es una enmienda documental y de
+  interpretación, no de código.
