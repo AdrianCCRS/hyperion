@@ -368,6 +368,100 @@ dependiente de frecuencia se tratarán como hipótesis candidatas que deben
 compararse contra los datos y contra REF, no como leyes ya demostradas en esta
 plataforma. No se incorporan aquí afirmaciones bibliográficas nuevas.
 
+### 6.5-bis Ejecución real de R3-A y hallazgo por curva física (nota 2026-08-31, para revisión de Codex)
+
+**Estado de ejecución.** A diferencia de §6.4-bis (que seguía siendo una
+propuesta al redactarse), esta sección documenta trabajo ya ejecutado sobre
+los datos exploratorios de pacca. `classifier/selector/dvfs.py` implementa
+R3-A: predice tiempo y energía por acción del dispositivo ya elegido, compone
+EDP, y aplica la compuerta de abstención de §6.5 (banda de equivalencia =
+máximo entre piso de ruido regional y error p95 fuera de muestra del propio
+modelo).
+
+**Tres defectos encontrados y corregidos, en orden:**
+
+1. **Objetivo en magnitud absoluta.** La primera versión predecía
+   `log(energía)`/`log(tiempo)` absolutos, calibrando el error como
+   `|predicho/real - 1|`. En configs con EDP diminuto (`axpy_N10000` frío,
+   EDP≈1,66e-8 J·s) esto producía p95 de hasta 14.000.000%. Corregido:
+   objetivo = desvío log respecto a REF del mismo `config_id × resource_state`
+   (REF se mide, no se predice). Mismos datos: p95 baja a 35%-125% (5 órdenes
+   de magnitud), pero sigue sobre el piso de ruido -- abstención 100% con
+   solo este cambio.
+2. **Profundidad de árbol heredada de R2.** `tree`/`random_forest` usaban
+   `max_depth<=3/5`, congelado en §4 del protocolo confirmatorio para el eje
+   de dispositivo (pocas categorías, margen enorme). R3-A tiene ~40 acciones
+   x 6 operaciones -- insuficiente. Liberar la profundidad **solo dentro de
+   `dvfs.py`** (no toca el límite de R2) bajó la mediana de 36,8% a 7,4%, p95
+   de 73,2% a 57,2%.
+3. **Calibración demasiado gruesa.** El error se calibraba por
+   `(resource_state, device)` únicamente. Verificado: en `gpu_ready/gpu` (56
+   configs), las 26 configs de tamaño grande (mediana por operación, sin
+   fuga) tienen error mediano 3,7% (p95 27,1%) vs. las 30 chicas con 9,6%
+   (p95 66,9%) -- el balde único forzaba a las grandes a heredar la banda
+   inflada de las chicas, y el margen ya medido en R1 (headroom mediano
+   13,46% en esas 26 configs) nunca superaba el umbral de abstención.
+   Corregido añadiendo `size_regime` (`small`/`large`, umbral = mediana de
+   `size` por operación en train) a la clave de calibración. Resultado:
+   abstención en `gpu_ready` baja de 100% a 50-75% con `power_law`,
+   capturando ~5,0% de ahorro real de EDP -- primer resultado no nulo de
+   R3-A, consistente en dos particiones de extrapolación disjuntas.
+
+Las tres correcciones están commiteadas (`48d57f2`, `143df22`, `e132e92`),
+con tests actualizados y documentadas en
+`protocolo_congelado_confirmatorio_20260830.md` §15 (enmienda
+2026-08-31-A).
+
+**Hallazgo experimental (NO integrado, NO commiteado en el pipeline):** el
+~5,0% seguía muy por debajo del headroom medido en R1. Hipótesis: el defecto
+no era de capacidad del modelo sino de representación -- las 40 acciones
+`dispositivo×frecuencia` se codifican como categorías sin relación entre sí,
+sin que el modelo sepa que hay un orden continuo de frecuencia.
+
+Verificado: `t(f) = t_fijo + t_escalable/f` ajusta con R² mediano 0,94-0,98
+(tiempo) y 0,90-0,998 (energía) por `config_id`, en las cuatro combinaciones
+estado×dispositivo. Reformulando el objetivo para predecir 7 parámetros de
+curva física (en vez de 40 costos independientes) y reconstruir
+analíticamente, mismos datos/pliegues/familias, sin compuerta (para comparar
+de igual a igual):
+
+| formulación | familia | ahorro vs REF (`gpu_ready`) | razón vs oráculo |
+|---|---|---|---|
+| 40 costos categóricos (actual) | ridge | 3,89% | 1,139 |
+| 40 costos categóricos (actual) | random_forest | 6,83% | 1,106 |
+| curva física (7 parámetros) | ridge | **9,89%** | **1,065** |
+| curva física (7 parámetros) | random_forest | 9,42% | 1,073 |
+
+Con ridge, el ahorro se multiplica por 2,5 sin cambiar modelo ni datos, solo
+la representación. Consistente en extrapolación a configs nunca vistas
+(7,3%-11,4% según partición). El techo teórico (`oráculo`) en `gpu_ready` es
+15,4%; la formulación actual captura 44% de ese techo, la de curva física
+captura 64%.
+
+**Lo que este hallazgo NO afirma todavía:**
+
+- No está integrado a `dvfs.py` -- vive en un script exploratorio
+  (`/tmp/hyperion-r3-dvfs.MxkuFj/exp_struct.py`, no versionado).
+- No tiene compuerta de abstención evaluada, ni tests, ni enmienda de
+  protocolo propia.
+- No aporta nada en `cpu_ready`/`none_ready` (ahorro global negativo sin
+  compuerta), igual que la formulación categórica.
+- El mapeo de nivel de frecuencia (`F0..F6`,`REF`) a fracción relativa usa un
+  supuesto (`f_min=0,35`) verificado solo indirectamente: REF≈F0 con razón de
+  tiempo mediana 1,0001 en CPU (consistente con que el gobernador nativo
+  corre al máximo bajo carga), pero sin contrastar contra las frecuencias
+  reales (Hz) que reporta el hardware.
+- La precisión de acción exacta sigue baja (~0,10) pese al ahorro alto --
+  muchas acciones son casi equivalentes en EDP; el ahorro capturado, no el
+  acierto puntual, es la métrica que sostiene la conclusión.
+
+**Próximo paso propuesto (pendiente de discusión con Codex):** integrar la
+reformulación por curva física como familia adicional dentro de la capa 1 de
+R3-A (junto a `power_law`, no en reemplazo), con su propia calibración de
+incertidumbre y compuerta, antes de tocar cualquier dato confirmatorio. Esto
+requeriría su propia enmienda al protocolo (paralela a 2026-08-30-B para el
+eje de dispositivo). No se ha redactado todavía.
+
 ## 7. Características de entrada
 
 ### 7.1 Modelo estático

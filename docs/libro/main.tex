@@ -2073,6 +2073,81 @@ El veredicto de R2 es, por tanto, conservador: la baseline permanece como polít
 
 %==============================================================================
 
+\section{Resultados de la capa DVFS (R3-A)}
+\label{sec:resultados-r3-dvfs}
+
+Con la decisión de dispositivo resuelta (sección \ref{sec:resultados-r2-estructurada}), esta sección aborda la pregunta que ninguna fase anterior había tocado: una vez elegido el dispositivo, ¿conviene actuar sobre la frecuencia? El contrato es el fijado en la sección \ref{sec:resultados-r1-headroom-dvfs} del plan de reformulación: el modelo predice tiempo y energía por acción de frecuencia del dispositivo ya elegido, compone el EDP, y se abstiene --- conservando REF --- salvo que la ventaja predicha supere simultáneamente el piso de ruido regional y el error de calibración fuera de muestra del propio modelo.
+
+\subsection{Primer defecto: objetivo en magnitud absoluta}
+\label{sec:resultados-r3-escala}
+
+La primera implementación predecía $\log(\text{energía})$ y $\log(\text{tiempo})$ absolutos por acción, calibrando el error como $\left|\text{predicho}/\text{real} - 1\right| \times 100$. Verificado sobre los 5\,441 registros reales de pacca: en configuraciones con EDP diminuto (\textit{axpy} $N=10\,000$ en frío, $EDP \approx 1{,}66\times10^{-8}$~J\,s) un error absoluto minúsculo del modelo se traduce en errores porcentuales de hasta 14\,000\,000\,\%, porque se divide entre una magnitud casi nula. El percentil 95 de incertidumbre por contexto llegaba a 121\,937\,\% incluso en el contexto más limpio, forzando abstención en el 100\,\% de los casos sin que eso reflejara una limitación real del modelo.
+
+La corrección reemplaza el objetivo por el desvío logarítmico respecto a la acción REF del mismo \texttt{config\_id}$\times$\texttt{resource\_state} ($\log(\text{energía}_{\text{acción}}) - \log(\text{energía}_{\text{REF}})$, análogo para tiempo). REF se mide, nunca se predice, y ancla la reconstrucción. Mismos datos, mismo pliegue: el percentil 95 baja a 35\,\%--125\,\% según contexto --- cinco órdenes de magnitud de mejora --- aunque sigue muy por encima del piso de ruido (1,80\,\%--5,76\,\%), de modo que la abstención seguía siendo el resultado en el 100\,\% de los casos con este cambio únicamente.
+
+\subsection{Segundo defecto: profundidad de árbol heredada de un problema distinto}
+\label{sec:resultados-r3-profundidad}
+
+\textit{Tree} y \textit{RandomForest} heredaban de la sección \ref{sec:resultados-r2-directo} un límite $\text{max\_depth} \leq 3/5$, congelado allí para el eje de dispositivo --- pocas categorías, margen de decisión enorme, la profundidad chica alcanza. R3-A tiene aproximadamente 40 acciones de frecuencia por 6 operaciones interactuando con el tamaño; un árbol de profundidad 3 no puede ni codificar las categorías. Verificado antes de decidir: liberar \texttt{max\_depth} bajó la mediana de error de 36,8\,\% a 7,4\,\% en el mismo pliegue de calibración, aunque el percentil 95 solo mejoró de 73,2\,\% a 57,2\,\% y el máximo se mantuvo entre 320\,\%--350\,\%, concentrado en GPU con tamaño chico y reloj de host bajo. Se liberó la profundidad únicamente dentro del módulo de R3-A, sin modificar el límite congelado que usa el eje de dispositivo, que sigue siendo correcto para ese problema.
+
+\subsection{Tercer defecto: calibración demasiado gruesa}
+\label{sec:resultados-r3-calibracion-tamano}
+
+Con las dos correcciones anteriores aplicadas, el modelo seguía absteniéndose en prácticamente el 100\,\% de los casos en todos los estados. La pregunta que motivó revisarlo de nuevo fue directa: si la sección \ref{sec:resultados-r1-headroom-dvfs} ya había medido un margen mediano del 9,45\,\% en \texttt{gpu\_ready} --- muy por encima del piso de ruido en 56 de 68 configuraciones ---, ¿por qué el modelo no lo capturaba nunca?
+
+La causa fue de granularidad. La incertidumbre se calibraba por \texttt{(resource\_state, device)} únicamente, agregando en un solo balde 56 configuraciones de \texttt{gpu\_ready}/GPU con comportamiento muy distinto entre sí. Separando por tamaño relativo a cada operación --- mediana de \texttt{size} por operación, calculada solo con el conjunto de entrenamiento --- las 26 configuraciones de tamaño grande mostraron un error mediano del 3,7\,\% (percentil 95: 27,1\,\%), mientras las 30 de tamaño chico mostraron 9,6\,\% (percentil 95: 66,9\,\%). El balde único obligaba a las 26 configuraciones bien predichas a heredar la banda de incertidumbre inflada de las 30 mal predichas, y el margen real de la sección \ref{sec:resultados-r1-headroom-dvfs} --- mediana del 13,46\,\% en esas mismas 26 configuraciones, todas por encima del piso de ruido --- nunca llegaba a superar el umbral de abstención.
+
+No existe un umbral absoluto de tamaño válido entre operaciones: \textit{axpy} solo tiene los tamaños $N=31\,623$ y $N=100\,000$, mientras \textit{Cholesky} va de $N=64$ a miles. El corte se calcula, por tanto, relativo a la escala propia de cada operación. Con la calibración corregida, la abstención en \texttt{gpu\_ready} bajó de 100\,\% a 50\,\%--75\,\% con la familia \textit{power\_law}, capturando un ahorro real de aproximadamente 5,0\,\% de EDP contra REF en ese estado --- el primer resultado no nulo de R3-A, consistente en dos particiones de prueba disjuntas con configuraciones nunca vistas en entrenamiento. \textit{RandomForest} no mejoró de forma consistente en el mismo cambio; en \texttt{cpu\_ready}, la misma calibración produjo un ahorro levemente negativo en una partición ($-$0,22\,\%), que se reporta sin omitir.
+
+\subsection{Reformulación por curva física: hallazgo experimental}
+\label{sec:resultados-r3-curva-fisica}
+
+\textbf{Esta subsección describe un experimento realizado fuera del pipeline integrado, sin compuerta de abstención, pruebas de regresión ni enmienda de protocolo todavía. Se reporta como hallazgo porque cambia la interpretación de qué tan lejos está R3-A de ser útil, no porque ya esté implementado como política.}
+
+Las tres correcciones anteriores dejaban un residuo sin explicar: el ahorro capturado (5,0\,\%) seguía muy por debajo del margen medido en la sección \ref{sec:resultados-r1-headroom-dvfs}. La hipótesis puesta a prueba fue que el defecto no estaba en la capacidad del modelo sino en la representación del problema: las 40 acciones \texttt{dispositivo$\times$frecuencia} se codificaban como categorías sin relación entre sí --- el modelo no tenía forma de saber que ``F3'' está entre ``F0'' y ``F6'', ni que la relación entre frecuencia y costo es continua.
+
+Se verificó primero si la física describe los datos, ajustando $t(f) = t_{\text{fijo}} + t_{\text{escalable}}/f$ por \texttt{config\_id} --- sin predecir nada todavía, solo midiendo si la forma es correcta. El $R^2$ mediano fue 0,94--0,98 en tiempo y 0,90--0,998 en energía según el estado y el dispositivo (Tabla \ref{tab:r3-curva-r2}), con el 77,5\,\% de las configuraciones alcanzando $R^2 \geq 0{,}90$ en tiempo.
+
+\begin{table}[H]
+\centering
+\caption[Ajuste de la forma física $t(f)=a+b/f$ por estado y dispositivo]{Calidad del ajuste ($R^2$ mediano) de la forma física candidata, por \texttt{config\_id}, antes de intentar predecir nada.}
+\label{tab:r3-curva-r2}
+\begin{tabular}{llrrr}
+\toprule
+\textbf{Estado} & \textbf{Dispositivo} & \textbf{$n$} & \textbf{$R^2$ tiempo} & \textbf{$R^2$ energía} \\
+\midrule
+\texttt{cpu\_ready}  & CPU & 68 & 0,984 & 0,998 \\
+\texttt{gpu\_ready}  & CPU & 12 & 0,943 & 0,752 \\
+\texttt{gpu\_ready}  & GPU & 56 & 0,937 & 0,900 \\
+\texttt{none\_ready} & CPU & 68 & 0,946 & 0,897 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Con la forma confirmada, se reformuló el objetivo de aprendizaje: en vez de predecir 40 costos independientes, predecir los parámetros de la curva física por \texttt{config\_id} ($t_{\text{fijo}}$, $t_{\text{escalable}}$ y sus análogos de energía) como función de los descriptores estáticos (operación, $\log_{10}(N)$, FLOPs y bytes analíticos, intensidad aritmética), y reconstruir los 40 costos analíticamente. Mismos datos, mismos pliegues, mismas familias de modelo (Ridge y \textit{RandomForest}), sin compuerta de abstención en ambos casos para comparar de igual a igual (Tabla \ref{tab:r3-curva-comparacion}).
+
+\begin{table}[H]
+\centering
+\caption[Representación categórica frente a curva física, sin compuerta]{Ahorro de EDP contra REF y distancia al oráculo en \texttt{gpu\_ready}, misma evaluación sin compuerta de abstención.}
+\label{tab:r3-curva-comparacion}
+\begin{tabular}{llrr}
+\toprule
+\textbf{Formulación} & \textbf{Familia} & \textbf{Ahorro vs.\ REF} & \textbf{Razón vs.\ oráculo} \\
+\midrule
+40 costos categóricos (actual) & Ridge         & 3,89\,\% & 1,139 \\
+40 costos categóricos (actual) & RandomForest  & 6,83\,\% & 1,106 \\
+Curva física (7 parámetros)    & Ridge         & \textbf{9,89\,\%} & \textbf{1,065} \\
+Curva física (7 parámetros)    & RandomForest  & 9,42\,\% & 1,073 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Con Ridge, el ahorro capturado se multiplica por 2,5 (3,89\,\%~$\to$~9,89\,\%) sin cambiar el modelo ni los datos, solo la representación del objetivo. El resultado es consistente en interpolación (9,7\,\%, 4,4\,\%, 20,8\,\% en las tres particiones) y en extrapolación a configuraciones nunca vistas (7,3\,\%, 7,2\,\%, 9,3\,\%, 11,4\,\% según partición y familia). El techo teórico en \texttt{gpu\_ready} --- el oráculo con conocimiento posterior --- equivale a 15,4\,\% de ahorro; la formulación categórica actual captura el 44\,\% de ese techo, la formulación por curva física captura el 64\,\%.
+
+Este resultado no se sobrevende. En \texttt{cpu\_ready} y \texttt{none\_ready} la formulación por curva no aporta (ahorro global $-$1,5\,\% sin compuerta), igual que la formulación categórica; la compuerta de abstención sigue siendo necesaria en esos estados. La precisión de acción exacta se mantiene baja ($\approx 0{,}10$) pese al ahorro alto, porque varias acciones son casi equivalentes en EDP --- el ahorro capturado, no el acierto de acción puntual, es la métrica que importa aquí. El mapeo de nivel de frecuencia a fracción relativa usa un supuesto ($f_{\min}=0{,}35$) verificado solo indirectamente (REF/F0 con razón de tiempo mediana 1,0001 en CPU, consistente con que el gobernador nativo corre al máximo bajo carga) y pendiente de contrastar contra las frecuencias reales reportadas por el hardware. La integración al pipeline con compuerta de abstención, pruebas de regresión y su propia enmienda de protocolo queda como trabajo inmediato siguiente, registrada en el plan de reformulación.
+
+%==============================================================================
+
 \chapter{Discusión}
 
 Los resultados de esta fase sostienen dos tipos de contribución distintos: uno metodológico, sobre cómo verificar con rigor cada mecanismo de un instrumento de caracterización antes de confiar en él; y uno empírico, sobre lo que el catálogo dual permite y no permite demostrar acerca de la asignación entre CPU y acelerador.
