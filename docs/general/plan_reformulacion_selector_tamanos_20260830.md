@@ -462,6 +462,74 @@ incertidumbre y compuerta, antes de tocar cualquier dato confirmatorio. Esto
 requeriría su propia enmienda al protocolo (paralela a 2026-08-30-B para el
 eje de dispositivo). No se ha redactado todavía.
 
+> **Actualización 2026-08-31 -- ejecutado, con autocorrección. Ver enmienda
+> 2026-08-31-B del protocolo congelado (§16) para el detalle completo.**
+> `curve_physical` ya está integrado en `classifier/selector/dvfs.py` como
+> familia adicional, con la misma calibración de incertidumbre por
+> `(resource_state, device, size_regime)` y la misma compuerta de abstención
+> que las demás familias. Al someterlo a esa calibración honesta (que el
+> experimento sin compuerta de arriba nunca ejecutó), aparecieron dos
+> resultados que corrigen -- no invalidan -- lo anterior:
+>
+> 1. **Un config atípico rompía la calibración numéricamente.**
+>    `cholesky_N256` en `gpu_ready` con reloj de host `F6` hacía que el
+>    regresor de 7 parámetros extrapolara un valor absurdo para ese grupo
+>    fuera de muestra, que dividido entre la fracción de frecuencia GPU
+>    mínima real (0,149, ver punto 2) producía log-ratios disparatados (p95
+>    de hasta 4,69e13% en un pliegue). Se corrigió recortando el log-ratio
+>    predicho a `±ln(8)` por eje (energía/tiempo por separado) -- generoso
+>    frente al rango real medido en el catálogo (factor 5,67x energía,
+>    7,03x tiempo) -- documentado en el código como salvaguarda numérica,
+>    no como resultado físico.
+> 2. **Con la calibración honesta, `curve_physical` no supera a
+>    `power_law`.** La comparación de la tabla de arriba (3,89% -> 9,89% de
+>    ahorro) se hizo **sin compuerta de abstención**, es decir, sin exigirle
+>    a `curve_physical` que calibrara su propio error fuera de muestra --
+>    exactamente lo que sí exige el resto del pipeline de R3-A. Al
+>    exigírselo, resulta **más inestable**, no más confiable: predecir 7
+>    parámetros compartidos por `config_id` (en vez de 40 valores
+>    independientes) hace que un solo grupo mal predicho en calibración
+>    contamine la reconstrucción de las 32-40 acciones de ese grupo a la
+>    vez. La regla de selección del protocolo (§5.4) descartó
+>    `curve_physical` correctamente por sí sola, sin intervención manual:
+>    `power_law` sigue siendo, hasta ahora, la única familia con ahorro
+>    real y positivo verificado bajo compuerta (~5,0% en `gpu_ready`).
+>
+> **Lo que NO se invalida:** el ajuste de la forma física
+> ($R^2$ 0,94-0,98 por `config_id`) sigue siendo evidencia real de que la
+> curva describe los datos. Lo que se descarta, por ahora, es predecir sus
+> parámetros vía Ridge/RandomForest sobre descriptores estáticos como
+> sustituto inmediato de `power_law` -- no que la forma física en sí sea
+> incorrecta. Variantes no probadas que podrían revertir esta conclusión:
+> regularización más fuerte sobre los parámetros, predecirlos por separado
+> en vez de conjuntamente, o exigir más puntos por grupo antes de confiar
+> en la curva ajustada.
+>
+> **De paso, se corrigió también el supuesto de frecuencia.**
+> `CURVE_FREQUENCY_FLOOR = 0,35` (un solo piso para CPU y GPU) se reemplazó
+> por fracciones reales medidas contra `freq_khz_observed`/
+> `gpu_sm_clock_mhz` de `run_regions.csv` (16.320 filas): F6 real es 0,267
+> en CPU y 0,149 en GPU -- distintas entre sí, y ambas más bajas que el 0,35
+> asumido.
+>
+> **Diagnóstico adicional (mismo día):** se verificó si la calibración por
+> tamaño de la enmienda 2026-08-31-A ayudaba también en `cpu_ready` y
+> `none_ready`. `cpu_ready` no tiene margen real que capturar (headroom
+> mediano 0,25%, solo 3/68 configs sobre el piso de ruido) -- que se
+> abstenga siempre ahí es correcto. `none_ready` sí tiene margen real
+> (mediano 4,98%, 38/68 sobre el piso), pero separar por tamaño no lo
+> desbloquea: incluso las configs grandes tienen error mediano del 18,1%,
+> muy por encima del margen disponible. Hipótesis no verificada todavía:
+> `none_ready` depende enteramente de mediciones de la región fría (piso de
+> ruido 5,76%, casi 3x el de la región caliente), la misma fuente de ruido
+> que ya explicaba la banda de sensibilidad de $K_{\text{break\_even}}$ en
+> R1.
+>
+> Commits: `classifier/selector/dvfs.py` y
+> `tests/classifier/test_selector_dvfs.py` (15 pruebas, incluida una que
+> reproduce el caso degenerado de calibración). Sin datos confirmatorios
+> observados (verificado por `squeue` antes de escribir).
+
 ## 7. Características de entrada
 
 ### 7.1 Modelo estático

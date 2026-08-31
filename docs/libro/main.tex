@@ -2144,7 +2144,38 @@ Curva física (7 parámetros)    & RandomForest  & 9,42\,\% & 1,073 \\
 
 Con Ridge, el ahorro capturado se multiplica por 2,5 (3,89\,\%~$\to$~9,89\,\%) sin cambiar el modelo ni los datos, solo la representación del objetivo. El resultado es consistente en interpolación (9,7\,\%, 4,4\,\%, 20,8\,\% en las tres particiones) y en extrapolación a configuraciones nunca vistas (7,3\,\%, 7,2\,\%, 9,3\,\%, 11,4\,\% según partición y familia). El techo teórico en \texttt{gpu\_ready} --- el oráculo con conocimiento posterior --- equivale a 15,4\,\% de ahorro; la formulación categórica actual captura el 44\,\% de ese techo, la formulación por curva física captura el 64\,\%.
 
-Este resultado no se sobrevende. En \texttt{cpu\_ready} y \texttt{none\_ready} la formulación por curva no aporta (ahorro global $-$1,5\,\% sin compuerta), igual que la formulación categórica; la compuerta de abstención sigue siendo necesaria en esos estados. La precisión de acción exacta se mantiene baja ($\approx 0{,}10$) pese al ahorro alto, porque varias acciones son casi equivalentes en EDP --- el ahorro capturado, no el acierto de acción puntual, es la métrica que importa aquí. El mapeo de nivel de frecuencia a fracción relativa usa un supuesto ($f_{\min}=0{,}35$) verificado solo indirectamente (REF/F0 con razón de tiempo mediana 1,0001 en CPU, consistente con que el gobernador nativo corre al máximo bajo carga) y pendiente de contrastar contra las frecuencias reales reportadas por el hardware. La integración al pipeline con compuerta de abstención, pruebas de regresión y su propia enmienda de protocolo queda como trabajo inmediato siguiente, registrada en el plan de reformulación.
+Este resultado no se sobrevende. En \texttt{cpu\_ready} y \texttt{none\_ready} la formulación por curva no aporta (ahorro global $-$1,5\,\% sin compuerta), igual que la formulación categórica; la compuerta de abstención sigue siendo necesaria en esos estados. La precisión de acción exacta se mantiene baja ($\approx 0{,}10$) pese al ahorro alto, porque varias acciones son casi equivalentes en EDP --- el ahorro capturado, no el acierto de acción puntual, es la métrica que importa aquí.
+
+\subsection{Integración y autocorrección del hallazgo por curva física}
+\label{sec:resultados-r3-curva-integracion}
+
+La subsección anterior evaluó \texttt{curve\_physical} \textbf{sin} la compuerta de abstención que el resto de R3-A exige --- una condición distinta a la de producción, señalada explícitamente en su momento. Al integrarla al pipeline como familia adicional, con la misma calibración de incertidumbre fuera de muestra y la misma compuerta que \textit{power\_law} y los regresores categóricos, aparecieron dos correcciones honestas al resultado anterior.
+
+Primero, un defecto numérico: un grupo de calibración atípico (\textit{Cholesky} $N=256$ en \texttt{gpu\_ready} con reloj de host $F6$) hizo que el regresor de los 7 parámetros extrapolara un valor absurdo para ese grupo fuera de muestra, que al dividirse entre la fracción de frecuencia GPU mínima real ($0{,}149$, verificada contra telemetría real y no contra el supuesto anterior de $0{,}35$) produjo un percentil 95 de incertidumbre de hasta $4{,}69\times10^{13}$\,\% en un pliegue. Se corrigió recortando el log-razón predicho a un factor $8\times$ por eje --- generoso frente al rango real medido en el catálogo (factor $5{,}67\times$ en energía, $7{,}03\times$ en tiempo) --- documentado como salvaguarda numérica, no como resultado físico.
+
+Segundo, y más importante: con la calibración honesta ya aplicada, \texttt{curve\_physical} \textbf{no supera} a \textit{power\_law} (Tabla \ref{tab:r3-curva-integrada}). La comparación de 9,89\,\% de ahorro de la subsección anterior no exigía calibrar el error fuera de muestra; al exigírselo, la formulación por curva resulta \textbf{más inestable}, no más confiable, porque predecir 7 parámetros compartidos por \texttt{config\_id} --- en vez de 40 valores independientes --- hace que un solo grupo mal predicho en calibración contamine la reconstrucción de las 32--40 acciones de ese grupo a la vez.
+
+\begin{table}[H]
+\centering
+\caption[Curva física bajo compuerta de abstención honesta]{\textit{power\_law} contra \texttt{curve\_physical}, extrapolación, ambas bajo la misma calibración y compuerta.}
+\label{tab:r3-curva-integrada}
+\begin{tabular}{llrrr}
+\toprule
+\textbf{Partición} & \textbf{Familia} & \textbf{Razón vs.\ oráculo} & \textbf{Abstención} & \textbf{Incertidumbre p95} \\
+\midrule
+\texttt{extrapolation\_top1} & \textit{power\_law}     & \textbf{1,0121} & 83,3\,\% & 68,1\,\%     \\
+\texttt{extrapolation\_top1} & \texttt{curve\_physical} & 1,0137          & 100\,\%  & 189,6\,\%    \\
+\texttt{extrapolation\_top2} & \textit{power\_law}     & \textbf{1,0130} & 66,7\,\% & 92,2\,\%     \\
+\texttt{extrapolation\_top2} & \texttt{curve\_physical} & 1,0136          & 100\,\%  & 3\,167,2\,\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+La regla de selección del protocolo descartó \texttt{curve\_physical} correctamente por sí sola, sin intervención manual: el procedimiento congelado eligió \textit{power\_law} como familia después de esta integración. Esto no invalida el ajuste de la forma física ($R^2$ 0,94--0,998 por \texttt{config\_id}, sección anterior) --- sigue siendo evidencia real de que la curva describe los datos --- pero sí descarta, por ahora, predecir sus parámetros vía Ridge o \textit{RandomForest} sobre descriptores estáticos como sustituto inmediato de \textit{power\_law}. \texttt{curve\_physical} se conserva en el código como familia evaluada y descartada, con su propia cobertura de pruebas, para que la decisión quede trazable.
+
+De paso se corrigió el supuesto de frecuencia: $f_{\min}=0{,}35$ (un piso único para CPU y GPU) se reemplazó por fracciones reales medidas contra la telemetría de campaña (\texttt{freq\_khz\_observed} en CPU, \texttt{gpu\_sm\_clock\_mhz} en GPU, 16\,320 filas). El nivel $F6$ real resultó $0{,}267$ en CPU y $0{,}149$ en GPU --- distintos entre sí, y ambos más bajos que el supuesto original, porque el hardware nunca llega exactamente al reloj mínimo nominal declarado en el manifiesto de campaña.
+
+Por último, se verificó si la calibración por tamaño de la sección \ref{sec:resultados-r3-calibracion-tamano} ayudaba también en \texttt{cpu\_ready} y \texttt{none\_ready}. En \texttt{cpu\_ready} no hay margen real que capturar (headroom mediano 0,25\,\%, solo 3 de 68 configuraciones sobre el piso de ruido): que el modelo se abstenga siempre ahí es la respuesta correcta. En \texttt{none\_ready} sí existe margen real (mediano 4,98\,\%, 38 de 68 sobre el piso), pero separar por tamaño no lo desbloquea: incluso las configuraciones grandes muestran un error mediano del 18,1\,\%, muy por encima del margen disponible. Una hipótesis no verificada todavía es que \texttt{none\_ready} depende enteramente de mediciones de la región fría --- con un piso de ruido casi tres veces mayor que el de la región caliente (sección \ref{sec:resultados-r1-piso-ruido}) --- la misma fuente de ruido que ya explicaba la banda de sensibilidad del $K_{\text{break\_even}}$ en la sección \ref{sec:resultados-r1-amortizacion}. Queda como diagnóstico abierto.
 
 %==============================================================================
 

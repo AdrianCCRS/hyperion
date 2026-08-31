@@ -23,7 +23,7 @@ from .sizes import assert_no_config_leak, extrapolation_folds, interpolation_fol
 
 
 REGION_NOISE_PCT: Mapping[str, float] = {"cold": 5.76, "warm": 1.80}
-DVFS_FAMILIES: tuple[str, ...] = ("power_law", *REGRESSOR_FAMILIES)
+DVFS_FAMILIES: tuple[str, ...] = ("power_law", "curve_physical", *REGRESSOR_FAMILIES)
 
 # `tree`/`random_forest` heredan de r2.py un max_depth<=3/5 congelado en la
 # seccion 4 del protocolo para el eje de dispositivo (R2): pocas categorias,
@@ -122,6 +122,205 @@ class PowerLawCostModel:
                 value = intercept + slope * float(row["log10_n"])
             values.append(float(value))
         return np.asarray(values, dtype=float)
+
+
+# Fraccion de frecuencia REAL observada (columnas `freq_khz_observed` en CPU
+# y `gpu_sm_clock_mhz` en GPU de la telemetria de campana), normalizada al
+# maximo medido (F0), sobre 16.320 filas de run_regions.csv. Reemplaza un
+# supuesto anterior (fraccion DECLARADA en el manifiesto de campana + piso
+# arbitrario 0.35): la fraccion declarada es la solicitada, no la alcanzada,
+# y difieren sobre todo en F6 -- CPU real 0.267 vs. declarada 0.0; GPU real
+# 0.149 vs. declarada 0.0 -- porque el hardware nunca llega al reloj minimo
+# nominal. REF se mapea a 1.0 porque su fraccion real medida (CPU 0.994, GPU
+# 1.0) coincide con F0 dentro del error de medicion, consistente con la
+# verificacion previa de que el gobernador nativo corre al maximo bajo carga
+# (razon de tiempo REF/F0 mediana 1,0001 en CPU, n=136).
+CPU_FREQUENCY_FRACTION: Mapping[str, float] = {
+    "REF": 1.0, "F0": 1.0, "F1": 0.881, "F2": 0.761, "F3": 0.631,
+    "F4": 0.500, "F5": 0.386, "F6": 0.267,
+}
+GPU_FREQUENCY_FRACTION: Mapping[str, float] = {
+    "REF": 1.0, "F0": 1.0, "F1": 0.862, "F2": 0.713, "F3": 0.574,
+    "F4": 0.436, "F5": 0.287, "F6": 0.149,
+}
+CURVE_PARAMS: tuple[str, ...] = ("ta", "tb", "tc", "ea", "eb", "eg", "eh")
+CURVE_STATIC_FEATURES: tuple[str, ...] = (
+    "operation", "resource_state", "device", "log10_n",
+    "flops_per_dispatch_analytic", "log10_flops_per_dispatch",
+    "logical_bytes_per_dispatch", "log10_logical_bytes",
+    "arithmetic_intensity_analytic",
+)
+
+
+def _relative_frequency(level: str, device: str = "cpu") -> float:
+    table = GPU_FREQUENCY_FRACTION if str(device) == "gpu" else CPU_FREQUENCY_FRACTION
+    fraction = table.get(str(level))
+    if fraction is None:
+        raise DVFSContractError(f"nivel de frecuencia desconocido: {level!r} ({device!r})")
+    return fraction
+
+
+def _device_host_frequency(frequency_action: str, device: str) -> tuple[float, float]:
+    """(f_dispositivo, f_anfitrion) relativos, medidos en [minimo real, 1.0].
+
+    El anfitrion de una accion GPU es CPU (controla el lanzamiento); su
+    fraccion siempre sale de la tabla de CPU aunque el dispositivo que
+    ejecuta sea GPU.
+    """
+    parts = str(frequency_action).split(":")
+    if str(device) == "gpu":
+        host_level, device_level = parts[1], parts[2]
+        return _relative_frequency(device_level, "gpu"), _relative_frequency(host_level, "cpu")
+    device_level = parts[1]
+    value = _relative_frequency(device_level, "cpu")
+    return value, value
+
+
+def _fit_group_curves(frame: pd.DataFrame) -> pd.DataFrame:
+    """Una fila por `decision_group_id` con los 7 parametros de la curva.
+
+    t(f) = ta + tb/f_dev + tc/f_host ; E(f) = ea + eb/f_dev + eg*f_dev + eh/f_host.
+    Ajuste por minimos cuadrados sobre las acciones medidas de ese grupo, no
+    una prediccion todavia -- ver PhysicalCurveCostModel para la capa que
+    predice estos parametros para grupos no vistos.
+    """
+    records: list[dict[str, Any]] = []
+    for group_id, group in frame.groupby("decision_group_id", observed=True):
+        device = str(group["device"].iloc[0])
+        freqs = [
+            _device_host_frequency(action, device)
+            for action in group["frequency_action"].astype(str)
+        ]
+        f_dev = np.array([f[0] for f in freqs], dtype=float)
+        f_host = np.array([f[1] for f in freqs], dtype=float)
+        if len(np.unique(f_dev)) < 2 and len(np.unique(f_host)) < 2:
+            continue
+        t = group["time_s"].to_numpy(dtype=float)
+        e = group["energy_j"].to_numpy(dtype=float)
+        a_t = np.column_stack([np.ones_like(f_dev), 1.0 / f_dev, 1.0 / f_host])
+        a_e = np.column_stack([np.ones_like(f_dev), 1.0 / f_dev, f_dev, 1.0 / f_host])
+        coef_t, *_ = np.linalg.lstsq(a_t, t, rcond=None)
+        coef_e, *_ = np.linalg.lstsq(a_e, e, rcond=None)
+        row = group.iloc[0]
+        record = {"decision_group_id": group_id, "config_id": str(row["config_id"])}
+        for column in CURVE_STATIC_FEATURES:
+            record[column] = row[column]
+        record.update(zip(("ta", "tb", "tc"), (float(v) for v in coef_t)))
+        record.update(zip(("ea", "eb", "eg", "eh"), (float(v) for v in coef_e)))
+        records.append(record)
+    return pd.DataFrame(records)
+
+
+def _curve_param_pipeline(seed: int):
+    from sklearn.pipeline import Pipeline
+
+    categorical = ["operation", "resource_state", "device"]
+    numeric = [c for c in CURVE_STATIC_FEATURES if c not in categorical]
+    return Pipeline([
+        ("preprocessor", _preprocessor(categorical, numeric, scale=True)),
+        # Ridge es el sub-modelo de esta familia: verificado que domina a
+        # RandomForest en el mismo experimento que motiva esta clase (9,89%
+        # vs 9,42% de ahorro en gpu_ready, ver 6.5-bis del plan) y es mucho
+        # mas barato de ajustar 7 veces por pliegue de calibracion.
+        ("model", _base_estimator("ridge", seed)),
+    ])
+
+
+class PhysicalCurveCostModel:
+    """Predice los 7 parámetros de la curva física, no 40 costos por acción.
+
+    Hallazgo experimental (plan de reformulación, sección 6.5-bis): la misma
+    evaluación, mismos datos y pliegues, sin compuerta, muestra que predecir
+    los parámetros de `t(f)=ta+tb/f_dev+tc/f_host` y su análogo de energía
+    -- en vez de 40 acciones categóricas sin relación entre sí -- multiplica
+    por 2,5 el ahorro capturado en `gpu_ready` (3,89 % -> 9,89 % con Ridge).
+    El ajuste de la forma física por `config_id` da R² mediano 0,94-0,98 en
+    tiempo y 0,90-0,998 en energía.
+    """
+
+    def __init__(self, seed: int = FROZEN_SEED) -> None:
+        self.seed = seed
+        self._models: dict[str, Any] = {}
+        self._fallback: dict[str, float] = {}
+
+    def fit_curves(self, train: pd.DataFrame) -> "PhysicalCurveCostModel":
+        curves = _fit_group_curves(train)
+        if curves.empty:
+            raise DVFSContractError(
+                "no hay suficientes acciones por grupo para ajustar la curva fisica",
+            )
+        for param in CURVE_PARAMS:
+            self._fallback[param] = float(curves[param].median())
+            model = _curve_param_pipeline(self.seed)
+            model.fit(curves[list(CURVE_STATIC_FEATURES)], curves[param])
+            self._models[param] = model
+        return self
+
+    def _predict_params(self, x: pd.DataFrame) -> dict[str, np.ndarray]:
+        static = x[list(CURVE_STATIC_FEATURES)]
+        return {
+            param: (
+                self._models[param].predict(static) if param in self._models
+                else np.full(len(x), self._fallback.get(param, 0.0))
+            )
+            for param in CURVE_PARAMS
+        }
+
+    def predict_log_ratio(self, x: pd.DataFrame, kind: str) -> np.ndarray:
+        """log(costo(accion)/costo(REF)) reconstruido de forma analitica.
+
+        No necesita el costo REF medido de la fila: REF tiene frecuencia
+        relativa 1.0 por construccion (ver `_relative_frequency`), asi que
+        `costo(REF)` sale de evaluar la misma curva predicha en f=1.0 -- es
+        autoconsistente, no una segunda cantidad a predecir.
+        """
+        params = self._predict_params(x)
+        freqs = [
+            _device_host_frequency(action, device)
+            for action, device in zip(x["frequency_action"].astype(str), x["device"].astype(str))
+        ]
+        f_dev = np.array([f[0] for f in freqs], dtype=float)
+        f_host = np.array([f[1] for f in freqs], dtype=float)
+        if kind == "time":
+            value = params["ta"] + params["tb"] / f_dev + params["tc"] / f_host
+            value_ref = params["ta"] + params["tb"] + params["tc"]
+        elif kind == "energy":
+            value = params["ea"] + params["eb"] / f_dev + params["eg"] * f_dev + params["eh"] / f_host
+            value_ref = params["ea"] + params["eb"] + params["eg"] + params["eh"]
+        else:  # pragma: no cover
+            raise DVFSContractError(f"kind desconocido: {kind!r}")
+        value = np.clip(value, 1e-12, None)
+        value_ref = np.clip(value_ref, 1e-12, None)
+        log_ratio = np.log(value / value_ref)
+        # Salvaguarda numerica, no un resultado fisico: verificado con datos
+        # reales que un grupo de calibracion fuera de muestra puede hacer que
+        # el regresor de parametros extrapole un valor absurdo para un
+        # config atipico (ej. cholesky_N256 en gpu_ready con reloj de host
+        # F6), que al dividirse entre una fraccion de frecuencia chica
+        # (minimo real 0.149 en GPU) explota el log-ratio. El rango medido
+        # REAL de log_energy_ratio/log_time_ratio en las 40 acciones x 68
+        # config_id del catalogo es factor 5,67x (energia) y 7,03x (tiempo);
+        # un factor 8x por eje (energia y tiempo se recortan por separado y
+        # el EDP los multiplica) ya es generoso frente a lo observado. Un
+        # log-ratio fuera de ese rango es un artefacto de la regresion de
+        # parametros, no una senal real, y se recorta.
+        return np.clip(log_ratio, -math.log(8.0), math.log(8.0))
+
+
+class _CurveEnergyModel:
+    def __init__(self, curve: PhysicalCurveCostModel) -> None:
+        self._curve = curve
+
+    def predict(self, x: pd.DataFrame) -> np.ndarray:
+        return self._curve.predict_log_ratio(x, "energy")
+
+
+class _CurveTimeModel:
+    def __init__(self, curve: PhysicalCurveCostModel) -> None:
+        self._curve = curve
+
+    def predict(self, x: pd.DataFrame) -> np.ndarray:
+        return self._curve.predict_log_ratio(x, "time")
 
 
 def _ref_action(device: str) -> str:
@@ -247,6 +446,10 @@ def _fit_pair(train: pd.DataFrame, family: str, *, seed: int) -> tuple[Any, Any]
         energy.fit(x, train["log_energy_ratio"].to_numpy(dtype=float))
         time_model.fit(x, train["log_time_ratio"].to_numpy(dtype=float))
         return energy, time_model
+
+    if family == "curve_physical":
+        curve = PhysicalCurveCostModel(seed=seed).fit_curves(train)
+        return _CurveEnergyModel(curve), _CurveTimeModel(curve)
 
     from sklearn.pipeline import Pipeline
 

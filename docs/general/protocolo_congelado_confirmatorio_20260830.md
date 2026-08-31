@@ -275,6 +275,7 @@ invalida el carácter confirmatorio de la evaluación.
 | 2026-08-30 | enmienda **2026-08-30-B**: target estructurado en tres capas (§13); §1 y §4 supersedidas parcialmente | **no** — verificado: jobs 6763/6764 en `PENDING`, sin directorios de salida al redactar |
 | 2026-08-30 | enmienda **2026-08-30-C**: corrección de selección y agregación de R2 (§14) | **no** — verificado: jobs 6763/6764 en `PENDING`, sin directorios de salida al redactar |
 | 2026-08-31 | enmienda **2026-08-31-A**: target relativo a REF y profundidad libre para R3-A (§15) | **no** — verificado por `squeue`: jobs 6763/6764 siguen en `PENDING` (razones "Nodes required... DOWN/DRAINED" y "Resources"), sin directorios de salida al redactar |
+| 2026-08-31 | enmienda **2026-08-31-B**: integración de `curve_physical`, autocorrección del hallazgo de 6.5-bis bajo compuerta honesta, frecuencias reales, diagnóstico `cpu_ready`/`none_ready` (§16) | **no** — verificado por `squeue`: jobs 6763/6764 siguen en `PENDING`, sin directorios de salida al redactar |
 
 ---
 
@@ -645,3 +646,139 @@ pliegue (-0,22% en `extrapolation_top2`) — se reporta sin ocultarlo. No se
 adopta R3-A como política; el resultado que cambia es que, por primera vez,
 el modelo actúa (no se abstiene siempre) exactamente en el estado donde R1
 ya había medido el margen más grande, y cuando actúa, ahorra.
+
+## 16. Enmienda 2026-08-31-B — integración de `curve_physical`, autocorrección del hallazgo experimental y frecuencias reales
+
+**Fecha:** 2026-08-31
+**Datos confirmatorios observados al redactar:** ninguno; los jobs 6763/6764
+continuaban en `PENDING` (razones "Nodes required... DOWN/DRAINED" y
+"Resources"), sin directorios de salida.
+**Ámbito:** R3-A. Integra al pipeline el hallazgo experimental registrado en
+la sección 6.5-bis del plan de reformulación (curva física en vez de 40
+costos categóricos) y corrige un supuesto no verificado sobre frecuencias.
+
+### 16.1 Integración de `curve_physical` como familia adicional
+
+Se agregó `curve_physical` a `DVFS_FAMILIES` (`classifier/selector/dvfs.py`):
+predice los 7 parámetros de `t(f)=t_a+t_b/f_{dev}+t_c/f_{host}` y su análogo
+de energía por `config_id × resource_state`, en vez de 40 costos por acción
+sin relación entre sí. Reutiliza sin cambios el resto de la arquitectura de
+R3-A (calibración de incertidumbre por `(resource_state, device,
+size_regime)`, compuerta de abstención, folds pareados con las demás
+familias).
+
+**Defecto encontrado durante la integración, no presente en el experimento
+sin compuerta:** al someter `curve_physical` a la calibración fuera de
+muestra (§5.3), un grupo de prueba atípico (`cholesky_N256`, `gpu_ready`,
+reloj de host `F6`) hizo que el regresor de parámetros extrapolara un valor
+absurdo, que al dividirse entre la fracción de frecuencia mínima real del
+GPU (0,149, ver §16.3) produjo un log-ratio disparatado — p95 de
+incertidumbre de hasta 4,69e13% en un pliegue. El experimento sin compuerta
+de la sección 6.5-bis del plan nunca calibra error fuera de muestra por
+separado, así que este defecto no era visible allí.
+
+**Corrección:** se recorta el log-ratio predicho (energía y tiempo, por
+separado) a `±ln(8)`, un factor 8x por eje. El rango real medido de
+`log_energy_ratio`/`log_time_ratio` en las 40 acciones × 68 `config_id` del
+catálogo es factor 5,67x (energía) y 7,03x (tiempo); 8x es generoso frente a
+lo observado y evita que un valor de parámetro degenerado se propague sin
+límite. Es una salvaguarda numérica documentada en el código, no un
+resultado físico ni un hiperparámetro ajustado por desempeño.
+
+### 16.2 Autocorrección: el hallazgo de 6.5-bis no sobrevive a la compuerta honesta
+
+Con la salvaguarda aplicada, `curve_physical` ya no explota numéricamente,
+pero **tampoco supera a `power_law`** en la comparación gated (Tabla
+siguiente, extrapolación, `resource_state=all`):
+
+| pliegue | familia | razón vs. oráculo | abstención | incertidumbre p95 |
+|---|---|---|---|---|
+| `extrapolation_top1` | `power_law` | **1,0121** | 83,3% | 68,1% |
+| `extrapolation_top1` | `curve_physical` | 1,0137 | 100% | 189,6% |
+| `extrapolation_top2` | `power_law` | **1,0130** | 66,7% | 92,2% |
+| `extrapolation_top2` | `curve_physical` | 1,0136 | 100% | 3.167,2% |
+
+Esto **corrige, no reemplaza**, el hallazgo de la sección 6.5-bis del plan.
+La comparación sin compuerta (9,89% de ahorro con Ridge, contra 3,89% de la
+formulación categórica) seguía siendo válida como evidencia de que la
+*forma* física describe mejor los datos ($R^2$ 0,94-0,98) — eso no cambia.
+Lo que no sobrevivió fue la promesa implícita de que esa forma ya estaba
+lista para actuar: al exigirle la misma calibración de incertidumbre fuera
+de muestra que exige a las demás familias, `curve_physical` resulta **más
+inestable**, no más confiable, porque predecir 7 parámetros compartidos por
+`config_id` (en vez de 40 valores independientes) hace que un solo grupo mal
+predicho contamine la reconstrucción de las 32-40 acciones de ese grupo a la
+vez, mientras que un regresor categórico solo se equivoca en las acciones
+que predice directamente.
+
+El procedimiento de selección de §5.4 ya elige correctamente `power_law`
+como familia (verificado: `dvfs_summary.json` reporta
+`"family": "power_law"` después de esta integración) — no fue necesario
+intervenir la selección, la propia regla bloqueante descartó
+`curve_physical` con la evidencia gated. `curve_physical` se conserva en el
+código y en `DVFS_FAMILIES` como familia evaluada y descartada, con su
+propia cobertura de pruebas; no se elimina, para que quede trazable por qué
+no se adoptó.
+
+### 16.3 Fracciones de frecuencia: supuesto reemplazado por telemetría real
+
+El supuesto original (`CURVE_FREQUENCY_FLOOR = 0,35`, aplicado por igual a
+CPU y GPU) quedó registrado en la sección 6.5-bis del plan como "verificado
+solo indirectamente". Se verificó directamente contra `freq_khz_observed`
+(CPU) y `gpu_sm_clock_mhz` (GPU) de `run_regions.csv` (16.320 filas de
+telemetría real de campaña):
+
+| nivel | fracción declarada (manifiesto) | fracción real CPU | fracción real GPU |
+|---|---|---|---|
+| F0 | 1,000 | 1,000 | 1,000 |
+| F3 | 0,500 | 0,631 | 0,574 |
+| F6 | 0,000 | **0,267** | **0,149** |
+| REF | (gobernador nativo) | 0,994 | 1,000 |
+
+El hardware nunca llega al reloj mínimo nominal declarado, y CPU y GPU
+difieren entre sí en cuánto se desvían. `FREQUENCY_FRACTION` se reemplazó
+por `CPU_FREQUENCY_FRACTION`/`GPU_FREQUENCY_FRACTION`, específicas por
+dispositivo y derivadas de la mediana observada, no de un piso supuesto.
+REF se mapea a la fracción de F0 (1,0) en ambas tablas porque su fracción
+real medida (0,994 CPU, 1,000 GPU) coincide dentro del error de medición,
+consistente con la verificación previa (razón de tiempo REF/F0 mediana
+1,0001 en CPU).
+
+### 16.4 Diagnóstico adicional: por qué `cpu_ready` calla y `none_ready` no mejora
+
+Antes de esta enmienda quedaba abierto si la calibración por tamaño de la
+enmienda 2026-08-31-A ayudaría también en `cpu_ready` y `none_ready`.
+Verificado con el headroom de la sección \ref{sec:resultados-r1-headroom-dvfs}
+del libro (`dvfs_headroom.csv`):
+
+- **`cpu_ready`**: headroom mediano 0,25%, solo 3/68 configuraciones por
+  encima del piso de ruido. No hay margen real que capturar; que el modelo
+  se abstenga siempre ahí es la respuesta correcta, no una falla de
+  calibración.
+- **`none_ready`**: headroom mediano 4,98%, 38/68 configuraciones por
+  encima del piso de ruido — sí hay margen real. Pero separar por tamaño
+  (mismo mecanismo que funcionó en `gpu_ready`) no lo desbloquea: incluso el
+  subconjunto de tamaño grande tiene error mediano del 18,1% (p95 68,1%),
+  muy por encima del margen disponible (4,98%). La causa probable no es la
+  granularidad de la calibración sino que `none_ready` descansa enteramente
+  en mediciones de la región **fría** (piso de ruido 5,76%, casi 3x el de la
+  región caliente, sección \ref{sec:resultados-r1-piso-ruido} del libro) —
+  la misma fuente de ruido que ya explicaba la banda de sensibilidad del
+  41% mediano en $K_{\text{break\_even}}$. Queda como diagnóstico abierto,
+  no resuelto por esta enmienda.
+
+### 16.5 Lo que esta enmienda NO cambia
+
+- No cambia la conclusión de la enmienda 2026-08-31-A: `power_law` sigue
+  siendo la única familia con ahorro real y positivo verificado (~5,0% en
+  `gpu_ready`), y R3-A sigue sin adoptarse como política general.
+- No modifica la calibración por tamaño de la enmienda 2026-08-31-A.
+- No resuelve el régimen de cola (GPU, N chico, reloj de host bajo) ni el
+  problema de `none_ready` recién diagnosticado en §16.4.
+- No reclama que la formulación por curva física esté descartada en
+  general — el ajuste de forma ($R^2$ 0,94-0,98) sigue siendo evidencia
+  válida; lo que se descarta es predecir sus 7 parámetros vía Ridge/RF sobre
+  descriptores estáticos como reemplazo inmediato de `power_law`. Una
+  regularización más fuerte, más datos por grupo, o predecir los parámetros
+  por separado en vez de conjuntamente podrían revertir esta conclusión;
+  ninguna de esas variantes se probó todavía.

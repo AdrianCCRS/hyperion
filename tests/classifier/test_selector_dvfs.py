@@ -1,5 +1,6 @@
 """Contrato de la capa DVFS offline R3-A."""
 from pathlib import Path
+import math
 import sys
 
 import numpy as np
@@ -139,3 +140,128 @@ def test_seleccion_es_una_familia_y_una_baseline_globales():
     assert selected["family"] == "ridge"
     assert selected["baseline"] in {"always_ref", "best_constant_train"}
     assert isinstance(selected["adopt_model"], bool)
+
+
+# --------------------------------------------------------------------------
+# curve_physical -- hallazgo del plan de reformulacion, seccion 6.5-bis:
+# predecir 7 parametros de la curva fisica t(f)=ta+tb/f_dev+tc/f_host en vez
+# de 40 costos categoricos independientes.
+# --------------------------------------------------------------------------
+
+def test_relative_frequency_ref_siempre_es_uno():
+    for level in ("REF", "F0"):
+        assert dvfs._relative_frequency(level, "cpu") == pytest.approx(1.0)
+        assert dvfs._relative_frequency(level, "gpu") == pytest.approx(1.0)
+    # F6 real (freq_khz_observed / gpu_sm_clock_mhz) no llega al minimo
+    # nominal declarado en el manifiesto -- CPU y GPU difieren entre si.
+    assert dvfs._relative_frequency("F6", "cpu") == pytest.approx(0.267)
+    assert dvfs._relative_frequency("F6", "gpu") == pytest.approx(0.149)
+    with pytest.raises(dvfs.DVFSContractError):
+        dvfs._relative_frequency("F9", "cpu")
+
+
+def test_device_host_frequency_cpu_usa_el_mismo_nivel_dos_veces():
+    fd, fh = dvfs._device_host_frequency("cpu:F3", "cpu")
+    assert fd == fh == pytest.approx(dvfs._relative_frequency("F3", "cpu"))
+    fd, fh = dvfs._device_host_frequency("gpu:F0:F6", "gpu")
+    assert fd == pytest.approx(dvfs._relative_frequency("F6", "gpu"))  # nivel del dispositivo
+    assert fh == pytest.approx(dvfs._relative_frequency("F0", "cpu"))  # nivel del anfitrion
+
+
+def _candidates_con_barrido_frecuencia():
+    """Sigue la ley fisica t=ta+tb/f_dev+tc/f_host, E=ea+eb/f_dev+eg*f_dev+eh/f_host
+    con parametros distintos por operacion, para que curve_physical tenga
+    una forma real que recuperar (no solo 2 puntos por accion)."""
+    rows = []
+    cpu_levels = ("REF", "F0", "F2", "F4", "F6")
+    gpu_levels = ("REF", "F0", "F3", "F6")
+    for operation, (ta, tb, tc, ea, eb, eg, eh) in (
+        ("gemm", (0.02, 0.30, 0.02, 0.01, 0.05, 0.02, 0.01)),
+        ("stencil", (0.05, 0.05, 0.05, 0.03, 0.01, 0.04, 0.03)),
+    ):
+        for size in (128, 256, 512):
+            config_id = f"{operation}_N{size}"
+            scale = (size / 128.0)
+            for region, cold_mult in (("cold", 3.0), ("warm", 1.0)):
+                for cpu_level in cpu_levels:
+                    f = dvfs._relative_frequency(cpu_level, "cpu")
+                    t = (ta + tb / f + tc / f) * scale * cold_mult
+                    e = (ea + eb / f + eg * f + eh / f) * scale * cold_mult
+                    rows.append(_row(config_id, operation, size, "cpu", f"cpu:{cpu_level}", region, e, t))
+                for host_level in gpu_levels:
+                    for dev_level in gpu_levels:
+                        fd = dvfs._relative_frequency(dev_level, "gpu")
+                        fh = dvfs._relative_frequency(host_level, "cpu")
+                        t = (ta + tb / fd + tc / fh) * scale * cold_mult * 0.4
+                        e = (ea + eb / fd + eg * fd + eh / fh) * scale * cold_mult * 0.4
+                        rows.append(_row(
+                            config_id, operation, size, "gpu",
+                            f"gpu:{host_level}:{dev_level}", region, e, t,
+                        ))
+    return pd.DataFrame(rows)
+
+
+def test_curve_physical_esta_registrada_como_familia():
+    assert "curve_physical" in dvfs.DVFS_FAMILIES
+
+
+def test_curve_physical_ajusta_y_reconstruye_ref_de_forma_autoconsistente():
+    frame = dvfs.build_dvfs_dataset(_candidates_con_barrido_frecuencia())
+    models = dvfs.fit_cost_models(frame, "curve_physical", calibration_splits=0)
+    predicted = dvfs.predict_costs(models, frame)
+    ref_rows = predicted[predicted["frequency_action"] == predicted["reference_action"]]
+    # En REF, costo(accion)/costo(REF) == 1 por construccion (autoconsistente,
+    # no una segunda cantidad predicha) -- ver PhysicalCurveCostModel.
+    np.testing.assert_allclose(ref_rows["pred_energy_j"], ref_rows["ref_energy_j"], rtol=1e-6)
+    np.testing.assert_allclose(ref_rows["pred_time_s"], ref_rows["ref_time_s"], rtol=1e-6)
+
+
+def test_curve_physical_predice_razonablemente_bien_la_forma_conocida():
+    frame = dvfs.build_dvfs_dataset(_candidates_con_barrido_frecuencia())
+    models = dvfs.fit_cost_models(frame, "curve_physical", calibration_splits=0)
+    predicted = dvfs.predict_costs(models, frame)
+    error_pct = 100.0 * np.abs(predicted["pred_edp_js"] / predicted["edp_js"] - 1.0)
+    # Los datos siguen la forma exacta que el modelo asume; el error debe ser
+    # chico (no cero: hay Ridge con regularizacion sobre pocos config_id).
+    assert error_pct.median() < 15.0
+
+
+def test_curve_physical_participa_en_evaluate_dvfs_sin_romper_el_contrato():
+    frame = dvfs.build_dvfs_dataset(_candidates_con_barrido_frecuencia())
+    results, decisions = dvfs.evaluate_dvfs(frame, families=("curve_physical",))
+    assert (results["method"] == "model").any()
+    assert set(decisions["family"]) == {"curve_physical"}
+    assert not decisions.empty
+
+
+def test_curve_physical_recorta_log_ratio_ante_extrapolacion_absurda():
+    # Reproduce el caso real (cholesky_N256, gpu_ready, host F6) donde el
+    # regresor de parametros extrapola un valor absurdo para un grupo fuera
+    # de muestra y, dividido entre una fraccion de frecuencia chica, produce
+    # un log-ratio disparatado. Fuerza el mismo mecanismo con parametros
+    # de curva inventados, sin pasar por el ajuste real.
+    curve = dvfs.PhysicalCurveCostModel()
+    huge = 1e12
+
+    class _FixedModel:
+        def __init__(self, value):
+            self.value = value
+
+        def predict(self, x):
+            return np.full(len(x), self.value)
+
+    curve._models = {
+        "ta": _FixedModel(0.0), "tb": _FixedModel(huge), "tc": _FixedModel(0.0),
+        "ea": _FixedModel(0.0), "eb": _FixedModel(huge), "eg": _FixedModel(0.0), "eh": _FixedModel(0.0),
+    }
+    x = pd.DataFrame([{
+        "frequency_action": "gpu:F6:F6", "device": "gpu",
+        "operation": "cholesky", "resource_state": "gpu_ready",
+        "log10_n": 2.4, "flops_per_dispatch_analytic": 1.0,
+        "log10_flops_per_dispatch": 0.0, "logical_bytes_per_dispatch": 1.0,
+        "log10_logical_bytes": 0.0, "arithmetic_intensity_analytic": 1.0,
+    }])
+    ratio = curve.predict_log_ratio(x, "time")[0]
+    assert abs(ratio) <= math.log(8.0) + 1e-9
+    ratio_e = curve.predict_log_ratio(x, "energy")[0]
+    assert abs(ratio_e) <= math.log(8.0) + 1e-9
