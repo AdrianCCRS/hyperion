@@ -46,6 +46,23 @@ DVFS_FEATURES: tuple[str, ...] = (
 )
 
 
+def _size_regimes(train: pd.DataFrame) -> dict[str, float]:
+    """Mediana de tamaño por operación, calculada solo con TRAIN.
+
+    No hay un umbral absoluto de tamaño valido entre operaciones: axpy solo
+    tiene 2 tamaños (31623, 100000) y cholesky va de 64 a miles. El corte se
+    hace relativo a la escala propia de cada operacion.
+    """
+    return train.groupby("operation")["size"].median().to_dict()
+
+
+def _size_regime(operation: str, size: float, thresholds: Mapping[str, float]) -> str:
+    threshold = thresholds.get(str(operation))
+    if threshold is None:
+        return "large"
+    return "small" if float(size) < float(threshold) else "large"
+
+
 class DVFSContractError(RuntimeError):
     """El dataset o una política DVFS viola el contrato de R3-A."""
 
@@ -55,7 +72,9 @@ class CostModels:
     energy: Any
     time: Any
     uncertainty_pct: float
-    uncertainty_pct_by_context: Mapping[tuple[str, str], float]
+    # clave: (resource_state, device, size_regime) -- ver _size_regime.
+    uncertainty_pct_by_context: Mapping[tuple[str, str, str], float]
+    size_thresholds: Mapping[str, float]
 
 
 class PowerLawCostModel:
@@ -262,8 +281,13 @@ def fit_cost_models(
 
     configs = train["config_id"].astype(str).to_numpy()
     unique = len(set(configs))
+    # Umbral de tamaño por operacion, fijado UNA vez con el train completo del
+    # pliegue externo (no con cada pliegue interno de calibracion) para que
+    # todas las particiones internas usen el mismo corte. No es fuga: no usa
+    # ninguna etiqueta de prueba, solo la columna `size`.
+    size_thresholds = _size_regimes(train)
     errors: list[float] = []
-    contextual_errors: dict[tuple[str, str], list[float]] = {}
+    contextual_errors: dict[tuple[str, str, str], list[float]] = {}
     splits = min(calibration_splits, unique)
     if splits >= 2:
         for train_idx, test_idx in GroupKFold(n_splits=splits).split(train, groups=configs):
@@ -276,11 +300,14 @@ def fit_cost_models(
             actual = inner_test["edp_js"].to_numpy(dtype=float)
             fold_errors = 100.0 * np.abs(predicted / actual - 1.0)
             errors.extend(fold_errors.tolist())
-            for state, device, error in zip(
+            for state, device, operation, size, error in zip(
                 inner_test["resource_state"].astype(str),
-                inner_test["device"].astype(str), fold_errors,
+                inner_test["device"].astype(str),
+                inner_test["operation"].astype(str),
+                inner_test["size"], fold_errors,
             ):
-                contextual_errors.setdefault((state, device), []).append(float(error))
+                regime = _size_regime(operation, size, size_thresholds)
+                contextual_errors.setdefault((state, device, regime), []).append(float(error))
     energy, time_model = _fit_pair(train, family, seed=seed)
     if errors:
         uncertainty = float(np.quantile(np.asarray(errors, dtype=float), 0.95))
@@ -297,7 +324,7 @@ def fit_cost_models(
     }
     return CostModels(
         energy=energy, time=time_model, uncertainty_pct=uncertainty,
-        uncertainty_pct_by_context=by_context,
+        uncertainty_pct_by_context=by_context, size_thresholds=size_thresholds,
     )
 
 
@@ -307,6 +334,10 @@ def predict_costs(models: CostModels, frame: pd.DataFrame) -> pd.DataFrame:
     out["pred_energy_j"] = out["ref_energy_j"].to_numpy(dtype=float) * np.exp(models.energy.predict(x))
     out["pred_time_s"] = out["ref_time_s"].to_numpy(dtype=float) * np.exp(models.time.predict(x))
     out["pred_edp_js"] = out["pred_energy_j"] * out["pred_time_s"]
+    out["size_regime"] = [
+        _size_regime(operation, size, models.size_thresholds)
+        for operation, size in zip(out["operation"].astype(str), out["size"])
+    ]
     return out
 
 
@@ -323,7 +354,7 @@ def choose_actions(
     predicted: pd.DataFrame,
     *,
     model_uncertainty_pct: float,
-    model_uncertainty_pct_by_context: Mapping[tuple[str, str], float] | None = None,
+    model_uncertainty_pct_by_context: Mapping[tuple[str, str, str], float] | None = None,
     overhead_energy_j: float = 0.0,
     overhead_time_s: float = 0.0,
 ) -> pd.DataFrame:
@@ -352,8 +383,11 @@ def choose_actions(
         )
         best_pred = float(group["pred_net_edp_js"].min())
         region = str(group["region"].iloc[0])
+        # size_regime lo agrega predict_costs; si el llamador arma el grupo a
+        # mano (pruebas), se asume "large" -- el fallback de _size_regime.
+        size_regime = str(group["size_regime"].iloc[0]) if "size_regime" in group.columns else "large"
         context = (
-            str(group["resource_state"].iloc[0]), str(group["device"].iloc[0]),
+            str(group["resource_state"].iloc[0]), str(group["device"].iloc[0]), size_regime,
         )
         contextual = (model_uncertainty_pct_by_context or {}).get(
             context, model_uncertainty_pct,

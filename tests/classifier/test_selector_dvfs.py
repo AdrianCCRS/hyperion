@@ -111,8 +111,25 @@ def test_power_law_calibra_incertidumbre_por_contexto():
     frame = dvfs.build_dvfs_dataset(_candidates())
     models = dvfs.fit_cost_models(frame, "power_law")
     assert models.uncertainty_pct_by_context
-    assert ("gpu_ready", "gpu") in models.uncertainty_pct_by_context
+    # La clave es (resource_state, device, size_regime): el regimen de
+    # tamano evita que una minoria de configs dificiles contamine el umbral
+    # de confianza de las demas dentro del mismo (resource_state, device).
+    assert all(len(key) == 3 for key in models.uncertainty_pct_by_context)
+    assert any(key[:2] == ("gpu_ready", "gpu") for key in models.uncertainty_pct_by_context)
     assert all(value >= 0 for value in models.uncertainty_pct_by_context.values())
+    assert models.size_thresholds
+
+
+def test_size_regime_es_relativo_a_cada_operacion():
+    # axpy solo tiene tamanos grandes (31623/100000); no hay umbral absoluto
+    # valido entre operaciones -- ver _size_regimes.
+    thresholds = {"axpy": 65811.5, "gemm": 160.0}
+    assert dvfs._size_regime("axpy", 31623, thresholds) == "small"
+    assert dvfs._size_regime("axpy", 100000, thresholds) == "large"
+    assert dvfs._size_regime("gemm", 128, thresholds) == "small"
+    assert dvfs._size_regime("gemm", 192, thresholds) == "large"
+    # operacion sin umbral conocido -> por defecto "large" (conservador).
+    assert dvfs._size_regime("spmv", 10, thresholds) == "large"
 
 
 def test_seleccion_es_una_familia_y_una_baseline_globales():

@@ -607,3 +607,41 @@ tal como se decidió allí, porque ese límite fue correcto para ese problema
   identificado en §15.2; queda como diagnóstico abierto para una iteración
   futura de R3-A (tratamiento aparte del overhead de lanzamiento, o
   exclusión explícita de ese régimen de la banda de equivalencia).
+
+### 15.4 Calibración por régimen de tamaño (mismo día, misma enmienda)
+
+**Motivo:** el error de calibración de §15.2 se agregaba por
+`(resource_state, device)` únicamente. Verificado con datos reales: dentro de
+`gpu_ready/gpu` (56 configs), separar por tamaño relativo a la operación
+(mediana de `size` por operación en el propio `train`, sin fuga: nunca usa
+`config_id` de prueba) muestra que las 26 configuraciones de tamaño grande
+tienen error mediano **3,7%** (p95 27,1%) mientras las 30 de tamaño chico
+tienen error mediano 9,6% (p95 66,9%). Un solo umbral por `(estado,
+dispositivo)` obligaba a las configuraciones grandes a heredar la banda de
+incertidumbre inflada de las chicas, y con eso el margen real medido en R1
+(headroom mediano 13,46% para las 26 configs grandes de `gpu_ready`, 26/26
+por encima del piso de ruido) nunca llegaba a superar el umbral de
+abstención.
+
+**Cambio:** `CostModels.uncertainty_pct_by_context` pasa a indexarse por
+`(resource_state, device, size_regime)`, con `size_regime ∈ {small, large}`
+calculado por operación (`dvfs._size_regimes`/`_size_regime`). No hay umbral
+absoluto de tamaño válido entre operaciones (axpy solo tiene los tamaños
+31623 y 100000; cholesky va de 64 a miles), así que el corte es siempre
+relativo a la escala propia de cada operación.
+
+**Resultado verificado (extrapolación, mismos pliegues, familia
+`power_law`):** la abstención en `gpu_ready` baja de 100% a 50%
+(`extrapolation_top1`, n=6) y 75% (`extrapolation_top2`, n=12), y en ambos
+casos el modelo captura un ahorro real y positivo de **~5,0%** de EDP contra
+REF en ese estado — el primer resultado no nulo de R3-A. `random_forest` no
+mejora de forma consistente (savings ≈0% o levemente negativo); `power_law`
+es, por ahora, la única familia con señal positiva repetida.
+
+Este resultado sigue **sin superar la baseline no aprendida**
+(`best_constant_train`) en la comparación agregada de §5.4, y en
+`cpu_ready` el mismo cambio produce un ahorro levemente negativo en un
+pliegue (-0,22% en `extrapolation_top2`) — se reporta sin ocultarlo. No se
+adopta R3-A como política; el resultado que cambia es que, por primera vez,
+el modelo actúa (no se abstiene siempre) exactamente en el estado donde R1
+ya había medido el margen más grande, y cuando actúa, ahorra.
