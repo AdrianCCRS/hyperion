@@ -1699,6 +1699,45 @@ Las secciones siguientes reportan la Fase R1 de la reformulación del selector: 
 
 Este reanálisis es exploratorio y no sustituye la evaluación confirmatoria: una campaña separada reserva 9 configuraciones nuevas de \textit{GEMM}, \textit{Cholesky} y transformada de Fourier en $N \in \{8\,192, 12\,288, 16\,384\}$, bajo un protocolo congelado el mismo día antes de observar ninguna de sus mediciones. Esas 9 configuraciones \textbf{aún no se han observado} al momento de redactar este capítulo; los resultados que siguen se calculan exclusivamente sobre las 68 configuraciones exploratorias, y donde corresponda se señala qué pregunta queda pendiente de la evaluación confirmatoria.
 
+\subsection{Panorama del catálogo: tiempo, energía y tamaño}
+\label{sec:resultados-r1-panorama}
+
+Antes de entrar en el mapa de amortización, conviene mostrar directamente la base física sobre la que se construye: cómo se comporta el tiempo por despacho entre las dos regiones temporales, cómo escalan tiempo y energía con el tamaño del problema, y en qué tamaño cada operación cruza de un dispositivo ganador al otro.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{figuras/fig_r1_cold_warm_time.pdf}
+\caption[Tiempo por despacho, región fría vs. caliente]{Tiempo por despacho en la región fría y en la región caliente, a frecuencia REF, para el tamaño mayor de cada operación. Barras de error: desviación estándar entre las tres repeticiones.}
+\label{fig:r1-cold-warm}
+\end{figure}
+
+La Figura \ref{fig:r1-cold-warm} hace visible en un solo vistazo la razón física de la sección \ref{sec:resultados-compuerta-dual}: en GPU, el tiempo frío es entre uno y dos órdenes de magnitud mayor que el tiempo caliente en las seis operaciones --- la firma del arranque de CUDA ---, mientras que en CPU ambas regiones son comparables porque no existe un costo de inicialización de esa magnitud que amortizar.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{figuras/fig_r1_size_vs_tiempo.pdf}
+\caption[Tamaño de problema vs. tiempo por despacho]{Tiempo por despacho en función del tamaño de problema, región caliente, frecuencia REF, escala log-log.}
+\label{fig:r1-size-tiempo}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{figuras/fig_r1_size_vs_energia.pdf}
+\caption[Tamaño de problema vs. energía por despacho]{Energía por despacho en función del tamaño de problema, región caliente, frecuencia REF, escala log-log.}
+\label{fig:r1-size-energia}
+\end{figure}
+
+Las Figuras \ref{fig:r1-size-tiempo} y \ref{fig:r1-size-energia} muestran el mismo patrón de escalado en tiempo y en energía, consistente con que el segundo es, a frecuencia fija, aproximadamente proporcional al primero. En ambos dispositivos, \textit{Cholesky}, la transformada de Fourier y la multiplicación de matrices crecen con la pendiente más pronunciada --- coherente con su complejidad superlineal en $N$ ---, mientras que las tres operaciones vectoriales crecen de forma más suave.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.85\textwidth]{figuras/fig_r1_crossover_edp.pdf}
+\caption[Cruce de EDP entre GPU y CPU por tamaño]{Razón de EDP GPU/CPU (log) en función del tamaño de problema, región caliente, frecuencia REF. Debajo de la línea horizontal, la GPU tiene menor EDP; encima, la CPU.}
+\label{fig:r1-crossover}
+\end{figure}
+
+La Figura \ref{fig:r1-crossover} resume el hallazgo central de la sección \ref{sec:resultados-warm-gpu} en una sola imagen: \textit{Cholesky}, \textit{GEMM} y la transformada de Fourier --- las tres operaciones \textit{compute-bound} --- cruzan hacia GPU a medida que $N$ crece, mientras que \textit{stencil}, combinación lineal de vectores y matriz--vector dispersa --- las tres \textit{memory-bound} --- hacen exactamente lo contrario: parten favoreciendo a la GPU en sus tamaños más pequeños y se alejan de ella, sin cruzar nunca la paridad, a medida que $N$ crece. El patrón es simétrico y opuesto entre los dos regímenes, y ninguna de las seis curvas lo contradice.
+
 \subsection{El mapa de amortización \texorpdfstring{$K_{\text{break\_even}}$}{K\_break\_even}}
 \label{sec:resultados-r1-amortizacion}
 
@@ -1782,6 +1821,29 @@ Una vez fijado el dispositivo, resta cuantificar cuánto puede ganar todavía la
 
 Sobre este resultado conviene distinguir dos afirmaciones que no son equivalentes y que deben mantenerse separadas. La primera es que el margen relativo mediano entre la mejor frecuencia y la segunda mejor, dentro de la estrategia con sondeo, es del 1,03\,\%: ese número indica que el \texttt{argmin} fino --- identificar exactamente cuál de las ocho frecuencias es la óptima puntual --- es inestable frente al ruido de medición. La segunda es que \texttt{gpu\_ready} conserva, en 56 de sus 68 configuraciones, una mejora potencial sobre REF por encima del piso de ruido del 3,11\,\% (sección \ref{sec:resultados-r1-piso-ruido}), con mediana del 9,45\,\%. Que el óptimo puntual sea inestable no implica que REF sea equivalente al conjunto de mejores frecuencias: hay un margen mediano recuperable de un orden de magnitud mayor que el piso de ruido en el estado que domina el catálogo tras la selección de dispositivo. La tarea pendiente para la capa DVFS no es, entonces, localizar el óptimo exacto entre ocho niveles, sino identificar un conjunto de frecuencias estadísticamente equivalentes y robustas frente al ruido, y descontar después el costo real de la actuación.
 
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{figuras/fig_r1_tiempo_vs_frecuencia.pdf}
+\caption[Tiempo por despacho vs. frecuencia]{Tiempo por despacho en función del nivel de frecuencia, región caliente, para dos operaciones \textit{compute-bound} (GEMM, Cholesky) y dos \textit{memory-bound} (AXPY, \textit{stencil}), en su tamaño mayor.}
+\label{fig:r1-tiempo-frecuencia}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{figuras/fig_r1_energia_vs_frecuencia.pdf}
+\caption[Energía por despacho vs. frecuencia]{Energía por despacho en función del nivel de frecuencia, mismas operaciones, dispositivos y tamaños que la Figura \ref{fig:r1-tiempo-frecuencia}.}
+\label{fig:r1-energia-frecuencia}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{figuras/fig_r1_edp_vs_frecuencia.pdf}
+\caption[EDP por despacho vs. frecuencia]{Producto energía--retardo por despacho en función del nivel de frecuencia, mismas operaciones, dispositivos y tamaños que las Figuras \ref{fig:r1-tiempo-frecuencia} y \ref{fig:r1-energia-frecuencia}.}
+\label{fig:r1-edp-frecuencia}
+\end{figure}
+
+Las Figuras \ref{fig:r1-tiempo-frecuencia}--\ref{fig:r1-edp-frecuencia} muestran por qué el óptimo fino es inestable: en las cuatro operaciones y en ambos dispositivos, tiempo, energía y EDP crecen de forma moderada entre F0 y F3 --- las cuatro frecuencias más altas --- y se degradan con pendiente notablemente mayor entre F3 y F6, la más baja; \texttt{REF}, el gobernador nativo, recupera en las cuatro operaciones un punto operativo cercano al de F0, no uno intermedio. El óptimo de EDP se ubica siempre en el extremo de alta frecuencia (F0 o \texttt{REF}) y nunca en un punto interior, con una diferencia entre F0, F1, F2 y F3 pequeña frente a la caída hacia F6 --- la lectura que sostiene la conclusión de la sección anterior: conviene buscar un conjunto de frecuencias altas equivalentes, no un único punto óptimo aislado.
+
 \subsection{El piso de ruido y su descomposición regional}
 \label{sec:resultados-r1-piso-ruido}
 
@@ -1805,6 +1867,15 @@ Región \texttt{warm} & 1,80\,\% \\
 \end{table}
 
 La descomposición por región es la más relevante para interpretar los resultados anteriores: la región fría es aproximadamente tres veces más ruidosa que la región caliente. Esto no es un detalle secundario, porque el estado \texttt{none\_ready} --- y con él, la totalidad de los términos $E_{\text{cold}}$ y $T_{\text{cold}}$ que alimentan el mapa de amortización de la sección \ref{sec:resultados-r1-amortizacion} --- descansa enteramente sobre mediciones de la región más ruidosa del experimento. La banda de incertidumbre del 41\,\% mediano reportada para $K_{\text{break\_even}}$ es, en buena medida, una consecuencia directa de heredar ese piso más alto.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{figuras/fig_r1_cv_ruido.pdf}
+\caption[Dispersión del EDP entre repeticiones]{Distribución del coeficiente de variación del EDP entre las tres repeticiones de cada acción, por región temporal y por dispositivo (diagramas de caja, valores atípicos omitidos; mediana anotada).}
+\label{fig:r1-cv}
+\end{figure}
+
+La Figura \ref{fig:r1-cv} hace visible la asimetría de la Tabla \ref{tab:r1-piso-ruido} más allá de la mediana: la caja de la región fría está desplazada en bloque hacia valores más altos, sin apenas solapamiento con la de la región caliente, mientras que la diferencia entre CPU y GPU es más modesta y sus cajas se solapan de forma sustancial --- el factor dominante del piso de ruido es la región temporal, no el dispositivo.
 
 \subsection{El resultado de baselines y su alcance}
 \label{sec:resultados-r1-baselines}
@@ -1850,6 +1921,15 @@ y no una regla constante por estado. El resultado de la sección \ref{sec:result
 La sección \ref{sec:resultados-warm-gpu} mostró que, en la región caliente, la ventaja de la GPU se concentra en las tres operaciones de mayor intensidad operacional y desaparece --- e incluso se invierte --- en las tres de menor intensidad. Para entender por qué, se calculó un rendimiento implícito de movimiento de datos en GPU: los bytes lógicos por despacho (Tabla \ref{tab:formulas-analiticas}) divididos entre el tiempo por despacho en la región caliente, para cada operación.
 
 Ese rendimiento implícito converge a un rango estrecho de entre 8 y 10~GB/s en las seis operaciones del catálogo, con independencia de cuán distinta sea su intensidad aritmética: combinación lineal de vectores entre 9,4 y 9,5~GB/s, matriz--vector dispersa entre 9,9 y 10,1~GB/s, \textit{stencil} entre 9,2 y 9,4~GB/s, multiplicación de matrices densa entre 8,2 y 8,6~GB/s, \textit{Cholesky} entre 7,9 y 8,7~GB/s, y la transformada de Fourier entre 9,2 y 9,3~GB/s.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.85\textwidth]{figuras/fig_r1_bandwidth_convergencia.pdf}
+\caption[Convergencia del ancho de banda implícito]{Bytes lógicos por despacho entre tiempo por despacho, región caliente, GPU a REF, en función del tamaño de problema. La banda sombreada marca el rango 8--10~GB/s al que convergen las seis operaciones.}
+\label{fig:r1-bandwidth}
+\end{figure}
+
+La Figura \ref{fig:r1-bandwidth} muestra que la convergencia no es inmediata: a tamaños pequeños el rendimiento implícito varía entre operaciones por un factor de hasta 3$\times$, y solo se estrecha a la banda de 8--10~GB/s conforme $N$ crece --- el régimen en el que el costo de transferencia, y no el de lanzamiento, domina el tiempo por despacho.
 
 Esta convergencia es \textbf{consistente con} un cuello de botella de movimiento de datos entre anfitrión y acelerador: un límite dominado por cómputo no produciría cifras tan parecidas entre operaciones cuya intensidad aritmética difiere en órdenes de magnitud, porque cada una satura un recurso de cómputo distinto a una tasa distinta. Sin embargo, esta observación debe leerse con dos salvedades que no se relajan. Primera, el número reportado es una \textbf{cota inferior} del ancho de banda real, no una medición de él: el tiempo por despacho incluye el kernel de cómputo y el \textit{overhead} de lanzamiento además de la transferencia, de modo que el ancho de banda efectivo de la transferencia aislada es, como mínimo, igual o mayor a esta cifra. Segunda, este proyecto no realizó ninguna medición aislada del bus PCIe entre anfitrión y acelerador, de modo que no se reporta --- ni se compara contra --- ninguna cifra de ancho de banda PCIe de la plataforma. La convergencia observada no constituye una demostración causal del mecanismo; es una observación consistente con él, y se reporta con ese alcance.
 
