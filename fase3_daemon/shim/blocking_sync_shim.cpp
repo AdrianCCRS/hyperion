@@ -1,44 +1,86 @@
 /* Extiende common/hpc/native/blocking_sync_shim.cpp (ARC-70) para el loop de
  * GPU del daemon (§4.1/§4.3 punto 6 del plan de realineación). Conserva
  * exactamente el mecanismo original -- fuerza cudaDeviceScheduleBlockingSync
- * vía un constructor, sin tocar el binario de terceros -- y AÑADE la
- * detección de fronteras de fase que gpu_clock_controller.hpp necesitaba
- * ("on_phase_begin/on_phase_end... no detectan por sí solos cuándo empieza
- * una fase", ver ese header) y que fase3_daemon/gpu_loop/loop.py consume.
+ * vía un constructor, sin tocar el binario de terceros -- e INTENTA añadir
+ * la detección de fronteras de fase que gpu_clock_controller.hpp necesitaba.
  *
- * ⚠️ ESTADO DE VERIFICACIÓN, léase antes de confiar en este archivo: el
- * entorno donde se escribió esta reconstrucción NO tiene el CUDA toolkit
- * instalado (`nvcc`/`cuda_runtime.h` no disponibles) -- este archivo NO se
- * pudo compilar ni probar aquí, a diferencia de todo el resto del proyecto,
- * que sí quedó verificado (tests corridos, no solo escritos). La técnica de
- * interposición (dlsym(RTLD_NEXT, ...) sobre símbolos de cudart) es estándar
- * y ya se usa exactamente así en otros shims LD_PRELOAD, pero antes de
- * confiar en este archivo en una campaña real hace falta, como mínimo:
- *   1. Compilarlo en un nodo con CUDA toolkit real (paccaA100 lo tiene).
- *   2. La prueba dirigida que pide el plan: lanzar un kernel real y
- *      confirmar que el daemon recibe exactamente un evento BEGIN y un
- *      evento END -- ver la nota de diseño más abajo sobre granularidad.
- *   3. Confirmar (igual que ARC-70 ya hizo para el mecanismo base) que no
- *      altera la salida de los kernels del catálogo corridos con y sin
- *      este shim.
+ * ⚠️⚠️ HALLAZGO CRÍTICO CONFIRMADO (no una limitación de entorno como se
+ * documentó en una versión anterior de este comentario) -- léase antes de
+ * usar este archivo: **la intercepción de `cudaLaunchKernel` NO FUNCIONA
+ * para kernels lanzados con la sintaxis estándar `<<<>>>`**, verificado
+ * compilando y corriendo este shim contra un kernel CUDA real (nvcc 13.3,
+ * GPU NVIDIA real, driver 610.57.04) tras conseguir acceso a un entorno con
+ * CUDA toolkit. Evidencia exacta:
  *
- * Granularidad de fase (decisión de diseño explícita, no en el plan
- * original tal cual): un kernel real puede hacer miles de llamadas a
- * cudaLaunchKernel entre sincronizaciones (rodinia_gaussian: ~8190 por
- * corrida, ARC-110) -- tratar cada llamada como una fase nueva violaría el
- * principio de gpu_clock_controller.hpp ("decidir cada ventana gastaría más
- * en overhead de transición de lo que ahorra"). Por eso una fase es un
- * PERIODO DE ACTIVIDAD GPU: BEGIN en el primer cudaLaunchKernel después de
- * una sincronización (o del arranque), END en la sincronización que le
- * sigue -- no un evento por cada llamada individual.
+ *   1. `cudaDeviceSynchronize`/`cudaStreamSynchronize` SÍ se interceptan
+ *      correctamente (confirmado con una build de depuración: el
+ *      `fprintf` de diagnóstico se imprime dos veces para dos llamadas
+ *      reales) -- pero SOLO cuando el binario objetivo enlaza cudart de
+ *      forma dinámica (`nvcc -cudart shared`).
+ *   2. `cudaLaunchKernel` NUNCA se intercepta, en NINGÚN modo de enlace
+ *      (ni `-cudart static`, el default de nvcc moderno, ni `-cudart
+ *      shared`). Confirmado con `nm -D` sobre el binario compilado: la
+ *      sintaxis `kernel<<<grid,block>>>(args)` NO genera una llamada
+ *      dinámica a `cudaLaunchKernel` en absoluto -- nvcc compila esa
+ *      sintaxis en un stub de lanzamiento (`__device_stub__...` +
+ *      `__cudaPushCallConfiguration`) que resuelve la llamada real en
+ *      tiempo de COMPILACIÓN/ENLACE, nunca a través de la tabla de
+ *      símbolos dinámicos que `LD_PRELOAD` puede interceptar -- con
+ *      `-cudart shared`, el binario ni siquiera importa `cudaLaunchKernel`
+ *      como símbolo dinámico (verificado, `nm -D` no lo lista).
  *
- * Transporte: socket de dominio Unix, no bloqueante para el hilo que corre
- * el kernel real -- un evento perdido (daemon no escuchando, socket lleno)
- * degrada a "el daemon no actúa esta fase", nunca bloquea ni cambia el
- * comportamiento del binario medido. Ruta del socket: variable de entorno
- * HYPERION_GPU_PHASE_SOCKET; si no está definida, el shim sigue forzando
- * blocking-sync (comportamiento original intacto) pero no emite eventos --
- * modo "solo blocking-sync", el mismo que common/hpc/native/blocking_sync_shim.cpp. */
+ * Consecuencia directa: el mecanismo de "BEGIN en el primer
+ * cudaLaunchKernel tras una sincronización" descrito más abajo **nunca se
+ * dispara** contra un kernel real compilado normalmente -- ningún evento
+ * BEGIN llega jamás a fase3_daemon/shim/event_listener.py, verificado con
+ * un socket Unix real y un cliente de prueba: el listener recibe eventos
+ * enviados manualmente sin problema, pero cero eventos del shim real
+ * corriendo contra un kernel CUDA real.
+ *
+ * Qué SÍ sigue funcionando, sin cambios: el mecanismo original de ARC-70
+ * (forzar cudaDeviceScheduleBlockingSync vía el constructor) no depende de
+ * interceptar cudaLaunchKernel en absoluto -- es una llamada directa y
+ * proactiva antes de main(), no una intercepción. Nada en esta
+ * investigación pone en duda esa parte.
+ *
+ * Caminos de arreglo reales, ninguno implementado todavía (decisión de
+ * diseño pendiente, no una corrección menor):
+ *   (a) Interceptar en la API de driver (`cuLaunchKernel` de libcuda.so)
+ *       en vez de la API de runtime -- pero cudart resuelve esa llamada
+ *       internamente vía `dlsym()` sobre un handle propio, no vía la tabla
+ *       de símbolos global que LD_PRELOAD puede alterar, así que esto
+ *       probablemente tenga el mismo problema sin una técnica adicional
+ *       (hookear el propio dlsym(), o usar CUDA_INJECTION64_PATH).
+ *   (b) Usar el mecanismo oficial de NVIDIA para esto (`CUDA_INJECTION64_PATH`
+ *       + CUPTI callback API), diseñado exactamente para interceptar
+ *       lanzamientos de kernel de forma confiable -- más pesado, pero es
+ *       la vía que usan las herramientas de profiling reales de NVIDIA.
+ *   (c) Abandonar la detección de fase basada en intercepción y detectar
+ *       actividad GPU sondeando `gpu_util_pct` desde el daemon mismo (NVML,
+ *       ya disponible vía fase3_daemon/shim/event_listener.py::query_gpu_features)
+ *       -- evita el problema por completo, a costa de perder la frontera
+ *       exacta de "primer lanzamiento" (la transición se detectaría con la
+ *       latencia del muestreo NVML, no al instante).
+ *
+ * fase3_daemon/gpu_loop/loop.py y shim/event_listener.py (el lado Python
+ * del canal) siguen siendo correctos y están probados de punta a punta con
+ * un socket real -- el problema está exclusivamente en que ESTE archivo no
+ * logra emitir los eventos que ellos esperan consumir.
+ *
+ * Granularidad de fase pretendida (documentado igual, aunque el mecanismo
+ * no la logre hoy): un kernel real puede hacer miles de llamadas de
+ * lanzamiento entre sincronizaciones (rodinia_gaussian: ~8190 por corrida,
+ * ARC-110) -- tratar cada llamada como una fase nueva violaría el
+ * principio de gpu_clock_controller.hpp ("decidir cada ventana gastaría
+ * más en overhead de transición de lo que ahorra"). Una fase debería ser
+ * un PERIODO DE ACTIVIDAD GPU: BEGIN en el primer lanzamiento después de
+ * una sincronización, END en la sincronización que le sigue.
+ *
+ * Transporte (la parte que sí se verificó end-to-end con un socket real):
+ * socket de dominio Unix, no bloqueante para el hilo que corre el kernel
+ * real. Ruta del socket: variable de entorno HYPERION_GPU_PHASE_SOCKET; si
+ * no está definida, el shim sigue forzando blocking-sync (comportamiento
+ * original intacto) pero no intenta emitir eventos. */
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif

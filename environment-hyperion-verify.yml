@@ -1,0 +1,59 @@
+# Entorno conda con TODO el software necesario para una verificación
+# completa del código (Python + C++ + CUDA + ONNX Runtime), no solo el
+# entorno mínimo de ejecución de pyproject.toml. Pensado para correr
+# ./run_all.sh test de punta a punta, incluyendo las partes que antes no se
+# podían verificar por falta de herramientas (WITH_GPU=ON real, el shim
+# CUDA, y en el futuro el loop de CPU con ONNX Runtime C++).
+#
+# Deliberadamente SIN versiones fijadas (mismo criterio que pyproject.toml):
+# el objetivo es reproducir el CONJUNTO de herramientas, no una build
+# bit-idéntica -- dejar que el solver de conda elija versiones mutuamente
+# compatibles en cada máquina (importa especialmente para cuda-nvcc/
+# cuda-cudart-dev/cuda-nvml-dev, que deben quedar en la misma versión de
+# CUDA entre sí).
+#
+# Uso:
+#   conda env create -f environment-hyperion-verify.yml
+#   conda activate hyperion-verify
+#   ./run_all.sh check-readiness
+#   ./run_all.sh test
+#
+# ⚠️ Nota real encontrada al usar este entorno: `conda activate` dentro de
+# un script no interactivo puede heredar sys.path de OTRO entorno ya
+# activo en la sesión (visto en esta reconstrucción: python resolvía
+# paquetes de un entorno distinto pese a `which python` apuntando
+# correctamente a este). Si algo similar ocurre, invocar el intérprete por
+# ruta completa es más confiable que depender de `conda activate`:
+#   $(conda info --base)/envs/hyperion-verify/bin/python -m pytest ...
+name: hyperion-verify
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  # --- Dependencias de pyproject.toml (entorno de ejecución de las 4 fases) ---
+  - pyyaml>=6
+  - psutil>=5.9
+  - pandas
+  - numpy
+  - scikit-learn
+  - xgboost
+  - joblib
+  - scipy
+  - pytest>=8
+  # --- Build C++ (common/telemetry, fase3_daemon/cpu_loop) ---
+  - cmake
+  - make
+  # --- CUDA real: compilar/enlazar common/telemetry con -DWITH_GPU=ON y
+  #     fase3_daemon/shim/blocking_sync_shim.cpp contra cudart real.
+  #     cuda-nvcc trae gcc_linux-64/gxx_linux-64 como dependencia (compilador
+  #     host compatible con nvcc) -- no hace falta declararlos aparte. ---
+  - cuda-nvcc
+  - cuda-cudart-dev
+  - cuda-nvml-dev
+  # --- SDK C++ de ONNX Runtime, para cuando se construya el loop de CPU
+  #     real (fase3_daemon/cpu_loop/) -- confirmado disponible en
+  #     conda-forge, variante CPU (sin dependencia de CUDA para inferencia,
+  #     el daemon corre la inferencia del clasificador en CPU) ---
+  - onnxruntime-cpp=*=*cpu*
+  - onnx
+  - skl2onnx

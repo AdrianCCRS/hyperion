@@ -45,6 +45,14 @@ git clone <url> hyperion && cd hyperion
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 
+# 2-bis. Alternativa con conda: entorno CON TODO lo necesario para una
+#        verificación completa (incluye CUDA real -- nvcc/cudart/nvml --
+#        y el SDK C++ de ONNX Runtime, no solo las dependencias Python de
+#        pyproject.toml). Recomendado si se va a correr ./run_all.sh test
+#        con -DWITH_GPU=ON o a tocar fase3_daemon/shim/.
+#   conda env create -f environment-hyperion-verify.yml
+#   conda activate hyperion-verify
+
 # 3. Chequeo de solo lectura de permisos -- primer paso siempre,
 #    antes de tocar cualquier fase
 ./run_all.sh check-readiness
@@ -164,13 +172,30 @@ antes de asumir que hace falta algo más que `cmake -S . -B build
 
 ## Estado real del proyecto — qué corre hoy de punta a punta y qué no
 
-Esta reconstrucción se hizo sin acceso a un nodo con CUDA toolkit ni a una
-campaña real ya recolectada. Fase 1 y Fase 2 están completas y verificadas
-de punta a punta (compiladas/corridas, no solo escritas). Fase 3 tiene el
-loop de GPU completo y probado, pero el shim de intercepción CUDA solo se
-verificó sintácticamente (sin compilar contra `cuda_runtime.h` real) y el
-loop de CPU con inferencia ONNX no se construyó (faltan el SDK C++ de ONNX
-Runtime y un modelo entrenado real). Fase 4 genera el reporte de
+Fase 1 y Fase 2 están completas y verificadas de punta a punta
+(compiladas/corridas, no solo escritas). Fase 4 genera el reporte de
 comparación a partir de datos ya producidos, sin orquestar automáticamente
-las corridas. El detalle exacto, módulo por módulo, está en el README de
-cada fase — no se oculta ninguna limitación conocida.
+las corridas.
+
+Fase 3 se verificó dos veces: primero sin CUDA toolkit disponible, después
+con un entorno conda completo (`environment-hyperion-verify.yml`) que sí
+tiene `nvcc`/CUDA/ONNX Runtime C++ reales. La segunda verificación
+encontró un **hallazgo crítico confirmado, no solo una limitación de
+entorno**: el mecanismo de detección de fase de GPU (intercepción de
+`cudaLaunchKernel` vía `LD_PRELOAD`) **no funciona** contra kernels reales
+lanzados con la sintaxis estándar `<<<>>>` — confirmado compilando el shim
+contra CUDA real y cargándolo contra un kernel de prueba, con evidencia
+exacta (`nm -D`, builds de depuración, un socket Unix real) en el
+encabezado de `fase3_daemon/shim/blocking_sync_shim.cpp` y en
+`fase3_daemon/README.md`. El mecanismo original de ARC-70 (forzar
+blocking-sync) sigue funcionando correctamente — el problema es
+específico de la extensión de detección de fase construida en esta
+reconstrucción, con tres caminos de arreglo evaluados y ninguno
+implementado todavía (decisión de diseño pendiente).
+
+El loop de CPU con inferencia ONNX tampoco se construyó — el SDK C++ de
+ONNX Runtime ya está disponible (confirmado en el entorno conda), lo que
+falta es el código de integración y un modelo real entrenado (no hay
+campaña real recolectada en este entorno). El detalle exacto, módulo por
+módulo, está en el README de cada fase — no se oculta ninguna limitación
+conocida.
