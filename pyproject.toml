@@ -3,6 +3,24 @@ name = "hyperion"
 version = "0.1.0"
 description = "Agente DVFS en espacio de usuario para sistemas heterogéneos CPU-GPU (trabajo de grado)"
 requires-python = ">=3.11"
+# Entorno único para las 4 fases (decisión confirmada con el tutor, ver
+# Plan_Detallado_Realineacion_Hyperion.md): reemplaza environment-hpc.yml
+# (conda, ahora solo en old/) y classifier/requirements.txt de fase-02. No
+# se pinnean versiones exactas a propósito -- cada fase documenta en su
+# propio README qué subconjunto usa realmente si hace falta reproducir una
+# versión concreta.
+dependencies = [
+    "pyyaml>=6",
+    "psutil>=5.9",
+    "pandas",
+    "numpy",
+    "scikit-learn",
+    "xgboost",
+    "joblib",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
 
 [tool.pytest.ini_options]
 # Permite `from common.hpc import X`, `from fase1_telemetria import Y`, etc.
