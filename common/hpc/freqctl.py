@@ -595,3 +595,55 @@ def read_observed_frequency_khz(env: Any, cpu: int) -> int | None:
     """FRQ-10 support: scaling_cur_freq for one CPU, for postprocess.py to
     attach per-window. Read-only; safe under any frequency_write_capable."""
     return _read_int(cur_freq_path(env, cpu))
+
+
+def read_governors(cpus: Iterable[int], env: Any) -> dict[int, str | None]:
+    """Lee `scaling_governor` de cada CPU (expandido a hermanos SMT, mismo
+    criterio que `apply_frequency`/`snapshot_original_state`) -- de solo
+    lectura, no requiere `frequency_write_capable`.
+
+    Añadido para fase4_evaluacion/governors.py (§5.1 del plan de
+    realineación: comparar el agente contra `ondemand`/`schedutil`, no solo
+    contra "lo que el nodo ya tuviera puesto"). No modifica ningún
+    comportamiento existente -- es aditivo, como `read_observed_frequency_khz`.
+    """
+    expanded = _expand_with_smt_siblings(cpus, env)
+    return {cpu: _read_text(_attr_path(env, cpu, _GOVERNOR_ATTR)) for cpu in expanded}
+
+
+def set_governor(cpus: Iterable[int], governor: str, env: Any) -> dict[int, bool]:
+    """Escribe `scaling_governor = governor` en cada CPU (expandido a
+    hermanos SMT) y verifica por relectura -- misma disciplina que el resto
+    del módulo (`_write_and_verify`, con sus reintentos ante rechazo
+    transitorio bajo carga, ARC-108).
+
+    A propósito NO restaura nada por sí solo ni se integra con
+    `snapshot_original_state`/`restore_original_state`: esas dos funciones
+    solo restauran `scaling_governor` cuando `strategy == STRATEGY_DISCRETE`
+    (la única vía por la que `apply_frequency` lo cambiaba antes de que
+    existiera esta función, ver el comentario ARC-95 en
+    `restore_original_state`) -- mezclar esta función con ese mecanismo
+    arriesgaría que un gobernador cambiado aquí no se restaurara en una
+    ruta de señal/crash que asume ese invariante. `fase4_evaluacion/governors.py`
+    hace su propio snapshot con `read_governors()` antes de llamar aquí, y
+    restaura llamando a esta misma función con el valor leído.
+
+    Devuelve el resultado por CPU (True = verificado por relectura); no
+    lanza por un CPU individual fallido, para que el llamador pueda decidir
+    si un fallo parcial es aceptable o debe abortar el escenario completo.
+    """
+    if not getattr(env, "frequency_write_capable", False):
+        raise FrequencyControlError(
+            "freqctl.set_governor: env.frequency_write_capable es False -- "
+            "sin permiso de escritura detectado en este nodo"
+        )
+    expanded = _expand_with_smt_siblings(cpus, env)
+    results: dict[int, bool] = {}
+    for cpu in expanded:
+        governor_path = _attr_path(env, cpu, _GOVERNOR_ATTR)
+        if governor_path is None:
+            logger.error("freqctl.set_governor: cpu%d no tiene scaling_governor en frequency_control_paths", cpu)
+            results[cpu] = False
+            continue
+        results[cpu] = _write_and_verify(governor_path, governor, attr=_GOVERNOR_ATTR, cpu=cpu)
+    return results

@@ -712,3 +712,67 @@ def test_arc165_stop_warmup_load_termina_y_espera_cada_proceso(monkeypatch):
     freqctl._stop_warmup_load(procs)
 
     assert all(p.terminated and p.waited for p in procs)
+
+
+# --- set_governor / read_governors (añadidos para fase4_evaluacion/governors.py) ---
+
+def test_set_governor_escribe_y_verifica_en_todos_los_cpus(tmp_path):
+    paths = {
+        0: _write_cpu(tmp_path, 0, governor="performance"),
+        1: _write_cpu(tmp_path, 1, governor="performance"),
+    }
+    env = _env(paths, write_capable=True, strategy="bounded_range")
+
+    results = freqctl.set_governor((0, 1), "schedutil", env)
+
+    assert results == {0: True, 1: True}
+    assert (tmp_path / "cpu0/cpufreq/scaling_governor").read_text() == "schedutil"
+    assert (tmp_path / "cpu1/cpufreq/scaling_governor").read_text() == "schedutil"
+
+
+def test_set_governor_sin_write_capable_lanza():
+    paths = {0: {"scaling_governor": "/no/existe"}}
+    env = _env(paths, write_capable=False, strategy="bounded_range")
+    with pytest.raises(freqctl.FrequencyControlError, match="frequency_write_capable"):
+        freqctl.set_governor((0,), "ondemand", env)
+
+
+def test_set_governor_cpu_sin_path_no_lanza_marca_false(tmp_path):
+    paths = {0: _write_cpu(tmp_path, 0, governor="performance")}
+    # cpu 1 no está en control_paths -- no debe lanzar, solo marcar False.
+    env = _env(paths, write_capable=True, strategy="bounded_range")
+    results = freqctl.set_governor((0, 1), "ondemand", env)
+    assert results[0] is True
+    assert results[1] is False
+
+
+def test_read_governors_es_de_solo_lectura(tmp_path):
+    paths = {
+        0: _write_cpu(tmp_path, 0, governor="performance"),
+        1: _write_cpu(tmp_path, 1, governor="ondemand"),
+    }
+    env = _env(paths, write_capable=False, strategy="bounded_range")  # incluso sin permiso: solo lee
+
+    observed = freqctl.read_governors((0, 1), env)
+
+    assert observed == {0: "performance", 1: "ondemand"}
+    # No escribió nada -- los archivos siguen con su valor original.
+    assert (tmp_path / "cpu0/cpufreq/scaling_governor").read_text() == "performance"
+
+
+def test_set_governor_luego_restaurar_con_el_valor_leido(tmp_path):
+    """El ciclo completo que usará fase4_evaluacion/governors.py: leer,
+    cambiar, restaurar con lo leído -- sin pasar por
+    snapshot_original_state/restore_original_state (que no cubren este
+    caso, ver el docstring de set_governor)."""
+    paths = {0: _write_cpu(tmp_path, 0, governor="performance")}
+    env = _env(paths, write_capable=True, strategy="bounded_range")
+
+    original = freqctl.read_governors((0,), env)
+    assert original == {0: "performance"}
+
+    freqctl.set_governor((0,), "ondemand", env)
+    assert (tmp_path / "cpu0/cpufreq/scaling_governor").read_text() == "ondemand"
+
+    freqctl.set_governor((0,), original[0], env)
+    assert (tmp_path / "cpu0/cpufreq/scaling_governor").read_text() == "performance"

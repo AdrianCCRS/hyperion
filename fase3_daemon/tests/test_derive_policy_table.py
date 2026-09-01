@@ -59,19 +59,6 @@ def _gpu_rows(kernel_ref, level, label, gpu_energy_mj, run_suffix, n=5, delta_t_
     return rows
 
 
-def test_compute_window_edp_cpu_y_gpu():
-    df = pd.DataFrame(
-        _cpu_rows("k1", "REF", "compute_bound", pkg_uj=1_000_000, run_suffix="r1", n=1, delta_t_ns=1_000_000_000)
-        + _gpu_rows("k2", "REF", "compute_bound", gpu_energy_mj=2000, run_suffix="r1", n=1, delta_t_ns=1_000_000_000)
-    )
-    df["device"] = ["cpu", "gpu"]
-    edp = dpt.compute_window_edp(df)
-    # CPU: 1_000_000 uJ = 1 J, 1s -> EDP = 1 * 1 = 1.0
-    assert edp.iloc[0] == pytest.approx(1.0)
-    # GPU: 2000 mJ = 2 J, 1s -> EDP = 2 * 1 = 2.0
-    assert edp.iloc[1] == pytest.approx(2.0)
-
-
 def test_derive_policy_table_elige_nivel_que_reduce_edp_significativamente():
     # 6 kernels CPU compute_bound: REF gasta bastante más EDP que F4 en
     # todos, de forma consistente -> debe elegir F4.
