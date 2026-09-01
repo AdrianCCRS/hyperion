@@ -45,7 +45,7 @@ Thumbs.db
 # Logs & reports
 *.log
 *.json
-!hardware/schema.json
+!common/readiness/schema.json
 
 # LaTeX build artifacts (keep .tex/.bib sources and final .pdf only)
 *.aux

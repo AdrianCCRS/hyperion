@@ -1,0 +1,19 @@
+[project]
+name = "hyperion"
+version = "0.1.0"
+description = "Agente DVFS en espacio de usuario para sistemas heterogéneos CPU-GPU (trabajo de grado)"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+# Permite `from common.hpc import X`, `from fase1_telemetria import Y`, etc.
+# sin importar desde qué directorio se invoque `pytest` ni si esos paquetes
+# tienen o no __init__.py -- necesario porque el proyecto está organizado
+# en varias carpetas de fase independientes, no en un único paquete raíz.
+pythonpath = ["."]
+testpaths = [
+    "common/tests",
+    "fase1_telemetria/tests",
+    "fase2_clasificador/tests",
+    "fase3_daemon/tests",
+    "fase4_evaluacion/tests",
+]

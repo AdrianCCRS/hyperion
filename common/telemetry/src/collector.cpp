@@ -1,0 +1,288 @@
+#include "telemetry/collector.hpp"
+#include <sched.h>
+#include <time.h>
+#include <stdexcept>
+#include <cstring>
+#include <string>
+#include <utility>
+
+/**
+ * @file collector.cpp
+ * @brief Producer thread implementation for the telemetry subsystem.
+ *
+ * This file is the main hot-path implementation. Keep it conservative: backend
+ * setup may allocate or throw in start(), but run() should stay limited to
+ * timestamping, reader read() calls, ring pushes, and absolute sleeping.
+ */
+namespace telemetry
+{
+    namespace {
+        std::runtime_error pthread_error(const char* context, int error_code) {
+            return std::runtime_error(std::string(context) + ": " + std::strerror(error_code));
+        }
+
+        // ARC-142: slot 0 of CpuSample::scaling_cur_freq_khz_per_cpu is the
+        // representative CPU (cpu_freq_reader_), so at most kMaxScalingCurFreqCpus-1
+        // extra readers fit; further paths are silently ignored (not an error --
+        // see CollectorConfig::cpu_freq_sysfs_paths_extra doc).
+        std::vector<CpuFreqReader> make_extra_cpu_freq_readers(const std::vector<std::string>& paths) {
+            std::vector<CpuFreqReader> readers;
+            size_t limit = paths.size();
+            if(limit > kMaxScalingCurFreqCpus - 1) limit = kMaxScalingCurFreqCpus - 1;
+            readers.reserve(limit);
+            for(size_t i = 0; i < limit; ++i) {
+                readers.emplace_back(paths[i]);
+            }
+            return readers;
+        }
+    }
+
+    Collector::Collector(CollectorConfig cfg, Ring& ring)
+        : cfg_(std::move(cfg)),
+          ring_(ring),
+          perf_reader_(cfg_.target_pid, -1),
+          perf_cgroup_reader_(cfg_.perf_cgroup_path, cfg_.perf_cpus),
+          rapl_reader_(cfg_.rapl_pkg_path, cfg_.rapl_dram_path),
+          // ARC-118: UncoreReader's own floor (10ms) applies if this comes
+          // out below it -- see uncore_reader.hpp for why perf stat -I
+          // cannot reliably match the 1ms per-PID sampling cadence.
+          uncore_reader_(cfg_.interval_ns / 1'000'000, cfg_.uncore_pin_cpu),
+          cpu_freq_reader_(cfg_.cpu_freq_sysfs_path),
+          cpu_freq_readers_extra_(make_extra_cpu_freq_readers(cfg_.cpu_freq_sysfs_paths_extra)),
+          nvml_reader_(0) {}
+
+    Collector::~Collector(){
+        stop();
+    }
+
+    void Collector::start(){
+        if(thread_started_) return;
+        if(cfg_.interval_ns <= 0){
+            throw std::invalid_argument("Collector interval_ns must be positive");
+        }
+        if(cfg_.enable_gpu && !NvmlReader::compiled_with_gpu()){
+            throw std::runtime_error("GPU telemetry requested but telemetry was built without NVML support");
+        }
+
+        try {
+            // Open only the enabled backends. This keeps local tests usable
+            // without PMU permissions and avoids unnecessary work per sample.
+            if(cfg_.enable_perf) {
+                if(!cfg_.perf_cgroup_path.empty()) {
+                    perf_cgroup_reader_.open();
+                } else {
+                    perf_reader_.open();
+                }
+            }
+            if(!cfg_.rapl_pkg_path.empty()) rapl_reader_.open();
+            if(cfg_.enable_uncore) uncore_reader_.open();
+            if(!cfg_.cpu_freq_sysfs_path.empty()) cpu_freq_reader_.open();
+            for(auto& reader : cpu_freq_readers_extra_) reader.open();
+            if(cfg_.enable_gpu) nvml_reader_.open();
+        } catch (...) {
+            close_readers();
+            running_.store(false);
+            stop_flag_.store(true, std::memory_order_relaxed);
+            throw;
+        }
+
+        // Reset experiment-local state only after all enabled readers are open.
+        push_retries_.store(0, std::memory_order_relaxed);
+        next_gpu_sample_ns_ = 0;  // ARC-65: sample immediately on (re)start, not on stale timing.
+        stop_flag_.store(false, std::memory_order_relaxed);
+
+        pthread_attr_t attr;
+        int rc = pthread_attr_init(&attr);
+        if(rc != 0){
+            close_readers();
+            throw pthread_error("pthread_attr_init failed", rc);
+        }
+
+        // Optional producer pinning is applied before thread creation so the
+        // sampling loop starts on the requested CPU instead of migrating later.
+        if (cfg_.producer_cpu >= 0) {
+            cpu_set_t cpuset;
+            CPU_ZERO(&cpuset);
+            CPU_SET(cfg_.producer_cpu, &cpuset);
+            rc = pthread_attr_setaffinity_np(&attr, sizeof(cpuset), &cpuset);
+            if(rc != 0){
+                pthread_attr_destroy(&attr);
+                close_readers();
+                throw pthread_error("pthread_attr_setaffinity_np failed", rc);
+            }
+        }
+
+        rc = pthread_create(&thread_, &attr, thread_entry, this);
+        pthread_attr_destroy(&attr);
+        if(rc != 0){
+            running_.store(false);
+            close_readers();
+            throw pthread_error("pthread_create failed", rc);
+        }
+        thread_started_ = true;
+        running_.store(true);
+    }
+
+    void* Collector::thread_entry(void* arg){
+        static_cast<Collector*>(arg)->run();
+        return nullptr;
+    }
+    
+    void Collector::run(){
+        running_.store(true);
+
+        // Absolute scheduling reduces accumulated drift compared with relative
+        // nanosleep. Jitter is still measured and exported by the launcher.
+        struct timespec next_wake;
+        clock_gettime(CLOCK_MONOTONIC, &next_wake);
+
+        while(!stop_flag_.load(std::memory_order_relaxed)){
+            Sample s;
+            auto push_sample = [this](const Sample& sample) {
+                // Do not log or allocate here. A retry means the consumer is
+                // behind or the ring is full; the counter is exported later.
+                while(!stop_flag_.load(std::memory_order_relaxed) && !ring_.try_push(sample)) {
+                    push_retries_.fetch_add(1, std::memory_order_relaxed);
+                }
+            };
+
+            // CPU counters are mutually exclusive between cgroup and simple
+            // PID modes. Cgroup mode is used by the multithreaded launcher.
+            if(perf_cgroup_reader_.is_open()){
+                s.tag = SampleTag::CPU;
+                if(perf_cgroup_reader_.read(s.cpu)){
+                    // ARC-135/142: sampled on the SAME tick as the counters
+                    // above, not a post-hoc snapshot after the workload
+                    // exits -- see sample_cpu_freq() for the 0="not sampled"
+                    // contract and the multi-CPU array it also fills.
+                    sample_cpu_freq(s.cpu);
+                    push_sample(s);
+                }
+            } else if(perf_reader_.is_open()){
+                s.tag = SampleTag::CPU;
+                if(perf_reader_.read(s.cpu)){
+                    sample_cpu_freq(s.cpu);
+                    push_sample(s);
+                }
+            }
+
+            // RAPL rows are raw snapshots. Deltas and overflow handling are
+            // computed in the export/consumer path, not here.
+            if(rapl_reader_.is_open()){
+                s.tag = SampleTag::ENERGY;
+                if(rapl_reader_.read(s.energy)){
+                    push_sample(s);
+                }
+            }
+
+            // Uncore rows are raw cumulative snapshots, same producer-side
+            // shape as ENERGY -- deltas and the bytes conversion are
+            // computed downstream (postprocess.py), not here.
+            if(uncore_reader_.is_open()){
+                s.tag = SampleTag::UNCORE;
+                if(uncore_reader_.read(s.uncore)){
+                    push_sample(s);
+                }
+            }
+
+            // NVML is optional and device-level. It is compiled only when the
+            // library is built with TELEMETRY_WITH_GPU. ARC-65: gated to its
+            // own cadence (cfg_.gpu_interval_ns), not every 1 ms tick -- NVML's
+            // own utilization counter barely updates that fast on many
+            // drivers, and every tick paid the ioctl cost of an NVML call
+            // even on iterations where only perf/RAPL needed to run.
+            #ifdef TELEMETRY_WITH_GPU
+                if (nvml_reader_.is_open())
+                {
+                    struct timespec now_ts;
+                    clock_gettime(CLOCK_MONOTONIC, &now_ts);
+                    const long long now_ns =
+                        static_cast<long long>(now_ts.tv_sec) * 1'000'000'000LL + now_ts.tv_nsec;
+                    if (now_ns >= next_gpu_sample_ns_) {
+                        s.tag = SampleTag::GPU;
+                        if(nvml_reader_.read(s.gpu)){
+                            push_sample(s);
+                        }
+                        next_gpu_sample_ns_ = now_ns + cfg_.gpu_interval_ns;
+                    }
+                }
+            #endif
+            
+            ring_.flush_producer();
+
+            // Sleep until the next absolute sampling instant.
+            next_wake.tv_sec += cfg_.interval_ns / 1'000'000'000L;
+            next_wake.tv_nsec += cfg_.interval_ns % 1'000'000'000L;
+            if (next_wake.tv_nsec >= 1'000'000'000L) {
+                next_wake.tv_sec++;
+                next_wake.tv_nsec -= 1'000'000'000L;
+            }
+            clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next_wake, nullptr);
+            }
+            ring_.flush_producer();
+            running_.store(false);  
+
+    }
+
+    void Collector::stop(){
+        stop_flag_.store(true, std::memory_order_relaxed);
+        if(thread_started_){
+            pthread_join(thread_, nullptr);
+            thread_started_ = false;
+        }
+        close_readers();
+        running_.store(false);
+    }
+
+    void Collector::close_readers() noexcept {
+        perf_reader_.close();
+        perf_cgroup_reader_.close();
+        rapl_reader_.close();
+        uncore_reader_.close();
+        cpu_freq_reader_.close();
+        for(auto& reader : cpu_freq_readers_extra_) reader.close();
+        nvml_reader_.close();
+    }
+
+    void Collector::sample_cpu_freq(CpuSample& cpu) noexcept {
+        // ARC-135/142: 0 = "not sampled"/"read failed", never a fabricated
+        // reading -- matches every other optional backend's degrade-to-absent
+        // contract. Every configured slot is always written (even on a
+        // failed individual read, as 0) so scaling_cur_freq_khz_per_cpu[i]
+        // keeps a fixed, positional correspondence to CPU i's sysfs path
+        // (cpu_freq_reader_ at slot 0, then cpu_freq_readers_extra_ in
+        // order) regardless of which individual reads succeed -- the
+        // consumer (postprocess.py) zips this array against
+        // manifest.cores.delegated_cpus by position and must never see that
+        // correspondence shift because one read happened to fail.
+        cpu.scaling_cur_freq_khz = 0;
+        cpu.scaling_cur_freq_khz_count = 0;
+        for(auto& slot : cpu.scaling_cur_freq_khz_per_cpu) slot = 0;
+
+        if(!cpu_freq_reader_.is_open()) return;
+        cpu.scaling_cur_freq_khz_count = 1;
+        uint64_t primary = 0;
+        if(cpu_freq_reader_.read(primary)) {
+            cpu.scaling_cur_freq_khz = primary;
+            cpu.scaling_cur_freq_khz_per_cpu[0] = primary;
+        }
+
+        for(auto& reader : cpu_freq_readers_extra_) {
+            if(cpu.scaling_cur_freq_khz_count >= kMaxScalingCurFreqCpus) break;
+            size_t slot = cpu.scaling_cur_freq_khz_count;
+            ++cpu.scaling_cur_freq_khz_count;
+            if(!reader.is_open()) continue;
+            uint64_t khz = 0;
+            if(reader.read(khz)) cpu.scaling_cur_freq_khz_per_cpu[slot] = khz;
+        }
+    }
+
+    void Collector::sleep_ns(long ns) const noexcept {
+        if(ns <= 0) return;
+
+        struct timespec t;
+        t.tv_sec = ns / 1'000'000'000L;
+        t.tv_nsec = ns % 1'000'000'000L;
+        nanosleep(&t, nullptr);
+    }
+} // namespace telemetry
