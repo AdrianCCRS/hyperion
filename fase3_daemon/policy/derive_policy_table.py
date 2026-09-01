@@ -163,9 +163,18 @@ def derive_policy_table(
                     "reason": "t_transicion_gpu_no_medido",
                     "chosen_level": None,
                 }
-            elif device == "gpu" and n_excluded_gpu > 0 and entry.get("action") == "no_actuar" and entry.get("reason") == "ningun_nivel_mejora_edp_de_forma_significativa":
+            elif device == "gpu" and entry.get("action") == "no_actuar" and entry.get("reason") == "ningun_nivel_mejora_edp_de_forma_significativa":
+                # Conteo de exclusiones POR CLASE, no el total global de GPU
+                # (bug corregido: antes usaba n_excluded_gpu, la cuenta de
+                # las dos clases juntas -- podía atribuir "pocas fases
+                # sobrevivientes por filtro de transición" a una clase cuyas
+                # ventanas el filtro nunca tocó, si la OTRA clase sí tuvo
+                # exclusiones).
+                n_excluded_this_class = int(
+                    ((excluded["device"] == "gpu") & (excluded["phase_label_train"] == label)).sum()
+                )
                 n_survivors = entry.get("n_kernels_ref", 0)
-                if n_survivors < 2:
+                if n_excluded_this_class > 0 and n_survivors < 2:
                     entry["reason"] = "pocas_fases_sobrevivientes_tras_filtro_transicion"
             table[key] = entry
 

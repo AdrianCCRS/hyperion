@@ -171,7 +171,7 @@ GPU real e instala restauración por señal (`atexit`/`SIGINT`/`SIGTERM`).
 ## Tests
 
 ```bash
-python3 -m pytest fase3_daemon/tests/ -q          # 30 tests Python
+python3 -m pytest fase3_daemon/tests/ -q          # 31 tests Python
 cmake -S fase3_daemon/cpu_loop -B fase3_daemon/cpu_loop/build && \
   cmake --build fase3_daemon/cpu_loop/build && \
   ctest --test-dir fase3_daemon/cpu_loop/build     # 1 test C++

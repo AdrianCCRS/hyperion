@@ -20,6 +20,7 @@ def _write_scenario(base_dir: Path, scenario: str, pkg_uj_base: int) -> None:
         run_dir.mkdir(parents=True)
         rows = [{
             "kernel_ref": kernel, "phase_label_train": "compute_bound", "quality_status": "ok",
+            "frequency_quality_status": "valid",
             "delta_t_ns": 1_000_000_000, "pkg_delta_uj": int(pkg_uj_base * (1 + rng.normal(0, 0.03))),
             "dram_delta_uj": 0, "energy_valid": True, "gpu_energy_delta_mj": None,
         } for _ in range(3)]

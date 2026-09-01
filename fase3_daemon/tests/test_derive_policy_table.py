@@ -27,11 +27,13 @@ def _cpu_rows(kernel_ref, level, label, pkg_uj, run_suffix, n=5, delta_t_ns=1_00
             "gpu_freq_level_id": None,
             "phase_label_train": label,
             "quality_status": "ok",
+            "frequency_quality_status": "valid",
             "delta_t_ns": delta_t_ns,
             "pkg_delta_uj": pkg_uj,
             "dram_delta_uj": 0,
             "energy_valid": True,
             "gpu_energy_delta_mj": None,
+            "gpu_energy_valid": None,
             "freq_khz_observed": freq_khz_observed,
             "gpu_sm_clock_mhz": None,
         })
@@ -48,11 +50,13 @@ def _gpu_rows(kernel_ref, level, label, gpu_energy_mj, run_suffix, n=5, delta_t_
             "gpu_freq_level_id": level,
             "phase_label_train": label,
             "quality_status": "gpu_telemetry",
+            "frequency_quality_status": None,  # vacía en filas GPU, ver postprocess.py
             "delta_t_ns": delta_t_ns,
             "pkg_delta_uj": None,
             "dram_delta_uj": None,
             "energy_valid": None,
             "gpu_energy_delta_mj": gpu_energy_mj,
+            "gpu_energy_valid": True,
             "freq_khz_observed": None,
             "gpu_sm_clock_mhz": gpu_sm_clock_mhz,
         })
@@ -170,3 +174,49 @@ def test_main_escribe_yaml_valido(tmp_path):
     loaded = yaml.safe_load(output.read_text())
     assert loaded["campaign_id"] == "test_campaign"
     assert set(loaded["policy"].keys()) == {"cpu-compute_bound", "cpu-memory_bound", "gpu-compute_bound", "gpu-memory_bound"}
+
+
+def test_exclusion_por_transicion_no_contamina_la_razon_de_otra_clase():
+    """Regresión: la reclasificación de razón a
+    'pocas_fases_sobrevivientes_tras_filtro_transicion' usaba el conteo
+    GLOBAL de exclusiones de GPU (las 2 clases juntas), así que una clase
+    sin ninguna ventana excluida podía heredar esa razón solo porque la
+    OTRA clase sí tuvo exclusiones. Corregido para contar por (device,
+    phase_label_train)."""
+    rng = np.random.default_rng(3)
+    rows = []
+    # memory_bound: 6 kernels, EDP prácticamente igual entre REF y F4 (con
+    # ruido realista) -- "no actuar" por rango de potencia angosto, SIN
+    # ninguna ventana excluida por transición.
+    for kernel in ["m1", "m2", "m3", "m4", "m5", "m6"]:
+        ref_mj = int(5000 * (1 + rng.normal(0, 0.03)))
+        f4_mj = int(4950 * (1 + rng.normal(0, 0.03)))
+        rows += _gpu_rows(kernel, "REF", "memory_bound", gpu_energy_mj=ref_mj,
+                           run_suffix="ref", n=3, delta_t_ns=1_000_000_000)
+        rows += _gpu_rows(kernel, "F4", "memory_bound", gpu_energy_mj=f4_mj,
+                           run_suffix="f4", n=3, delta_t_ns=1_000_000_000)
+    # compute_bound: solo 1 kernel sobrevive con datos completos; el resto
+    # tiene corridas F4 demasiado cortas (excluidas por T_transición_gpu).
+    rows += _gpu_rows("c1", "REF", "compute_bound", gpu_energy_mj=5000,
+                       run_suffix="ref", n=3, delta_t_ns=1_000_000_000)
+    rows += _gpu_rows("c1", "F4", "compute_bound", gpu_energy_mj=500,
+                       run_suffix="f4_corta", n=3, delta_t_ns=100)  # corta -> excluida
+
+    df = pd.DataFrame(rows)
+    is_gpu_row = df["quality_status"] == "gpu_telemetry"
+    df["device"] = np.where(is_gpu_row, "gpu", "cpu")
+
+    result = dpt.derive_policy_table(df, t_transicion_gpu_ns=1_000_000, alpha=0.05, campaign_id="test")
+
+    memory_entry = result["policy"]["gpu-memory_bound"]
+    compute_entry = result["policy"]["gpu-compute_bound"]
+
+    # memory_bound: sin ninguna ventana excluida en su propia clase -> la
+    # razón NO debe reatribuirse al filtro de transición.
+    assert memory_entry["action"] == "no_actuar"
+    assert memory_entry["reason"] == "ningun_nivel_mejora_edp_de_forma_significativa"
+
+    # compute_bound: sí tuvo exclusiones propias y quedó con <2 kernels
+    # sobrevivientes en REF -> razón correctamente atribuida al filtro.
+    assert compute_entry["action"] == "no_actuar"
+    assert compute_entry["reason"] == "pocas_fases_sobrevivientes_tras_filtro_transicion"

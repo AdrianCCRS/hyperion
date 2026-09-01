@@ -86,10 +86,22 @@ escribir nada.
 
 ## Cómo importar esto desde una fase
 
-El proyecto no se instala como paquete (`pip install -e .`); en su lugar,
-`pyproject.toml` en la raíz declara `pythonpath = ["."]` para `pytest`, y
-cada `run_*.py` de cada fase inserta la raíz del repositorio en `sys.path`
-al arrancar (mismo patrón que ya usan los tests aquí). Así:
+Dos formas, ambas soportadas y verificadas -- no hace falta elegir una sola:
+
+1. **`pip install -e .`** (recomendado, ver el quickstart del README raíz):
+   `pyproject.toml` declara `[tool.setuptools.packages.find]` explícito
+   (incluye `common*`/`fase1_telemetria*`/etc., excluye `old*` -- necesario
+   porque el auto-discovery "flat-layout" de setuptools confundía `old/`
+   con un paquete más). Con el entorno instalado así, `import common.hpc`
+   funciona desde cualquier directorio, incluso fuera del repositorio
+   (verificado).
+2. **Sin instalar nada**: `pyproject.toml` también declara
+   `pythonpath = ["."]` para `pytest`, y cada `run_*.py` de cada fase
+   inserta la raíz del repositorio en `sys.path` al arrancar (mismo patrón
+   que ya usan los tests aquí) -- útil para correr los scripts o los tests
+   directamente desde un checkout sin paso de instalación previo.
+
+En ambos casos:
 
 ```python
 from common.hpc import freqctl, gpu_freqctl, catalog, manifest
@@ -105,7 +117,7 @@ intérprete.
 python3 -m pytest common/tests/ -q
 ```
 
-248 tests, todos hermáticos (sin depender de hardware real) salvo los que
+269 tests, todos hermáticos (sin depender de hardware real) salvo los que
 explícitamente se saltan (`SKIP_RETURN_CODE`) cuando el entorno no lo
 permite (p. ej. sin GPU real). Si alguno de los tests de `gpu_freqctl`
 falla con un mensaje sobre "relectura ... supera el techo fijado", **no es

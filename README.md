@@ -41,9 +41,12 @@ histórica — nada de lo que hay ahí es la versión vigente de nada.
 # 1. Clonar y entrar al repositorio
 git clone <url> hyperion && cd hyperion
 
-# 2. Entorno Python único para las 4 fases (>=3.11)
+# 2. Entorno Python único para las 4 fases (>=3.11). El extra [dev] trae
+#    pytest -- sin él, "pip install -e ." NO lo instala (pytest es una
+#    dependencia opcional, ver pyproject.toml) y el paso 4 de abajo falla
+#    con "No module named pytest".
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e .
+pip install -e ".[dev]"
 
 # 2-bis. Alternativa con conda: entorno CON TODO lo necesario para una
 #        verificación completa (incluye CUDA real -- nvcc/cudart/nvml --
