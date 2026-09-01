@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "hyperion"
 version = "0.1.0"
@@ -22,6 +26,16 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+# Solo los paquetes Python reales de las 4 fases + common/ -- excluye
+# explícitamente old/ (árbol histórico completo, incluye su propio
+# orchestrator/__init__.py que confundía el auto-discovery de setuptools
+# en "flat-layout", ver el error real: "Multiple top-level packages
+# discovered... ['old', 'common', ...]") y todo lo demás que no es código
+# Python instalable (docs/, kernels/, hardware binario, etc.).
+include = ["common*", "fase1_telemetria*", "fase2_clasificador*", "fase3_daemon*", "fase4_evaluacion*"]
+exclude = ["*.tests", "*.tests.*", "old*"]
 
 [tool.pytest.ini_options]
 # Permite `from common.hpc import X`, `from fase1_telemetria import Y`, etc.
