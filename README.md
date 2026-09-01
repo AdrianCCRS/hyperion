@@ -12,6 +12,12 @@ sistema operativo — con el objetivo de reducir el Producto Energía-Retardo
 (EDP) sin degradar el rendimiento, frente a los gobernadores nativos de
 Linux.
 
+📘 **¿Primera vez en este repositorio?** Empieza por
+[`MANUAL_ESTUDIANTES.md`](MANUAL_ESTUDIANTES.md) — explica qué es cada
+fase, qué hace cada comando, cómo leer sus resultados, y qué queda
+pendiente para terminar el trabajo de grado. Este README es la referencia
+técnica corta; el manual es la guía paso a paso.
+
 ## Los 4 objetivos aprobados y dónde vive cada uno
 
 | # | Objetivo | Fase | README |
