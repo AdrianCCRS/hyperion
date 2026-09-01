@@ -1,0 +1,113 @@
+# Primera campaña real contra paccaA100 (Unicartagena), solo nivel REF
+# (frequency_write_capable=False mientras la solicitud de permisos sigue
+# sin respuesta -- ver docs/retoma/pacca/Solicitud_Permisos_Pacca_Unicartagena.md).
+#
+# repetitions_per_combination=3: el minimo permitido por el manifiesto
+# (MAN-02 lo bloquea si es menor), asi que no hay opcion de piloto con
+# menos repeticiones -- esta es directamente la primera corrida real de
+# punta a punta en este nodo, a la misma escala que la campaña real de
+# felix (7 kernels x REF x 3 repeticiones = 21 corridas).
+#
+# rapl.enabled=true a diferencia de felix: paccaA100 SI tiene RAPL legible
+# sin permisos especiales (confirmado en la auditoría), primera vez que el
+# proyecto puede capturar energía real en una campaña.
+#
+# reference_kernel_ref (pasado por CLI, no en este manifest) = npb_mg,
+# nunca npb_ep (ARC-46: npb_ep generaba muy pocos cache-misses, cv_pct
+# inestable en calibration_references por ruido de piso de contador).
+#
+# npb_ep y npb_is se quitaron del catálogo (2026-08-06): ninguno de los dos
+# hace punto flotante real (su "Mop/s total" reporta "Random numbers
+# generated" y "keys ranked" respectivamente, no FLOPs) -- usarlo como
+# FLOPs/s en operational_intensity era un error de unidades, no un problema
+# de medición. Reemplazados por npb_bt y npb_sp (ambos confirmados
+# "Operation type = floating point" en pacca). Ver catalog.yaml para el
+# detalle completo.
+#
+# cores: delegated_cpus=0-5, collector_cpu=6, consumer_cpu=7 -- dentro de
+# los hilos primarios del socket 0 (0-7), sin tocar sus siblings SMT
+# (16-23), ver Auditoria_PaccaA100_Unicartagena.md sección 3.
+#
+# hardware_datasheet: D03 (calibration.py) exige un valor declarado contra
+# el cual comparar la calibración real. HISTORIAL (2026-08-06): se encontró
+# que runner.py nunca restringía el proceso medido a cores.delegated_cpus
+# (ARC-55) -- la calibración corría con 32 hilos (todo el nodo) en vez de
+# los 6 delegados, y estos valores se habían ajustado para coincidir con
+# ESE comportamiento sin corregir. Con ARC-55 corregido (--pin-workload-cpus
+# + OMP_NUM_THREADS reales), se vuelve a la medición acotada a 6 cores
+# (taskset -c 0-5, OMP_NUM_THREADS=6), que ahora sí representa lo que la
+# campaña realmente mide:
+#   stream_c (6 hilos, pinned 0-5): Triad = 58353.9 MB/s -> 58353900000 B/s
+#   ert_probe (6 hilos, pinned 0-5): GFLOPs/sec = 72.004 -> 72004000000 FLOP/s
+
+campaign_id: pacca_ref_full_20260806
+environment_tier: hpc_sc3
+seed: 20260806
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_ref_full_20260806
+overwrite: true
+
+catalog_path: ../catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: npb_bt
+  - kernel_ref: npb_mg
+  - kernel_ref: npb_cg
+  - kernel_ref: npb_sp
+  - kernel_ref: npb_ft
+  - kernel_ref: npb_lu
+  - kernel_ref: dgemm_n2048
+
+# ARC-87: F0-F4 agregados junto con el wiring real de aplicacion de
+# frecuencia (freqctl.py) -- listos para correr en cuanto llegue el
+# permiso P1 (escritura de scaling_min_freq/scaling_max_freq en pacca).
+# Fracciones segun la Tabla de estados de frecuencia del documento de
+# metodologia (docs/libro/main.tex): F0=extremo superior, F1=75%,
+# F2=50% (centro), F3=25%, F4=extremo inferior del rango real detectado
+# en environment.available_frequencies_khz -- nunca valores absolutos,
+# para que el mismo manifiesto sirva en cualquier nodo con el mismo
+# esquema (ver freqctl._target_khz).
+frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F0, mode: fixed, fraction: 1.0}
+  - {id: F1, mode: fixed, fraction: 0.75}
+  - {id: F2, mode: fixed, fraction: 0.5}
+  - {id: F3, mode: fixed, fraction: 0.25}
+  - {id: F4, mode: fixed, fraction: 0.0}
+
+repetitions_per_combination: 3
+target_windows_per_repetition: 50
+interval_ns: 1000000  # 1 ms
+
+running_ratio_min: 0.90
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+rapl:
+  enabled: true
+
+gpu:
+  enabled: false
+
+timeouts_seconds:
+  ready: 15
+  run: 180
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 58353900000
+  p_pico_flops_per_s: 72004000000

@@ -1,0 +1,178 @@
+# Campana real del selector CPU/GPU -- eje GPU, PASE 1 (2026-08-28).
+# 68 config_id x 1 nivel de CPU (REF) x 4 niveles de GPU x 3 rep =
+# 816 corridas. Generado a partir de gen_dual_campaign_manifests.py.
+#
+# POR QUE UN PASE 1 SEPARADO, y no un trozo de campaign_pacca_dual_gpu_full:
+# el orden de ejecucion es un shuffle plano (CAM-01), asi que cortar la
+# campana completa a mitad deja TODAS las celdas incompletas -- ningun
+# config_id con su curva EDP entera, y por tanto ninguna etiqueta
+# argmin-EDP calculable. Este pase, en cambio, es COMPLETO en si mismo:
+# cierra el eje device+frecuencia-GPU para los 68 config_id con el reloj de
+# CPU en su valor por defecto (REF, gobernador nativo -- lo que hace una
+# aplicacion que no toca DVFS de CPU). El eje CPU-durante-GPU (los otros 3
+# niveles) queda para un pase 2 con su propio output_dir.
+#
+# Presupuesto: el pre-vuelo GPU (job 6681) midio ~18 s por lanzamiento de
+# proceso; con baseline solo en la repeticion 1 son 1088 lanzamientos
+# -> ~5.4 h. Si no alcanza, CAM-11 reanuda sobre el mismo output_dir.
+#
+# Los binarios llevan el sello de region medida (t0_ns/t1_ns) anadido el
+# 2026-08-28 -- sin el, el EDP de GPU seria ~85% inicializacion de CUDA.
+# Ver docs/general/metodologia_selector_cpu_gpu_20260827.md seccion 6.9.
+
+campaign_id: pacca_dual_gpu_pass1_20260828
+environment_tier: hpc_sc3
+seed: 20260828
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_dual_gpu_pass1_20260828
+overwrite: true
+
+catalog_path: ../catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: dual_gemm_gpu_N64
+  - kernel_ref: dual_gemm_gpu_N96
+  - kernel_ref: dual_gemm_gpu_N128
+  - kernel_ref: dual_gemm_gpu_N192
+  - kernel_ref: dual_gemm_gpu_N256
+  - kernel_ref: dual_gemm_gpu_N384
+  - kernel_ref: dual_gemm_gpu_N512
+  - kernel_ref: dual_gemm_gpu_N768
+  - kernel_ref: dual_gemm_gpu_N1024
+  - kernel_ref: dual_gemm_gpu_N1536
+  - kernel_ref: dual_gemm_gpu_N2048
+  - kernel_ref: dual_gemm_gpu_N3072
+  - kernel_ref: dual_gemm_gpu_N4096
+  - kernel_ref: dual_fft_gpu_N64
+  - kernel_ref: dual_fft_gpu_N96
+  - kernel_ref: dual_fft_gpu_N128
+  - kernel_ref: dual_fft_gpu_N192
+  - kernel_ref: dual_fft_gpu_N256
+  - kernel_ref: dual_fft_gpu_N384
+  - kernel_ref: dual_fft_gpu_N512
+  - kernel_ref: dual_fft_gpu_N768
+  - kernel_ref: dual_fft_gpu_N1024
+  - kernel_ref: dual_fft_gpu_N1536
+  - kernel_ref: dual_fft_gpu_N2048
+  - kernel_ref: dual_fft_gpu_N3072
+  - kernel_ref: dual_fft_gpu_N4096
+  - kernel_ref: dual_axpy_gpu_N10000
+  - kernel_ref: dual_axpy_gpu_N31623
+  - kernel_ref: dual_axpy_gpu_N100000
+  - kernel_ref: dual_axpy_gpu_N316228
+  - kernel_ref: dual_axpy_gpu_N1000000
+  - kernel_ref: dual_axpy_gpu_N3162278
+  - kernel_ref: dual_axpy_gpu_N10000000
+  - kernel_ref: dual_axpy_gpu_N31622777
+  - kernel_ref: dual_stencil_gpu_N64
+  - kernel_ref: dual_stencil_gpu_N96
+  - kernel_ref: dual_stencil_gpu_N128
+  - kernel_ref: dual_stencil_gpu_N192
+  - kernel_ref: dual_stencil_gpu_N256
+  - kernel_ref: dual_stencil_gpu_N384
+  - kernel_ref: dual_stencil_gpu_N512
+  - kernel_ref: dual_stencil_gpu_N768
+  - kernel_ref: dual_stencil_gpu_N1024
+  - kernel_ref: dual_stencil_gpu_N1536
+  - kernel_ref: dual_stencil_gpu_N2048
+  - kernel_ref: dual_stencil_gpu_N3072
+  - kernel_ref: dual_stencil_gpu_N4096
+  - kernel_ref: dual_cholesky_gpu_N64
+  - kernel_ref: dual_cholesky_gpu_N96
+  - kernel_ref: dual_cholesky_gpu_N128
+  - kernel_ref: dual_cholesky_gpu_N192
+  - kernel_ref: dual_cholesky_gpu_N256
+  - kernel_ref: dual_cholesky_gpu_N384
+  - kernel_ref: dual_cholesky_gpu_N512
+  - kernel_ref: dual_cholesky_gpu_N768
+  - kernel_ref: dual_cholesky_gpu_N1024
+  - kernel_ref: dual_cholesky_gpu_N1536
+  - kernel_ref: dual_cholesky_gpu_N2048
+  - kernel_ref: dual_cholesky_gpu_N3072
+  - kernel_ref: dual_cholesky_gpu_N4096
+  - kernel_ref: dual_spmv_gpu_N10000
+  - kernel_ref: dual_spmv_gpu_N31623
+  - kernel_ref: dual_spmv_gpu_N100000
+  - kernel_ref: dual_spmv_gpu_N316228
+  - kernel_ref: dual_spmv_gpu_N1000000
+  - kernel_ref: dual_spmv_gpu_N3162278
+  - kernel_ref: dual_spmv_gpu_N10000000
+  - kernel_ref: dual_spmv_gpu_N31622777
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+
+gpu_frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F0, mode: fixed, fraction: 1.0}
+  - {id: F3, mode: fixed, fraction: 0.5}
+  - {id: F6, mode: fixed, fraction: 0.0}
+
+repetitions_per_combination: 3
+baseline_repetition_indices: [1]
+target_windows_per_repetition: 5
+interval_ns: 1000000  # 1 ms
+gpu_interval_ns: 5000000  # 5 ms
+
+running_ratio_min: 0.90
+
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+  grace_seconds: 0.05
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+
+rapl:
+  enabled: true
+
+uncore:
+  enabled: true
+
+turbo:
+  require_disabled: true
+
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+
+gpu:
+  enabled: true
+  calibration:
+    - gpu_stream_bw
+    - gpu_ert_probe_fp32
+    - gpu_ert_probe_fp64
+
+timeouts_seconds:
+  ready: 15
+  run: 90
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 509083000000
+
+projected_campaign_bytes: 1000000000
+remaining_core_hours: 1000.0
+projected_core_hours: 20.0

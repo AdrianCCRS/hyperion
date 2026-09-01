@@ -1,0 +1,107 @@
+# Pre-vuelo del selector CPU/GPU -- eje CPU-solo (2026-08-27). Objetivo:
+# NO cobertura de rejilla (eso ya lo hizo el smoke, job 6668) sino dos
+# numeros concretos que faltan antes de comprometer la campaña completa
+# (8160 corridas, campaign_pacca_dual_{cpu,gpu}_full.yaml):
+#
+#   1. Overhead real por corrida: el smoke completo (240 planeadas) tardo
+#      7187s de pared -- ~30s/corrida, contra ~1.5s de computo puro de
+#      kernel. Este pre-vuelo permite recalcular ese cociente con
+#      reps=10 (mas estable) y en un subconjunto representativo (1 tamaño
+#      por operacion, no 68), para decidir si el overhead es fijo (arranque
+#      de proceso/telemetria) o depende de transiciones de frecuencia.
+#   2. CV% de tiempo de ejecucion vs repeticiones acumuladas, MISMA
+#      metodologia que docs/justifications/report/sections/repetitions.tex
+#      (que uso el catalogo viejo, nunca corrio sobre estos 6 kernels
+#      nuevos) -- decide el umbral de la politica de repeticiones
+#      adaptativa (base 3, escalar donde el margen argmin-EDP sea
+#      estrecho o el CV% supere un umbral).
+#
+# Un config_id representativo por operacion (los mismos tamaños ya medidos
+# en el tamizaje/smoke, no arbitrarios): gemm_N512, fft_N256, axpy_N1000000,
+# stencil_N512, cholesky_N512, spmv_N1000000.
+
+campaign_id: pacca_dual_preflight_cpu_20260827
+environment_tier: hpc_sc3
+seed: 20260827
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_dual_preflight_cpu_20260827
+overwrite: true
+
+catalog_path: ../catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: dual_gemm_cpu_N512
+  - kernel_ref: dual_fft_cpu_N256
+  - kernel_ref: dual_axpy_cpu_N1000000
+  - kernel_ref: dual_stencil_cpu_N512
+  - kernel_ref: dual_cholesky_cpu_N512
+  - kernel_ref: dual_spmv_cpu_N1000000
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F0,  mode: fixed, fraction: 1.0}
+  - {id: F3,  mode: fixed, fraction: 0.5}
+  - {id: F6,  mode: fixed, fraction: 0.0}
+
+repetitions_per_combination: 10
+target_windows_per_repetition: 5
+interval_ns: 1000000  # 1 ms
+
+running_ratio_min: 0.90
+
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+  grace_seconds: 0.05
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+
+rapl:
+  enabled: true
+
+uncore:
+  enabled: true
+
+turbo:
+  require_disabled: true
+
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+
+gpu:
+  enabled: false
+
+timeouts_seconds:
+  ready: 15
+  run: 90
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 509083000000
+
+projected_campaign_bytes: 100000000
+remaining_core_hours: 1000.0
+projected_core_hours: 3.0

@@ -1,0 +1,127 @@
+# Campaña de humo del catalogo dual del selector CPU/GPU (pivote
+# 2026-08-27). Objetivo: validar el cableado completo del orquestador con
+# el eje device explicito (8 kernels: 4 operaciones x {cpu,gpu}, mismo
+# config_id por par) ANTES de comprometer la rejilla de 8 niveles x 8
+# niveles completa.
+#
+# Eje CPU-durante-GPU BARRIDO A PROPOSITO -- a diferencia de
+# campaign_pacca_gpu_dvfs.yaml (que fija CPU en F4 siempre, ARC-155,
+# porque sus kernels GPU no hacen nada en el host mientras la GPU calcula),
+# los binarios *_gpu de este catalogo hacen H2D/D2H DENTRO de la ventana
+# medida: la CPU si trabaja armando las transferencias. No se puede asumir
+# que su reloj no importa para el tiempo de despacho GPU; esta campaña lo
+# MIDE con una rejilla reducida (REF/F0/F3/F6 en ambos ejes, no los 8
+# niveles de la campaña final) antes de comprometer node-time real.
+#
+# Estructura de campos (cores/smt_policy/frequency_settle/temperature/
+# hardware_datasheet) copiada de campaign_pacca_gpu_dvfs.yaml, ya validada
+# en produccion real (job 6471+).
+
+campaign_id: pacca_dual_smoke_20260827
+environment_tier: hpc_sc3
+seed: 20260827
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_dual_smoke_20260827
+overwrite: true
+
+catalog_path: ../catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: dual_gemm_cpu_N512
+  - kernel_ref: dual_gemm_gpu_N512
+  - kernel_ref: dual_fft_cpu_N512
+  - kernel_ref: dual_fft_gpu_N512
+  - kernel_ref: dual_axpy_cpu_N1000000
+  - kernel_ref: dual_axpy_gpu_N1000000
+  - kernel_ref: dual_stencil_cpu_N512
+  - kernel_ref: dual_stencil_gpu_N512
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F0,  mode: fixed, fraction: 1.0}   # 3600 MHz (max)
+  - {id: F3,  mode: fixed, fraction: 0.5}   # ~2200 MHz (medio)
+  - {id: F6,  mode: fixed, fraction: 0.0}   #  800 MHz (min)
+
+gpu_frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F0,  mode: fixed, fraction: 1.0}   # 1410 MHz (max)
+  - {id: F3,  mode: fixed, fraction: 0.5}
+  - {id: F6,  mode: fixed, fraction: 0.0}
+
+repetitions_per_combination: 3
+target_windows_per_repetition: 5
+interval_ns: 1000000  # 1 ms
+gpu_interval_ns: 5000000  # 5 ms
+
+running_ratio_min: 0.90
+
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+  grace_seconds: 0.05
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+
+rapl:
+  enabled: true
+
+uncore:
+  enabled: true
+
+turbo:
+  require_disabled: true
+
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+
+gpu:
+  enabled: true
+  calibration:
+    - gpu_stream_bw
+    - gpu_ert_probe_fp32
+    - gpu_ert_probe_fp64
+
+timeouts_seconds:
+  ready: 15
+  run: 90
+  shutdown: 15
+
+hardware_datasheet:
+  # CORREGIDO 2026-08-27 (segunda vez): la medicion anterior (135.781
+  # GFLOP/s) se tomo con el nodo CONTAMINADO -- un job previo (6651) crasheo
+  # dentro de la calibracion y dejo scaling_min_freq=scaling_max_freq=800000
+  # pinneado en cpu0-5 y sus pares SMT (16-21), un estado que el
+  # `finally: restore_original_state()` del job siguiente "restauro"
+  # fielmente porque lo capturo como su propio snapshot "original" al
+  # arrancar -- la corrupcion se propaga en silencio de job en job. Reparado
+  # a mano (rango completo 800000-3200000, turbo permanece desactivado por
+  # convencion del nodo) y verificado: ert_probe nativo en 6 hilos da 509.083
+  # GFLOP/s, coincidiendo con la medicion F0 (503.2) del intento anterior.
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 509083000000
+
+projected_campaign_bytes: 100000000
+remaining_core_hours: 1000.0
+projected_core_hours: 2.0

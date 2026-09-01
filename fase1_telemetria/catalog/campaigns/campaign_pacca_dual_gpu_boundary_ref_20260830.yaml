@@ -1,0 +1,58 @@
+# Par GPU de campaign_pacca_dual_cpu_boundary_ref_20260830.yaml.
+# Mismos 13 config_id, REF/REF y seis repeticiones: 78 corridas GPU.
+campaign_id: pacca_dual_gpu_boundary_ref_20260830
+environment_tier: hpc_sc3
+seed: 20260830
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_dual_gpu_boundary_ref_20260830
+overwrite: true
+catalog_path: ../catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: dual_axpy_gpu_N160000
+  - kernel_ref: dual_axpy_gpu_N208000
+  - kernel_ref: dual_axpy_gpu_N250000
+  - kernel_ref: dual_spmv_gpu_N1600000
+  - kernel_ref: dual_spmv_gpu_N2080000
+  - kernel_ref: dual_spmv_gpu_N2500000
+  - kernel_ref: dual_stencil_gpu_N3328
+  - kernel_ref: dual_stencil_gpu_N3584
+  - kernel_ref: dual_stencil_gpu_N3840
+  - kernel_ref: dual_fft_gpu_N192
+  - kernel_ref: dual_fft_gpu_N256
+  - kernel_ref: dual_fft_gpu_N384
+  - kernel_ref: dual_fft_gpu_N512
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+gpu_frequency_levels:
+  - {id: REF, mode: native_governor}
+repetitions_per_combination: 6
+baseline_repetition_indices: [1]
+target_windows_per_repetition: 5
+interval_ns: 1000000
+gpu_interval_ns: 5000000
+running_ratio_min: 0.90
+frequency_validation: {require_per_window: true, tolerance_fraction: 0.05, grace_seconds: 0.05}
+cores: {delegated_cpus: [0, 1, 2, 3, 4, 5], collector_cpu: 6, consumer_cpu: 7, numa_node_pin: 0}
+smt_policy: one_thread_per_physical_core
+cgroup_path: null
+perf_enabled: true
+frequency_settle: {enabled: true, timeout_seconds: 30.0, tolerance_fraction: 0.05, poll_interval_seconds: 0.5}
+rapl: {enabled: true}
+uncore: {enabled: true}
+turbo: {require_disabled: true}
+temperature: {require_package_sensor: true, minimum_c: 0, maximum_c: 90}
+gpu:
+  enabled: true
+  calibration: [gpu_stream_bw, gpu_ert_probe_fp32, gpu_ert_probe_fp64]
+  idle_power_mw_by_level: {REF: 34837.9, F0: 56565.5, F1: 45052.4, F2: 38466.0, F3: 36941.6, F4: 35369.0, F5: 34837.9, F6: 34368.9}
+  active_power_margin_mw: {REF: 800.0, F0: 4000.0, F1: 2700.0, F2: 1720.0, F3: 1200.0, F4: 1005.0, F5: 865.0, F6: 800.0}
+timeouts_seconds: {ready: 15, run: 180, shutdown: 15}
+hardware_datasheet: {bw_pico_bytes_per_s: 59500000000, p_pico_flops_per_s: 509083000000}
+projected_campaign_bytes: 100000000
+remaining_core_hours: 1000.0
+projected_core_hours: 2.0

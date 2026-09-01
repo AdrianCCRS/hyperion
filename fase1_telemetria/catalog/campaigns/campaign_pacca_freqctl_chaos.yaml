@@ -1,0 +1,79 @@
+# Prueba destructiva-controlada de FRQ-05/CAM-07 en paccaA100.
+#
+# No produce datos de entrenamiento. Su única finalidad es comprobar en
+# hardware real que una señal SIGTERM recibida mientras un nivel fixed está
+# aplicado restaura exactamente governor/min/max de los CPU delegados. Turbo
+# se deja en su estado nativo: esta prueba valida restauración de sysfs, no la
+# actuación física del reloj ni la selección de niveles de la campaña final.
+campaign_id: pacca_freqctl_chaos_20260814
+environment_tier: hpc_sc3
+seed: 20260814
+
+output_dir: /home/latorresn/yacacerest/freqctl_chaos_campaign_20260814
+overwrite: true
+
+catalog_path: ../catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: npb_mg
+
+# MAN-10 exige un único REF. El supervisor ignora ese tramo y termina el
+# proceso tan pronto confirma por relectura el punto fixed solicitado.
+frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: CHAOS_MID, mode: fixed, fraction: 0.5}
+
+repetitions_per_combination: 3
+target_windows_per_repetition: 50
+interval_ns: 1000000
+running_ratio_min: 0.90
+
+# No exigir la actuación física: con Turbo activo scaling_cur_freq puede
+# superar el rango solicitado (ARC-136), hallazgo independiente de FRQ-05.
+frequency_validation:
+  require_per_window: false
+  tolerance_fraction: 0.05
+
+turbo:
+  require_disabled: false
+
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+
+projected_campaign_bytes: 536870912
+remaining_core_hours: 100000
+projected_core_hours: 2
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+cgroup_path: null
+perf_enabled: true
+
+rapl:
+  enabled: true
+
+uncore:
+  enabled: true
+
+gpu:
+  enabled: false
+
+timeouts_seconds:
+  ready: 15
+  run: 60
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 480000000000

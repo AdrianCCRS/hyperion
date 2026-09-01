@@ -1,0 +1,122 @@
+# Smoke test de la campaña GPU DVFS (ARC-110/111), antes de relanzar
+# campaign_pacca_gpu_ref.yaml completa (144 combinaciones). Objetivo:
+# validar dos cosas nunca antes ejercitadas end-to-end en una campaña
+# real: (1) apply_gpu_frequency() aplicando frecuencia real de GPU desde
+# dentro del harness (hasta ahora solo se probó `sudo nvidia-smi -lgc/-rgc`
+# manualmente, fuera del pipeline, ARC-104/105); (2) rodinia_gaussian (el
+# kernel nuevo de ARC-110) corriendo a través del harness completo
+# (LD_PRELOAD del shim de blocking-sync, NVML, postprocess) -- hasta ahora
+# solo se ejecutó suelto para medir precisión con ncu.
+#
+# 1 kernel (rodinia_gaussian) x 3 niveles (REF, F0, F4 -- los extremos del
+# rango de GPU, para confirmar que apply_gpu_frequency() realmente pinea
+# en ambas direcciones) x 3 repeticiones (mínimo MAN-02) = 9 combinaciones.
+#
+# Resto de la configuración idéntica a campaign_pacca_gpu_ref.yaml, ya
+# validada en hardware real.
+
+# ARC-150: campaign_id/output_dir renombrados a la fecha de re-lanzamiento
+# real (2026-08-19) -- "..._20260810" tiene datos reales aceptados del
+# smoke original de ARC-110/111 (verdict.json accepted=true en varios
+# kernels, incluido rodinia_gaussian), no debe reusarse ni mezclarse con
+# corridas del protocolo actual (post ARC-127/148/149). CAM-09 (fail-closed,
+# ARC-141) ya bloqueaba correctamente el relanzamiento por esta razon; el
+# fix real es no reusar el directorio, no forzar el chequeo de seguridad.
+# ARC-153: "..._20260819" (sin sufijo) ya tiene 9/9 aceptadas, pero medidas
+# SIN el shim de blocking-sync activo (cudaDeviceSynchronize() en spin,
+# nunca sincronizado a pacca hasta este mismo cambio) -- CAM-09 no lo
+# detectaria (el fingerprint no cubre el estado del shim, es una condicion
+# de entorno en tiempo de ejecucion, no del manifiesto/catalogo), pero
+# mezclar corridas con spin y con blocking-sync real bajo el mismo
+# campaign_id conflaria dos condiciones de medicion distintas sin marca.
+campaign_id: pacca_gpu_smoke_20260819_shimfix
+environment_tier: hpc_sc3
+seed: 20260807
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_gpu_smoke_20260819_shimfix
+overwrite: true
+
+catalog_path: ../catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: rodinia_gaussian
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F0, mode: fixed, fraction: 1.0}
+  - {id: F4, mode: fixed, fraction: 0.0}
+
+repetitions_per_combination: 3
+target_windows_per_repetition: 5
+interval_ns: 1000000  # 1 ms
+gpu_interval_ns: 5000000  # 5 ms
+
+running_ratio_min: 0.90
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+# ARC-161: apply_frequency() se llama para el eje de CPU sin importar el
+# device del kernel (ARC-153) -- el mismo decaimiento lento de HWP bajo
+# EPP=performance (confirmado en paccaA100 con scaling_cur_freq muestreado
+# en vivo, docs/retoma/pacca/Diagnostico_CAL07_Dispersion_Frecuencia_STREAM_20260819.md)
+# afecta esta campaña GPU igual que a la de CPU. Espera activa, no pausa
+# fija -- un barrido real mostro que el asentamiento no es monotono con el
+# tiempo esperado.
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+
+rapl:
+  enabled: true
+
+# ARC-127 agregó este mismo campo a campaign_pacca_dvfs.yaml (E12: sin él,
+# check_uncore_required_for_cpu_dataset rechaza toda ventana de CPU con
+# quality_status != "ok") -- este manifiesto GPU nunca lo recibió pese a que
+# la calibración CPU (stream_official/ert_probe) corre siempre como
+# infraestructura del pipeline y produce ventanas de CPU sujetas al mismo
+# chequeo E12.
+uncore:
+  enabled: true
+
+gpu:
+  enabled: false
+  calibration:
+    - gpu_stream_bw
+    - gpu_ert_probe_fp32
+    - gpu_ert_probe_fp64
+
+timeouts_seconds:
+  ready: 15
+  run: 60
+  shutdown: 15
+
+# ARC-127 corrigió este mismo valor (72.0 GFLOP/s, medido con el bug de
+# ert_probe ya arreglado en ARC-125/126) en campaign_pacca_dvfs.yaml -- este
+# manifiesto GPU se quedó atrás porque la calibración CPU (stream_official/
+# ert_probe) corre siempre como infraestructura del pipeline, aunque la
+# matriz de kernels sea GPU; D03 lo habría rechazado como "fuera de rango"
+# contra el P_pico real de 417.8-555 GFLOP/s. Mismo valor corregido
+# (480 GFLOP/s, centro del rango medido) que campaign_pacca_dvfs_smoke.yaml.
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 480000000000
+
+projected_campaign_bytes: 50000000
+remaining_core_hours: 1000.0
+projected_core_hours: 2.0

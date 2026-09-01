@@ -1,0 +1,177 @@
+# Campaña real de kernels GPU en paccaA100 -- Fase 1 (caracterización) del
+# plan de trabajo de grado, solo a frecuencia REF (governor nativo, sin
+# escribir ningún reloj de CPU ni de GPU). No depende del permiso P4 (reloj
+# de GPU) ni de ningún otro permiso pendiente -- deliberadamente ejecutable
+# hoy.
+#
+# kernels: los 8 kernels GPU role=="dataset" del catálogo -- los 3
+# originales de ARC-72 (rodinia_hotspot, rodinia_backprop, gpu_dgemm_n4096)
+# más los 5 kernels Rodinia nuevos de ARC-75 (rodinia_lavamd,
+# rodinia_heartwall, rodinia_lud, rodinia_myocyte, rodinia_dwt2d). La
+# calibración CPU (stream_official/ert_probe) sigue siendo obligatoria
+# (run_calibration() la corre siempre, es infraestructura del pipeline, no
+# depende de si hay kernels GPU en la matriz).
+#
+# ARC-110: rodinia_hotspot reemplazado por rodinia_gaussian -- una
+# auditoría de precisión encontró que hotspot ejecuta 30.4% de sus FLOPs
+# reales en FP64 pese a declararse fp32, con la intensidad operacional
+# real (7.21 FLOP/byte) justo en el borde del ridge FP32 -- sin una base
+# sólida para asignarle un ridge sin diseñar un Roofline multitecho (fuera
+# de alcance), se retiró del catálogo. Ver comentario completo en
+# kernels/catalog.yaml.
+#
+# CORREGIDO (ARC-94): gpu_stream_bw, gpu_dgemm_calibration,
+# gpu_ert_probe_fp32 y gpu_ert_probe_fp64 (los 4, role=="calibration")
+# estaban mezclados aquí, dentro de `kernels:` -- generaban filas de
+# windows.csv sin phase_label_hint/etiqueta posible y multiplicaban la
+# matriz de combinaciones (12 kernels x 6 niveles x 3 reps = 216, en vez de
+# 8 x 6 x 3 = 144) sin ningún propósito de dataset. Los 3 que sí hacen
+# falta como fuente del ridge point (gpu_stream_bw, gpu_ert_probe_fp32/64,
+# ARC-76/80) ya estaban correctamente declarados por separado en
+# `gpu.calibration` más abajo -- ese es el mecanismo real que
+# run_gpu_calibration() usa, `kernels:` nunca fue necesario para eso.
+# gpu_dgemm_calibration no se agrega a `gpu.calibration`: es solo una
+# referencia informativa de cuBLAS (ARC-76), nunca la fuente del ridge, así
+# que simplemente se elimina de la matriz. manifest.py (MAN-12) ahora
+# bloquea que esto se repita: ningún kernel_ref con role != "dataset" puede
+# declararse en `kernels:`.
+#
+# cores/rapl/smt_policy: idénticos a campaign_pacca_ref.yaml, ya validados
+# en hardware real -- los kernels GPU no cambian nada del lado de CPU
+# excepto que corren con el shim de blocking-sync (ARC-72) y NVML habilitado
+# (--enable-gpu, wireado automáticamente por runner.py vía device: gpu en
+# el catálogo).
+#
+# repetitions_per_combination=3: el mínimo permitido por MAN-02.
+#
+# gpu.calibration (ARC-80): fuentes explícitas del ridge point de GPU
+# (fp32 y fp64 por separado, ARC-76) -- calibration.run_gpu_calibration()
+# las usa para derivar phase_label_train de las filas GPU en postprocess.py.
+# gpu_dgemm_calibration NO se incluye a propósito: también reporta FLOPs de
+# GPU pero es solo una referencia informativa de cuBLAS (ARC-76), nunca la
+# fuente del ridge.
+
+campaign_id: pacca_gpu_ref_20260807
+environment_tier: hpc_sc3
+seed: 20260807
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_gpu_ref_20260807
+overwrite: true
+
+catalog_path: ../catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: gpu_dgemm_n4096
+  - kernel_ref: rodinia_gaussian
+  - kernel_ref: rodinia_backprop
+  - kernel_ref: rodinia_lavamd
+  - kernel_ref: rodinia_heartwall
+  - kernel_ref: rodinia_lud
+  - kernel_ref: rodinia_myocyte
+  - kernel_ref: rodinia_dwt2d
+
+# ARC-87: F0-F4 agregados junto con el wiring real de aplicacion de
+# frecuencia de GPU (gpu_freqctl.py, nvidia-smi -lgc/-rgc) -- listos para
+# correr en cuanto llegue el permiso P4 (nvmlDeviceSetGpuLockedClocks
+# exige root en este driver, confirmado en ARC-62). Mismos id/fraction que
+# campaign_pacca_ref.yaml (CPU) a proposito: la matriz experimental barre
+# ambos ejes de frecuencia juntos bajo el mismo nivel nominal (ver Tabla
+# de estados de frecuencia, docs/libro/main.tex) -- F2 significa "50% del
+# rango de CPU y 50% del rango de GPU" en la misma corrida, cada fraccion
+# resuelta contra el rango real de su propio dispositivo
+# (environment.available_frequencies_khz para CPU,
+# environment.gpu_available_clocks_mhz para GPU).
+frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F0, mode: fixed, fraction: 1.0}
+  - {id: F1, mode: fixed, fraction: 0.75}
+  - {id: F2, mode: fixed, fraction: 0.5}
+  - {id: F3, mode: fixed, fraction: 0.25}
+  - {id: F4, mode: fixed, fraction: 0.0}
+
+repetitions_per_combination: 3
+target_windows_per_repetition: 5
+interval_ns: 1000000  # 1 ms
+# ARC-88: sin este campo, el manifiesto no tenia forma de fijar la cadencia
+# de muestreo NVML -- runner.py ya la leia (build_command), pero
+# manifest.py nunca la parseaba desde ningun YAML, asi que toda campana de
+# produccion caia siempre en el default de 100ms del launcher
+# (collector.hpp), el mismo valor que ARC-83/84/86 encontraron insuficiente
+# para varios kernels GPU cortos (backprop, myocyte, dwt2d, y hotspot antes
+# de alargarlo). 5ms es el mismo valor ya usado en los diagnosticos reales
+# de esta sesion (--fine), no un numero nuevo sin probar.
+gpu_interval_ns: 5000000  # 5 ms
+
+running_ratio_min: 0.90
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+# ARC-161: apply_frequency() se llama para el eje de CPU sin importar el
+# device del kernel (ARC-153) -- el mismo decaimiento lento de HWP bajo
+# EPP=performance (confirmado en paccaA100 con scaling_cur_freq muestreado
+# en vivo, docs/retoma/pacca/Diagnostico_CAL07_Dispersion_Frecuencia_STREAM_20260819.md)
+# afecta esta campaña GPU igual que a la de CPU. Espera activa, no pausa
+# fija -- un barrido real mostro que el asentamiento no es monotono con el
+# tiempo esperado.
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+
+rapl:
+  enabled: true
+
+# ARC-127 agregó este mismo campo a campaign_pacca_dvfs.yaml (E12: sin él,
+# check_uncore_required_for_cpu_dataset rechaza toda ventana de CPU con
+# quality_status != "ok") -- este manifiesto GPU nunca lo recibió pese a que
+# la calibración CPU (stream_official/ert_probe) corre siempre como
+# infraestructura del pipeline y produce ventanas de CPU sujetas al mismo
+# chequeo E12.
+uncore:
+  enabled: true
+
+gpu:
+  enabled: false
+  calibration:
+    - gpu_stream_bw
+    - gpu_ert_probe_fp32
+    - gpu_ert_probe_fp64
+
+timeouts_seconds:
+  ready: 15
+  run: 180
+  shutdown: 15
+
+# ARC-127 corrigió este mismo valor (72.0 GFLOP/s, medido con el bug de
+# ert_probe ya arreglado en ARC-125/126) en campaign_pacca_dvfs.yaml -- este
+# manifiesto GPU se quedó atrás porque la calibración CPU (stream_official/
+# ert_probe) corre siempre como infraestructura del pipeline, aunque la
+# matriz de kernels sea GPU; D03 lo habría rechazado como "fuera de rango"
+# contra el P_pico real de 417.8-555 GFLOP/s. Mismo valor corregido
+# (480 GFLOP/s, centro del rango medido) que campaign_pacca_dvfs_smoke.yaml.
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 480000000000
+
+# ARC-73: I09/OPS-01 (preflight.py) los exigen explícitamente, sin ellos
+# run_campaign_preflight() bloquea con "debe declararse" -- mismos valores
+# placeholder que ya se usaron en scripts/pacca/run_preflight_check.py para
+# este mismo nodo, no inventados para esta campaña específica.
+projected_campaign_bytes: 200000000
+remaining_core_hours: 1000.0
+projected_core_hours: 10.0

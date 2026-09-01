@@ -1,0 +1,180 @@
+# CORRIDA FINAL GPU v2 -- dataset consolidado de entrenamiento, con el
+# catalogo ampliado (Estrategia_GPU_Fase2.md §8, 2026-08-25).
+#
+# REEMPLAZA a campaign_pacca_gpu_final_dataset.yaml (job 6477, CANCELADO
+# el 2026-08-25 por decision explicita del usuario: priorizar diversidad
+# real de kernels sobre la resolucion de frecuencia). Misma grilla fina de
+# 10 niveles ya validada (V1/V2, job 6471), mismo diseno, con 6 kernels
+# nuevos de RAJAPerf-CUDA que sobrevivieron el tamizaje de alpha (job
+# 6517) y su medicion de OI real con ncu (job 6525).
+#
+# NO SE SOMETE HASTA QUE:
+#   1. Job 6525 (measure_gpu_rajaperf_oi.py) complete y los 6
+#      operational_intensity_flops_per_byte/gpu_precision de
+#      catalog.yaml dejen de ser null -- CAT-10 (catalog.py:132-137)
+#      hace fallar la carga del catalogo ENTERO si falta cualquiera,
+#      fail-closed a proposito.
+#   2. Job 6524 (rejilla fina CPU) libere paccaA100 -- ambas campañas
+#      piden el nodo en exclusiva, no pueden correr juntas.
+#
+# QUÉ CONSOLIDA. Los 17 puntos de carga GPU disponibles, sobre la grilla
+# fina completa, con 5 repeticiones (vs. 3 de las campañas de prueba):
+#   - 7 kernels reales del catálogo GPU original
+#   - 4 variantes de tamaño de dwt2d (192/2048/4096/8192 px) -- riesgo 8
+#     de Estrategia_GPU_Fase2.md: se conservan en el dataset físico, se
+#     excluyen del cálculo de margen y del LOKO, no del dataset
+#   - 6 kernels nuevos de RAJAPerf-CUDA (§8): Stream_COPY, Stream_TRIAD,
+#     Basic_REDUCE3_INT, Basic_INDEXLIST_3LOOP, Polybench_JACOBI_2D,
+#     Polybench_HEAT_3D
+#
+# CPU=REF ÚNICAMENTE. Misma justificación que la v1: el Anexo K.5 midió
+# que fijar la CPU al mínimo empeora la energía TOTAL entre 5.2% y 215%,
+# y la frecuencia de CPU mueve su propia potencia solo 0.7-3.8%.
+#
+# COSTO. 17 puntos x 10 niveles GPU x 1 nivel CPU x 5 rep = 850 corridas
+# (antes 550). Los 6 kernels nuevos corren más lento que el resto a
+# --sizefact 100 (7-19 s medidos en el tamizaje, job 6517, F0-F4) --
+# presupuesto ampliado a ~10 h (antes 6h para 550 corridas).
+
+campaign_id: pacca_gpu_final_dataset_v2_20260825
+environment_tier: hpc_sc3
+seed: 20260806
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_gpu_final_dataset_v2_20260825
+overwrite: true
+
+catalog_path: ../catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: rodinia_gaussian
+  - kernel_ref: gpu_dgemm_n4096
+  - kernel_ref: rodinia_heartwall
+  - kernel_ref: rodinia_lavamd
+  - kernel_ref: rodinia_myocyte
+  - kernel_ref: rodinia_backprop
+  - kernel_ref: rodinia_dwt2d
+  - kernel_ref: rodinia_dwt2d_s192
+  - kernel_ref: rodinia_dwt2d_s2048
+  - kernel_ref: rodinia_dwt2d_s4096
+  - kernel_ref: rodinia_dwt2d_s8192
+  - kernel_ref: gpu_rajaperf_stream_copy
+  - kernel_ref: gpu_rajaperf_stream_triad
+  - kernel_ref: gpu_rajaperf_reduce3_int
+  - kernel_ref: gpu_rajaperf_indexlist_3loop
+  - kernel_ref: gpu_rajaperf_jacobi_2d
+  - kernel_ref: gpu_rajaperf_heat_3d
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+
+# Grilla fina: los 4 escalones intermedios (G1-G4) cubren el salto de
+# 300 MHz entre F0 y F1, ya validada (V1/V2, job 6471).
+gpu_frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F0, mode: fixed, fraction: 1.0}      # 1410 MHz
+  - {id: G1, mode: fixed, fraction: 0.95}     # 1350 MHz
+  - {id: G2, mode: fixed, fraction: 0.90}     # 1290 MHz
+  - {id: G3, mode: fixed, fraction: 0.85}     # 1230 MHz
+  - {id: G4, mode: fixed, fraction: 0.80}     # 1170 MHz
+  - {id: F1, mode: fixed, fraction: 0.75}     # 1110 MHz
+  - {id: F2, mode: fixed, fraction: 0.5}      # 810 MHz
+  - {id: F3, mode: fixed, fraction: 0.25}     # 510 MHz
+  - {id: F4, mode: fixed, fraction: 0.0}      # 210 MHz
+
+repetitions_per_combination: 5
+# 2026-08-25: baseline_repetition_indices=[1] -- ver v1 para el
+# historial completo de esta decision (Estrategia_CPU_Fase2.md §5).
+baseline_repetition_indices: [1]
+
+target_windows_per_repetition: 5
+interval_ns: 1000000
+gpu_interval_ns: 5000000
+
+running_ratio_min: 0.90
+
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+  grace_seconds: 0.05
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+
+rapl:
+  enabled: true
+
+# ARC-191: dataset 100% GPU, E12 no exige uncore.
+uncore:
+  enabled: false
+
+turbo:
+  require_disabled: true
+
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+
+gpu:
+  enabled: true
+  calibration:
+    - gpu_stream_bw
+    - gpu_ert_probe_fp32
+    - gpu_ert_probe_fp64
+  # G1-G4 INTERPOLADOS entre los valores medidos de F0 y F1 -- V1/V2
+  # (job 6471) ya confirmaron que esto no causa rechazo masivo. El resto
+  # son medidos (Anexo I, ARC-194).
+  idle_power_mw_by_level:
+    REF: 33654.0
+    F0: 53621.8
+    G1: 50868.8   # INTERPOLADO
+    G2: 48115.8   # INTERPOLADO
+    G3: 45362.8   # INTERPOLADO
+    G4: 42609.8   # INTERPOLADO
+    F1: 39856.8
+    F2: 36084.9
+    F3: 34441.0
+    F4: 33677.6
+  active_power_margin_mw:
+    REF: 800
+    F0: 4000
+    G1: 3600      # INTERPOLADO
+    G2: 3200      # INTERPOLADO
+    G3: 2800      # INTERPOLADO
+    G4: 2400      # INTERPOLADO
+    F1: 2000
+    F2: 1200
+    F3: 900
+    F4: 800
+
+timeouts_seconds:
+  ready: 15
+  run: 300
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 480000000000
+
+projected_campaign_bytes: 1400000000
+remaining_core_hours: 1000.0
+projected_core_hours: 18.0

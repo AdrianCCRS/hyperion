@@ -1,0 +1,121 @@
+# Campaña completa sobre los 9 sobrevivientes del tamizaje CPU v2 (job
+# 6575, 2026-08-26). El tamizaje solo midió tiempo de pared + RAPL total;
+# esta campaña produce la etiqueta de verdad real (uncore por ventana) que
+# permite tratarlos como `npb_mg`/`ptrchase` -- confirmados, no candidatos.
+#
+# NO se repiten los 9 kernels originales: ya tienen campaña válida
+# (pacca_cpu_final_attempt03_20260820_arc174, 424/540). El modelo agrega
+# por (kernel, nivel), no exige repeticiones uniformes entre kernels, así
+# que combinar n=10 (originales) con n=6 (estos) en el entrenamiento no
+# tiene problema.
+#
+# NIVELES: los 5 estándar (REF, F0-F4), no la rejilla fina. La rejilla
+# fina solo se justificó para `npb_mg` porque su óptimo cayó fuera de F0 en
+# el barrido estándar -- no hay evidencia todavía de que estos 9 la
+# necesiten, y correrla sin esa evidencia sería especular con tiempo de
+# nodo. Si alguno resulta con un óptimo sospechosamente cerca de un límite
+# de nivel, se amplía después con una campaña dirigida, como se hizo con
+# `npb_mg`.
+#
+# REPETICIONES: n=6, no n=10 -- estándar del proyecto desde el análisis de
+# convergencia de CV% de EDP (docs/justifications/report/sections/
+# repetitions_edp.tex): misma cobertura a umbral 2% que n=10, 40% menos
+# costo. Nueve kernels nuevos a n=10 sería especular con el tiempo de nodo
+# sin evidencia de que haga falta.
+
+campaign_id: pacca_cpu_screen_v2_survivors_20260826
+environment_tier: hpc_sc3
+seed: 20260806
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_cpu_screen_v2_survivors_20260826
+overwrite: true
+
+catalog_path: ../catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: cpu_rajaperf_stream_mul
+  - kernel_ref: cpu_rajaperf_stream_triad
+  - kernel_ref: cpu_rajaperf_stream_add
+  - kernel_ref: cpu_rajaperf_lcals_first_sum
+  - kernel_ref: cpu_rajaperf_lcals_tridiag_elim
+  - kernel_ref: cpu_rajaperf_polybench_jacobi_1d
+  - kernel_ref: cpu_rajaperf_polybench_fdtd_2d
+  - kernel_ref: cpu_rajaperf_basic_daxpy
+  - kernel_ref: cpu_rajaperf_basic_init3
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F0,  mode: fixed, fraction: 1.0}    # 3200 MHz
+  - {id: F1,  mode: fixed, fraction: 0.75}   # 2600 MHz
+  - {id: F2,  mode: fixed, fraction: 0.5}    # 2000 MHz
+  - {id: F3,  mode: fixed, fraction: 0.25}   # 1400 MHz
+  - {id: F4,  mode: fixed, fraction: 0.0}    #  800 MHz
+
+repetitions_per_combination: 6
+# CAM-04: el par baseline/telemetry ya está caracterizado (540 pares CPU,
+# media 1.95%, estable entre kernels) -- solo se conserva en la primera
+# repetición como vigilancia, no remedición completa.
+baseline_repetition_indices: [1]
+
+target_windows_per_repetition: 50
+interval_ns: 1000000  # 1 ms
+
+running_ratio_min: 0.90
+
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+  grace_seconds: 0.15
+  tail_grace_seconds: 0.15
+
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+
+turbo:
+  require_disabled: true
+
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+
+projected_campaign_bytes: 10737418240
+remaining_core_hours: 100000
+projected_core_hours: 6
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+rapl:
+  enabled: true
+
+uncore:
+  enabled: true
+
+gpu:
+  enabled: false
+
+timeouts_seconds:
+  ready: 15
+  run: 180
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 480000000000

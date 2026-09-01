@@ -1,0 +1,133 @@
+# T1.2 del plan maestro: pre-vuelo del EJE DE TAMANO.
+# Ver docs/general/PLAN_MAESTRO_FASE2.md, Parte IV Ola 1 y Parte V.2.
+#
+# QUÉ FALSEA. Que subir la clase de NPB mueva el régimen del kernel lo
+# suficiente para cruzar el umbral de viabilidad alpha <= 0.226.
+#
+# POR QUÉ ES LA PALANCA MÁS BARATA DEL PLAN. El régimen no es propiedad del
+# algoritmo sino del algoritmo CONTRA la jerarquía de memoria de este nodo
+# (LLC de 12 MiB por socket en el Gold 5315Y). Los seis NPB del dataset
+# están TODOS en clase B y ninguno satura memoria: npb_mg, el más cerca,
+# llega al 74 % del ancho de banda de STREAM, y cinco no pasan del 30 %.
+# Subir de clase multiplica el conjunto de trabajo por ~8 sin escribir una
+# línea de código y produce puntos comparables con la literatura de NPB.
+#
+# Los binarios de clase C YA ESTÁN construidos en pacca, con el mismo
+# scripts/felix/build_npb.sh que los de clase B (-march=native fijado en
+# ARC-125), así que la comparación B contra C aísla el tamaño y no arrastra
+# diferencias de compilación.
+#
+# KERNELS. Los dos más cerca de saturar memoria, que son donde subir el
+# tamaño tiene más posibilidades de cruzar el umbral:
+#   npb_cg  63 % del ancho de banda de STREAM, alpha 0.782
+#   npb_mg  74 % del ancho de banda de STREAM, alpha 0.664
+#
+# Se miden AMBAS clases en la MISMA campaña, no solo la C contra los datos
+# de clase B que ya existen. Cuesta ~20 min más y elimina el confundido de
+# comparar entre campañas con protocolos potencialmente distintos.
+#
+# NIVELES. Solo F0 y F4: alpha es un ajuste de UN parámetro, así que dos
+# puntos lo determinan. Los intermedios describen la forma de la curva, que
+# solo interesa si la respuesta es que sí.
+#
+# CONCLUSIONES
+#   - alpha baja al subir de clase: EL EJE DE TAMAÑO FUNCIONA. Es el mejor
+#     resultado posible del plan -- el catálogo se multiplica por un eje
+#     físicamente significativo, sin inventar kernels y sin perder
+#     comparabilidad. Se extiende a las clases y kernels viables en la
+#     campaña final.
+#   - alpha no se mueve: el tamaño no es la palanca. Hay que ir a cargas
+#     intrínsecamente distintas (T1.3, HPCG) y el peso de la cobertura de
+#     régimen recae sobre los sintéticos, cosa que habrá que declarar como
+#     limitación explícita.
+#
+# COSTO. 4 kernels x 3 niveles x 3 reps = 36 corridas. cg.C ~220 s domina;
+# se estima 1.5-2 h. Es el pre-vuelo más caro de la Ola 1 y aun así cuesta
+# la mitad que la campaña de fases y una quinta parte del bloque final.
+
+campaign_id: pacca_size_preflight_20260822
+environment_tier: hpc_sc3
+seed: 20260806
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_size_preflight_20260822
+overwrite: true
+
+catalog_path: ../catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: npb_cg
+  - kernel_ref: npb_cg_c
+  - kernel_ref: npb_mg
+  - kernel_ref: npb_mg_c
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F0,  mode: fixed, fraction: 1.0}   # 3200 MHz
+  - {id: F4,  mode: fixed, fraction: 0.0}   #  800 MHz
+
+repetitions_per_combination: 3
+target_windows_per_repetition: 50
+interval_ns: 1000000  # 1 ms
+
+running_ratio_min: 0.90
+
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+  grace_seconds: 0.15
+  tail_grace_seconds: 0.15
+
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+
+turbo:
+  require_disabled: true
+
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+
+# Clase C mueve varios GB por corrida y genera muchas más ventanas que la B.
+projected_campaign_bytes: 21474836480
+remaining_core_hours: 100000
+projected_core_hours: 30
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+rapl:
+  enabled: true
+
+uncore:
+  enabled: true
+
+gpu:
+  enabled: false
+
+# cg.C a 800 MHz es el peor caso: ~220 s a 3200 MHz, y a un cuarto del
+# reloj puede acercarse a 900 s. 1800 s da margen sin enmascarar un cuelgue.
+timeouts_seconds:
+  ready: 15
+  run: 1800
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 480000000000

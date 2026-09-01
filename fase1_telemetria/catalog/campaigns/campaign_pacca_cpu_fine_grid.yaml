@@ -1,0 +1,170 @@
+# Campaña suplementaria de rejilla fina de frecuencia en CPU (Fase 2).
+#
+# MOTIVO. El análisis completo de pacca_cpu_final_attempt03_20260820 (9/9
+# kernels, 6 niveles, 10 reps) mostró que 0/9 kernels tienen el óptimo de
+# EDP fuera de la frecuencia máxima. Pero ese resultado NO es una
+# conclusión física: es un artefacto de la resolución de la rejilla.
+#
+# La rejilla original salta de F0=3200 MHz a F1=2600 MHz, un escalón del
+# 18.75%. Para casi todos los kernels ese salto ya implica 14-23% de
+# slowdown, así que los presupuestos de degradación del 5%, 10% y 20%
+# devuelven EXACTAMENTE el mismo resultado -- no existe ningún nivel
+# intermedio que probar. La zona donde podría haber ahorro energético con
+# degradación tolerable (3200-2600 MHz) nunca se muestreó.
+#
+# Evidencia de que hay algo ahí: npb_mg es el único kernel cuyo mínimo de
+# ENERGÍA no está en la frecuencia máxima -- cae en F1 (2600 MHz) con
+# +3.8% de tiempo y -3.6% de energía. Como F1 es el borde inferior de la
+# zona no muestreada Y el borde superior del siguiente hueco, su óptimo
+# real puede estar a cualquiera de los dos lados.
+#
+# DISEÑO. Dos huecos, siete niveles:
+#   - Hueco superior (3200-2600), sin muestrear: 3100, 3000, 2900, 2800.
+#     Cubre slowdowns nominales de ~3%, ~7%, ~10%, ~14% para carga
+#     compute-bound, que es justo el rango de los presupuestos de interés.
+#   - Hueco inferior (2600-2000), para acotar el óptimo de npb_mg por
+#     debajo: 2400, 2200.
+#   - F0 (3200) se repite como ANCLA dentro de esta campaña. No es
+#     redundante: permite detectar deriva térmica/ambiental frente a la
+#     campaña original (corrida el 2026-08-20) antes de comparar energías
+#     entre ambas. Si F0 aquí no reproduce F0 de allá dentro del ruido, los
+#     ahorros calculados contra la campaña vieja no son válidos.
+#
+# NO se repiten F1, F2, F3 ni F4: ya están medidos en la campaña principal
+# y el ancla F0 los hace comparables. REF (gobernador nativo) sí se repite
+# porque el parser exige exactamente un nivel native_governor por campaña
+# (MAN-10) -- y de paso da una segunda ancla, la línea base del gobernador
+# por defecto, que es contra quien el agente de Fase 3 tiene que competir.
+#
+# fraction se resuelve como round(f_min + fraction*(f_max - f_min)) en
+# freqctl.py:157, con el rango real del nodo detectado en vivo. Con
+# Turbo deshabilitado en paccaA100 ese rango es [800000, 3200000] kHz:
+#   1.0000000000 -> 3200 MHz   (ancla)
+#   0.9583333333 -> 3100 MHz
+#   0.9166666667 -> 3000 MHz
+#   0.8750000000 -> 2900 MHz
+#   0.8333333333 -> 2800 MHz
+#   0.6666666667 -> 2400 MHz
+#   0.5833333333 -> 2200 MHz
+# El driver es intel_pstate (granularidad de 100 MHz), así que los siete
+# objetivos son directamente alcanzables; aun si el hardware ajustara al
+# escalón vecino, 100 MHz sobre 2200-3200 son 3.1-4.5%, dentro de la
+# tolerancia del 5% de frequency_validation.
+#
+# COSTO. 9 kernels x 7 niveles x 10 reps = 630 corridas. Todos los niveles
+# están entre 2200 y 3200 MHz, o sea que cada corrida es más corta que la
+# media de la campaña original (que incluía 800 MHz, ~3.4x más lenta). La
+# campaña original (540 corridas, 6 niveles) tardó ~8.5 h de reloj
+# (00:50->09:17 del 2026-08-20); esta se estima en ~7 h.
+#
+# Resto de la configuración idéntica a campaign_pacca_dvfs.yaml, que ya
+# está validada en hardware real -- ver ese archivo para el historial de
+# cada decisión (cores, RAPL, uncore, smt_policy, hardware_datasheet).
+
+campaign_id: pacca_cpu_fine_grid_20260821
+environment_tier: hpc_sc3
+seed: 20260806
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_cpu_fine_grid_20260821
+overwrite: true
+
+# La ruta se resuelve contra el DIRECTORIO DEL MANIFIESTO
+# (manifest.py:379), no contra el CWD. Tras la reorganización de schemas/
+# (df63dfe) los manifiestos viven en campaigns/, así que el catálogo queda
+# un nivel arriba. Los manifiestos anteriores conservan "kernels/..." y
+# fallarían al cargar -- ver Registro_Cambios_Fuera_Plan_Original.md.
+catalog_path: ../catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: npb_bt
+  - kernel_ref: npb_mg
+  - kernel_ref: npb_cg
+  - kernel_ref: npb_sp
+  - kernel_ref: npb_ft
+  - kernel_ref: npb_lu
+  - kernel_ref: dgemm_n2048
+  - kernel_ref: rodinia_lavamd_omp
+  - kernel_ref: rajaperf_polybench_3mm_omp
+
+frequency_levels:
+  - {id: REF,   mode: native_governor}                 # gobernador nativo
+  - {id: F0,    mode: fixed, fraction: 1.0}            # 3200 MHz -- ancla
+  - {id: S3100, mode: fixed, fraction: 0.9583333333}   # 3100 MHz
+  - {id: S3000, mode: fixed, fraction: 0.9166666667}   # 3000 MHz
+  - {id: S2900, mode: fixed, fraction: 0.875}          # 2900 MHz
+  - {id: S2800, mode: fixed, fraction: 0.8333333333}   # 2800 MHz
+  - {id: S2400, mode: fixed, fraction: 0.6666666667}   # 2400 MHz
+  - {id: S2200, mode: fixed, fraction: 0.5833333333}   # 2200 MHz
+
+repetitions_per_combination: 10
+target_windows_per_repetition: 50
+interval_ns: 1000000  # 1 ms
+
+running_ratio_min: 0.90
+
+# grace_seconds=0.15 en vez del 0.05 de la campaña principal: es el valor
+# que ARC-169 ya demostró suficiente para el transitorio de arranque de
+# npb_cg (~53 ms), y aquí hay 9 kernels distintos con un nivel nuevo cada
+# uno. tail_grace_seconds=0.15 por simetría -- rodinia_lavamd_omp mostró
+# efecto de unión final en la campaña original (ARC-169) y este manifiesto
+# lo incluye. El margen es barato: 0.15 s sobre corridas de 3-25 s no
+# diluye la validación (ARC-174 clasifica por ventana, no agrega).
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+  grace_seconds: 0.15
+  tail_grace_seconds: 0.15
+
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+
+turbo:
+  require_disabled: true
+
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+
+# 630 corridas frente a las 540 de la campaña principal (12 GiB
+# proyectados), escalado con el mismo margen.
+projected_campaign_bytes: 16106127360
+remaining_core_hours: 100000
+projected_core_hours: 60
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+rapl:
+  enabled: true
+
+uncore:
+  enabled: true
+
+gpu:
+  enabled: false
+
+timeouts_seconds:
+  ready: 15
+  run: 180
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 480000000000

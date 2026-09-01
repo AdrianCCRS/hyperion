@@ -1,0 +1,162 @@
+# Tamizaje de alpha en GPU -- candidatos limitados por memoria (Anexo K.7).
+#
+# PROPOSITO. El Anexo K estableció que el catálogo GPU actual no tiene
+# margen de DVFS: 3 de 4 kernels tienen el óptimo en el reloj máximo, y
+# alpha predice ese resultado 4/4 con el umbral heredado del eje CPU
+# (alpha < 0.226 => el DVFS paga). El mecanismo quedó identificado:
+# `nvidia-smi -lgc` escala SOLO el reloj de SM, el de memoria queda
+# intacto, así que el margen vive en los kernels limitados por ancho de
+# banda de DRAM. Verificado con `gpu_stream_bw`: alpha=0.071.
+#
+# Esta campaña NO produce dataset de entrenamiento. Su única salida es
+# alpha por kernel, para decidir cuáles sobreviven a una campaña completa.
+#
+# CANDIDATOS, por intensidad operacional declarada (más baja = más
+# limitado por memoria = mejor candidato):
+#   rodinia_myocyte   OI = 0.06   <- el más memory-bound del catálogo
+#   rodinia_backprop  OI = 0.45
+#   rodinia_dwt2d     OI = 2.17   <- el excluido en G.5, ahora prometedor
+#
+# CONTROL POSITIVO GRATIS. `gpu_stream_bw` no va en `kernels:` sino que
+# ya corre como calibración GPU en los 6 niveles automáticamente. Eso da
+# el control positivo en las MISMAS condiciones sin gastar una corrida ni
+# tener que declararle una OI estática arbitraria (CAT-10) a un kernel
+# cuya mezcla copy/scale/add/triad no tiene una OI única defendible.
+# Se lee después con `classifier/analysis/gpu_alpha_calibration_kernels.py`.
+#
+# TRAMPA CONOCIDA -- `rodinia_myocyte` escribe ~290 MB en `run/myocyte/
+# output.txt`. Un costo de I/O FIJO no escala con el reloj de SM, así que
+# infla la fracción serial (1-alpha) y produce un alpha BAJO ESPURIO,
+# indistinguible por el ajuste de un kernel genuinamente memory-bound.
+# Si myocyte sale con alpha bajo, ese resultado NO se puede aceptar sin
+# antes descontar el tiempo de escritura. Anotado en K.7 como post-chequeo
+# obligatorio, no como resultado.
+#
+# RECHAZOS NO IMPORTAN. Verificado en vivo sobre las corridas rechazadas
+# del job 6457: una corrida con `accepted: false` (factor I10) conserva
+# `summary.txt` con `telemetry_elapsed_ns_mean` válido. Como alpha se
+# ajusta solo sobre tiempos, el tamizaje es inmune al criterio de
+# actividad -- relevante para `dwt2d`, cuyo exceso de potencia en F4 cae
+# a ~1 W (G.5) y muy probablemente será rechazado ahí.
+#
+# CPU=REF UNICAMENTE. K.5 mostró que CPU al mínimo cuesta energía en los
+# 4 kernels medidos (hasta +215%), así que como política es la opción
+# equivocada y no hay razón para tamizar en ese régimen. Además evita
+# duplicar el costo de la campaña.
+#
+# COSTO. 3 kernels x 6 niveles GPU x 3 rep = 54 corridas.
+
+campaign_id: pacca_gpu_alpha_screening_20260823
+environment_tier: hpc_sc3
+seed: 20260806
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_gpu_alpha_screening_20260823
+overwrite: true
+
+catalog_path: ../catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: rodinia_myocyte
+  - kernel_ref: rodinia_backprop
+  - kernel_ref: rodinia_dwt2d
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+
+gpu_frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F0, mode: fixed, fraction: 1.0}
+  - {id: F1, mode: fixed, fraction: 0.75}
+  - {id: F2, mode: fixed, fraction: 0.5}
+  - {id: F3, mode: fixed, fraction: 0.25}
+  - {id: F4, mode: fixed, fraction: 0.0}
+
+repetitions_per_combination: 3
+target_windows_per_repetition: 5
+interval_ns: 1000000
+gpu_interval_ns: 5000000
+
+running_ratio_min: 0.90
+
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+  grace_seconds: 0.05
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+
+rapl:
+  enabled: true
+
+# ARC-191: ningún kernel de CPU en `kernels:`, así que E12 no exige uncore
+# aunque MAN-07 obligue a declarar stream_official/ert_probe en
+# `calibration:`. Necesario mientras CAP_PERFMON siga roto (ARC-184).
+uncore:
+  enabled: false
+
+turbo:
+  require_disabled: true
+
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+
+gpu:
+  enabled: true
+  calibration:
+    - gpu_stream_bw
+    - gpu_ert_probe_fp32
+    - gpu_ert_probe_fp64
+  # Márgenes finales de ARC-194 / Anexo I, sin cambios. Los rechazos que
+  # provoquen no afectan el tamizaje (ver nota arriba).
+  idle_power_mw_by_level:
+    REF: 33654.0
+    F0: 53621.8
+    F1: 39856.8
+    F2: 36084.9
+    F3: 34441.0
+    F4: 33677.6
+  active_power_margin_mw:
+    REF: 800
+    F0: 4000
+    F1: 2000
+    F2: 1200
+    F3: 900
+    F4: 800
+
+# Subido de 180 s: en F4 (210 MHz) el reloj está recortado 6.7x y dwt2d
+# ya tardaba 25.7 s ahí con 16384x16384. myocyte es de duración
+# desconocida y además escribe 290 MB.
+timeouts_seconds:
+  ready: 15
+  run: 900
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 480000000000
+
+projected_campaign_bytes: 250000000
+remaining_core_hours: 1000.0
+projected_core_hours: 3.0

@@ -1,0 +1,147 @@
+# Smoke test de escritura real de frecuencia en paccaA100 (ARC-104,
+# 2026-08-10), tras la llegada del permiso P1 (scaling_min_freq/
+# scaling_max_freq, ver correo del admin del cluster). Objetivo: confirmar
+# que apply_frequency() realmente pinea el hardware y que RUN-09 no
+# dispara -- no producir datos para el dataset final. Reduce
+# campaign_pacca_dvfs.yaml a 3 kernels: npb_mg como extremo memory-bound y
+# los dos candidatos compute-bound recién caracterizados, por 10 niveles
+# (REF + nueve puntos fijos cada 12,5 %) x 3 repeticiones = 90 corridas +
+# calibración. Este reconocimiento permite decidir con datos si los cinco
+# niveles F0--F4 capturan la curva. GPU sigue deshabilitada (gpu.enabled=false) -- este smoke
+# test valida solo el eje CPU; el eje GPU (P4, nvidia-smi -lgc/-rgc con
+# sudo) se valida por separado. repetitions_per_combination=3 (no 1) es el
+# mínimo que exige MAN-02 y aquí solo sirve para el pre-vuelo reducido; la
+# campaña final usa 10.
+#
+# Resto de la configuración (cores, RAPL, catálogo, smt_policy,
+# hardware_datasheet) idéntica a campaign_pacca_dvfs.yaml/
+# campaign_pacca_ref.yaml, ya validada en hardware real.
+
+# ARC-130 (2026-08-12): reactivado como smoke test PRE-VUELO de la campaña
+# completa (campaign_pacca_dvfs.yaml, ARC-127/128) -- verifica de punta a
+# punta (preflight, uncore, checksums, calibración, escritura de
+# frecuencia, postprocess, validate_windows) en ~5-10 min reales antes de
+# comprometer las 3h de la campaña completa. Mismos 2 fixes que ARC-127 ya
+# aplicó ahí: uncore.enabled agregado (E12 lo exige, todo kernel es CPU) y
+# hardware_datasheet.p_pico_flops_per_s actualizado (72 GFLOP/s era el
+# valor con el bug de ert_probe ya corregido en ARC-125/126, D03 lo
+# hubiera rechazado). campaign_id/output_dir con fecha nueva para no
+# reanudar contra el smoke test viejo de ARC-104/108 (protocolo distinto,
+# CAM-09 lo rechazaría de todas formas, pero mejor no reusar el directorio).
+# ARC-150: campaign_id/output_dir renombrados a la fecha de re-lanzamiento
+# real (2026-08-19) -- el directorio "..._20260814" solo tenia el intento
+# fallido de ARC-149 (build viejo del launcher, sin datos reales), pero
+# CAM-09 (fail-closed, ARC-141) bloqueaba el relanzamiento porque el
+# fingerprint del protocolo cambio junto con los fixes de esa misma sesion.
+# Mismo criterio ya usado en ARC-127/130: no reusar un output_dir cuyo
+# protocolo ya no coincide, en vez de forzar el chequeo de seguridad.
+campaign_id: pacca_cpu_final_preflight_20260819
+environment_tier: hpc_sc3
+seed: 20260806
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_cpu_final_preflight_20260819
+overwrite: true
+
+catalog_path: ../catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: npb_mg
+  - kernel_ref: rodinia_lavamd_omp
+  - kernel_ref: rajaperf_polybench_3mm_omp
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F0, mode: fixed, fraction: 1.0}
+  - {id: F0125, mode: fixed, fraction: 0.875}
+  - {id: F1, mode: fixed, fraction: 0.75}
+  - {id: F1375, mode: fixed, fraction: 0.625}
+  - {id: F2, mode: fixed, fraction: 0.5}
+  - {id: F2375, mode: fixed, fraction: 0.375}
+  - {id: F3, mode: fixed, fraction: 0.25}
+  - {id: F3125, mode: fixed, fraction: 0.125}
+  - {id: F4, mode: fixed, fraction: 0.0}
+
+repetitions_per_combination: 3
+target_windows_per_repetition: 50
+interval_ns: 1000000  # 1 ms
+
+running_ratio_min: 0.90
+
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+  # ARC-166 (corregido -- el valor original de 15.0 confundia nanosegundos
+  # con segundos): un CPU delegado especifico (confirmado reproducible 2/2
+  # en paccaA100, siempre el mismo) tarda ~10-11 MILISEGUNDOS en
+  # engancharse al candado justo tras arrancar el kernel real -- latencia
+  # de transicion P-state normal, no un decaimiento de segundos. 0.05s
+  # (50ms) da margen (~4-5x) sobre el peor caso medido sin diluir la
+  # validacion del resto de la corrida.
+  grace_seconds: 0.05
+
+# ARC-161: en paccaA100, energy_performance_preference=performance bajo HWP
+# hace que el hardware decaiga lentamente hacia un techo de frecuencia mas
+# bajo tras venir de un nivel mas alto -- confirmado con scaling_cur_freq
+# muestreado en vivo, en una escala de segundos. Un barrido real (0.5s a
+# 12s) mostro que el asentamiento NO es monotono con el tiempo esperado (8s
+# asento limpio, 12s inmediatamente despues fallo peor que 8s) -- por eso
+# apply_frequency() se sigue de una espera ACTIVA (relee scaling_cur_freq
+# hasta confirmar, no una pausa fija) con timeout_seconds=30 (mas del doble
+# del peor caso medido) como tope de seguridad, no como valor esperado.
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+
+turbo:
+  require_disabled: true
+
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+
+# I09/OPS-01: la cuenta latorresn no tiene cuota de disco ni límite de
+# horas-núcleo real que el usuario haya pedido rastrear (confirmado
+# 2026-08-10, "uso ilimitado, no te preocupes por eso") -- estos valores
+# solo satisfacen el chequeo de preflight, no representan un límite real.
+# 3 GiB y 30 horas-núcleo cubren con margen las 90 combinaciones, sus
+# baselines y calibraciones, a partir del uso real de las campañas REF.
+projected_campaign_bytes: 3221225472
+remaining_core_hours: 100000
+projected_core_hours: 30
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+rapl:
+  enabled: true
+
+uncore:
+  enabled: true
+
+gpu:
+  enabled: false
+
+timeouts_seconds:
+  ready: 15
+  run: 60
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 480000000000

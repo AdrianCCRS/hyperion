@@ -1,0 +1,188 @@
+# Primer intento de dataset final CPU multi-frecuencia contra paccaA100.
+#
+# ARC-127 (2026-08-12): el permiso P1 (escritura de scaling_min_freq/
+# scaling_max_freq) YA fue concedido y verificado (ARC-105/107) -- el
+# comentario original de este archivo, que decía que seguía bloqueado, ya
+# no aplica. La campaña limpia de 126 corridas del 2026-08-13 tampoco es el
+# dataset final: se ejecutó con Turbo activo y sin frecuencia por ventana.
+# Esta configuración reemplaza ese protocolo y usa un output_dir nuevo.
+#
+# ARC-138 (2026-08-14): Turbo debe estar deshabilitado antes de que el CLI
+# detecte el entorno. El wrapper operacional aplica `set_turbo_state 1`, lo
+# verifica y restaura el estado original. Con no_turbo=1, environment.py
+# recorta el rango dinámicamente a base_frequency, sin hardcodear el SKU.
+# En pacca, la lectura real es 3200000 kHz y los niveles quedan:
+#   F0=3200, F1=2600, F2=2000, F3=1400, F4=800 MHz.
+#
+# Niveles F0-F4 tal como los define el diseño de campaña
+# (F0=f_max, F1=75%, F2=50%, F3=25%, F4=f_min del rango [scaling_min_freq,
+# scaling_max_freq] detectado en tiempo real por freqctl.py -- fraction se
+# resuelve contra el rango real del nodo, nunca contra un valor de kHz
+# hardcodeado aquí). Rango medido en pacca el 2026-08-06:
+#   cpuinfo_min_freq = 800000 kHz (0.8 GHz)
+#   base_frequency = 3200000 kHz (3.2 GHz, techo nominal sin turbo)
+#
+# intel_pstate usa la estrategia bounded_range (freqctl.py ya la tiene
+# implementada): fija scaling_min_freq=scaling_max_freq=objetivo, no existe
+# governor userspace en este driver (confirmado en la auditoría).
+#
+# repetitions_per_combination=10: el barrido de repetitions.tex mostró que
+# 3 es solo un mínimo operativo dependiente del trío elegido y puede omitir
+# anomalías tardías. Al no existir una restricción de cómputo indicada por
+# el usuario, se conserva toda la evidencia disponible con n=10.
+# 9 kernels x 6 niveles x 10 repeticiones = 540 corridas de telemetría,
+# cada una con su baseline atómico.
+#
+# Resto de la configuración (cores, RAPL, catálogo, smt_policy,
+# hardware_datasheet) idéntica a campaign_pacca_ref.yaml, que ya está
+# validada en hardware real -- ver ese archivo para el historial completo
+# de cada decisión.
+
+campaign_id: pacca_cpu_final_attempt03_20260820
+environment_tier: hpc_sc3
+seed: 20260806
+
+# ARC-166: renombrado de attempt01_20260814 -- ese intento (job 6319)
+# guardo un roofline_calibration_REF.json con plausibility_check_passed=False
+# (D03, causado por un residuo de frecuencia pineada dejado por scripts de
+# diagnostico ajenos a este manifiesto, ya corregido en el hardware). CAM-11
+# se niega correctamente a re-medir en silencio sobre un output_dir con un
+# artefacto de calibracion invalido -- convencion del proyecto es renombrar
+# el campaign_id, nunca borrar el intento anterior (ver ARC-150).
+#
+# ARC-168: renombrado de nuevo, de attempt02_20260819 -- ese intento (job
+# 6324) crasheo en el CAL-07 de la calibracion de F0 ANTES de que ARC-167
+# desacoplara esa validacion, dejando corridas parciales de
+# stream_official/ert_probe en F0 (rep00) sin que jamas se escribiera
+# roofline_calibration_F0.json. CAM-11 detecta correctamente ese estado
+# parcial inconsistente (hay corridas, falta un artefacto de calibracion) y
+# se niega a reanudar en silencio (job 6338). Mismo criterio: intento nuevo,
+# nunca se borra el anterior.
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_cpu_final_attempt03_20260820
+overwrite: true
+
+catalog_path: ../catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: npb_bt
+  - kernel_ref: npb_mg
+  - kernel_ref: npb_cg
+  - kernel_ref: npb_sp
+  - kernel_ref: npb_ft
+  - kernel_ref: npb_lu
+  - kernel_ref: dgemm_n2048
+  - kernel_ref: rodinia_lavamd_omp
+  - kernel_ref: rajaperf_polybench_3mm_omp
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F0, mode: fixed, fraction: 1.0}
+  - {id: F1, mode: fixed, fraction: 0.75}
+  - {id: F2, mode: fixed, fraction: 0.5}
+  - {id: F3, mode: fixed, fraction: 0.25}
+  - {id: F4, mode: fixed, fraction: 0.0}
+
+repetitions_per_combination: 10
+target_windows_per_repetition: 50
+interval_ns: 1000000  # 1 ms
+
+running_ratio_min: 0.90
+
+# El 5% es la tolerancia configurable ya especificada por FRQ-T04 en el
+# Plan de Tests. Se valida cada lectura real del colector, no una lectura
+# post-hoc como en la campaña 20260813.
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+  # ARC-166 (corregido -- el valor original de 15.0 confundia nanosegundos
+  # con segundos): un CPU delegado especifico (confirmado reproducible 2/2
+  # en paccaA100, siempre el mismo) tarda ~10-11 MILISEGUNDOS en
+  # engancharse al candado justo tras arrancar el kernel real -- latencia
+  # de transicion P-state normal, no un decaimiento de segundos. 0.05s
+  # (50ms) da margen (~4-5x) sobre el peor caso medido sin diluir la
+  # validacion del resto de la corrida.
+  grace_seconds: 0.05
+
+# ARC-161: en paccaA100, energy_performance_preference=performance bajo HWP
+# hace que el hardware decaiga lentamente hacia un techo de frecuencia mas
+# bajo tras venir de un nivel mas alto -- confirmado con scaling_cur_freq
+# muestreado en vivo, en una escala de segundos. Un barrido real (0.5s a
+# 12s) mostro que el asentamiento NO es monotono con el tiempo esperado (8s
+# asento limpio, 12s inmediatamente despues fallo peor que 8s) -- por eso
+# apply_frequency() se sigue de una espera ACTIVA (relee scaling_cur_freq
+# hasta confirmar, no una pausa fija) con timeout_seconds=30 (mas del doble
+# del peor caso medido) como tope de seguridad, no como valor esperado.
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+
+turbo:
+  require_disabled: true
+
+# E02 usa descubrimiento real de coretemp por etiqueta Package id (dos
+# paquetes confirmados legibles en pacca el 2026-08-14). El rango 0--90 C
+# es el guardarraíl ya existente del proyecto, no un límite nuevo ni una
+# afirmación sobre Tcase/Tjmax.
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+
+# I09/OPS-01 (ARC-104, 2026-08-10): la cuenta latorresn no tiene cuota de
+# disco ni límite de horas-núcleo real que rastrear (confirmado por el
+# usuario, "uso ilimitado, no te preocupes por eso") -- valores generosos
+# solo para satisfacer el preflight, no un límite real. 12 GiB se basa en
+# el uso medido de la campaña anterior y las dos caracterizaciones REF,
+# escalado a n=10 y seis niveles con margen para calibración y baselines.
+projected_campaign_bytes: 12884901888
+remaining_core_hours: 100000
+projected_core_hours: 50
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+rapl:
+  enabled: true
+
+# ARC-127: obligatorio para esta campaña -- todos los kernels de esta lista
+# son de CPU, y sin esto ninguna ventana llega a quality_status="ok"
+# (E12/validate_windows, ARC-123). Requiere reserva exclusiva del nodo
+# (E11) -- ya cubierto por --exclusive --ntasks=1 en
+# run_campaign_pacca_dvfs_full.sh.
+uncore:
+  enabled: true
+
+gpu:
+  enabled: false
+
+timeouts_seconds:
+  ready: 15
+  run: 180
+  shutdown: 15
+
+# ARC-127: p_pico_flops_per_s actualizado -- el valor anterior (72.0
+# GFLOP/s) era el P_pico medido con el bug de vectorizacion de ert_probe
+# (ARC-125/126, ver Reporte_Comparacion_Intel_Advisor_Ppico_BWpico.md). Con
+# ert_probe corregido (-march=native -mprefer-vector-width=512) el rango
+# real observado es 417.8-555 GFLOP/s -- se deja 480 GFLOP/s como centro,
+# cubierto por el margen D03 (+-40%) en todo el rango. bw_pico_bytes_per_s
+# refrescado al valor mas reciente de stream_c (~59.5 GB/s), sin cambio
+# significativo respecto al anterior.
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 480000000000

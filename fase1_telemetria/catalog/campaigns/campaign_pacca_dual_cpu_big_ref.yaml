@@ -1,0 +1,124 @@
+# Campana suplementaria "big" REF-only -- eje CPU (2026-08-30).
+#
+# 9 config_id nuevos (GEMM/Cholesky/FFT, N=8192/12288/16384) x 1 nivel (REF)
+# x 3 rep = 27 corridas.
+#
+# POR QUE SOLO REF, y no el barrido de 8 frecuencias (216 corridas):
+# sobre los 136 contextos del catalogo actual se verifico que la etiqueta de
+# DISPOSITIVO obtenida usando unicamente las acciones REF (cpu:REF vs
+# gpu:REF:REF) coincide 136/136 con la etiqueta obtenida explorando las 40
+# acciones completas. La decision cara (que dispositivo) no necesita el
+# barrido de frecuencia; la decision fina de frecuencia aporta un margen
+# mediano de 1.03%-11.31% segun estrategia, contra ordenes de magnitud en la
+# decision de dispositivo.
+#
+# CAVEAT declarado: esa verificacion 136/136 se hizo sobre N<=4096, el
+# regimen que precisamente estamos abandonando. Que REF baste en N>=8192 es
+# una HIPOTESIS que esta campana pone a prueba, no una propiedad ya
+# establecida. Si los tamanos grandes muestran estructura de frecuencia
+# distinta, se amplia despues de forma selectiva (ver seccion 12 del plan
+# docs/general/plan_reformulacion_selector_tamanos_20260830.md).
+#
+# Cada corrida entrega region cold Y warm, que es exactamente lo que necesita
+# el mapa de amortizacion K_break_even:
+#   EDP_total(d,K) = [E_cold(d) + (K-1)E_warm(d)] x [T_cold(d) + (K-1)T_warm(d)]
+# de modo que estas 27 corridas + las 27 del eje GPU cierran el mapa para los
+# 9 tamanos nuevos sin ninguna medicion adicional.
+#
+# USO ESTADISTICO: conjunto CONFIRMATORIO externo. El protocolo (target,
+# caracteristicas, baselines, particiones, metricas, regla de abstencion) debe
+# congelarse ANTES de mirar estos datos. No se usan para ajustar el modelo.
+#
+# Identidad propia (campaign_id + output_dir nuevos) a proposito: agregar
+# kernel_ref al manifiesto full cambia compute_protocol_fingerprint()
+# (orchestrator/campaign.py ~L81) y dispara CampaignProtocolMismatchError.
+
+campaign_id: pacca_dual_cpu_big_ref_20260830
+environment_tier: hpc_sc3
+seed: 20260830
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_dual_cpu_big_ref_20260830
+overwrite: true
+
+catalog_path: ../catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: dual_gemm_cpu_N8192
+  - kernel_ref: dual_gemm_cpu_N12288
+  - kernel_ref: dual_gemm_cpu_N16384
+  - kernel_ref: dual_fft_cpu_N8192
+  - kernel_ref: dual_fft_cpu_N12288
+  - kernel_ref: dual_fft_cpu_N16384
+  - kernel_ref: dual_cholesky_cpu_N8192
+  - kernel_ref: dual_cholesky_cpu_N12288
+  - kernel_ref: dual_cholesky_cpu_N16384
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+
+repetitions_per_combination: 3
+baseline_repetition_indices: [1]
+target_windows_per_repetition: 5
+interval_ns: 1000000  # 1 ms
+gpu_interval_ns: 5000000  # 5 ms; GPU ociosa entra al mismo subtotal energetico
+
+running_ratio_min: 0.90
+
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+  grace_seconds: 0.05
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+
+rapl:
+  enabled: true
+
+uncore:
+  enabled: true
+
+turbo:
+  require_disabled: true
+
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+
+gpu:
+  # Mismo alcance energetico que el eje GPU: RAPL package+DRAM + NVML. En
+  # corridas CPU la contribucion GPU es la potencia ociosa, no cero.
+  enabled: true
+
+timeouts_seconds:
+  ready: 15
+  run: 180
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 509083000000
+
+projected_campaign_bytes: 50000000
+remaining_core_hours: 1000.0
+projected_core_hours: 2.0

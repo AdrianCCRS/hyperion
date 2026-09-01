@@ -1,0 +1,46 @@
+# Plantilla exclusiva para el diagnóstico de arranque en SC3.
+# No representa una campaña ejecutable: antes de medir, sustituye cgroup_path
+# y los CPUs por los asignados por Slurm en el manifest definitivo.
+campaign_id: sc3_startup_audit
+environment_tier: hpc_sc3
+seed: 20260713
+output_dir: ../../runs/sc3_startup_audit
+overwrite: false
+catalog_path: ../catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+kernels:
+  - kernel_ref: npb_bt
+
+# REF permite cargar y validar el manifest sin requerir control de frecuencia.
+frequency_levels:
+  - id: REF
+    mode: native_governor
+repetitions_per_combination: 3
+target_windows_per_repetition: 1
+interval_ns: 1000000000
+running_ratio_min: 0.90
+
+# Valores de estructura para validar el manifest. El CLI usa --use-allowed-cpus
+# para limitar la detección a los CPUs efectivos de la asignación Slurm.
+cores:
+  delegated_cpus: [2, 3]
+  collector_cpu: 0
+  consumer_cpu: 1
+  numa_node_pin: null
+smt_policy: one_thread_per_physical_core
+
+# Debe sustituirse por el cgroup de la step Slurm para una campaña real.
+cgroup_path: /sys/fs/cgroup
+perf_enabled: true
+rapl:
+  enabled: false
+  domains: []
+gpu:
+  enabled: false
+timeouts_seconds:
+  ready: 15
+  run: 300
+  shutdown: 15

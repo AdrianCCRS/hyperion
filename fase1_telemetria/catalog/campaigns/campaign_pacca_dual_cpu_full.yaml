@@ -1,0 +1,168 @@
+# Primer dataset cold/warm del selector CPU/GPU -- eje CPU (20260828). 68 config_id
+# x 8 niveles finos de CPU x 3 rep = 1632 corridas. Ver
+# scripts/pacca/gen_dual_campaign_manifests.py -- NO editar a mano.
+#
+# Rejilla de tamaños y --iterations calibrados por operacion:
+# scripts/pacca/gen_dual_full_catalog.py (68 config_id, 6 operaciones).
+# warmup_seconds=0.05 en las 136 entradas del catalogo (corrige el bug del
+# smoke 6668/6657: 0.5s excluia TODAS las ventanas de corridas mas cortas).
+
+campaign_id: pacca_dual_cpu_full_20260828
+environment_tier: hpc_sc3
+seed: 20260828
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_dual_cpu_full_20260828
+overwrite: true
+
+catalog_path: ../catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: dual_gemm_cpu_N64
+  - kernel_ref: dual_gemm_cpu_N96
+  - kernel_ref: dual_gemm_cpu_N128
+  - kernel_ref: dual_gemm_cpu_N192
+  - kernel_ref: dual_gemm_cpu_N256
+  - kernel_ref: dual_gemm_cpu_N384
+  - kernel_ref: dual_gemm_cpu_N512
+  - kernel_ref: dual_gemm_cpu_N768
+  - kernel_ref: dual_gemm_cpu_N1024
+  - kernel_ref: dual_gemm_cpu_N1536
+  - kernel_ref: dual_gemm_cpu_N2048
+  - kernel_ref: dual_gemm_cpu_N3072
+  - kernel_ref: dual_gemm_cpu_N4096
+  - kernel_ref: dual_fft_cpu_N64
+  - kernel_ref: dual_fft_cpu_N96
+  - kernel_ref: dual_fft_cpu_N128
+  - kernel_ref: dual_fft_cpu_N192
+  - kernel_ref: dual_fft_cpu_N256
+  - kernel_ref: dual_fft_cpu_N384
+  - kernel_ref: dual_fft_cpu_N512
+  - kernel_ref: dual_fft_cpu_N768
+  - kernel_ref: dual_fft_cpu_N1024
+  - kernel_ref: dual_fft_cpu_N1536
+  - kernel_ref: dual_fft_cpu_N2048
+  - kernel_ref: dual_fft_cpu_N3072
+  - kernel_ref: dual_fft_cpu_N4096
+  - kernel_ref: dual_axpy_cpu_N10000
+  - kernel_ref: dual_axpy_cpu_N31623
+  - kernel_ref: dual_axpy_cpu_N100000
+  - kernel_ref: dual_axpy_cpu_N316228
+  - kernel_ref: dual_axpy_cpu_N1000000
+  - kernel_ref: dual_axpy_cpu_N3162278
+  - kernel_ref: dual_axpy_cpu_N10000000
+  - kernel_ref: dual_axpy_cpu_N31622777
+  - kernel_ref: dual_stencil_cpu_N64
+  - kernel_ref: dual_stencil_cpu_N96
+  - kernel_ref: dual_stencil_cpu_N128
+  - kernel_ref: dual_stencil_cpu_N192
+  - kernel_ref: dual_stencil_cpu_N256
+  - kernel_ref: dual_stencil_cpu_N384
+  - kernel_ref: dual_stencil_cpu_N512
+  - kernel_ref: dual_stencil_cpu_N768
+  - kernel_ref: dual_stencil_cpu_N1024
+  - kernel_ref: dual_stencil_cpu_N1536
+  - kernel_ref: dual_stencil_cpu_N2048
+  - kernel_ref: dual_stencil_cpu_N3072
+  - kernel_ref: dual_stencil_cpu_N4096
+  - kernel_ref: dual_cholesky_cpu_N64
+  - kernel_ref: dual_cholesky_cpu_N96
+  - kernel_ref: dual_cholesky_cpu_N128
+  - kernel_ref: dual_cholesky_cpu_N192
+  - kernel_ref: dual_cholesky_cpu_N256
+  - kernel_ref: dual_cholesky_cpu_N384
+  - kernel_ref: dual_cholesky_cpu_N512
+  - kernel_ref: dual_cholesky_cpu_N768
+  - kernel_ref: dual_cholesky_cpu_N1024
+  - kernel_ref: dual_cholesky_cpu_N1536
+  - kernel_ref: dual_cholesky_cpu_N2048
+  - kernel_ref: dual_cholesky_cpu_N3072
+  - kernel_ref: dual_cholesky_cpu_N4096
+  - kernel_ref: dual_spmv_cpu_N10000
+  - kernel_ref: dual_spmv_cpu_N31623
+  - kernel_ref: dual_spmv_cpu_N100000
+  - kernel_ref: dual_spmv_cpu_N316228
+  - kernel_ref: dual_spmv_cpu_N1000000
+  - kernel_ref: dual_spmv_cpu_N3162278
+  - kernel_ref: dual_spmv_cpu_N10000000
+  - kernel_ref: dual_spmv_cpu_N31622777
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F0, mode: fixed, fraction: 1.0}
+  - {id: F1, mode: fixed, fraction: 0.833}
+  - {id: F2, mode: fixed, fraction: 0.667}
+  - {id: F3, mode: fixed, fraction: 0.5}
+  - {id: F4, mode: fixed, fraction: 0.333}
+  - {id: F5, mode: fixed, fraction: 0.167}
+  - {id: F6, mode: fixed, fraction: 0.0}
+
+repetitions_per_combination: 3
+baseline_repetition_indices: [1]
+target_windows_per_repetition: 5
+interval_ns: 1000000  # 1 ms
+gpu_interval_ns: 5000000  # 5 ms; GPU ociosa entra al mismo subtotal energetico
+
+running_ratio_min: 0.90
+
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+  grace_seconds: 0.05
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+
+rapl:
+  enabled: true
+
+uncore:
+  enabled: true
+
+turbo:
+  require_disabled: true
+
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+
+gpu:
+  # Mismo alcance energetico que el lado GPU: RAPL package+DRAM + NVML.
+  # En corridas CPU la contribucion GPU es la potencia ociosa, no cero.
+  enabled: true
+
+timeouts_seconds:
+  ready: 15
+  run: 180
+  shutdown: 15
+
+hardware_datasheet:
+  # p_pico medido real 2026-08-27 (post-reparacion de la corrupcion de
+  # frecuencia, job 6651->6668): ert_probe nativo a 6 hilos da 509.083
+  # GFLOP/s. bw_pico heredado de campaign_pacca_gpu_dvfs.yaml (ya paso D03
+  # en ese valor, no contaminado).
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 509083000000
+
+projected_campaign_bytes: 500000000
+remaining_core_hours: 1000.0
+projected_core_hours: 10.0

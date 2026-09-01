@@ -1,0 +1,172 @@
+# =============================================================================
+# NO LANZAR TODAVIA.
+#
+# Bloqueadores, en orden:
+#   1. Permisos pendientes en pacca01 (correo redactado en
+#      docs/retoma/pacca/Solicitud_Permisos_Pacca01_Unicartagena.md, no
+#      enviado/no respondido): escritura scaling_min_freq/max_freq, control
+#      de turbo (set_turbo_state no existe en pacca01, confirmado por
+#      auditoria 2026-08-31), cap_perfmon sobre /usr/bin/perf para uncore.
+#   2. Los binarios CPU del catalogo estan compilados y verificados para
+#      paccaA100 (Xeon Gold 5315Y), NO para pacca01 (Xeon Gold 5320) --
+#      catalog.yaml usa binary_checksum por node_id; hace falta compilar y
+#      agregar la entrada "pacca01" antes de poder correr esto (ver
+#      pacca01-vs-paccaA100-node-divergence en el registro del proyecto:
+#      CPUs distintos, hasta paquetes de sistema distintos).
+#   3. Este manifiesto no se ha probado ni siquiera en seco (no hay
+#      preflight corrido contra pacca01 todavia).
+# =============================================================================
+#
+# Correccion del sesgo CPU/GPU senalado por el director (2026-08-31): la
+# rama CPU de TODA la campana anterior (68 config_id base + los 9 nuevos de
+# *_big_ref_*) midio con delegated_cpus=[0..5] -- 6 nucleos -- mientras GPU
+# usaba el A100 completo. Esta version re-mide los mismos 9 config_id nuevos
+# (los que se cancelaron: jobs 6763/6769) con el NODO COMPLETO (los 2
+# sockets), configuracion NUMA por defecto, sin numactl ni pin de memoria --
+# decision explicita (2026-08-31), no un descuido.
+#
+# DISENO DE NUCLEOS -- ambos sockets, 50 fisicos delegados:
+# pacca01 tiene 2 sockets, 2 nodos NUMA, 26 nucleos fisicos por socket
+# (confirmado con `lscpu -e`, no asumido). Socket 0 = CPUs logicas 0-25
+# (fisicas) + 52-77 (hermanos SMT); socket 1 = CPUs logicas 26-51 (fisicas)
+# + 78-103 (hermanos SMT) -- el mismo desfase de +52 se confirmo par por par
+# tambien en el socket 1 (CPU26<->CPU78, ..., CPU51<->CPU103), no asumido
+# por simetria. Se reserva el ULTIMO nucleo fisico de cada socket para
+# telemetria (25 para collector_cpu, 51 para consumer_cpu), dejando 50
+# nucleos fisicos delegados (0-24 + 26-50) -- feqctl ya descubre y controla
+# los hermanos SMT de los delegados automaticamente
+# (_expand_with_smt_siblings, ARC-163), no hace falta declararlos aqui.
+# numa_node_pin queda null (no hay un solo socket que "pinear").
+#
+# RIESGO ACEPTADO, no mitigado en este manifiesto: sin numactl, la memoria
+# de cada kernel se ubica por politica first-touch del kernel Linux -- los
+# hilos OpenMP que corran en el socket 1 pueden terminar accediendo memoria
+# reservada por el hilo inicial (tipicamente en el socket 0), con la
+# penalidad de latencia/ancho de banda remoto que eso implica. Es una fuente
+# de ruido/sesgo DISTINTA de la que se esta corrigiendo (capacidad de
+# nucleos), aceptada aqui por instruccion explicita del usuario
+# (2026-08-31: "todos los sockets, con la configuracion NUMA por defecto,
+# sin tocar nada"), no verificada como despreciable.
+#
+# CORREGIDO ANTES DE ESTE MANIFIESTO (mismo dia): RAPL solo sabia leer UN
+# socket -- confirmado en 3 capas (manifiesto de un solo numa_node_pin,
+# runner.py resolviendo una sola ruta, y el propio RaplReader en C++
+# aceptando un solo par de rutas pkg/dram). Con delegated_cpus abarcando
+# ambos sockets sin ese fix, la energia del socket 1 se habria subcontado en
+# silencio. Corregido: runner.py ahora resuelve TODOS los nodos NUMA que
+# tocan delegated_cpus (via environment_profile.delegated_cpu_numa_nodes) y
+# RaplReader (telemetry/include/telemetry/rapl_reader.hpp) suma varios
+# paquetes, cada uno desenvuelto de su propio wraparound por separado --
+# sumar el crudo primero y desenvolver despues habria sido incorrecto porque
+# los dos sockets envuelven su contador de hardware en momentos distintos.
+# Verificado con toda la suite C++ (10 binarios de prueba) y Python
+# (tests/orchestrator, 588 pruebas) en verde tras el cambio.
+#
+# Mismos 9 config_id, mismo alcance REF-only (ver justificacion completa en
+# campaign_pacca_dual_cpu_big_ref.yaml, no repetida aqui): la etiqueta de
+# dispositivo con solo REF ya se verifico 136/136 igual a la del barrido
+# completo de 40 acciones sobre N<=4096; ese caveat sigue vigente para
+# N>=8192.
+#
+# Identidad propia (campaign_id/output_dir nuevos): no reutiliza ningun
+# directorio de la campana cancelada -- son mediciones fisicamente distintas
+# (nucleos distintos), no una continuacion.
+
+campaign_id: pacca_cpu_big_ref_fair_pacca01_20260831
+environment_tier: hpc_sc3
+seed: 20260830
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_cpu_big_ref_fair_pacca01_20260831
+overwrite: true
+
+catalog_path: ../catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  - kernel_ref: dual_gemm_cpu_N8192
+  - kernel_ref: dual_gemm_cpu_N12288
+  - kernel_ref: dual_gemm_cpu_N16384
+  - kernel_ref: dual_fft_cpu_N8192
+  - kernel_ref: dual_fft_cpu_N12288
+  - kernel_ref: dual_fft_cpu_N16384
+  - kernel_ref: dual_cholesky_cpu_N8192
+  - kernel_ref: dual_cholesky_cpu_N12288
+  - kernel_ref: dual_cholesky_cpu_N16384
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+
+repetitions_per_combination: 3
+baseline_repetition_indices: [1]
+target_windows_per_repetition: 5
+interval_ns: 1000000  # 1 ms
+gpu_interval_ns: 5000000
+
+running_ratio_min: 0.90
+
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+  grace_seconds: 0.05
+
+cores:
+  # Socket 0: 0-24 delegados, 25 collector. Socket 1: 26-50 delegados, 51
+  # consumer. Los hermanos SMT (52-76 y 78-102) se descubren y controlan
+  # automaticamente (ARC-163), no se declaran aqui.
+  delegated_cpus: [
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+    26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
+  ]
+  collector_cpu: 25
+  consumer_cpu: 51
+  numa_node_pin: null
+
+smt_policy: one_thread_per_physical_core
+
+cgroup_path: null
+
+perf_enabled: true
+
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+
+rapl:
+  enabled: true
+
+uncore:
+  enabled: true
+
+turbo:
+  require_disabled: true
+
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+
+gpu:
+  # pacca01 no tiene GPU -- sin contribucion de potencia GPU que sumar.
+  enabled: false
+
+timeouts_seconds:
+  ready: 15
+  run: 180
+  shutdown: 15
+
+hardware_datasheet:
+  # PENDIENTE: BW_pico/P_pico son los de paccaA100 (Xeon Gold 5315Y),
+  # copiados aqui como placeholder. pacca01 tiene un Xeon Gold 5320 distinto
+  # -- requiere su propia calibracion ert_probe/stream_official antes de
+  # que estos numeros sean validos para D03. No usar sin recalibrar.
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 509083000000
+
+projected_campaign_bytes: 50000000
+remaining_core_hours: 1000.0
+projected_core_hours: 8.0
