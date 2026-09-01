@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import patch
 import sys
 from types import SimpleNamespace
 
@@ -12,6 +13,7 @@ from fase3_daemon.gpu_loop.loop import (
     PhaseBeginEvent,
     build_controller_from_policy,
     make_gpu_freqctl_setter,
+    query_gpu_features,
     run,
 )
 
@@ -121,3 +123,31 @@ def test_make_gpu_freqctl_setter_sin_relojes_disponibles_falla_sin_llamar_apply(
     env = SimpleNamespace(gpu_available_clocks_mhz=[])
     setter = make_gpu_freqctl_setter(env)
     assert setter(1200) is False
+
+
+# --- query_gpu_features (movido desde fase3_daemon/shim/event_listener.py,
+# eliminado -- la fuente de features NVML sigue siendo necesaria para el
+# sondeo de activity_poller.py, ahora vive junto al resto de este módulo) ---
+
+def test_query_gpu_features_parsea_salida_de_nvidia_smi():
+    fake_stdout = "42, 10, 55.0, 1200, 65\n"
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = fake_stdout
+        features = query_gpu_features()
+    assert features == GpuFeatures(
+        gpu_util_pct=42.0, gpu_mem_util_pct=10.0, gpu_power_mw=55000.0,
+        gpu_sm_clock_mhz=1200.0, gpu_temperature_c=65.0,
+    )
+
+
+def test_query_gpu_features_devuelve_none_si_nvidia_smi_falla():
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 1
+        mock_run.return_value.stdout = ""
+        assert query_gpu_features() is None
+
+
+def test_query_gpu_features_devuelve_none_si_nvidia_smi_no_existe():
+    with patch("subprocess.run", side_effect=FileNotFoundError):
+        assert query_gpu_features() is None

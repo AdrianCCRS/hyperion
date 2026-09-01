@@ -68,7 +68,7 @@ el P_pico de FLOPs sin fallar.
 | `node_profile.py` | Perfil de hardware + referencias de estabilidad P95. |
 | `gpu_shim.py` | Compila y localiza el shim `LD_PRELOAD` de `native/blocking_sync_shim.cpp` para forzar `cudaDeviceScheduleBlockingSync` en binarios GPU de terceros sin tocar su código fuente. |
 | `gpu_inspector.py` | Inspección de estado GPU real vía `nvidia-smi` (implementación de producción del protocolo `GpuInspector`). |
-| `native/blocking_sync_shim.cpp` | Fuente del shim — versión base, sin la extensión de detección de fase que sí tiene `fase3_daemon/shim/blocking_sync_shim.cpp`. |
+| `native/blocking_sync_shim.cpp` | Fuente del shim — solo fuerza blocking-sync. Una extensión de este shim para detectar fronteras de fase (interceptando `cudaLaunchKernel`) se intentó en `fase3_daemon/` y se retiró: confirmado que esa intercepción nunca se dispara para la sintaxis `<<<>>>` de CUDA, en ningún modo de enlace de cudart. `fase3_daemon/gpu_loop/activity_poller.py` usa sondeo NVML en su lugar — ver `fase3_daemon/README.md`. |
 
 `common/hpc_config.toml`: `binary_path` se resuelve relativo a la ubicación
 del propio archivo TOML (`common/`), no al directorio de trabajo del proceso

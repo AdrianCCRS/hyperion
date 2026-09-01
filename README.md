@@ -49,7 +49,7 @@ pip install -e .
 #        verificación completa (incluye CUDA real -- nvcc/cudart/nvml --
 #        y el SDK C++ de ONNX Runtime, no solo las dependencias Python de
 #        pyproject.toml). Recomendado si se va a correr ./run_all.sh test
-#        con -DWITH_GPU=ON o a tocar fase3_daemon/shim/.
+#        con -DWITH_GPU=ON o a tocar fase3_daemon/gpu_loop/.
 #   conda env create -f environment-hyperion-verify.yml
 #   conda activate hyperion-verify
 
@@ -180,18 +180,19 @@ las corridas.
 Fase 3 se verificó dos veces: primero sin CUDA toolkit disponible, después
 con un entorno conda completo (`environment-hyperion-verify.yml`) que sí
 tiene `nvcc`/CUDA/ONNX Runtime C++ reales. La segunda verificación
-encontró un **hallazgo crítico confirmado, no solo una limitación de
-entorno**: el mecanismo de detección de fase de GPU (intercepción de
-`cudaLaunchKernel` vía `LD_PRELOAD`) **no funciona** contra kernels reales
-lanzados con la sintaxis estándar `<<<>>>` — confirmado compilando el shim
-contra CUDA real y cargándolo contra un kernel de prueba, con evidencia
-exacta (`nm -D`, builds de depuración, un socket Unix real) en el
-encabezado de `fase3_daemon/shim/blocking_sync_shim.cpp` y en
-`fase3_daemon/README.md`. El mecanismo original de ARC-70 (forzar
-blocking-sync) sigue funcionando correctamente — el problema es
-específico de la extensión de detección de fase construida en esta
-reconstrucción, con tres caminos de arreglo evaluados y ninguno
-implementado todavía (decisión de diseño pendiente).
+encontró que el mecanismo de detección de fase de GPU intentado
+inicialmente (intercepción de `cudaLaunchKernel` vía `LD_PRELOAD`) **no
+funciona** contra kernels reales lanzados con la sintaxis estándar
+`<<<>>>` — confirmado compilando ese shim contra CUDA real y cargándolo
+contra un kernel de prueba. El mecanismo original de ARC-70 (forzar
+blocking-sync) no depende de esa intercepción y sigue funcionando
+correctamente; Fase 1 lo sigue usando sin cambios. Se evaluaron 3 caminos
+de arreglo y se implementó el más simple y robusto (sondeo de
+`gpu_util_pct` desde el propio daemon, sin instrumentar el binario
+objetivo, `fase3_daemon/gpu_loop/activity_poller.py`); los otros dos
+(intercepción a nivel de driver CUDA, y el mecanismo oficial de NVIDIA
+`CUDA_INJECTION64_PATH`/CUPTI) quedan documentados como trabajo futuro en
+`fase3_daemon/README.md`, con la razón de por qué no se eligieron ahora.
 
 El loop de CPU con inferencia ONNX tampoco se construyó — el SDK C++ de
 ONNX Runtime ya está disponible (confirmado en el entorno conda), lo que

@@ -1,13 +1,20 @@
 """Loop de GPU del daemon (§4.1/§4.3 punto 6 del plan de realineación).
 
-No corre por tiempo fijo -- corre POR FASE, delimitada por los eventos que
-emite el shim `LD_PRELOAD` extendido de `fase3_daemon/shim/` (intercepción
-de `cudaLaunchKernel`/`cudaDeviceSynchronize`, ver ese directorio). Este
-módulo consume esos eventos, no los genera: `phase_events` es cualquier
-iterable de `PhaseBeginEvent`, para poder probarse sin GPU real ni el shim
-compilado. En producción, la fuente real es una cola/socket local que
-recibe del proceso del binario de terceros (el shim vive inyectado ahí, el
-daemon corre aparte).
+No corre por tiempo fijo -- corre POR FASE. La fuente de eventos de fase es
+`fase3_daemon/gpu_loop/activity_poller.py` (sondeo de `gpu_util_pct` vía
+NVML, ver ese módulo para el porqué): `phase_events` aquí es cualquier
+iterable de `PhaseBeginEvent`, para poder probarse sin GPU real y sin
+depender de la fuente concreta.
+
+⚠️ **Historial de diseño**: la primera versión de este loop consumía
+eventos de un shim `LD_PRELOAD` que interceptaba `cudaLaunchKernel`
+(`fase3_daemon/shim/`, eliminado). Se abandonó tras confirmar, compilando
+ese shim contra CUDA real y cargándolo contra un kernel de prueba, que la
+intercepción nunca se dispara para la sintaxis `<<<>>>` en ningún modo de
+enlace de cudart -- `nvcc` resuelve esa llamada en tiempo de compilación,
+no a través de la tabla de símbolos dinámicos. `activity_poller.py`
+documenta el hallazgo completo y las dos alternativas de intercepción
+consideradas y no implementadas (trabajo futuro).
 
 ⚠️ **Limitación conocida, documentada también en
 `fase2_clasificador/README.md`**: no existe todavía un clasificador de GPU
@@ -21,6 +28,7 @@ usar fuera de pruebas explícitas, ver su docstring).
 """
 from __future__ import annotations
 
+import subprocess
 import sys
 import time
 from collections.abc import Callable, Iterable
@@ -55,10 +63,49 @@ class GpuFeatures:
 
 @dataclass(frozen=True)
 class PhaseBeginEvent:
-    """Un evento de inicio de fase, emitido por el shim extendido (o, en
-    pruebas, por cualquier iterable inyectado)."""
+    """Un evento de inicio de fase, emitido por `activity_poller.poll_phase_events()`
+    (o, en pruebas, por cualquier iterable inyectado)."""
     now_ns: int
     features: GpuFeatures
+
+
+_NVIDIA_SMI_FIELDS = (
+    "utilization.gpu", "utilization.memory", "power.draw", "clocks.sm", "temperature.gpu",
+)
+
+
+def query_gpu_features(gpu_index: int | str | None = None) -> GpuFeatures | None:
+    """Snapshot NVML en vivo vía `nvidia-smi`, en el mismo orden que
+    `_NVIDIA_SMI_FIELDS`. Devuelve `None` si la consulta falla (GPU no
+    disponible, `nvidia-smi` no encontrado) -- el llamador decide qué
+    hacer con una muestra sin features (típicamente: no cambiar de estado,
+    nunca inventar un valor). Por consistencia con el resto del proyecto
+    (`common/hpc/gpu_freqctl.py`, `common/hpc/gpu_inspector.py`, que ya
+    usan subprocess sobre `nvidia-smi` en vez de un binding NVML de
+    Python), esta función hace lo mismo -- no introduce `pynvml` como
+    dependencia nueva solo para esto."""
+    args = ["nvidia-smi", f"--query-gpu={','.join(_NVIDIA_SMI_FIELDS)}",
+            "--format=csv,noheader,nounits"]
+    if gpu_index is not None:
+        args += ["--id", str(gpu_index)]
+    try:
+        result = subprocess.run(args, capture_output=True, text=True, timeout=2.0)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    parts = [p.strip() for p in result.stdout.strip().splitlines()[0].split(",")]
+    if len(parts) != len(_NVIDIA_SMI_FIELDS):
+        return None
+    try:
+        util, mem_util, power_w, sm_clock, temp = (float(p) for p in parts)
+    except ValueError:
+        return None
+    return GpuFeatures(
+        gpu_util_pct=util, gpu_mem_util_pct=mem_util,
+        gpu_power_mw=power_w * 1000.0,  # nvidia-smi reporta power.draw en W
+        gpu_sm_clock_mhz=sm_clock, gpu_temperature_c=temp,
+    )
 
 
 def _placeholder_classify(_features: GpuFeatures) -> GpuPhaseLabel:
