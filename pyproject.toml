@@ -17,6 +17,7 @@ dependencies = [
     "scikit-learn",
     "xgboost",
     "joblib",
+    "scipy",
 ]
 
 [project.optional-dependencies]
