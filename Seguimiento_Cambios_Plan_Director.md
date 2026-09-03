@@ -136,6 +136,7 @@ producción.
 **Fecha de registro:** 2026-09-03
 **Estado:** implementado en postproceso y entrenamiento offline; la adaptación
 del daemon a esta cadencia queda pendiente.
+**Commit de implementación:** `d0c22377c88b9690fcf998c645ddfe01e456f413`.
 
 ### Restricción observada
 
