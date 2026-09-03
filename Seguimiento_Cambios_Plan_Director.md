@@ -24,7 +24,7 @@ de fase y alcance. Esta convención mantiene el formato propuesto
 | ID | Decisión | Estado |
 |---|---|---|
 | `F1-CPU-001` | Sustituir el supuesto contador de stalls de backend por `CYCLE_ACTIVITY.STALLS_MEM_ANY` | Implementado |
-| `F1-GPU-001` | Usar Nsight Compute solo para construir la verdad Roofline offline y NVML como proxy ligero online | Parcialmente implementado |
+| `F1-GPU-001` | Usar Nsight Compute solo para construir la verdad Roofline offline y NVML como proxy ligero online | Parcialmente implementado (captura completa; entrenador GPU pendiente) |
 | `F1-CPU-002` | Alinear el dataset de entrenamiento CPU con los intervalos reales de `uncore_imc` | Implementado (offline) |
 
 ---
@@ -75,7 +75,8 @@ no es la etiqueta Roofline ni prueba por sí sola que una carga sea
 ## F1-GPU-001 — Separación entre verdad offline y proxy NVML online
 
 **Fecha de registro:** 2026-09-03
-**Estado:** etiquetado y captura implementados; entrenador GPU pendiente.
+**Estado:** etiquetado y captura implementados (la corrección de representación
+NVML se cerró el 2026-09-03, ver más abajo); entrenador GPU pendiente.
 
 ### Restricción observada
 
@@ -125,9 +126,56 @@ producción.
 - Implementar el entrenador GPU separado y su serialización.
 - Medir F1 por clase, matriz de confusión, latencia p95/p99 y desempeño por
   familia algorítmica.
-- Corregir la representación de métricas NVML opcionales no disponibles: el
-  lector actual puede exportarlas como cero, valor que el postproceso puede
-  confundir con una medición válida.
+- ~~Corregir la representación de métricas NVML opcionales no disponibles.~~
+  **Cerrado el 2026-09-03** — ver "Corrección de captura" abajo.
+
+### Corrección de captura — representación de métricas NVML opcionales
+
+**Fecha:** 2026-09-03
+**Estado:** cerrado.
+**Commit de implementación:** `fix(telemetry): distinguir métrica NVML opcional
+no disponible de un 0 real`.
+
+#### Situación anterior
+
+`common/telemetry/src/nvml_reader.cpp` invocaba `nvmlDeviceGetClockInfo`,
+`nvmlDeviceGetTotalEnergyConsumption` y `nvmlDeviceGetTemperature` **ignorando
+el código de retorno**. Si el driver/GPU no soportaba una de ellas, el valor
+quedaba en `0` y el launcher lo escribía en `samples.csv` como `0` (no celda
+vacía). Aguas abajo, `fase1_telemetria/postprocess.py` veía
+`previous_energy_mj == current_energy_mj == 0` y, desde la segunda ventana GPU,
+marcaba `gpu_energy_delta_mj = 0` con **`gpu_energy_valid = True`**: una lectura
+energética fabricada que alimentaba el EDP de GPU y la derivación de política.
+`gpu_sm_clock_mhz` y `gpu_temperature_c` pasaban como `0` sin ningún bit que los
+distinguiera de una medición real.
+
+#### Decisión
+
+Aplicar la misma convención "no medido ≠ 0 real" que ya usan
+`stalled_cycles_mem_any` y `UncoreSnapshot::interval_valid`:
+
+1. `GpuSample` (`metrics.hpp`) gana `sm_clock_valid`, `energy_valid` y
+   `temperature_valid`.
+2. `nvml_reader.cpp` comprueba `NVML_SUCCESS` de cada una de las tres llamadas
+   opcionales; si falla, el valor queda en `0` y su bit `*_valid` en `false`.
+   Una métrica opcional ausente nunca invalida la lectura de potencia/util.
+3. `telemetry_kernel_launcher.cpp` escribe celda **vacía** (no `0`) para la
+   métrica cuyo `*_valid` es `false`.
+4. `postprocess.py` trata además como ausente cualquier `gpu_energy_mj <= 0`
+   (un contador acumulado soportado nunca es 0), y cualquier `gpu_sm_clock_mhz`
+   / `gpu_temperature_c` de `0` — red de seguridad para `samples.csv` grabados
+   con el contrato viejo. Con esto `gpu_energy_valid` solo es `True` cuando hay
+   dos lecturas acumuladas reales consecutivas.
+
+#### Verificación
+
+- Build C++ (`common/telemetry/`) limpio; `ctest` 14/14 (1 skip no relacionado).
+- `pytest fase1_telemetria/ fase2_clasificador/ common/` — 582 pasan.
+- Test de regresión nuevo
+  `test_f1_gpu_001_energia_cero_en_todas_las_filas_no_fabrica_validez`: energía,
+  reloj SM y temperatura en `0` en todas las filas ⇒ `gpu_energy_valid` queda
+  `False` y las tres columnas quedan `None`; `gpu_power_mw` / `gpu_util_pct`
+  reales intactos.
 
 ---
 

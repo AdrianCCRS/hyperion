@@ -162,12 +162,26 @@ namespace telemetry {
         // DVFS de GPU realmente se mantuvo durante la corrida (sin reloj
         // SM observado), ni calcular EDP de GPU (sin energia acumulada),
         // ni detectar contaminacion termica (sin temperatura). Todas
-        // opcionales por diseno (0 si NVML no las reporta en este
-        // driver/GPU) -- nunca bloquean una lectura de power/util ya
-        // valida.
-        uint32_t sm_clock_mhz;   /**< nvmlDeviceGetClockInfo(NVML_CLOCK_SM), MHz. 0 si no disponible. */
-        uint64_t energy_mj;      /**< nvmlDeviceGetTotalEnergyConsumption(), mJ acumulados desde que cargo el driver (requiere delta downstream, igual que EnergySnapshot). 0 si no disponible. */
-        uint32_t temperature_c;  /**< nvmlDeviceGetTemperature(NVML_TEMPERATURE_GPU), grados Celsius. 0 si no disponible. */
+        // opcionales por diseno -- nunca bloquean una lectura de
+        // power/util ya valida.
+        //
+        // F1-GPU-001: cada una lleva su propio bit *_valid. El lector
+        // ignoraba el codigo de retorno de estas 3 llamadas NVML y dejaba
+        // el valor en 0; un 0 de energia/reloj/temperatura es
+        // indistinguible de una lectura real fallida, y aguas abajo
+        // fabricaba un gpu_energy_valid=True con delta 0 en drivers sin
+        // soporte. Ahora, si la llamada NVML falla, el valor queda en 0 y
+        // *_valid en false, y el exportador escribe celda vacia -- misma
+        // convencion "no medido != 0 real" que stalled_cycles_mem_any y
+        // UncoreSnapshot::interval_valid. Sin inicializadores in-class:
+        // GpuSample es miembro del union Sample y debe seguir siendo
+        // trivial; nvml_reader.cpp los fija siempre de forma explicita.
+        uint32_t sm_clock_mhz;      /**< nvmlDeviceGetClockInfo(NVML_CLOCK_SM), MHz. 0 si !sm_clock_valid. */
+        uint64_t energy_mj;         /**< nvmlDeviceGetTotalEnergyConsumption(), mJ acumulados desde que cargo el driver (requiere delta downstream, igual que EnergySnapshot). 0 si !energy_valid. */
+        uint32_t temperature_c;     /**< nvmlDeviceGetTemperature(NVML_TEMPERATURE_GPU), grados Celsius. 0 si !temperature_valid. */
+        bool     sm_clock_valid;    /**< nvmlDeviceGetClockInfo devolvio NVML_SUCCESS. */
+        bool     energy_valid;      /**< nvmlDeviceGetTotalEnergyConsumption devolvio NVML_SUCCESS. */
+        bool     temperature_valid; /**< nvmlDeviceGetTemperature devolvio NVML_SUCCESS. */
     };
 
     /** @brief Type tag for the active member of Sample. */

@@ -910,9 +910,14 @@ namespace {
                 value_field(sample.gpu.power_mw);
                 value_field(sample.gpu.util_pct);
                 value_field(sample.gpu.mem_util_pct);
-                value_field(sample.gpu.sm_clock_mhz);
-                value_field(sample.gpu.energy_mj);
-                value_field(sample.gpu.temperature_c);
+                // F1-GPU-001: empty (not "0") when NVML could not provide
+                // the optional metric -- same "not measured != real zero"
+                // rule as stalled_cycles_mem_any above. postprocess.py
+                // relies on this to keep gpu_energy_valid honest on drivers
+                // without energy/clock/temperature support.
+                if(sample.gpu.sm_clock_valid) value_field(sample.gpu.sm_clock_mhz); else empty_field();
+                if(sample.gpu.energy_valid) value_field(sample.gpu.energy_mj); else empty_field();
+                if(sample.gpu.temperature_valid) value_field(sample.gpu.temperature_c); else empty_field();
                 empty_field(); // uncore_cas_count_read_interval
                 empty_field(); // uncore_cas_count_write_interval
                 empty_field(); // scaling_cur_freq_khz

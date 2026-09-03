@@ -1028,6 +1028,42 @@ def test_arc94_filas_gpu_sin_metricas_nuevas_quedan_none(tmp_path):
     assert gpu_rows[0]["gpu_temperature_c"] is None
 
 
+def test_f1_gpu_001_energia_cero_en_todas_las_filas_no_fabrica_validez(tmp_path):
+    """F1-GPU-001: en un driver sin soporte de energía, nvml_reader.cpp
+    dejaba gpu_energy_mj en 0 y el launcher lo escribía como '0'. El
+    postprocesamiento veía previous==current==0 y desde la 2ª ventana
+    marcaba gpu_energy_delta_mj=0 con gpu_energy_valid=True -- una lectura
+    energética fabricada que alimentaba el EDP de GPU. Un 0 en un contador
+    acumulado se trata ahora como 'no disponible', no como energía cero.
+    Igual para reloj SM de 0 MHz y temperatura de 0 °C bajo carga."""
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0),
+        _gpu_row(repetition=1, ts=1_000_100_000, gpu_power_mw=45000, gpu_util_pct=80,
+                  gpu_sm_clock_mhz=0, gpu_energy_mj=0, gpu_temperature_c=0),
+        _gpu_row(repetition=1, ts=1_000_200_000, gpu_power_mw=45000, gpu_util_pct=80,
+                  gpu_sm_clock_mhz=0, gpu_energy_mj=0, gpu_temperature_c=0),
+        _gpu_row(repetition=1, ts=1_000_300_000, gpu_power_mw=45000, gpu_util_pct=80,
+                  gpu_sm_clock_mhz=0, gpu_energy_mj=0, gpu_temperature_c=0),
+    ])
+    windows = postprocess.build_windows(samples, _context())
+    gpu_rows = sorted(
+        (w for w in windows if w["quality_status"] == "gpu_telemetry"),
+        key=lambda w: w["t_end_ns"],
+    )
+    assert len(gpu_rows) == 3
+    for row in gpu_rows:
+        assert row["gpu_energy_mj"] is None
+        assert row["gpu_energy_delta_mj"] is None
+        assert row["gpu_energy_valid"] is False
+        assert row["gpu_sm_clock_mhz"] is None
+        assert row["gpu_temperature_c"] is None
+        # power/util reales no se tocan
+        assert row["gpu_power_mw"] == 45000
+        assert row["gpu_util_pct"] == 80
+
+
 def test_arc94_filas_gpu_propagan_utilizacion_de_memoria(tmp_path):
     """ARC-94 (segunda ronda): nvmlUtilization_t trae .gpu Y .memory --
     solo se conservaba .gpu. Un kernel con trafico de memoria alto pero

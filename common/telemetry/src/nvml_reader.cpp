@@ -78,20 +78,29 @@ namespace telemetry {
         // combinations don't support one of these (e.g.
         // nvmlDeviceGetTotalEnergyConsumption needs a fairly recent
         // driver), and a missing optional metric should never invalidate
-        // an otherwise-valid power/util reading. Left at 0 (never a
-        // sentinel that looks like a real reading was attempted and
-        // failed silently) when NVML can't provide it.
+        // an otherwise-valid power/util reading.
+        //
+        // F1-GPU-001: check every return code. A failed call leaves the
+        // value at 0 AND its *_valid flag at false, so the export path can
+        // write an empty cell instead of a 0 that downstream mistakes for
+        // a real reading (postprocess.py was fabricating gpu_energy_valid
+        // on drivers without energy support: previous==current==0 =>
+        // "delta 0, valid"). Same "not measured != real zero" contract as
+        // stalled_cycles_mem_any / UncoreSnapshot::interval_valid.
         unsigned int sm_clock_mhz = 0;
-        nvmlDeviceGetClockInfo(device_, NVML_CLOCK_SM, &sm_clock_mhz);
-        sample.sm_clock_mhz = sm_clock_mhz;
+        sample.sm_clock_valid =
+            nvmlDeviceGetClockInfo(device_, NVML_CLOCK_SM, &sm_clock_mhz) == NVML_SUCCESS;
+        sample.sm_clock_mhz = sample.sm_clock_valid ? sm_clock_mhz : 0;
 
         unsigned long long energy_mj = 0;
-        nvmlDeviceGetTotalEnergyConsumption(device_, &energy_mj);
-        sample.energy_mj = energy_mj;
+        sample.energy_valid =
+            nvmlDeviceGetTotalEnergyConsumption(device_, &energy_mj) == NVML_SUCCESS;
+        sample.energy_mj = sample.energy_valid ? energy_mj : 0;
 
         unsigned int temperature_c = 0;
-        nvmlDeviceGetTemperature(device_, NVML_TEMPERATURE_GPU, &temperature_c);
-        sample.temperature_c = temperature_c;
+        sample.temperature_valid =
+            nvmlDeviceGetTemperature(device_, NVML_TEMPERATURE_GPU, &temperature_c) == NVML_SUCCESS;
+        sample.temperature_c = sample.temperature_valid ? temperature_c : 0;
 
         out = sample;
         return true;

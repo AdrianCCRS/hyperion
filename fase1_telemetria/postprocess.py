@@ -826,8 +826,21 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
         row["gpu_power_mw"] = _to_int(gpu_row.get("gpu_power_mw"))
         row["gpu_util_pct"] = _to_int(gpu_row.get("gpu_util_pct"))
         row["gpu_mem_util_pct"] = _to_int(gpu_row.get("gpu_mem_util_pct"))
-        row["gpu_sm_clock_mhz"] = _to_int(gpu_row.get("gpu_sm_clock_mhz"))
+        # F1-GPU-001: el harness ya exporta celda vacía cuando NVML no
+        # soporta reloj SM / energía / temperatura (nvml_reader.cpp mira el
+        # código de retorno). Este `or None` es la red de seguridad para
+        # `samples.csv` grabados con el contrato viejo ("0 = no disponible"):
+        # un reloj SM de 0 MHz o una temperatura de 0 °C bajo carga no son
+        # lecturas físicas reales, así que se tratan como ausentes en vez de
+        # como un valor plausible.
+        row["gpu_sm_clock_mhz"] = _to_int(gpu_row.get("gpu_sm_clock_mhz")) or None
         current_energy_mj = _to_int(gpu_row.get("gpu_energy_mj"))
+        # Un contador acumulado (mJ desde que cargó el driver) nunca es 0 si
+        # NVML lo soporta -- un 0 aquí es "no disponible", no energía cero.
+        # Sin este guardia, en un driver sin soporte previous==current==0 y
+        # desde la 2ª ventana se fabricaba gpu_energy_valid=True con delta 0.
+        if current_energy_mj is not None and current_energy_mj <= 0:
+            current_energy_mj = None
         row["gpu_energy_mj"] = current_energy_mj
         gpu_energy_delta_mj: int | None = None
         gpu_energy_valid = False
@@ -838,7 +851,7 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
             previous_energy_mj = current_energy_mj
         row["gpu_energy_delta_mj"] = gpu_energy_delta_mj
         row["gpu_energy_valid"] = gpu_energy_valid
-        row["gpu_temperature_c"] = _to_int(gpu_row.get("gpu_temperature_c"))
+        row["gpu_temperature_c"] = _to_int(gpu_row.get("gpu_temperature_c")) or None
         row["operational_intensity"] = context.gpu_operational_intensity
         row["i_ridge_used"] = context.gpu_i_ridge_flops_per_byte
         if context.gpu_operational_intensity is not None and context.gpu_i_ridge_flops_per_byte is not None:
