@@ -10,15 +10,22 @@ No corre nada en producción: entrena, compara y serializa el modelo que
 `fase3_daemon/` carga y consulta en el loop de CPU. Ver
 `Plan_Detallado_Realineacion_Hyperion.md` §3 para el diseño completo.
 
-## Entrada: `windows.csv` de Fase 1
+## Entrada: `training_cpu_intervals.csv` de Fase 1
 
-Espera el mismo formato que produce `fase1_telemetria/postprocess.py`: un
-directorio de campaña con subdirectorios
-`<campaign_id>__<kernel_ref>__<freq_level_id>__rep<NN>/windows.csv` cada
-uno. Columnas que usa: las 7 `FEATURES` (`ipc`, `mpki`, `llc_miss_rate`,
+`fase1_telemetria/postprocess.py` produce este archivo junto a la traza
+auditable `windows.csv`: un directorio de campaña con subdirectorios
+`<campaign_id>__<kernel_ref>__<freq_level_id>__rep<NN>/training_cpu_intervals.csv`.
+Cada fila representa un intervalo real de `uncore_imc` (~10 ms o más), no un
+tick CPU de ~1 ms. Sus tasas se recalculan desde las sumas de deltas del
+intervalo; `freq_khz_observed` es la mediana de las ventanas CPU cubiertas.
+Columnas que usa: las 7 `FEATURES` (`ipc`, `mpki`, `llc_miss_rate`,
 `stall_mem_ratio`, `ips`, `running_ratio`, `freq_khz_observed`), la
-etiqueta `phase_label_train`, `kernel_ref`, `quality_status` (filtra
+etiqueta `phase_label_train`, `kernel_ref`, `training_quality_status` (filtra
 `== "ok"`) y `frequency_quality_status` (filtra `valid`/`not_applicable_native`).
+Los intervalos rechazados se conservan en ese CSV con `training_quality_reason`
+para auditoría y nunca entran al modelo. El entrenador no tiene fallback a
+`windows.csv`: campañas históricas deben reprocesarse para evitar duplicar una
+misma observación de bytes IMC en varias filas de entrenamiento.
 
 ## Uso
 

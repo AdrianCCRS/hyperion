@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import json
 import math
 from pathlib import Path
+from statistics import median
 from typing import Any, Sequence
 
 from . import calibration as calibration_module
@@ -59,6 +60,10 @@ REQUIRED_OUTPUT_COLUMNS: tuple[str, ...] = (
     # tráfico de prefetch. Ver _finalize_operational_intensity().
     "uncore_cas_count_read_interval", "uncore_cas_count_write_interval",
     "bytes_moved_uncore_real", "operational_intensity_uncore_real", "phase_label_uncore_real",
+    # F1-CPU-002: límites del intervalo físico que originó los CAS. Se
+    # conservan también en la traza fina para que el CSV de entrenamiento
+    # pueda reagrupar sin reconstruir ni adivinar los límites temporales.
+    "uncore_interval_id", "uncore_t_start_ns", "uncore_t_end_ns", "uncore_delta_t_ns",
     "i_ridge_used", "roofline_calibration_ref", "node_profile_ref", "calibration_ref",
     "binary_checksum", "quality_status",
     # ARC-70: filas GPU (tag=GPU en samples.csv) -- ver build_windows() y el
@@ -75,6 +80,26 @@ REQUIRED_OUTPUT_COLUMNS: tuple[str, ...] = (
     # con su propio bit de validez -- gpu_energy_mj por sí solo es un
     # acumulado crudo, insuficiente para EDP de GPU sin este cálculo.
     "gpu_energy_delta_mj", "gpu_energy_valid",
+)
+
+# F1-CPU-002: artefacto de entrenamiento, separado de windows.csv.  Una fila
+# representa exactamente un intervalo de perf stat -I del IMC; las filas no
+# usables se mantienen con training_quality_status para poder auditarlas, pero
+# Fase 2 solo acepta las marcadas como ok.
+TRAINING_CPU_INTERVALS_FILENAME = "training_cpu_intervals.csv"
+TRAINING_CPU_INTERVAL_COLUMNS: tuple[str, ...] = (
+    "run_id", "repetition", "kernel_ref", "node_id", "freq_level_id",
+    "uncore_interval_id", "uncore_t_start_ns", "uncore_t_end_ns", "uncore_delta_t_ns",
+    "cpu_window_count", "training_quality_status", "training_quality_reason",
+    "frequency_quality_status", "phase_label_train",
+    "delta_instructions", "delta_cycles", "delta_cache_references", "delta_cache_misses",
+    "delta_stalled_cycles_mem_any", "delta_running_ns", "delta_enabled_ns",
+    "ipc", "mpki", "llc_miss_rate", "stall_mem_ratio", "ips", "running_ratio",
+    "freq_khz_observed", "freq_khz_observed_spread",
+    # Solo trazabilidad/verdad Roofline: el entrenador no las lee (fuga).
+    "flops_measured_interval", "uncore_cas_count_read_interval",
+    "uncore_cas_count_write_interval", "bytes_moved_uncore_real",
+    "operational_intensity_uncore_real", "i_ridge_used",
 )
 
 VALID_QUALITY_STATUSES = frozenset({
@@ -322,7 +347,7 @@ def _apply_uncore_intervals(
     interval_start_ns = run_start_ns
     # windows[0] is the first_row placeholder (no t_end); windows[i]
     # corresponds to cpu_rows[i] for i in 1..len(cpu_rows)-1.
-    for uncore_row in uncore_rows:
+    for interval_id, uncore_row in enumerate(uncore_rows, start=1):
         interval_end_ns = int(uncore_row["timestamp_ns"])
         cas_read = _to_int(uncore_row.get("uncore_cas_count_read_interval"))
         cas_write = _to_int(uncore_row.get("uncore_cas_count_write_interval"))
@@ -349,6 +374,10 @@ def _apply_uncore_intervals(
                 )
 
         for i in covered_indices:
+            windows[i]["uncore_interval_id"] = interval_id
+            windows[i]["uncore_t_start_ns"] = interval_start_ns
+            windows[i]["uncore_t_end_ns"] = interval_end_ns
+            windows[i]["uncore_delta_t_ns"] = interval_end_ns - interval_start_ns
             windows[i]["uncore_cas_count_read_interval"] = cas_read
             windows[i]["uncore_cas_count_write_interval"] = cas_write
             windows[i]["bytes_moved_uncore_real"] = bytes_this_interval
@@ -884,6 +913,10 @@ def _base_row(context: WindowContext, *, window_index: int) -> dict[str, Any]:
         "bytes_moved_uncore_real": None,
         "operational_intensity_uncore_real": None,
         "phase_label_uncore_real": None,
+        "uncore_interval_id": None,
+        "uncore_t_start_ns": None,
+        "uncore_t_end_ns": None,
+        "uncore_delta_t_ns": None,
         "i_ridge_used": context.i_ridge_flops_per_byte,
         "roofline_calibration_ref": context.roofline_calibration_ref,
         "node_profile_ref": context.node_profile_ref,
@@ -926,6 +959,160 @@ def write_windows_csv(windows: Sequence[dict[str, Any]], output_path: str | Path
     return path
 
 
+def _sum_interval_values(rows: Sequence[dict[str, Any]], column: str) -> int | None:
+    """Suma deltas únicamente si cada ventana aportó una lectura válida."""
+    values = [row.get(column) for row in rows]
+    if not values or any(value is None for value in values):
+        return None
+    return sum(int(value) for value in values)
+
+
+def build_training_cpu_intervals(windows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """F1-CPU-002: convierte la traza CPU fina en ejemplos por intervalo IMC.
+
+    Las tasas se vuelven a calcular desde deltas, nunca promediando ratios de
+    ticks de distinta duración. La etiqueta y los bytes ya fueron calculados
+    en ``_apply_uncore_intervals`` sobre este mismo conjunto de ventanas.
+    Un intervalo defectuoso se emite para auditoría con ``training_quality_*``
+    pero no puede entrar al entrenador.
+    """
+    grouped: dict[int, list[dict[str, Any]]] = {}
+    for row in windows:
+        interval_id = row.get("uncore_interval_id")
+        if interval_id is not None:
+            grouped.setdefault(int(interval_id), []).append(row)
+
+    output: list[dict[str, Any]] = []
+    required_deltas = (
+        "delta_instructions", "delta_cycles", "delta_cache_references",
+        "delta_cache_misses", "delta_stalled_cycles_mem_any",
+        "delta_running_ns", "delta_enabled_ns",
+    )
+    for interval_id, rows in sorted(grouped.items()):
+        first = rows[0]
+        result = {column: None for column in TRAINING_CPU_INTERVAL_COLUMNS}
+        for column in ("run_id", "repetition", "kernel_ref", "node_id", "freq_level_id",
+                       "uncore_t_start_ns", "uncore_t_end_ns", "uncore_delta_t_ns"):
+            result[column] = first.get(column)
+        result["uncore_interval_id"] = interval_id
+        result["cpu_window_count"] = len(rows)
+
+        # A run should not mix these values; detecting it avoids silently
+        # joining rows from different contexts if a malformed trace is read.
+        consistent_context = all(
+            all(row.get(column) == first.get(column) for row in rows)
+            for column in ("run_id", "repetition", "kernel_ref", "freq_level_id",
+                           "uncore_t_start_ns", "uncore_t_end_ns", "uncore_delta_t_ns")
+        )
+        reason: str | None = None
+        if not consistent_context:
+            reason = "inconsistent_interval_context"
+        elif any(row.get("quality_status") != "ok" for row in rows):
+            reason = "source_window_not_ok"
+        else:
+            frequency_statuses = {row.get("frequency_quality_status") for row in rows}
+            if len(frequency_statuses) != 1 or not frequency_statuses <= {"valid", "not_applicable_native"}:
+                reason = "frequency_not_usable"
+            else:
+                result["frequency_quality_status"] = frequency_statuses.pop()
+
+        labels = {row.get("phase_label_train") for row in rows}
+        if reason is None:
+            if len(labels) != 1 or None in labels or "" in labels:
+                reason = "label_missing_or_inconsistent"
+            else:
+                result["phase_label_train"] = labels.pop()
+
+        sums = {column: _sum_interval_values(rows, column) for column in required_deltas}
+        result.update(sums)
+        if reason is None and any(value is None or value < 0 for value in sums.values()):
+            reason = "counter_delta_missing_or_invalid"
+
+        cas_read = first.get("uncore_cas_count_read_interval")
+        cas_write = first.get("uncore_cas_count_write_interval")
+        bytes_real = first.get("bytes_moved_uncore_real")
+        oi = first.get("operational_intensity_uncore_real")
+        ridge = first.get("i_ridge_used")
+        if all(all(row.get(column) == first.get(column) for row in rows)
+               for column in ("uncore_cas_count_read_interval", "uncore_cas_count_write_interval",
+                              "bytes_moved_uncore_real", "operational_intensity_uncore_real", "i_ridge_used")):
+            result.update({
+                "uncore_cas_count_read_interval": cas_read,
+                "uncore_cas_count_write_interval": cas_write,
+                "bytes_moved_uncore_real": bytes_real,
+                "operational_intensity_uncore_real": oi,
+                "i_ridge_used": ridge,
+            })
+        elif reason is None:
+            reason = "inconsistent_uncore_measurement"
+
+        flops = _sum_interval_values(rows, "flops_measured_window")
+        result["flops_measured_interval"] = flops
+        duration_ns = result["uncore_delta_t_ns"]
+        if reason is None and (
+            not isinstance(duration_ns, int) or duration_ns <= 0
+            or cas_read is None or cas_write is None or bytes_real is None or bytes_real <= 0
+            or flops is None or oi is None or ridge is None
+        ):
+            reason = "uncore_measurement_missing_or_invalid"
+        if reason is None:
+            # Defensa contra una unión accidental de límites distintos: la
+            # verdad Roofline difundida a las ventanas debe coincidir con el
+            # FLOP agregado y los bytes del mismo intervalo que formarán la
+            # fila de entrenamiento.
+            recomputed_oi = flops / bytes_real
+            expected_label = "memory_bound" if recomputed_oi < ridge else "compute_bound"
+            if not math.isclose(float(oi), recomputed_oi, rel_tol=1e-12, abs_tol=0.0) or result[
+                "phase_label_train"
+            ] != expected_label:
+                reason = "roofline_interval_mismatch"
+            else:
+                result["operational_intensity_uncore_real"] = recomputed_oi
+
+        instructions, cycles = sums["delta_instructions"], sums["delta_cycles"]
+        references, misses = sums["delta_cache_references"], sums["delta_cache_misses"]
+        stalled = sums["delta_stalled_cycles_mem_any"]
+        running, enabled = sums["delta_running_ns"], sums["delta_enabled_ns"]
+        if reason is None and (not instructions or not cycles or not references or not enabled):
+            reason = "zero_rate_denominator"
+
+        frequencies = [row.get("freq_khz_observed") for row in rows]
+        if reason is None and any(value is None or int(value) <= 0 for value in frequencies):
+            reason = "frequency_missing"
+
+        if reason is None:
+            result["ipc"] = instructions / cycles
+            result["mpki"] = misses / instructions * 1000.0
+            result["llc_miss_rate"] = misses / references
+            result["stall_mem_ratio"] = stalled / cycles
+            result["ips"] = instructions / (duration_ns / 1_000_000_000)
+            result["running_ratio"] = running / enabled
+            # Mediana (F1-CPU-002): robusta frente a un tick DVFS aislado;
+            # queda registrada como criterio fijo en la metadata del modelo.
+            result["freq_khz_observed"] = int(median(int(value) for value in frequencies))
+            spreads = [row.get("freq_khz_observed_spread") for row in rows]
+            valid_spreads = [int(value) for value in spreads if value is not None]
+            result["freq_khz_observed_spread"] = max(valid_spreads) if valid_spreads else None
+            result["training_quality_status"] = "ok"
+            result["training_quality_reason"] = ""
+        else:
+            result["training_quality_status"] = "rejected"
+            result["training_quality_reason"] = reason
+        output.append(result)
+    return output
+
+
+def write_training_cpu_intervals_csv(rows: Sequence[dict[str, Any]], output_path: str | Path) -> Path:
+    """Escribe el dataset F1-CPU-002 sin alterar el CSV crudo/auditable."""
+    path = Path(output_path)
+    with path.open("w", newline="", encoding="utf-8") as output_file:
+        writer = csv.writer(output_file)
+        writer.writerow(TRAINING_CPU_INTERVAL_COLUMNS)
+        for row in rows:
+            writer.writerow([_format_cell(row.get(column)) for column in TRAINING_CPU_INTERVAL_COLUMNS])
+    return path
+
+
 def run_postprocess(
     run_dir: str | Path,
     *,
@@ -951,7 +1138,7 @@ def run_postprocess(
     freq_is_native_governor: bool = False,
     output_dir: str | Path | None = None,
 ) -> Path:
-    """Orchestrates one run's samples.csv -> windows.csv.
+    """Orchestrates one run's samples.csv -> windows.csv + training_cpu_intervals.csv.
 
     ARC-174: ``freq_tolerance_fraction``/``freq_expected_cpu_count``/
     ``freq_grace_seconds``/``freq_tail_grace_seconds``/
@@ -1056,6 +1243,10 @@ def run_postprocess(
     destination_dir = Path(output_dir) if output_dir is not None else run_dir
     destination_dir.mkdir(parents=True, exist_ok=True)
     windows_path = write_windows_csv(windows, destination_dir / "windows.csv")
+    write_training_cpu_intervals_csv(
+        build_training_cpu_intervals(windows),
+        destination_dir / TRAINING_CPU_INTERVALS_FILENAME,
+    )
 
     # ARC-174: el resumen de cobertura/calidad de frecuencia solo tiene
     # sentido para CPU -- GPU tiene otra cadencia/señal (gpu_sm_clock_mhz)

@@ -5,8 +5,9 @@ computacional y energético de cargas representativas (CPU y GPU,
 compute-bound y memory-bound) bajo distintos estados de frecuencia,
 recolectando telemetría de bajo nivel vía Perf/RAPL (CPU) y NVML (GPU).
 
-No decide nada por sí sola: produce el dataset etiquetado (`windows.csv`)
-que consume `fase2_clasificador/` para entrenar el modelo, y la política de
+No decide nada por sí sola: produce la traza etiquetada (`windows.csv`) y el
+dataset CPU agregado (`training_cpu_intervals.csv`) que consume
+`fase2_clasificador/` para entrenar el modelo, y la política de
 frecuencia que consulta `fase3_daemon/` en producción. Ver
 `Plan_Detallado_Realineacion_Hyperion.md` §2 para el diseño completo y las
 desviaciones justificadas frente al plan de trabajo de grado aprobado.
@@ -61,7 +62,7 @@ subcomandos (ver `--help` de cada uno para la lista completa de flags):
 | `diagnose` | Diagnóstico de arranque de solo lectura (sin escribir nada) antes de comprometer una campaña real. |
 | `calibrate` | Calibración Roofline (P_pico, BW_pico, I_ridge) + `node_profile` + referencias de estabilidad. |
 | `run-campaign` | Corre la campaña completa: calibración + matriz kernel×nivel_frecuencia×repetición. |
-| `postprocess` | `samples.csv` → `windows.csv` de una corrida ya ejecutada (deltas, intensidad operacional, `phase_label_train`, features relativas). |
+| `postprocess` | `samples.csv` → `windows.csv` auditable + `training_cpu_intervals.csv` para entrenamiento CPU (deltas, intensidad operacional, `phase_label_train`, features relativas). |
 | `report` | Reporte consolidado de campaña (tabla por `factor_id` de aceptación/rechazo). |
 
 Ejemplo mínimo (campaña de humo local, sin hardware real — ver

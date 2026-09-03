@@ -1131,6 +1131,62 @@ def test_post16_write_windows_csv_escribe_columnas_absolutas_y_relativas(tmp_pat
     assert rows[1]["ipc_relative"] == "1.0"
 
 
+def test_f1_cpu_002_agrega_un_ejemplo_por_intervalo_y_recalcula_las_tasas():
+    common = {
+        "run_id": "run", "repetition": 1, "kernel_ref": "kernel", "node_id": "pacca",
+        "freq_level_id": "REF", "uncore_interval_id": 7,
+        "uncore_t_start_ns": 1_000, "uncore_t_end_ns": 11_000, "uncore_delta_t_ns": 10_000,
+        "quality_status": "ok", "frequency_quality_status": "valid",
+        "phase_label_train": "memory_bound", "uncore_cas_count_read_interval": 10,
+        "uncore_cas_count_write_interval": 5, "bytes_moved_uncore_real": 960,
+        "operational_intensity_uncore_real": 2.0, "i_ridge_used": 3.0,
+        "flops_measured_window": 960,
+    }
+    rows = [
+        {**common, "delta_instructions": 100, "delta_cycles": 50,
+         "delta_cache_references": 20, "delta_cache_misses": 4,
+         "delta_stalled_cycles_mem_any": 10, "delta_running_ns": 100,
+         "delta_enabled_ns": 100, "freq_khz_observed": 1_000_000,
+         "freq_khz_observed_spread": 20},
+        {**common, "delta_instructions": 300, "delta_cycles": 150,
+         "delta_cache_references": 80, "delta_cache_misses": 16,
+         "delta_stalled_cycles_mem_any": 30, "delta_running_ns": 80,
+         "delta_enabled_ns": 100, "freq_khz_observed": 3_000_000,
+         "freq_khz_observed_spread": 40},
+    ]
+
+    interval = postprocess.build_training_cpu_intervals(rows)[0]
+    assert interval["training_quality_status"] == "ok"
+    assert interval["cpu_window_count"] == 2
+    assert interval["ipc"] == pytest.approx(2.0)
+    assert interval["mpki"] == pytest.approx(50.0)
+    assert interval["llc_miss_rate"] == pytest.approx(0.2)
+    assert interval["stall_mem_ratio"] == pytest.approx(0.2)
+    assert interval["ips"] == pytest.approx(40_000_000.0)
+    assert interval["running_ratio"] == pytest.approx(0.9)
+    assert interval["freq_khz_observed"] == 2_000_000
+    assert interval["freq_khz_observed_spread"] == 40
+
+
+def test_f1_cpu_002_rechaza_intervalo_si_alguna_ventana_no_es_usable():
+    row = {
+        "run_id": "run", "repetition": 1, "kernel_ref": "kernel", "node_id": "pacca",
+        "freq_level_id": "REF", "uncore_interval_id": 1,
+        "uncore_t_start_ns": 0, "uncore_t_end_ns": 10, "uncore_delta_t_ns": 10,
+        "quality_status": "warmup_excluded", "frequency_quality_status": "valid",
+        "phase_label_train": "memory_bound", "delta_instructions": 1, "delta_cycles": 1,
+        "delta_cache_references": 1, "delta_cache_misses": 1,
+        "delta_stalled_cycles_mem_any": 1, "delta_running_ns": 1, "delta_enabled_ns": 1,
+        "freq_khz_observed": 1, "flops_measured_window": 1,
+        "uncore_cas_count_read_interval": 1, "uncore_cas_count_write_interval": 1,
+        "bytes_moved_uncore_real": 128, "operational_intensity_uncore_real": 0.01,
+        "i_ridge_used": 1.0,
+    }
+    interval = postprocess.build_training_cpu_intervals([row])[0]
+    assert interval["training_quality_status"] == "rejected"
+    assert interval["training_quality_reason"] == "source_window_not_ok"
+
+
 def test_write_windows_csv_rechaza_quality_status_invalido(tmp_path):
     with pytest.raises(ValueError):
         postprocess.write_windows_csv(
@@ -1239,10 +1295,12 @@ def test_arc174_run_postprocess_output_dir_no_toca_el_run_dir_original(tmp_path,
 
     assert windows_path == derived_dir / "windows.csv"
     assert windows_path.exists()
+    assert (derived_dir / postprocess.TRAINING_CPU_INTERVALS_FILENAME).exists()
     assert (derived_dir / "frequency_quality_summary.json").exists()
     # El run_dir original nunca recibe windows.csv/el resumen -- solo tenía
     # samples.csv de entrada.
     assert not (run_dir / "windows.csv").exists()
+    assert not (run_dir / postprocess.TRAINING_CPU_INTERVALS_FILENAME).exists()
     assert not (run_dir / "frequency_quality_summary.json").exists()
 
 

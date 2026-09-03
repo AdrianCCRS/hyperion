@@ -56,7 +56,7 @@ normal, no algo dentro del kernel de Linux) que:
 
 | # | Objetivo (resumen) | Carpeta | Qué produce |
 |---|---|---|---|
-| 1 | Caracterizar el comportamiento de cargas reales, midiendo con Perf/RAPL (CPU) y NVML (GPU) bajo distintas frecuencias | `fase1_telemetria/` | Un dataset (`windows.csv`) con miles de filas: una fila = una ventana de tiempo con sus contadores y su etiqueta `compute_bound`/`memory_bound` |
+| 1 | Caracterizar el comportamiento de cargas reales, midiendo con Perf/RAPL (CPU) y NVML (GPU) bajo distintas frecuencias | `fase1_telemetria/` | Telemetría fina en `windows.csv` y etiquetas `compute_bound`/`memory_bound`; en CPU la verdad Roofline tiene la granularidad del intervalo `uncore`, no la del tick de ~1 ms |
 | 2 | Entrenar un clasificador ligero que infiera esa etiqueta a partir de los contadores baratos, rápido | `fase2_clasificador/` | Un modelo entrenado (`.joblib`) + una ficha técnica (`.metadata.json`) con su exactitud y su velocidad |
 | 3 | Un daemon que, corriendo en vivo, aplique la clasificación para ajustar la frecuencia real | `fase3_daemon/` | Un proceso que corre en el nodo, decide y actúa — **parcialmente construido, ver §4 más abajo** |
 | 4 | Medir si esto de verdad mejora el EDP frente a los gobernadores nativos | `fase4_evaluacion/` | Un reporte comparando escenarios, con significancia estadística |
@@ -183,15 +183,21 @@ en GPU: utilización, potencia, energía (NVML).
 Con esos contadores, calcula una **intensidad operacional** (FLOPs
 ejecutados por byte movido desde memoria) y la compara contra un punto de
 referencia calibrado para ese hardware específico (el "punto de ridge" del
-modelo Roofline) — si la intensidad medida está por debajo del ridge, la
-ventana se etiqueta `memory_bound`; si está por encima, `compute_bound`.
+modelo Roofline) — si la intensidad medida está por debajo del ridge, el
+intervalo se etiqueta `memory_bound`; si está por encima, `compute_bound`.
 **La etiqueta nunca se asume por el nombre del kernel** — un kernel
 "famoso" por ser compute-bound en la literatura puede medir memory-bound
 en tu hardware real, y el sistema lo detecta empíricamente.
 
-El resultado es un archivo `windows.csv`: cada fila es una ventana de
-tiempo con sus contadores y su etiqueta. Este archivo es el dataset que
-entrena el clasificador de Fase 2.
+El resultado auditable es `windows.csv`. En CPU conserva ventanas de núcleo de
+aproximadamente 1 ms, pero los bytes reales llegan desde `uncore_imc` en
+intervalos prácticos de aproximadamente 10 ms o más: varias filas consecutivas
+comparten, por tanto, una sola OI y etiqueta física. El mismo postproceso crea
+`training_cpu_intervals.csv`, una fila por intervalo `uncore`, que es la única
+entrada admitida por el entrenamiento CPU; `windows.csv` sigue siendo la traza
+de auditoría. En GPU, `ncu` produce
+la verdad Roofline offline y NVML aporta únicamente los proxies disponibles
+para inferencia online; ver `F1-GPU-001`.
 
 ### 2.2 El catálogo de kernels
 
@@ -282,8 +288,12 @@ paso 3 los necesita para saber dónde buscar.
 
 ### 2.6 Cómo se ve `windows.csv` — las columnas que más importan
 
-Cada fila es una ventana de ~1ms de un kernel corriendo a un nivel de
-frecuencia. Las columnas más importantes para lo que sigue:
+Cada fila CPU de `windows.csv` conserva una ventana de núcleo de ~1 ms, pero
+`phase_label_train` puede pertenecer a un intervalo `uncore` de ~10 ms o más y
+estar repetida en todas las filas que cubre. Esas filas son útiles para
+auditoría, pero no son etiquetas independientes; Fase 2 usa el archivo hermano
+`training_cpu_intervals.csv`. Las columnas más importantes
+para lo que sigue:
 
 | Columna | Qué es |
 |---|---|
@@ -305,7 +315,7 @@ Para el detalle completo de las ~60 columnas, ver
 
 ### 3.1 Qué hace, conceptualmente
 
-Toma el `windows.csv` de Fase 1 y entrena varios modelos de clasificación
+Toma `training_cpu_intervals.csv` de Fase 1 y entrena varios modelos de clasificación
 ligeros (árbol de decisión, Random Forest, regresión logística, XGBoost)
 para predecir `phase_label_train` a partir de **solo los contadores
 baratos** (`ipc`, `mpki`, `llc_miss_rate`, `stall_mem_ratio`, `ips`,
@@ -313,6 +323,13 @@ baratos** (`ipc`, `mpki`, `llc_miss_rate`, `stall_mem_ratio`, `ips`,
 en sí, porque eso sería "hacer trampa": esa es literalmente la fórmula que
 generó la etiqueta, así que un modelo que la reciba no aprende nada útil,
 solo memoriza el umbral.
+
+**F1-CPU-002 implementado:** el cargador consume exclusivamente una matriz con
+una fila por intervalo `uncore`, recalculando IPC, MPKI, miss rate y stall
+ratio desde la suma de sus contadores crudos. El split por familia evita
+mezclar un mismo kernel entre entrenamiento y prueba, y el agregado evita el
+sobrepeso de varias filas que comparten
+una etiqueta de ~10 ms.
 
 Valida con una técnica llamada **leave-one-familia-out**: entrena dejando
 fuera TODOS los kernels de una familia algorítmica (p.ej. todos los

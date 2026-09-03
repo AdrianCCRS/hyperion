@@ -257,7 +257,9 @@ def _build_parser() -> argparse.ArgumentParser:
     run_campaign.add_argument("--campaign-timeout-seconds", type=float, default=None)
     run_campaign.set_defaults(func=cmd_run_campaign)
 
-    postprocess = subparsers.add_parser("postprocess", help="samples.csv -> windows.csv de una corrida ya ejecutada.")
+    postprocess = subparsers.add_parser(
+        "postprocess", help="samples.csv -> windows.csv + training_cpu_intervals.csv de una corrida ya ejecutada."
+    )
     postprocess.add_argument("--manifest", required=True)
     postprocess.add_argument("--run-dir", required=True)
     postprocess.add_argument("--run-id", required=True)

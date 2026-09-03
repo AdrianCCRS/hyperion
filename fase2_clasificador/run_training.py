@@ -12,7 +12,7 @@ sean importables sin importar desde qué directorio se invoque.
 A diferencia de `fase1_telemetria/run_campaign.py`, este script SÍ puede
 invocarse desde cualquier directorio: `--campaign-dir` recibe una ruta
 (absoluta o relativa al cwd) al directorio de campaña de Fase 1 que
-contiene los `windows.csv` de origen -- no hay ninguna convención de cwd
+contiene los `training_cpu_intervals.csv` de origen -- no hay ninguna convención de cwd
 implícita como la de `~/hyperion-kernels` en Fase 1.
 
     python3 fase2_clasificador/run_training.py \

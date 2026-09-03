@@ -77,7 +77,7 @@ def test_select_best_model_nunca_elige_la_linea_base_mayoritaria():
     assert train_phase.select_best_model(results, latencies, latency_weight=0.2) == "arbol_prof6"
 
 
-def _write_fake_windows_csv(path: Path, *, n_rows: int, seed: int) -> None:
+def _write_fake_training_intervals_csv(path: Path, *, n_rows: int, seed: int) -> None:
     rng = np.random.default_rng(seed)
     ipc = rng.uniform(0.2, 3.0, size=n_rows)
     label = np.where(ipc < 1.2, "memory_bound", "compute_bound")
@@ -92,7 +92,7 @@ def _write_fake_windows_csv(path: Path, *, n_rows: int, seed: int) -> None:
         "phase_label_train": label,
         "kernel_ref": "fake_kernel",
         "freq_level_id": "REF",
-        "quality_status": "ok",
+        "training_quality_status": "ok",
         "frequency_quality_status": "valid",
     })
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -105,7 +105,9 @@ def fake_campaign(tmp_path) -> tuple[Path, str, list[str]]:
     kernels = ["kernel_a", "kernel_b", "kernel_c"]
     for i, kernel in enumerate(kernels):
         run_dir = tmp_path / f"{campaign_id}__{kernel}__REF__rep01"
-        _write_fake_windows_csv(run_dir / "windows.csv", n_rows=200, seed=i)
+        _write_fake_training_intervals_csv(
+            run_dir / train_phase.TRAINING_INPUT_FILENAME, n_rows=200, seed=i
+        )
     return tmp_path, campaign_id, kernels
 
 
@@ -121,10 +123,24 @@ def test_load_lee_las_corridas_sinteticas(fake_campaign):
 
 
 def test_load_falla_con_mensaje_claro_si_no_hay_datos(tmp_path):
-    with pytest.raises(FileNotFoundError, match="ningún windows.csv"):
+    with pytest.raises(FileNotFoundError, match="ningún training_cpu_intervals.csv"):
         train_phase.load(
             per_run_sample=10, seed=0, kernels=["no_existe"],
             campaign_dir=tmp_path, campaign_id="vacio", levels=["REF"],
+        )
+
+
+def test_load_rechaza_csv_agregado_con_esquema_incompleto(tmp_path):
+    campaign_id = "incompleto"
+    run_dir = tmp_path / f"{campaign_id}__kernel__REF__rep01"
+    run_dir.mkdir()
+    pd.DataFrame({"ipc": [1.0]}).to_csv(
+        run_dir / train_phase.TRAINING_INPUT_FILENAME, index=False
+    )
+    with pytest.raises(ValueError, match="esquema F1-CPU-002"):
+        train_phase.load(
+            per_run_sample=10, seed=0, kernels=["kernel"],
+            campaign_dir=tmp_path, campaign_id=campaign_id, levels=["REF"],
         )
 
 
@@ -137,9 +153,10 @@ def test_main_serializa_modelo_y_metadata_reales(fake_campaign, monkeypatch, tmp
     # con distinto kernel_ref real para tener >=2 familias.
     for i, kernel in enumerate(kernels):
         run_dir = campaign_dir / f"{campaign_id}__{kernel}__REF__rep01"
-        frame = pd.read_csv(run_dir / "windows.csv")
+        interval_path = run_dir / train_phase.TRAINING_INPUT_FILENAME
+        frame = pd.read_csv(interval_path)
         frame["kernel_ref"] = kernel  # familia distinta por archivo
-        frame.to_csv(run_dir / "windows.csv", index=False)
+        frame.to_csv(interval_path, index=False)
 
     argv = [
         "train_phase.py",
@@ -168,4 +185,6 @@ def test_main_serializa_modelo_y_metadata_reales(fake_campaign, monkeypatch, tmp
     assert metadata["model_name"] != "mayoritaria"
     assert metadata["n_familias"] == 3
     assert set(metadata["features"]) == set(train_phase.FEATURES)
+    assert metadata["training_granularity"] == "uncore_interval"
+    assert metadata["training_input_filename"] == train_phase.TRAINING_INPUT_FILENAME
     assert "all_models_compared" in metadata and "xgboost" in metadata["all_models_compared"]

@@ -56,6 +56,8 @@ FEATURES = [
     "ips", "running_ratio", "freq_khz_observed",
 ]
 LABEL = "phase_label_train"
+TRAINING_INPUT_FILENAME = "training_cpu_intervals.csv"
+TRAINING_GRANULARITY = "uncore_interval"
 
 # Columnas prohibidas: la etiqueta se deriva de ellas.
 FORBIDDEN = {
@@ -68,7 +70,7 @@ FORBIDDEN = {
 
 READ_COLS = [
     *FEATURES, LABEL, "kernel_ref", "freq_level_id",
-    "quality_status", "frequency_quality_status",
+    "training_quality_status", "frequency_quality_status",
 ]
 
 
@@ -80,23 +82,34 @@ def load(
     campaign_id: str = DEFAULT_CAMPAIGN_ID,
     levels: list[str] | None = None,
 ) -> pd.DataFrame:
-    """Carga la matriz, submuestreando por corrida.
+    """Carga la matriz F1-CPU-002, submuestreando por corrida.
 
     El submuestreo es por CORRIDA y no global para que ningún kernel ni
     nivel de frecuencia domine la matriz por el simple hecho de haber
-    producido más ventanas (los niveles lentos generan hasta 4x más).
+    producido más intervalos. Cada fila ya representa un intervalo uncore:
+    ``windows.csv`` es una traza de auditoría a ~1 ms y deliberadamente no
+    es una entrada válida para este entrenador.
     """
     rng = np.random.default_rng(seed)
     frames = []
     for kernel in (kernels or DEFAULT_KERNELS):
         for level in (levels or DEFAULT_LEVELS):
             for rep in range(1, 11):
-                path = campaign_dir / f"{campaign_id}__{kernel}__{level}__rep{rep:02d}" / "windows.csv"
+                path = (
+                    campaign_dir / f"{campaign_id}__{kernel}__{level}__rep{rep:02d}"
+                    / TRAINING_INPUT_FILENAME
+                )
                 if not path.exists():
                     continue
                 frame = pd.read_csv(path, usecols=lambda c: c in READ_COLS, low_memory=False)
+                missing = set(READ_COLS) - set(frame.columns)
+                if missing:
+                    raise ValueError(
+                        f"{path} no tiene el esquema F1-CPU-002; faltan {sorted(missing)}. "
+                        "Reprocesa la corrida con la versión que genera training_cpu_intervals.csv."
+                    )
                 frame = frame[
-                    (frame["quality_status"] == "ok")
+                    (frame["training_quality_status"] == "ok")
                     & frame["frequency_quality_status"].isin(["valid", "not_applicable_native"])
                     & frame[LABEL].notna()
                     & (frame[LABEL] != "")
@@ -107,7 +120,8 @@ def load(
                 frames.append(frame)
     if not frames:
         raise FileNotFoundError(
-            f"ningún windows.csv encontrado bajo {campaign_dir} para campaign_id={campaign_id!r} "
+            f"ningún {TRAINING_INPUT_FILENAME} encontrado bajo {campaign_dir} para "
+            f"campaign_id={campaign_id!r}; reprocesa Fase 1 con F1-CPU-002 "
             f"-- revisa --campaign-dir/--campaign-id/--kernels"
         )
     df = pd.concat(frames, ignore_index=True)
@@ -209,11 +223,12 @@ def main() -> None:
                     "por error de clasificación + latencia de inferencia."
     )
     parser.add_argument("--per-run-sample", type=int, default=2000,
-                         help="Máximo de ventanas a submuestrear por corrida individual.")
+        help="Máximo de intervalos uncore a submuestrear por corrida individual.")
     parser.add_argument("--seed", type=int, default=20260806)
     parser.add_argument(
         "--campaign-dir", type=Path, default=DEFAULT_CAMPAIGN_DIR,
-        help=f"Directorio de la campaña con los windows.csv de origen (default: {DEFAULT_CAMPAIGN_DIR}).",
+        help=(f"Directorio de la campaña con {TRAINING_INPUT_FILENAME} de origen "
+              f"(default: {DEFAULT_CAMPAIGN_DIR})."),
     )
     parser.add_argument(
         "--campaign-id", default=DEFAULT_CAMPAIGN_ID,
@@ -258,7 +273,7 @@ def main() -> None:
         campaign_dir=args.campaign_dir, campaign_id=args.campaign_id, levels=levels,
     )
     familias = sorted(df["kernel_ref"].map(protocol.derive_kernel_family).unique())
-    print(f"matriz: {len(df):,} ventanas | {df['kernel_ref'].nunique()} kernels | {len(familias)} familias algorítmicas")
+    print(f"matriz: {len(df):,} intervalos uncore | {df['kernel_ref'].nunique()} kernels | {len(familias)} familias algorítmicas")
     print(f"features ({len(FEATURES)}): {', '.join(FEATURES)}")
     print(f"distribución de fase: {dict(df[LABEL].value_counts())}\n")
 
@@ -330,6 +345,12 @@ def main() -> None:
             "seed": args.seed,
             "features": FEATURES,
             "label": LABEL,
+            "training_granularity": TRAINING_GRANULARITY,
+            "training_input_filename": TRAINING_INPUT_FILENAME,
+            "feature_aggregation": {
+                "counter_rates": "recomputed_from_interval_delta_sums",
+                "freq_khz_observed": "median_of_covered_cpu_windows",
+            },
             "campaign_dir": str(args.campaign_dir),
             "campaign_id": args.campaign_id,
             "n_windows": int(len(df)),
