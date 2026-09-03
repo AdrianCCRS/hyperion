@@ -16,7 +16,7 @@ Espera el mismo formato que produce `fase1_telemetria/postprocess.py`: un
 directorio de campaña con subdirectorios
 `<campaign_id>__<kernel_ref>__<freq_level_id>__rep<NN>/windows.csv` cada
 uno. Columnas que usa: las 7 `FEATURES` (`ipc`, `mpki`, `llc_miss_rate`,
-`stall_backend_ratio`, `ips`, `running_ratio`, `freq_khz_observed`), la
+`stall_mem_ratio`, `ips`, `running_ratio`, `freq_khz_observed`), la
 etiqueta `phase_label_train`, `kernel_ref`, `quality_status` (filtra
 `== "ok"`) y `frequency_quality_status` (filtra `valid`/`not_applicable_native`).
 

@@ -14,7 +14,7 @@ from fase1_telemetria import postprocess
 SAMPLES_HEADER = [
     "run_id", "repetition", "kernel", "label", "timestamp_ns", "tag",
     "instructions", "cycles", "cache_references", "cache_misses",
-    "stalled_cycles_backend", "l2_lines_in_all",
+    "stalled_cycles_mem_any", "l2_lines_in_all",
     "fp_scalar_double", "fp_128b_packed_double", "fp_256b_packed_double", "fp_512b_packed_double",
     "time_enabled_ns", "time_running_ns",
     "pkg_uj", "dram_uj", "pkg_delta_uj", "dram_delta_uj", "energy_delta_valid",
@@ -25,14 +25,14 @@ SAMPLES_HEADER = [
 
 
 def _cpu_row(*, repetition, ts, instructions, cycles, cache_references, cache_misses,
-             time_enabled, time_running, stalled_cycles_backend=0, l2_lines_in_all=0,
-             # ARC-100: 0 by default, same convention as stalled_cycles_backend/
+             time_enabled, time_running, stalled_cycles_mem_any=0, l2_lines_in_all=0,
+             # ARC-100: 0 by default, same convention as stalled_cycles_mem_any/
              # l2_lines_in_all above -- "supported, zero delta" is the sane
              # default now that FLOPs measurement is the only source (no more
              # prorated fallback to silently exercise instead). Tests that
              # want to exercise the "node/PMU never opened this" path pass
              # fp_scalar_double="" (empty) explicitly, same pattern as the
-             # dedicated l2_lines_in_all/stalled_cycles_backend "no soportado"
+             # dedicated l2_lines_in_all/stalled_cycles_mem_any "no soportado"
              # tests below.
              fp_scalar_double=0, fp_128b_packed_double=0,
              fp_256b_packed_double=0, fp_512b_packed_double=0,
@@ -49,7 +49,7 @@ def _cpu_row(*, repetition, ts, instructions, cycles, cache_references, cache_mi
         "timestamp_ns": ts, "tag": "CPU",
         "instructions": instructions, "cycles": cycles,
         "cache_references": cache_references, "cache_misses": cache_misses,
-        "stalled_cycles_backend": stalled_cycles_backend,
+        "stalled_cycles_mem_any": stalled_cycles_mem_any,
         "l2_lines_in_all": l2_lines_in_all,
         "fp_scalar_double": fp_scalar_double,
         "fp_128b_packed_double": fp_128b_packed_double,
@@ -270,27 +270,27 @@ def test_post02_delta_negativo_marca_pmu_degraded_y_conserva_la_fila(tmp_path):
     assert window["ipc"] is None  # no se deriva una tasa de un contador invalido
 
 
-def test_stalled_cycles_backend_delta_y_ratio_se_calculan(tmp_path):
+def test_stalled_cycles_mem_any_delta_y_ratio_se_calculan(tmp_path):
     samples = tmp_path / "samples.csv"
     _write_samples(samples, [
         _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
                  cache_references=0, cache_misses=0, time_enabled=0, time_running=0,
-                 stalled_cycles_backend=0),
+                 stalled_cycles_mem_any=0),
         _cpu_row(repetition=1, ts=1_001_000_000, instructions=2_000_000, cycles=1_000_000,
                  cache_references=100_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000,
-                 stalled_cycles_backend=400_000),
+                 stalled_cycles_mem_any=400_000),
     ])
     windows = postprocess.build_windows(samples, _context())
 
     window = windows[1]
-    assert window["delta_stalled_cycles_backend"] == 400_000
-    assert window["stall_backend_ratio"] == pytest.approx(0.4)
-    # ARC-123: sin uncore, intensity_undefined -- no relacionado con stall_backend_ratio.
+    assert window["delta_stalled_cycles_mem_any"] == 400_000
+    assert window["stall_mem_ratio"] == pytest.approx(0.4)
+    # ARC-123: sin uncore, intensity_undefined -- no relacionado con stall_mem_ratio.
     assert window["quality_status"] == "intensity_undefined"
 
 
 def test_l2_lines_in_all_delta_y_bytes_moved_l2_proxy_se_calculan(tmp_path):
-    # ARC-63: mismo patron que stalled_cycles_backend -- delta crudo y una
+    # ARC-63: mismo patron que stalled_cycles_mem_any -- delta crudo y una
     # columna comparable a bytes_moved_window (mismo multiplicador de
     # tamano de linea), pensada como cruce independiente del sesgo de
     # bytes_moved_window (F3.4/ARC-33, cuantificado por kernel en ARC-60).
@@ -490,7 +490,7 @@ def test_arc119_cas_count_negativo_no_produce_bytes_moved_uncore_real(tmp_path):
     assert window1["quality_status"] == "intensity_undefined"
 
 
-def test_stalled_cycles_backend_no_soportado_en_el_nodo_no_marca_pmu_degraded(tmp_path):
+def test_stalled_cycles_mem_any_no_soportado_en_el_nodo_no_marca_pmu_degraded(tmp_path):
     # ARC-50: algunos nodos (confirmado empiricamente en paccaA100, Ice Lake
     # con kernel RHEL8) no pueden abrir PERF_COUNT_HW_STALLED_CYCLES_BACKEND
     # en absoluto (ENOENT del kernel, no un problema de permisos). El
@@ -501,7 +501,7 @@ def test_stalled_cycles_backend_no_soportado_en_el_nodo_no_marca_pmu_degraded(tm
     # deben marcar pmu_degraded ni impedir que el resto de metricas core
     # (ipc/ips/mpki) se calculen normalmente.
     samples = tmp_path / "samples.csv"
-    old_header = [c for c in SAMPLES_HEADER if c != "stalled_cycles_backend"]
+    old_header = [c for c in SAMPLES_HEADER if c != "stalled_cycles_mem_any"]
     with samples.open("w", newline="", encoding="utf-8") as samples_file:
         writer = csv.DictWriter(samples_file, fieldnames=old_header, restval="")
         writer.writeheader()
@@ -511,14 +511,14 @@ def test_stalled_cycles_backend_no_soportado_en_el_nodo_no_marca_pmu_degraded(tm
             _cpu_row(repetition=1, ts=1_001_000_000, instructions=2_000_000, cycles=1_000_000,
                      cache_references=100_000, cache_misses=1_000, time_enabled=1_000_000, time_running=1_000_000),
         ]:
-            row.pop("stalled_cycles_backend", None)
+            row.pop("stalled_cycles_mem_any", None)
             writer.writerow(row)
     windows = postprocess.build_windows(samples, _context())
 
     window = windows[1]
-    assert window["delta_stalled_cycles_backend"] is None
-    assert window["stall_backend_ratio"] is None
-    # ARC-123: sin uncore, intensity_undefined -- no relacionado con stalled_cycles_backend.
+    assert window["delta_stalled_cycles_mem_any"] is None
+    assert window["stall_mem_ratio"] is None
+    # ARC-123: sin uncore, intensity_undefined -- no relacionado con STALLS_MEM_ANY.
     assert window["quality_status"] == "intensity_undefined"
     assert window["ipc"] is not None  # el resto de metricas core no se contamina
 

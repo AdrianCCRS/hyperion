@@ -52,7 +52,7 @@ DEFAULT_LEVELS = ["REF", "F0", "F1", "F2", "F3", "F4"]
 # frecuencia (ARC-175), así que los mismos contadores significan cosas
 # distintas según a qué reloj se observen, y el modelo necesita ese contexto.
 FEATURES = [
-    "ipc", "mpki", "llc_miss_rate", "stall_backend_ratio",
+    "ipc", "mpki", "llc_miss_rate", "stall_mem_ratio",
     "ips", "running_ratio", "freq_khz_observed",
 ]
 LABEL = "phase_label_train"

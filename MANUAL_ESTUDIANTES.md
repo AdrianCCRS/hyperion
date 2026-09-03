@@ -291,7 +291,7 @@ frecuencia. Las columnas más importantes para lo que sigue:
 | `freq_level_id` / `gpu_freq_level_id` | El nivel de frecuencia solicitado (`REF`, `F0`...`F4`) |
 | `freq_khz_observed` | La frecuencia REAL observada (siempre verificada por relectura, nunca asumida) |
 | `phase_label_train` | La etiqueta `compute_bound`/`memory_bound` -- lo que entrena el clasificador |
-| `ipc`, `mpki`, `llc_miss_rate`, `stall_backend_ratio` | Contadores baratos -- lo que el clasificador SÍ puede usar en producción |
+| `ipc`, `mpki`, `llc_miss_rate`, `stall_mem_ratio` | Contadores baratos -- lo que el clasificador SÍ puede usar en producción |
 | `quality_status` | `"ok"` si la ventana es usable; otro valor explica por qué no |
 | `pkg_delta_uj`, `dram_delta_uj` | Energía RAPL de esta ventana (microjulios) |
 
@@ -308,7 +308,7 @@ Para el detalle completo de las ~60 columnas, ver
 Toma el `windows.csv` de Fase 1 y entrena varios modelos de clasificación
 ligeros (árbol de decisión, Random Forest, regresión logística, XGBoost)
 para predecir `phase_label_train` a partir de **solo los contadores
-baratos** (`ipc`, `mpki`, `llc_miss_rate`, `stall_backend_ratio`, `ips`,
+baratos** (`ipc`, `mpki`, `llc_miss_rate`, `stall_mem_ratio`, `ips`,
 `running_ratio`, `freq_khz_observed`) — nunca de la intensidad operacional
 en sí, porque eso sería "hacer trampa": esa es literalmente la fórmula que
 generó la etiqueta, así que un modelo que la reciba no aprende nada útil,

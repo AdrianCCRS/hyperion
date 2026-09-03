@@ -70,25 +70,18 @@ namespace telemetry {
             return false;
         }
 
-        // ARC-51: PERF_COUNT_HW_STALLED_CYCLES_BACKEND fails with ENOENT on
-        // paccaA100 (Intel family=6 model=106, Ice Lake-SP) -- the kernel's
-        // generic-to-raw event translation table lacks an entry for this
-        // model, confirmed via direct syscall test, not a permission
-        // problem. CYCLE_ACTIVITY.STALLS_TOTAL (event=0xA3, umask=0x04)
-        // exists directly in hardware and can be opened via PERF_TYPE_RAW,
-        // but ALSO requires CMask=0x04 in bits 24-31 -- omitting it (first
-        // attempt) opened successfully but returned a physically impossible
-        // reading (stalls > cycles). The full encoding was cross-checked
-        // against LIKWID's validated per-microarchitecture event table
-        // (`likwid-perfctr -e | grep -i stall`: "CYCLE_ACTIVITY_STALLS_TOTAL,
-        // 0xA3, 0x4, PMC, THRESHOLD=0x4") and re-verified empirically
-        // (stalls/cycles ratio came back plausible, 0 < ratio < 1) before
-        // landing here. Scoped to this exact family/model: never applied to
-        // a CPU we have not verified this encoding on.
+        // PERF_COUNT_HW_STALLED_CYCLES_BACKEND is not mapped by this RHEL8
+        // kernel on paccaA100 (family=6, model=106).  Do not fall back to
+        // STALLS_TOTAL: its name is misleading for a Roofline classifier.
+        // Instead use the Ice Lake-SP raw event that Intel defines as
+        // execution stalls while the memory subsystem has an outstanding
+        // load: CYCLE_ACTIVITY.STALLS_MEM_ANY.  CMask is required; without
+        // it the counter has a different meaning.  This encoding is strictly
+        // model-gated so it cannot silently be used on another PMU.
         constexpr int kIceLakeSPFamily = 6;
         constexpr int kIceLakeSPModel = 106;
-        constexpr uint64_t kIceLakeStallsTotalRawConfig =
-            0xA3u | (0x04u << 8) | (0x04ull << 24);
+        constexpr uint64_t kIceLakeStallsMemAnyRawConfig =
+            0xA3u | (0x14u << 8) | (0x14ull << 24);
 
         // ARC-63: L2_LINES_IN_ALL (event=0xF1, umask=0x1F -- no CMask needed,
         // unlike the stalls event above) has no PERF_TYPE_HARDWARE generic
@@ -168,7 +161,7 @@ namespace telemetry {
     }
 
     // ARC-51: same shape as make_hw_attr but PERF_TYPE_RAW, for the
-    // Ice Lake-SP CYCLE_ACTIVITY.STALLS_TOTAL fallback.
+    // Ice Lake-SP CYCLE_ACTIVITY.STALLS_MEM_ANY.
     static perf_event_attr make_raw_attr(uint64_t config) {
         perf_event_attr attr = make_hw_attr(config);
         attr.type = PERF_TYPE_RAW;
@@ -198,7 +191,7 @@ namespace telemetry {
             PERF_COUNT_HW_CPU_CYCLES,
             PERF_COUNT_HW_CACHE_REFERENCES,
             PERF_COUNT_HW_CACHE_MISSES,
-            PERF_COUNT_HW_STALLED_CYCLES_BACKEND,
+            0, // kStalledCyclesMemAny: raw-only Ice Lake-SP event
             0, // kL2LinesInAll: never opened via this generic path, see below
             0, // kFpScalarDouble: raw-only, see below
             0, // kFp128bPackedDouble: raw-only, see below
@@ -210,7 +203,7 @@ namespace telemetry {
             "perf_event_open cycles failed",
             "perf_event_open cache references failed",
             "perf_event_open cache misses failed",
-            "perf_event_open stalled cycles backend failed",
+            "perf_event_open stalled cycles memory-any failed",
             "perf_event_open l2 lines in all failed",
             "perf_event_open fp scalar double failed",
             "perf_event_open fp 128b packed double failed",
@@ -273,24 +266,18 @@ namespace telemetry {
                     auto raw_attr = make_raw_attr(kRawOnlyConfigs[i]);
                     fd = (int) perf_event_open(&raw_attr, pid_, cpu_, -1, 0);
                 }
+            } else if(i == kStalledCyclesMemAny) {
+                int family = 0, model = 0;
+                if(detect_intel_family_model(family, model) &&
+                   family == kIceLakeSPFamily && model == kIceLakeSPModel) {
+                    auto raw_attr = make_raw_attr(kIceLakeStallsMemAnyRawConfig);
+                    fd = (int) perf_event_open(&raw_attr, pid_, cpu_, -1, 0);
+                }
             } else {
                 auto attr = make_hw_attr(kConfigs[i]);
                 // Every event is its own group leader (group_fd=-1): inherit=1
                 // does not allow grouping siblings under one leader.
                 fd = (int) perf_event_open(&attr, pid_, cpu_, -1, 0);
-                if(fd < 0 && i == kStalledCyclesBackend) {
-                    // ARC-51: the generic event is unmapped on this kernel/PMU
-                    // (ENOENT), but the underlying hardware counter may still
-                    // exist. Retry once via PERF_TYPE_RAW with a validated,
-                    // model-specific encoding -- never on a CPU we have not
-                    // confirmed this on.
-                    int family = 0, model = 0;
-                    if(detect_intel_family_model(family, model) &&
-                       family == kIceLakeSPFamily && model == kIceLakeSPModel) {
-                        auto raw_attr = make_raw_attr(kIceLakeStallsTotalRawConfig);
-                        fd = (int) perf_event_open(&raw_attr, pid_, cpu_, -1, 0);
-                    }
-                }
             }
             if(fd < 0) {
                 // ARC-50: events past kCoreEventCount are best-effort. A
@@ -375,7 +362,7 @@ namespace telemetry {
         sample.cycles = scaled[kCycles];
         sample.cache_references = scaled[kCacheReferences];
         sample.cache_misses = scaled[kCacheMisses];
-        sample.stalled_cycles_backend = scaled[kStalledCyclesBackend];
+        sample.stalled_cycles_mem_any = scaled[kStalledCyclesMemAny];
         sample.l2_lines_in_all = scaled[kL2LinesInAll];
         sample.fp_scalar_double = scaled[kFpScalarDouble];
         sample.fp_128b_packed_double = scaled[kFp128bPackedDouble];

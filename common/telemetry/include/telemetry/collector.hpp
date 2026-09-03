@@ -175,15 +175,15 @@ namespace telemetry {
              * Valid only after start(); false before start() or when
              * enable_perf is false.
              */
-            bool has_stalled_cycles_backend() const noexcept {
-                return perf_reader_.has_stalled_cycles_backend();
+            bool has_stalled_cycles_mem_any() const noexcept {
+                return perf_reader_.has_stalled_cycles_mem_any();
             }
 
             /**
              * @brief Whether this run's node could open L2_LINES_IN_ALL.
              *
              * ARC-63: same per-node capability semantics as
-             * has_stalled_cycles_backend() -- only ever true on the Ice
+             * has_stalled_cycles_mem_any() -- only ever true on the Ice
              * Lake-SP family/model this raw encoding was validated on.
              */
             bool has_l2_lines_in_all() const noexcept {

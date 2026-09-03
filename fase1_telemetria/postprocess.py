@@ -32,7 +32,7 @@ REQUIRED_OUTPUT_COLUMNS: tuple[str, ...] = (
     "frequency_min_khz", "frequency_max_khz", "frequency_max_relative_error",
     "window_index", "t_start_ns", "t_end_ns", "delta_t_ns",
     "delta_instructions", "delta_cycles", "delta_cache_references", "delta_cache_misses",
-    "delta_stalled_cycles_backend", "stall_backend_ratio",
+    "delta_stalled_cycles_mem_any", "stall_mem_ratio",
     "delta_l2_lines_in_all", "bytes_moved_l2_proxy",
     "ipc", "llc_miss_rate", "mpki", "ips",
     "ipc_relative", "mpki_relative", "miss_rate_relative",
@@ -424,18 +424,15 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
     if not cpu_rows:
         return []
 
-    # ARC-50: stalled_cycles_backend is a per-NODE capability, not a
-    # per-window one -- some kernel/PMU combinations (paccaA100, confirmed
-    # empirically) never map this event, and the launcher writes it as an
-    # empty column for every row of the run when that happens (never "0",
-    # which would look like a real reading). Treat that uniform absence as
-    # "not measured here", never as pmu_degraded; a genuinely missing value
-    # on a node that DOES support the counter elsewhere in the same run is
-    # still a real anomaly and keeps triggering pmu_degraded below.
-    stall_backend_supported = any(
-        r.get("stalled_cycles_backend") not in (None, "") for r in cpu_rows
+    # STALLS_MEM_ANY is a per-node capability, not a per-window one. The
+    # launcher writes an empty column for every row if this model-gated raw
+    # event cannot be opened; that is "not measured here", not a measured
+    # zero nor a per-window PMU failure. A missing value on an otherwise
+    # supported node remains a real anomaly and triggers pmu_degraded below.
+    stall_mem_supported = any(
+        r.get("stalled_cycles_mem_any") not in (None, "") for r in cpu_rows
     )
-    # ARC-63: same per-node-capability rule as stalled_cycles_backend above --
+    # Same per-node-capability rule as STALLS_MEM_ANY above --
     # L2_LINES_IN_ALL is a raw event only opened on Ice Lake-SP, empty (not
     # "0") for every row when unsupported.
     l2_lines_in_all_supported = any(
@@ -531,9 +528,9 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
         delta_cycles = _delta(_to_int(cur.get("cycles")), _to_int(prev.get("cycles")))
         delta_cache_references = _delta(_to_int(cur.get("cache_references")), _to_int(prev.get("cache_references")))
         delta_cache_misses = _delta(_to_int(cur.get("cache_misses")), _to_int(prev.get("cache_misses")))
-        delta_stalled_cycles_backend = (
-            _delta(_to_int(cur.get("stalled_cycles_backend")), _to_int(prev.get("stalled_cycles_backend")))
-            if stall_backend_supported else None
+        delta_stalled_cycles_mem_any = (
+            _delta(_to_int(cur.get("stalled_cycles_mem_any")), _to_int(prev.get("stalled_cycles_mem_any")))
+            if stall_mem_supported else None
         )
         delta_l2_lines_in_all = (
             _delta(_to_int(cur.get("l2_lines_in_all")), _to_int(prev.get("l2_lines_in_all")))
@@ -564,13 +561,13 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
         # mid-window (no wrap-correction is attempted for perf counters,
         # unlike RAPL which the launcher already corrects). A missing field
         # is treated the same way: the window is kept but flagged
-        # pmu_degraded, never silently fixed up or imputed. stalled_cycles_backend
+        # pmu_degraded, never silently fixed up or imputed. STALLS_MEM_ANY
         # only participates in this gate on nodes that support it (ARC-50) --
         # otherwise every window on an unsupported node would be flagged
         # degraded for a counter that was never going to exist.
         core_deltas = [delta_instructions, delta_cycles, delta_cache_references, delta_cache_misses]
-        if stall_backend_supported:
-            core_deltas.append(delta_stalled_cycles_backend)
+        if stall_mem_supported:
+            core_deltas.append(delta_stalled_cycles_mem_any)
         if l2_lines_in_all_supported:
             core_deltas.append(delta_l2_lines_in_all)
         if fp_arith_supported:
@@ -599,7 +596,7 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
         row["delta_cycles"] = delta_cycles
         row["delta_cache_references"] = delta_cache_references
         row["delta_cache_misses"] = delta_cache_misses
-        row["delta_stalled_cycles_backend"] = delta_stalled_cycles_backend
+        row["delta_stalled_cycles_mem_any"] = delta_stalled_cycles_mem_any
         row["delta_l2_lines_in_all"] = delta_l2_lines_in_all
         row["delta_running_ns"] = delta_running_ns
         row["delta_enabled_ns"] = delta_enabled_ns
@@ -615,18 +612,16 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
             row["llc_miss_rate"] = (
                 delta_cache_misses / delta_cache_references if delta_cache_references else None
             )
-            # Fracción de ciclos parados en el backend (recursos de ejecución
-            # ocupados, típicamente espera de memoria) -- la señal directa que
-            # ARC-27 identificó como la que phase_label_train necesitaba y
-            # que hasta ahora se rodeaba indirectamente via cache_misses.
-            row["stall_backend_ratio"] = (
-                delta_stalled_cycles_backend / delta_cycles
-                if delta_cycles and delta_stalled_cycles_backend is not None
+            # Fracción de ciclos de ejecución bloqueados mientras existe al
+            # menos una carga pendiente en el subsistema de memoria.
+            row["stall_mem_ratio"] = (
+                delta_stalled_cycles_mem_any / delta_cycles
+                if delta_cycles and delta_stalled_cycles_mem_any is not None
                 else None
             )
         else:
             row["ips"] = row["ipc"] = row["mpki"] = row["llc_miss_rate"] = None
-            row["stall_backend_ratio"] = None
+            row["stall_mem_ratio"] = None
 
         if context.calibration_references is not None:
             row["ipc_relative"] = _relative(row["ipc"], context.calibration_references.ipc_p95)
@@ -863,8 +858,8 @@ def _base_row(context: WindowContext, *, window_index: int) -> dict[str, Any]:
         "delta_cycles": None,
         "delta_cache_references": None,
         "delta_cache_misses": None,
-        "delta_stalled_cycles_backend": None,
-        "stall_backend_ratio": None,
+        "delta_stalled_cycles_mem_any": None,
+        "stall_mem_ratio": None,
         "delta_l2_lines_in_all": None,
         "bytes_moved_l2_proxy": None,
         "ipc": None,

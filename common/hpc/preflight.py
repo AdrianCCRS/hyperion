@@ -34,7 +34,7 @@ from .catalog import verify_binary
 # bloquear una campaña innecesariamente en un nodo con pmc_count=9.
 _HARNESS_PERF_EVENTS = (
     "instructions", "cycles", "cache_references", "cache_misses",
-    "stalled_cycles_backend",
+    "stalled_cycles_mem_any",
     "fp_scalar_double", "fp_128b_packed_double", "fp_256b_packed_double", "fp_512b_packed_double",
 )
 

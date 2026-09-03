@@ -541,7 +541,7 @@ def run_single(
     # fuerza cudaDeviceScheduleBlockingSync sin tocar el binario de terceros
     # (Rodinia). Si no se puede compilar en este nodo (sin nvcc/CUDA), la
     # corrida sigue -- degradación conocida, no un fallo duro, igual que
-    # stalled_cycles_backend/l2_lines_in_all cuando el nodo no los soporta.
+    # stalled_cycles_mem_any/l2_lines_in_all cuando el nodo no los soporta.
     if getattr(entry, "device", "cpu") == "gpu":
         shim_path = compiled_blocking_sync_shim()
         if shim_path is not None:

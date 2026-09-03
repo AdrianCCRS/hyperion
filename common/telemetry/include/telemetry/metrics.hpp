@@ -47,7 +47,8 @@ namespace telemetry {
         uint64_t cycles;            /**< PERF_COUNT_HW_CPU_CYCLES. */
         uint64_t cache_references;  /**< PERF_COUNT_HW_CACHE_REFERENCES. */
         uint64_t cache_misses;      /**< PERF_COUNT_HW_CACHE_MISSES. */
-        uint64_t stalled_cycles_backend; /**< PERF_COUNT_HW_STALLED_CYCLES_BACKEND. */
+        /** Ice Lake-SP CYCLE_ACTIVITY.STALLS_MEM_ANY (0xA3/0x14, cmask=0x14). */
+        uint64_t stalled_cycles_mem_any;
         uint64_t l2_lines_in_all;   /**< Raw L2_LINES_IN_ALL (event=0xF1,umask=0x1F), Ice Lake-SP only. */
         /* ARC-97: raw FP_ARITH_INST_RETIRED sub-events (event=0xC7), double
          * precision only, Ice Lake-SP only. Each represents "computations",

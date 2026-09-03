@@ -73,18 +73,9 @@ namespace telemetry {
         /** @return true while the reader has open perf file descriptors. */
         bool is_open() const noexcept { return !fds_.empty(); }
 
-        /**
-         * @brief Whether the optional stalled-cycles-backend counter is live.
-         *
-         * ARC-50: confirmed empirically on paccaA100 (Ice Lake, RHEL8 kernel
-         * 4.18.0-553.109.1) that PERF_COUNT_HW_STALLED_CYCLES_BACKEND is not
-         * mapped at all (perf_event_open fails with ENOENT), while the other
-         * 4 generic events open fine -- a kernel/PMU-table gap, not a
-         * permission problem. Unlike the 4 core events, this one must never
-         * abort the whole reader if it is unavailable.
-         */
-        bool has_stalled_cycles_backend() const noexcept {
-            return is_open() && fds_[kStalledCyclesBackend] >= 0;
+        /** Whether Ice Lake-SP STALLS_MEM_ANY could be opened. */
+        bool has_stalled_cycles_mem_any() const noexcept {
+            return is_open() && fds_[kStalledCyclesMemAny] >= 0;
         }
 
         /**
@@ -93,7 +84,7 @@ namespace telemetry {
          * ARC-63: raw event (event=0xF1, umask=0x1F), no generic
          * PERF_TYPE_HARDWARE mapping exists for it at all, so it is only
          * ever attempted on the Ice Lake-SP family/model this encoding was
-         * validated on (same gate as has_stalled_cycles_backend's fallback).
+         * validated on (same gate as has_stalled_cycles_mem_any()).
          * A cache-line-granularity cross-check for bytes_moved_window's
          * existing cache-misses-based estimate -- still not real DRAM
          * bytes (uncore stays blocked, ARC-59), but confirmed physically
@@ -127,7 +118,7 @@ namespace telemetry {
 
         private:
             // Fixed open order, also the read/index order: instructions, cycles,
-            // cache references, cache misses, stalled cycles (backend),
+            // cache references, cache misses, stalls with memory outstanding,
             // L2 lines in (all), then the 4 FP_ARITH_INST_RETIRED double
             // precision sub-events. D05/ARC-37 measured 5 simultaneous generic
             // PERF_TYPE_HARDWARE events as the multiplexing-free budget on
@@ -147,7 +138,7 @@ namespace telemetry {
             static constexpr size_t kCycles = 1;
             static constexpr size_t kCacheReferences = 2;
             static constexpr size_t kCacheMisses = 3;
-            static constexpr size_t kStalledCyclesBackend = 4;
+            static constexpr size_t kStalledCyclesMemAny = 4;
             static constexpr size_t kL2LinesInAll = 5;
             static constexpr size_t kFpScalarDouble = 6;
             static constexpr size_t kFp128bPackedDouble = 7;

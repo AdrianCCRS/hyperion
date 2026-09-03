@@ -98,7 +98,7 @@ namespace {
         // ARC-50: per-node capability, only meaningful when collect=true.
         // false for the baseline child (no collector) and for external-mode
         // runs where collection failed to start.
-        bool stalled_cycles_backend_available = false;
+        bool stalled_cycles_mem_any_available = false;
         bool l2_lines_in_all_available = false; // ARC-63, same semantics as above
         bool fp_arith_available = false; // ARC-97, same semantics as above
     };
@@ -574,9 +574,9 @@ namespace {
         uint64_t wall_start_ns = 0;
         uint64_t wall_end_ns = 0;
         // ARC-50: must be read before collector.stop() -- stop() closes the
-        // perf reader, after which has_stalled_cycles_backend() always
+        // perf reader, after which has_stalled_cycles_mem_any() always
         // reports false regardless of what actually happened during the run.
-        bool stalled_cycles_backend_available = false;
+        bool stalled_cycles_mem_any_available = false;
         bool l2_lines_in_all_available = false; // ARC-63, same must-read-before-stop() constraint
         bool fp_arith_available = false; // ARC-97, same must-read-before-stop() constraint
 
@@ -599,7 +599,7 @@ namespace {
                 // releasing the measured workload.
                 wall_start_ns = telemetry::experiment::now_ns();
                 collector.start();
-                stalled_cycles_backend_available = collector.has_stalled_cycles_backend();
+                stalled_cycles_mem_any_available = collector.has_stalled_cycles_mem_any();
                 l2_lines_in_all_available = collector.has_l2_lines_in_all();
                 fp_arith_available = collector.has_fp_arith();
             }
@@ -663,7 +663,7 @@ namespace {
         result.output = output;
         result.exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
         result.pid = pid;
-        result.stalled_cycles_backend_available = stalled_cycles_backend_available;
+        result.stalled_cycles_mem_any_available = stalled_cycles_mem_any_available;
         result.l2_lines_in_all_available = l2_lines_in_all_available;
         result.fp_arith_available = fp_arith_available;
         if(use_ready_go) {
@@ -736,7 +736,7 @@ namespace {
     void write_samples_csv(const fs::path& path,
                            const Options& opt,
                            const std::vector<RecordedSample>& samples,
-                           bool stalled_cycles_backend_available,
+                           bool stalled_cycles_mem_any_available,
                            bool l2_lines_in_all_available,
                            bool fp_arith_available) {
         const telemetry::experiment::RaplExportConfig rapl_config = read_rapl_export_config(opt);
@@ -746,7 +746,7 @@ namespace {
         // unused fields remain empty. This makes downstream ML ingestion simple.
         std::ofstream out(path);
         out << "run_id,repetition,kernel,label,timestamp_ns,tag,instructions,cycles,"
-               "cache_references,cache_misses,stalled_cycles_backend,l2_lines_in_all,"
+               "cache_references,cache_misses,stalled_cycles_mem_any,l2_lines_in_all,"
                "fp_scalar_double,fp_128b_packed_double,fp_256b_packed_double,fp_512b_packed_double,"
                "time_enabled_ns,time_running_ns,"
                "pkg_uj,dram_uj,pkg_delta_uj,dram_delta_uj,energy_delta_valid,"
@@ -801,12 +801,12 @@ namespace {
                 // indistinguishable from "not measured" otherwise --
                 // postprocess.py relies on this to tell node-level
                 // unavailability apart from a genuine zero delta.
-                if(stalled_cycles_backend_available) {
-                    value_field(sample.cpu.stalled_cycles_backend);
+                if(stalled_cycles_mem_any_available) {
+                    value_field(sample.cpu.stalled_cycles_mem_any);
                 } else {
                     empty_field();
                 }
-                // ARC-63: same empty-not-zero rule as stalled_cycles_backend.
+                // Same empty-not-zero rule as stalled_cycles_mem_any.
                 if(l2_lines_in_all_available) {
                     value_field(sample.cpu.l2_lines_in_all);
                 } else {
@@ -840,7 +840,7 @@ namespace {
                 empty_field();
                 empty_field(); // uncore_cas_count_read_interval
                 empty_field(); // uncore_cas_count_write_interval
-                // ARC-135: empty (not "0"), same convention as stalled_cycles_backend
+                // ARC-135: empty (not "0"), same convention as stalled_cycles_mem_any
                 // above -- 0kHz is not a real reading, "not sampled" is.
                 if(sample.cpu.scaling_cur_freq_khz != 0) {
                     value_field(sample.cpu.scaling_cur_freq_khz);
@@ -949,7 +949,7 @@ namespace {
                 empty_field();
                 // ARC-120: empty (not "0") when no term in this interval
                 // parsed as valid -- same "not measured, not a real zero"
-                // convention as stalled_cycles_backend/l2_lines_in_all.
+                // convention as stalled_cycles_mem_any/l2_lines_in_all.
                 if(sample.uncore.interval_valid) {
                     value_field(sample.uncore.cas_count_read_interval);
                     value_field(sample.uncore.cas_count_write_interval);
@@ -1118,7 +1118,7 @@ int main(int argc, char** argv) {
         // ARC-50: a per-node capability fact, expected identical across every
         // repetition of the same run on the same machine/kernel -- OR'd
         // across repetitions defensively rather than assumed from the first.
-        bool stalled_cycles_backend_available = false;
+        bool stalled_cycles_mem_any_available = false;
         bool l2_lines_in_all_available = false; // ARC-63, same semantics as above
         bool fp_arith_available = false; // ARC-97, same semantics as above
 
@@ -1163,8 +1163,8 @@ int main(int argc, char** argv) {
                 telemetry_elapsed_ns.push_back(telemetry.elapsed_ns);
                 push_retries_by_repetition.push_back(push_retries);
                 measured_pids.push_back(telemetry.pid);
-                stalled_cycles_backend_available =
-                    stalled_cycles_backend_available || telemetry.stalled_cycles_backend_available;
+                stalled_cycles_mem_any_available =
+                    stalled_cycles_mem_any_available || telemetry.stalled_cycles_mem_any_available;
                 l2_lines_in_all_available =
                     l2_lines_in_all_available || telemetry.l2_lines_in_all_available;
                 fp_arith_available =
@@ -1223,8 +1223,8 @@ int main(int argc, char** argv) {
             ));
             push_retries_by_repetition.push_back(push_retries);
             measured_pids.push_back(telemetry.pid);
-            stalled_cycles_backend_available =
-                stalled_cycles_backend_available || telemetry.stalled_cycles_backend_available;
+            stalled_cycles_mem_any_available =
+                stalled_cycles_mem_any_available || telemetry.stalled_cycles_mem_any_available;
             l2_lines_in_all_available =
                 l2_lines_in_all_available || telemetry.l2_lines_in_all_available;
             fp_arith_available =
@@ -1233,7 +1233,7 @@ int main(int argc, char** argv) {
 
         const fs::path run_dir = opt.output_dir / opt.run_id;
         fs::create_directories(run_dir);
-        write_samples_csv(run_dir / "samples.csv", opt, samples, stalled_cycles_backend_available, l2_lines_in_all_available, fp_arith_available);
+        write_samples_csv(run_dir / "samples.csv", opt, samples, stalled_cycles_mem_any_available, l2_lines_in_all_available, fp_arith_available);
         write_metadata_json(run_dir / "metadata.json",
                             opt,
                             baseline_elapsed_ns,

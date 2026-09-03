@@ -85,7 +85,7 @@ def _write_fake_windows_csv(path: Path, *, n_rows: int, seed: int) -> None:
         "ipc": ipc,
         "mpki": rng.uniform(0, 50, size=n_rows),
         "llc_miss_rate": rng.uniform(0, 1, size=n_rows),
-        "stall_backend_ratio": rng.uniform(0, 1, size=n_rows),
+        "stall_mem_ratio": rng.uniform(0, 1, size=n_rows),
         "ips": rng.uniform(1e8, 1e10, size=n_rows),
         "running_ratio": rng.uniform(0.5, 1.0, size=n_rows),
         "freq_khz_observed": rng.choice([800000, 3600000], size=n_rows),
