@@ -143,9 +143,16 @@ Linux, incluido CI.
 - La campaña GPU multi-frecuencia completa sobre el catálogo ampliado
   todavía no se ha ejecutado de punta a punta con los binarios GPU
   recompilados de `fase-02`.
-- `T_transición_gpu` (latencia de conmutación de reloj de GPU) no está
-  medido todavía en ningún lado del proyecto — bloquea la actuación de
-  frecuencia GPU por fase en `fase3_daemon/` (ver §2.4.1 del plan).
+- `T_transición_gpu` (latencia de conmutación de reloj de GPU) **aún no
+  está medido en hardware**, pero la infraestructura ya existe (F1-GPU-002):
+  el probe `common/telemetry/experiments/gpu_clock_transition_probe.cpp`
+  (build `-DWITH_GPU=ON`) y el agregador
+  `fase1_telemetria/gpu_transition/aggregate_transition_matrix.py`. Falta
+  ejecutarlo en paccaA100 con NVML real y alimentar
+  `--t-transicion-gpu-ns` a `fase3_daemon/policy/derive_policy_table.py`.
+  Procedimiento: `fase1_telemetria/gpu_transition/README.md`. Hasta entonces
+  la actuación de frecuencia GPU por fase sigue bloqueada (ver §2.4.1 del
+  plan).
 - Herramientas de diagnóstico ad hoc de investigaciones puntuales
   (`orchestrator/schemas/scripts/`, `orchestrator/schemas/tools/`,
   `orchestrator/schemas/kernels/class_c_stress/` en `old/`) no se portaron

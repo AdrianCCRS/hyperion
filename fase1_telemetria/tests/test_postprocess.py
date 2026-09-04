@@ -244,7 +244,7 @@ def test_post04_ventana_normal_usa_delta_t_real(tmp_path):
     assert window["delta_t_ns"] == 1_500_000  # no el --interval-ns nominal
     assert window["delta_instructions"] == 2_000_000
     assert window["ipc"] == pytest.approx(2.0)
-    assert window["llc_miss_rate"] == pytest.approx(0.01)
+    assert window["cache_miss_rate"] == pytest.approx(0.01)  # F1-CPU-003: antes llc_miss_rate
     assert window["mpki"] == pytest.approx(0.5)
     assert window["ips"] == pytest.approx(2_000_000 / (1_500_000 / 1e9))
     assert window["running_ratio"] == pytest.approx(1.0)
@@ -1196,7 +1196,7 @@ def test_f1_cpu_002_agrega_un_ejemplo_por_intervalo_y_recalcula_las_tasas():
     assert interval["cpu_window_count"] == 2
     assert interval["ipc"] == pytest.approx(2.0)
     assert interval["mpki"] == pytest.approx(50.0)
-    assert interval["llc_miss_rate"] == pytest.approx(0.2)
+    assert interval["cache_miss_rate"] == pytest.approx(0.2)  # F1-CPU-003
     assert interval["stall_mem_ratio"] == pytest.approx(0.2)
     assert interval["ips"] == pytest.approx(40_000_000.0)
     assert interval["running_ratio"] == pytest.approx(0.9)

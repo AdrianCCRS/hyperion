@@ -35,8 +35,19 @@ REQUIRED_OUTPUT_COLUMNS: tuple[str, ...] = (
     "delta_instructions", "delta_cycles", "delta_cache_references", "delta_cache_misses",
     "delta_stalled_cycles_mem_any", "stall_mem_ratio",
     "delta_l2_lines_in_all", "bytes_moved_l2_proxy",
-    "ipc", "llc_miss_rate", "mpki", "ips",
-    "ipc_relative", "mpki_relative", "miss_rate_relative",
+    # F1-CPU-003: `cache_miss_rate` = delta_cache_misses / delta_cache_references,
+    # de los eventos GENERICOS PERF_COUNT_HW_CACHE_MISSES / _REFERENCES (ver
+    # common/telemetry/src/perf_reader.cpp:189-193). El kernel traduce esos
+    # eventos genericos a un evento del PMU que NO esta documentado como
+    # exclusivamente LLC/L3, y esa traduccion no esta demostrada para el
+    # Ice Lake-SP de paccaA100. Por eso NO se llama `llc_miss_rate` (nombre
+    # que afirmaba una semantica de ultimo nivel sin evidencia). El
+    # diagnostico `fase1_telemetria/diagnose_cache_event.py` -- pendiente de
+    # correr en paccaA100 -- registra la traduccion real via `perf list`/
+    # `perf stat`/sysfs PMU. `L2_LINES_IN_ALL` (delta_l2_lines_in_all) es
+    # otro evento, NUNCA LLC, y no alimenta esta columna.
+    "ipc", "cache_miss_rate", "mpki", "ips",
+    "ipc_relative", "mpki_relative", "cache_miss_rate_relative",
     "delta_running_ns", "delta_enabled_ns", "running_ratio",
     "pkg_delta_uj", "dram_delta_uj", "power_w", "energy_valid",
     # ARC-97/100: FLOPs measured directly by hardware (FP_ARITH_INST_RETIRED,
@@ -94,7 +105,7 @@ TRAINING_CPU_INTERVAL_COLUMNS: tuple[str, ...] = (
     "frequency_quality_status", "phase_label_train",
     "delta_instructions", "delta_cycles", "delta_cache_references", "delta_cache_misses",
     "delta_stalled_cycles_mem_any", "delta_running_ns", "delta_enabled_ns",
-    "ipc", "mpki", "llc_miss_rate", "stall_mem_ratio", "ips", "running_ratio",
+    "ipc", "mpki", "cache_miss_rate", "stall_mem_ratio", "ips", "running_ratio",
     "freq_khz_observed", "freq_khz_observed_spread",
     # Solo trazabilidad/verdad Roofline: el entrenador no las lee (fuga).
     "flops_measured_interval", "uncore_cas_count_read_interval",
@@ -638,7 +649,7 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
             row["ips"] = delta_instructions / (delta_t_ns / 1_000_000_000)
             row["ipc"] = (delta_instructions / delta_cycles) if delta_cycles else None
             row["mpki"] = (delta_cache_misses / delta_instructions * 1000.0) if delta_instructions else None
-            row["llc_miss_rate"] = (
+            row["cache_miss_rate"] = (
                 delta_cache_misses / delta_cache_references if delta_cache_references else None
             )
             # Fracción de ciclos de ejecución bloqueados mientras existe al
@@ -649,15 +660,15 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
                 else None
             )
         else:
-            row["ips"] = row["ipc"] = row["mpki"] = row["llc_miss_rate"] = None
+            row["ips"] = row["ipc"] = row["mpki"] = row["cache_miss_rate"] = None
             row["stall_mem_ratio"] = None
 
         if context.calibration_references is not None:
             row["ipc_relative"] = _relative(row["ipc"], context.calibration_references.ipc_p95)
             row["mpki_relative"] = _relative(row["mpki"], context.calibration_references.mpki_p95)
-            row["miss_rate_relative"] = _relative(row["llc_miss_rate"], context.calibration_references.miss_rate_p95)
+            row["cache_miss_rate_relative"] = _relative(row["cache_miss_rate"], context.calibration_references.miss_rate_p95)
         else:
-            row["ipc_relative"] = row["mpki_relative"] = row["miss_rate_relative"] = None
+            row["ipc_relative"] = row["mpki_relative"] = row["cache_miss_rate_relative"] = None
 
         # POST-05/POST-06: the launcher already computed pkg_delta_uj with
         # wrap correction and its own validity bit; postprocess only
@@ -905,12 +916,12 @@ def _base_row(context: WindowContext, *, window_index: int) -> dict[str, Any]:
         "delta_l2_lines_in_all": None,
         "bytes_moved_l2_proxy": None,
         "ipc": None,
-        "llc_miss_rate": None,
+        "cache_miss_rate": None,
         "mpki": None,
         "ips": None,
         "ipc_relative": None,
         "mpki_relative": None,
-        "miss_rate_relative": None,
+        "cache_miss_rate_relative": None,
         "delta_running_ns": None,
         "delta_enabled_ns": None,
         "running_ratio": None,
@@ -1096,7 +1107,7 @@ def build_training_cpu_intervals(windows: Sequence[dict[str, Any]]) -> list[dict
         if reason is None:
             result["ipc"] = instructions / cycles
             result["mpki"] = misses / instructions * 1000.0
-            result["llc_miss_rate"] = misses / references
+            result["cache_miss_rate"] = misses / references
             result["stall_mem_ratio"] = stalled / cycles
             result["ips"] = instructions / (duration_ns / 1_000_000_000)
             result["running_ratio"] = running / enabled
@@ -1261,10 +1272,28 @@ def run_postprocess(
         destination_dir / TRAINING_CPU_INTERVALS_FILENAME,
     )
 
+    is_gpu = getattr(kernel_entry, "device", "cpu") == "gpu"
+
+    # F1-GPU-003: dataset intermedio GPU con una fila por corrida (o fase
+    # estable), agregando de forma robusta las muestras NVML post-warmup --
+    # NUNCA una muestra NVML periódica como ejemplo ML independiente. Solo
+    # para device=gpu; los kernels sintéticos gpu_phasic_* quedan como
+    # control diagnóstico salvo que existan marcas de fase.
+    if is_gpu:
+        from fase1_telemetria import gpu_phases as _gpu_phases
+
+        _gpu_phases.write_gpu_phases_csv(
+            _gpu_phases.build_gpu_phase_rows(windows),
+            destination_dir / _gpu_phases.GPU_PHASE_DATASET_FILENAME,
+        )
+        _gpu_phases.write_contract(
+            destination_dir / _gpu_phases.GPU_PHASE_CONTRACT_FILENAME
+        )
+
     # ARC-174: el resumen de cobertura/calidad de frecuencia solo tiene
     # sentido para CPU -- GPU tiene otra cadencia/señal (gpu_sm_clock_mhz)
     # y sus propios factores G, deliberadamente fuera de este cambio.
-    if getattr(kernel_entry, "device", "cpu") != "gpu":
+    if not is_gpu:
         summary = validation_module.summarize_frequency_quality(windows_path)
         summary_path = destination_dir / "frequency_quality_summary.json"
         with summary_path.open("w", encoding="utf-8") as summary_file:

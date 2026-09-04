@@ -77,7 +77,15 @@ add_executable(telemetry_kernel_launcher
   experiments/telemetry_kernel_launcher.cpp
 )
 target_link_libraries(telemetry_kernel_launcher PRIVATE telemetry pthread)
- 
+
+# F1-GPU-002: GPU clock-transition probe. Compiles CPU-only (main() then just
+# explains it needs -DWITH_GPU=ON); the NVML body is gated on TELEMETRY_WITH_GPU
+# and its extra NVML link is added in the WITH_GPU block below.
+add_executable(gpu_clock_transition_probe
+  experiments/gpu_clock_transition_probe.cpp
+)
+target_link_libraries(gpu_clock_transition_probe PRIVATE telemetry pthread)
+
 # Link NVML only when GPU support is requested
 option(WITH_GPU "Enable NVML GPU telemetry" OFF)
 if(WITH_GPU)
@@ -89,6 +97,9 @@ if(WITH_GPU)
   target_include_directories(telemetry PUBLIC ${NVML_INCLUDE_DIR})
   target_link_libraries(telemetry PRIVATE ${NVML_LIB})
   target_compile_definitions(telemetry PUBLIC TELEMETRY_WITH_GPU)
+  # telemetry links NVML PRIVATE, so the probe needs its own explicit link
+  # to resolve nvmlInit_v2 & friends it calls directly.
+  target_link_libraries(gpu_clock_transition_probe PRIVATE ${NVML_LIB})
 endif()
 
 enable_testing()
@@ -165,6 +176,14 @@ add_executable(gpu_clock_controller_test
 )
 target_link_libraries(gpu_clock_controller_test PRIVATE telemetry pthread)
 add_test(NAME gpu_clock_controller_test COMMAND gpu_clock_controller_test)
+
+# F1-GPU-002: pure stability/cadence/metrics logic of the transition probe.
+# Header-only, NVML-free -- runs on the CPU-only path.
+add_executable(gpu_transition_analysis_test
+  tests/test_gpu_transition_analysis.cpp
+)
+target_link_libraries(gpu_transition_analysis_test PRIVATE telemetry pthread)
+add_test(NAME gpu_transition_analysis_test COMMAND gpu_transition_analysis_test)
 
 add_executable(collector_gpu_cadence_test
   tests/test_collector_gpu_cadence.cpp

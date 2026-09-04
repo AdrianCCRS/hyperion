@@ -84,7 +84,7 @@ def _write_fake_training_intervals_csv(path: Path, *, n_rows: int, seed: int) ->
     frame = pd.DataFrame({
         "ipc": ipc,
         "mpki": rng.uniform(0, 50, size=n_rows),
-        "llc_miss_rate": rng.uniform(0, 1, size=n_rows),
+        "cache_miss_rate": rng.uniform(0, 1, size=n_rows),  # F1-CPU-003: antes llc_miss_rate
         "stall_mem_ratio": rng.uniform(0, 1, size=n_rows),
         "ips": rng.uniform(1e8, 1e10, size=n_rows),
         "running_ratio": rng.uniform(0.5, 1.0, size=n_rows),
@@ -120,6 +120,30 @@ def test_load_lee_las_corridas_sinteticas(fake_campaign):
     assert set(df["kernel_ref"].unique()) == {"fake_kernel"}
     assert len(df) > 0
     assert set(df["phase_label_train"].unique()) <= {"memory_bound", "compute_bound"}
+
+
+def test_load_acepta_csv_historico_con_llc_miss_rate(tmp_path):
+    """F1-CPU-003: un training_cpu_intervals.csv grabado antes del rename
+    trae `llc_miss_rate`; load() lo renombra a `cache_miss_rate` y no falla
+    por esquema. No se producen las dos columnas a la vez."""
+    campaign_id = "historico"
+    run_dir = tmp_path / f"{campaign_id}__kernel_a__REF__rep01"
+    _write_fake_training_intervals_csv(
+        run_dir / train_phase.TRAINING_INPUT_FILENAME, n_rows=120, seed=1
+    )
+    p = run_dir / train_phase.TRAINING_INPUT_FILENAME
+    frame = pd.read_csv(p)
+    frame = frame.rename(columns={"cache_miss_rate": "llc_miss_rate"})  # simula CSV viejo
+    assert "cache_miss_rate" not in frame.columns
+    frame.to_csv(p, index=False)
+
+    df = train_phase.load(
+        per_run_sample=120, seed=0, kernels=["kernel_a"],
+        campaign_dir=tmp_path, campaign_id=campaign_id, levels=["REF"],
+    )
+    assert "cache_miss_rate" in df.columns
+    assert "llc_miss_rate" not in df.columns
+    assert df["cache_miss_rate"].notna().all()
 
 
 def test_load_falla_con_mensaje_claro_si_no_hay_datos(tmp_path):

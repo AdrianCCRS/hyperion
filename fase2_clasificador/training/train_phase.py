@@ -52,9 +52,17 @@ DEFAULT_LEVELS = ["REF", "F0", "F1", "F2", "F3", "F4"]
 # frecuencia (ARC-175), así que los mismos contadores significan cosas
 # distintas según a qué reloj se observen, y el modelo necesita ese contexto.
 FEATURES = [
-    "ipc", "mpki", "llc_miss_rate", "stall_mem_ratio",
+    # F1-CPU-003: `cache_miss_rate` = delta_cache_misses / delta_cache_references
+    # (eventos genéricos PERF_COUNT_HW_CACHE_*). Antes se llamaba
+    # `llc_miss_rate`, nombre que afirmaba semántica de último nivel sin
+    # evidencia para el Ice Lake-SP de paccaA100. `load()` acepta CSV
+    # históricos con el nombre viejo (renombra al leer).
+    "ipc", "mpki", "cache_miss_rate", "stall_mem_ratio",
     "ips", "running_ratio", "freq_khz_observed",
 ]
+# F1-CPU-003: nombre legado -> nombre vigente, aplicado al leer un CSV que aún
+# traiga la columna vieja. No se produce nunca la columna vieja; no coexisten.
+LEGACY_COLUMN_RENAMES = {"llc_miss_rate": "cache_miss_rate"}
 LABEL = "phase_label_train"
 TRAINING_INPUT_FILENAME = "training_cpu_intervals.csv"
 TRAINING_GRANULARITY = "uncore_interval"
@@ -101,7 +109,17 @@ def load(
                 )
                 if not path.exists():
                     continue
-                frame = pd.read_csv(path, usecols=lambda c: c in READ_COLS, low_memory=False)
+                frame = pd.read_csv(
+                    path,
+                    usecols=lambda c: c in READ_COLS or c in LEGACY_COLUMN_RENAMES,
+                    low_memory=False,
+                )
+                # F1-CPU-003: acepta un CSV histórico con `llc_miss_rate` y lo
+                # renombra a `cache_miss_rate` antes de validar el esquema.
+                frame = frame.rename(columns={
+                    old: new for old, new in LEGACY_COLUMN_RENAMES.items()
+                    if old in frame.columns and new not in frame.columns
+                })
                 missing = set(READ_COLS) - set(frame.columns)
                 if missing:
                     raise ValueError(

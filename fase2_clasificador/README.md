@@ -18,7 +18,7 @@ auditable `windows.csv`: un directorio de campaña con subdirectorios
 Cada fila representa un intervalo real de `uncore_imc` (~10 ms o más), no un
 tick CPU de ~1 ms. Sus tasas se recalculan desde las sumas de deltas del
 intervalo; `freq_khz_observed` es la mediana de las ventanas CPU cubiertas.
-Columnas que usa: las 7 `FEATURES` (`ipc`, `mpki`, `llc_miss_rate`,
+Columnas que usa: las 7 `FEATURES` (`ipc`, `mpki`, `cache_miss_rate`,
 `stall_mem_ratio`, `ips`, `running_ratio`, `freq_khz_observed`), la
 etiqueta `phase_label_train`, `kernel_ref`, `training_quality_status` (filtra
 `== "ok"`) y `frequency_quality_status` (filtra `valid`/`not_applicable_native`).

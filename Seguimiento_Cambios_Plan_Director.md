@@ -23,11 +23,19 @@ de fase y alcance. Esta convención mantiene el formato propuesto
 
 | ID | Decisión | Estado |
 |---|---|---|
-| `F1-CPU-001` | Sustituir el supuesto contador de stalls de backend por `CYCLE_ACTIVITY.STALLS_MEM_ANY` | Implementado |
-| `F1-GPU-001` | Usar Nsight Compute solo para construir la verdad Roofline offline y NVML como proxy ligero online | Parcialmente implementado (captura completa; entrenador GPU pendiente) |
+| `F1-CPU-001` | Sustituir el supuesto contador de stalls de backend por `CYCLE_ACTIVITY.STALLS_MEM_ANY` | Implementado y validado |
 | `F1-CPU-002` | Alinear el dataset de entrenamiento CPU con los intervalos reales de `uncore_imc` | Implementado (offline) |
-| `F1-XDEV-001` | Tratar las 232 entradas como banco de candidatos y seleccionar por cobertura Roofline/familia | En preparación (manifiestos de cribado creados) |
+| `F1-CPU-003` | Renombrar `llc_miss_rate` → `cache_miss_rate` (evento genérico, no LLC demostrada) | Implementado y validado; validación física del PMU pendiente en paccaA100 (no bloquea) |
+| `F1-GPU-001` | Usar Nsight Compute solo para construir la verdad Roofline offline y NVML como proxy ligero online | Parcialmente implementado (captura completa; entrenador GPU pendiente) |
+| `F1-GPU-002` | Caracterizar la cadencia efectiva de NVML y medir `T_transición_gpu` bajo carga | Infraestructura implementada (probe C++ + lógica pura + agregador + comparador de cadencia + pruebas); **pendiente de medición real en paccaA100** |
+| `F1-GPU-003` | Contrato de granularidad GPU + dataset intermedio por corrida/fase con agregación NVML robusta | Implementado y validado; a la espera de campaña GPU real para poblarlo |
+| `F1-GPU-004` | Convergencia y procedencia de la verdad Roofline GPU (`ncu`) por kernel | Parcialmente implementado (parser + lógica de convergencia + runbook, validados); **ejecución de `ncu` bloqueada por hardware** |
+| `F1-XDEV-001` | Tratar las 232 entradas como banco de candidatos y seleccionar por cobertura Roofline/familia | En preparación (manifiestos de cribado creados; generador de manifiesto definitivo implementado) |
+| `F1-XDEV-002` | Recalibrar y congelar el warmup de cada candidato antes de una campaña de datos | Implementado (módulo + CLI + detección portada + pruebas); **calibración real bloqueada por campañas `warmup_seconds: 0`** |
+| `F1-XDEV-003` | Usar cribado de frecuencia reducido solo para selección y rejilla fina en el dataset definitivo | Implementado (generador de manifiesto por lista congelada + resolución MHz→fracción + gate); manifiestos finales pendientes del resultado del cribado |
+| `F1-XDEV-004` | Análisis Pearson/Spearman/VIF y contrato versionado de features antes de entrenar | Implementado y validado con fixtures; **selección definitiva pendiente del dataset real** |
 | `F2-XDEV-001` | Diagnosticar cobertura Roofline y calidad antes de seleccionar/balancear entrenamiento | Implementado (sin datos de campaña aún) |
+| `H` (gate) | Auditoría única de readiness pre-entrenamiento (PASS/FAIL/BLOCKED por gate) | Implementada y validada; a la espera de un dataset real para dictaminar |
 
 ---
 
@@ -178,6 +186,194 @@ Aplicar la misma convención "no medido ≠ 0 real" que ya usan
   reloj SM y temperatura en `0` en todas las filas ⇒ `gpu_energy_valid` queda
   `False` y las tres columnas quedan `None`; `gpu_power_mw` / `gpu_util_pct`
   reales intactos.
+
+---
+
+## F1-GPU-002 — Cadencia efectiva NVML y `T_transición_gpu` bajo carga
+
+**Fecha de registro:** 2026-09-04
+**Estado:** infraestructura de medición **implementada** el 2026-09-04 (ver
+"Implementado" más abajo); pendiente la ejecución en paccaA100 con NVML real.
+Sigue siendo prerrequisito del barrido GPU y de cualquier actuación GPU, no una
+medición que pueda diferirse a Fase 3.
+
+### Hecho establecido y distinción necesaria
+
+`gpu_interval_ns` es la cadencia solicitada al bucle del colector, no la
+frecuencia con que NVML actualiza necesariamente una señal. En un barrido real
+anterior sobre la A100 de pacca (ocho kernels, 1/5/10/50/100 ms, tres
+repeticiones por punto), 100 ms fue frágil para cargas cortas: por ejemplo,
+`rodinia_backprop` produjo 9.0 muestras NVML útiles de media a 100 ms, frente
+a 150.3 a 5 ms y 80.3 a 10 ms. Por tanto, bajar el sondeo desde 100 ms evitó
+perder ubicación temporal y dejar corridas cortas con muy pocas lecturas.
+
+La misma evidencia mostró que las lecturas repetidas no son muestras físicas
+independientes. En esa A100, potencia y utilización exhibieron escalones
+observados de aproximadamente 105--120 ms: con sondeo a 1 ms se vieron muchos
+valores consecutivos idénticos. El conteo de cambios de valor solo es una cota
+inferior de actualizaciones físicas (dos actualizaciones pueden devolver el
+mismo número); no prueba una tasa universal de refresco NVML y no se traslada
+sin medir a `gpu_sm_clock_mhz`.
+
+En consecuencia, ambas afirmaciones son simultáneamente verdaderas:
+
+1. **100 ms es demasiado grueso para algunas corridas y para localizar el
+   primer cambio publicado por el sensor.**
+2. **5 ms no convierte potencia/utilización en observaciones independientes
+   de 5 ms.** Es un sondeo fino que reduce la incertidumbre de cuándo se vio
+   un escalón y conserva redundancia deliberada.
+
+La documentación de NVML tampoco autoriza equiparar llamadas con actualizaciones:
+para `nvmlDeviceGetUtilizationRates`, NVIDIA declara una ventana interna
+dependiente del producto; para `nvmlDeviceGetClockInfo` no publica una cadencia
+de refresco general. La evidencia local se conserva en
+`old/docs/justifications/report/sections/gpu_interval_ns.tex` y sus CSV.
+
+### Objetivo y unidades de resultado
+
+Medir, bajo carga GPU sostenida, la latencia observable entre solicitar un
+cambio de reloj y verificar que el reloj SM se mantiene en el destino:
+
+\[
+T_{actuacion}=t_{estable}-t_{solicitud}.
+\]
+
+Se registrará por separado `t_command_return - t_solicitud` para no confundir
+el costo de invocar `nvidia-smi` con la respuesta posterior del driver. El
+resultado primario no es un único número: es una matriz dirigida
+`(reloj_origen, reloj_destino, repetición)`. La dirección importa. Solo después
+se deriva `T_transicion_gpu_ns_conservative`, el máximo de las repeticiones y
+pares que la política puede solicitar; con tres repeticiones el máximo se
+reporta como cota conservadora, no como percentil estadístico estable.
+
+### Etapa A — Caracterizar la observabilidad antes de elegir cadencia
+
+Con el mismo driver, GPU, carga sostenida, aislamiento y colector de la futura
+campaña, ejecutar un probe de señal con bordes externos conocidos (actividad
+activa/inactiva o marcas monotónicas emitidas por la carga). Probar al menos
+5, 10, 50 y 100 ms; 5 ms es el baseline fino y no una conclusión anticipada.
+Para cada señal (`gpu_util_pct`, `gpu_mem_util_pct`, `gpu_power_mw`,
+`gpu_sm_clock_mhz`, temperatura y energía) preservar crudo y reportar:
+
+- distribución de `delta_timestamp_ns` real entre llamadas, incluido p50/p95;
+- cambios consecutivos y duración de escalones como **tasa de refresco
+  observada/cota inferior**, no como actualización física demostrada;
+- error entre cada borde conocido y la primera observación que lo refleja;
+- muestras y escalones observados después de warmup en la corrida más corta;
+- overhead del sondeo frente a una corrida sin telemetría.
+
+La cadencia de campaña `q_produccion` será la más gruesa que, frente al baseline
+de 5 ms, no pierda bordes observables ni reduzca materialmente los escalones
+post-warmup en la carga más corta, mantenga el objetivo de cobertura y tenga
+menor o igual perturbación. Si 10 ms satisface esas condiciones, se preferirá
+por menor redundancia; si no, se conservarán 5 ms. 100 ms queda descartado si
+vuelve a producir cobertura frágil o localización de borde peor que el límite
+aceptable medido. La decisión, el driver y los artefactos se versionan; no se
+extrapolan a otra GPU ni a otra versión de driver.
+
+### Etapa B — Medición de transición de reloj
+
+Usar una carga CUDA sostenida, con utilización y temperatura verificadas, que
+dure varios segundos después del warmup. Para cada par de niveles fijos que
+pueda ser solicitado por la política, y también desde `REF` hacia cada nivel
+fijo candidato:
+
+1. fijar y confirmar el origen bajo carga;
+2. comenzar el sondeo de reloj SM con la cadencia fina seleccionada para el
+   **probe** (inicialmente 5 ms, aun si `q_produccion` resulta 10 ms);
+3. marcar `t_solicitud` inmediatamente antes de invocar `nvidia-smi -lgc` y
+   `t_command_return` al recibir su resultado;
+4. registrar cada lectura de reloj, utilización, potencia, temperatura,
+   razones de throttling si están disponibles y timestamp monotónico;
+5. declarar estable el destino solo si hay al menos tres lecturas consecutivas
+   dentro de una tolerancia documentada respecto al reloj soportado objetivo,
+   con GPU activa y sin throttling que invalide la interpretación;
+6. repetir cada transición dirigida al menos tres veces y restaurar el estado
+   GPU al terminar, incluso ante fallo.
+
+La tolerancia no se toma de la hoja de datos: debe ser menor que la mitad del
+salto al reloj soportado vecino y quedar escrita en el reporte. Si la primera
+lectura estable aparece al límite de la resolución de `gpu_sm_clock_mhz`, el
+resultado se declara una **cota superior observable**, no una latencia física
+exacta. Esa cota sigue siendo válida y segura para fijar permanencia mínima.
+
+### Artefactos, gates y consumo posterior
+
+El módulo futuro debe producir por ejecución `gpu_clock_transition_raw.csv`,
+un `gpu_clock_transition_summary.json` y un resumen de matriz CSV. Deben incluir
+UUID/modelo GPU, driver/CUDA, clocks soportados, comando, carga/checksum,
+frecuencias origen/destino, timestamps, cadencia real, criterio de estabilidad,
+réplica, fallos y restauración. No se aceptan resultados agregados sin crudo.
+
+- Si `T_transicion_gpu_ns_conservative` es comparable o mayor que la duración
+  de las fases/corridas elegibles, GPU queda en `no_actuar`; ese es un resultado
+  válido.
+- Si es menor, `derive_policy_table.py` recibe ese valor en
+  `--t-transicion-gpu-ns`; sus exclusiones deben conservar el motivo y el
+  reporte de origen.
+- `min_dwell_ns` del daemon se fija como mínimo a esa cota conservadora. Un
+  multiplicador adicional solo se permite tras medir sensibilidad/histéresis,
+  nunca como constante implícita.
+- La caracterización de cadencia no convierte filas NVML en fases ML
+  independientes: el futuro entrenador GPU sigue requiriendo agregación por
+  corrida o fase estable (`F1-GPU-001`).
+
+### Implementado (2026-09-04)
+
+Probe independiente y documentado. **No** cambia la cadencia de las campañas,
+el entrenador GPU ni `derive_policy_table.py`.
+
+- `common/telemetry/include/telemetry/gpu_transition_analysis.hpp` — lógica
+  pura, sin NVML/CUDA: `detect_stability` (declara estable solo con N lecturas
+  consecutivas dentro de tolerancia, GPU activa y sin throttling invalidante;
+  N por defecto 3), `compute_transition_metrics` (`command_latency_ns`,
+  `t_actuacion_ns`, `settle_after_command_ns`, `conservative_upper_bound_ns`
+  = cota superior observable segura para `min_dwell_ns`, `optimistic_ns` solo
+  como contexto), `compute_cadence_stats` (p50/p95/min/max de
+  `delta_timestamp_ns` real) y `analyze_signal_steps` (cambios consecutivos y
+  duración de escalones **como cota inferior**, con nota explícita de que
+  5 ms no implica información independiente cada 5 ms).
+- `common/telemetry/experiments/gpu_clock_transition_probe.cpp` — ejecutable.
+  Sondeo de reloj **siempre** por `nvmlDeviceGetClockInfo`; `nvidia-smi` solo
+  para actuación (`-lgc`/`-rgc`), replicando el contrato sudo/restauración de
+  `common/hpc/gpu_freqctl.py`. Fija y confirma el reloj origen bajo carga,
+  lanza la carga vía `sh -c`, verifica actividad por NVML, solicita el destino
+  a mitad de la carga, registra cada lectura (reloj/util/potencia/temp/energía/
+  `throttle_reasons`) con timestamp monotónico, y restaura ante `atexit`,
+  SIGINT/SIGTERM, fallo de comando o timeout (segundo Ctrl-C fuerza salida).
+  Compila CPU-only (imprime aviso `-DWITH_GPU` y sale 2). Produce
+  `gpu_clock_transition_raw.csv`, `gpu_clock_transition_summary.json` y
+  `gpu_clock_transition_matrix.csv`, con crudo incluso al fallar.
+- `fase1_telemetria/gpu_transition/aggregate_transition_matrix.py` — junta los
+  `summary.json` de varias corridas, agrupa por par dirigido y deriva
+  `T_transicion_gpu_ns_conservative` = **máximo** de `conservative_upper_bound_ns`
+  sobre pares y réplicas (nunca promedio); avisa si un par tiene < 3 réplicas
+  estables, si hubo `timeout` o resultados no estables, y si no hay ningún dato
+  estable (devuelve `None` → documentar como bloqueo).
+- Pruebas: `common/telemetry/tests/test_gpu_transition_analysis.cpp` (8 grupos:
+  convergencia, primer toque + salida de tolerancia, timeout, timestamps
+  irregulares, NVML ausente, GPU ociosa, throttling invalidante vs. el bit de
+  `-lgc`, escalones/redundancia, cálculo de `T_actuacion`/latencia/cota) y
+  `fase1_telemetria/tests/test_aggregate_transition_matrix.py` (7 casos).
+- Documentación y procedimiento: `fase1_telemetria/gpu_transition/README.md`
+  (build `-DWITH_GPU=ON`, Etapa A de cadencia, Etapa B de matriz dirigida con
+  ≥ 3 réplicas y `REF→fijo` separado, agregación y alimentación de
+  `--t-transicion-gpu-ns`).
+
+**Verificado localmente (sin GPU):** build CPU-only del probe; `ctest`
+`common/telemetry` 15/15; `pytest fase1_telemetria common` 530.
+**Pendiente en paccaA100:** build `-DWITH_GPU=ON` contra el `nvml.h`/driver
+del nodo, confirmar `sudo nvidia-smi -lgc/-rgc` sin contraseña bajo Slurm,
+elegir carga CUDA sostenida y calibrar tiempos, correr Etapa A + Etapa B,
+registrar el número (o el bloqueo) aquí y en `fase3_daemon`.
+
+### Criterio de salida
+
+El barrido GPU completo solo puede comenzar tras guardar una selección
+versionada de `q_produccion` y un reporte de transición reproducible, o tras
+documentar que la resolución de la A100/driver solo permite una cota tan alta
+que la actuación GPU no es viable. En ambos casos se conserva la evidencia y
+la política GPU no puede pasar silenciosamente a `actuar`.
 
 ---
 
@@ -396,6 +592,140 @@ estable, no como ejemplos temporalmente independientes).
 
 ---
 
+## F1-XDEV-002 — Calibración trazable de warmup antes de campaña
+
+**Fecha de registro:** 2026-09-04
+**Estado:** pendiente. Es un gate de preparación: no lanzar las campañas de
+cribado ni el barrido completo con valores de `warmup_seconds` no verificados.
+
+### Problema observado
+
+`warmup_seconds` no ordena al harness ejecutar una corrida de calentamiento
+separada. La telemetría se captura desde el inicio; al postprocesar, las
+ventanas CPU cuyo inicio y las muestras GPU cuyo `timestamp` ocurren antes de
+`primera_muestra_CPU + warmup_seconds` se preservan en `windows.csv` pero se
+marcan `warmup_excluded` y no entran al conjunto utilizable. Por ello, un valor
+heredado, puesto conservadoramente o no medido puede descartar datos válidos o
+dejar dentro un transitorio de arranque.
+
+Algunos valores actuales están respaldados por mediciones históricas; otros
+son fallbacks conservadores. Ninguno debe considerarse automáticamente válido
+para un candidato nuevo o para una configuración que cambie binario, tamaño,
+afinidad, número de hilos, dispositivo, driver, cadencia del colector o
+frecuencias de la campaña.
+
+### Decisión y procedimiento obligatorio
+
+Antes de una campaña de datos, ejecutar una mini-campaña de calibración para
+cada candidato y dispositivo con `warmup_seconds: 0`, para conservar todo el
+transitorio. Mantener el mismo binario/checksum, argumentos, tamaño, hilos,
+pinning, nodo, colector y configuración de frecuencia previstos para la
+campaña posterior. Recoger como mínimo tres repeticiones y cubrir referencia y
+los extremos de frecuencia que se usarán; como el catálogo vigente admite un
+único valor por kernel, se adopta el máximo valor robustamente detectado entre
+esas condiciones.
+
+El detector histórico `old/scripts/pacca/measure_warmup.py` analiza IPC en CPU y
+`gpu_util_pct` en GPU. Busca dos ventanas móviles consecutivas con
+`CV <= 5%`; si no las encuentra, usa segmentación por puntos de cambio y toma
+el primer segmento que alcanza 80% de la meseta de actividad. El valor
+propuesto es el instante detectado con 20% de margen:
+
+\[
+    warmup\_seconds = 1.2 \times t_{detectado}.
+\]
+
+En GPU, la cadencia efectiva de NVML puede impedir resolver transitorios muy
+cortos. Si no hay señal suficiente para una detección fiable, la carga debe
+alargarse o declararse no apta para telemetría NVML; no se debe sustituir por
+un valor arbitrario.
+
+### Evidencia que se debe congelar
+
+Para cada `kernel_ref`, registrar junto al cambio de catálogo: checksum y
+argumentos medidos; dispositivo y niveles de frecuencia; identificadores de
+las tres corridas; señal usada; método (`cv_threshold` o `changepoint`);
+instante bruto, margen aplicado y valor final; y estado de confianza.
+`fallback_conservative` solo es admisible si incluye razón, duración y riesgo
+documentados; no equivale a «warmup medido».
+
+### Criterio de salida
+
+Los manifiestos de cribado `F1-XDEV-001` solo pueden lanzarse después de que
+todos sus kernels tengan una de estas dos condiciones explícitas: (a) warmup
+calibrado y trazable, o (b) exclusión razonada del candidato por falta de
+señal/aptitud de medición. Tras congelar esos valores, no se modifican durante
+las repeticiones de una misma campaña.
+
+---
+
+## F1-XDEV-003 — Rejilla fina para el dataset definitivo
+
+**Fecha de registro:** 2026-09-04
+**Estado:** decisión adoptada; pendiente materializar los manifiestos finales
+después de seleccionar el catálogo.
+
+### Problema observado
+
+La rejilla gruesa histórica muestreó `REF` y cinco puntos fijos en CPU
+(`F0`--`F4`). El salto superior de 3,2 a 2,6 GHz dejó sin observar precisamente
+la región en la que una reducción pequeña de frecuencia puede conservar el
+presupuesto de rendimiento y reducir energía. El análisis posterior no puede
+concluir que no existe un óptimo interior si el experimento no midió esa zona.
+El mismo fenómeno apareció en GPU: el salto de 1410 a 1110 MHz era demasiado
+grande para estudiar presupuestos de degradación pequeños.
+
+El repositorio ya conserva dos manifiestos que documentan esa evidencia y las
+rejillas suplementarias usadas entonces:
+`campaign_pacca_cpu_fine_grid.yaml` y
+`campaign_pacca_gpu_fine_grid_dataset.yaml`. Son antecedentes experimentales,
+no los manifiestos definitivos del catálogo nuevo.
+
+### Decisión
+
+Separar dos propósitos que no requieren el mismo costo:
+
+1. **Cribado de cobertura:** conservar las rejillas reducidas de
+   `F1-XDEV-001` (`REF/F2/F4` en CPU y `REF/F3/F6` en GPU). Su objetivo es
+   descartar candidatos, comprobar señal y estimar cobertura Roofline; no
+   derivar el óptimo energético ni alimentar por sí solas el dataset final.
+2. **Campaña definitiva:** ejecutar los kernels/familias seleccionados sobre
+   una rejilla fina que conserve los extremos y aumente la resolución en la
+   zona alta, donde la rejilla gruesa ya mostró pérdida de información.
+
+Como punto de partida reproducible, la rejilla CPU unificada debe incluir los
+niveles históricos y los suplementos: `REF`, 3200, 3100, 3000, 2900, 2800,
+2600, 2400, 2200, 2000, 1400 y 800 MHz. La rejilla GPU de referencia es `REF`,
+1410, 1350, 1290, 1230, 1170, 1110, 810, 510 y 210 MHz. Los valores se deben
+resolver y verificar contra los relojes realmente soportados por el nodo en la
+sesión de campaña; no se aceptan únicamente por aparecer comentados en un YAML.
+
+### Consecuencias de implementación
+
+- Crear manifiestos nuevos después de congelar el catálogo; no ampliar los
+  manifiestos de cribado ni reutilizar como finales los históricos de siete o
+  nueve kernels.
+- Ejecutar calibración Roofline por dispositivo, precisión y nivel de
+  frecuencia de la rejilla definitiva.
+- Verificar el reloj observado bajo carga en cada nivel y conservar los
+  rechazos, sin interpolarlos como mediciones válidas.
+- Remedir los márgenes de potencia/actividad GPU de los niveles intermedios que
+  en los YAML históricos figuran como interpolados.
+- Aplicar antes `F1-XDEV-002` (warmup) y, para GPU, cerrar `F1-GPU-002`
+  (cadencia efectiva y `T_transición_gpu`).
+- Derivar cualquier tabla de frecuencia óptima o análisis EDP solamente del
+  barrido fino; la mini campaña sigue siendo evidencia diagnóstica.
+
+### Criterio de salida
+
+Cada kernel elegido debe tener observaciones aceptadas en todos los niveles
+aplicables de la rejilla fina, o una exclusión explícita y documentada. El
+reporte final debe demostrar cobertura de la región alta y no presentar la
+ausencia de un óptimo interior como resultado si existen huecos de frecuencia
+sin medir.
+
+---
+
 ## F2-XDEV-001 — Diagnóstico de cobertura y selección reproducible
 
 **Fecha de registro:** 2026-09-03
@@ -446,3 +776,544 @@ no selecciona familias automáticamente y no altera los CSV fuente.
    campaña.
 5. Implementar la agregación GPU por corrida o fase estable antes de crear el
    entrenador GPU o interpretar sus muestras NVML como filas ML.
+
+---
+
+## F1-CPU-003 — `llc_miss_rate` → `cache_miss_rate` (evento genérico, no LLC demostrada)
+
+**Fecha de registro:** 2026-09-04
+**Estado:** implementado y validado localmente; validación física del PMU en
+paccaA100 pendiente (no bloquea el entrenamiento).
+
+### Problema
+
+`fase1_telemetria/postprocess.py` calculaba `delta_cache_misses /
+delta_cache_references` y exportaba la columna como `llc_miss_rate`. Esos
+deltas vienen de los eventos **genéricos** `PERF_COUNT_HW_CACHE_MISSES` /
+`PERF_COUNT_HW_CACHE_REFERENCES` (`common/telemetry/src/perf_reader.cpp:189-193`).
+El kernel traduce cada evento genérico a un evento del PMU concreto, y esa
+traducción **no está documentada como exclusivamente LLC/L3** ni verificada para
+el Ice Lake-SP de paccaA100. El nombre `llc_miss_rate` afirmaba una semántica de
+último nivel sin evidencia; `L2_LINES_IN_ALL` (otro evento del harness) tampoco
+es LLC y no alimenta esta columna. El entrenador CPU además llevaba a la vez
+`mpki` y `llc_miss_rate`, dos caminos de la misma señal.
+
+### Decisión
+
+1. Renombrar la feature a `cache_miss_rate` (y `miss_rate_relative` →
+   `cache_miss_rate_relative`, misma cantidad subyacente) en esquema,
+   postproceso, entrenador, pruebas y documentación. Los dos nombres **no**
+   coexisten: nunca se produce el nombre viejo.
+2. Compatibilidad de lectura: `train_phase.load()` renombra
+   `llc_miss_rate → cache_miss_rate` si un CSV histórico trae el nombre viejo.
+3. La referencia de calibración `calibration_references.miss_rate_p95` queda como
+   está: ya es genérica ("miss rate"), sin afirmación de LLC.
+4. Diagnóstico ejecutable en paccaA100 (`fase1_telemetria/diagnose_cache_event.py`)
+   que registra, de solo lectura, a qué evento del PMU se traduce el alias
+   genérico (`perf list`, `perf stat -v`, sysfs PMU) y emite un veredicto
+   conservador. No cambia nada por sí solo.
+
+### Archivos modificados
+
+- `fase1_telemetria/postprocess.py` (11 ocurrencias + comentario de rationale)
+- `fase2_clasificador/training/train_phase.py` (`FEATURES`, `LEGACY_COLUMN_RENAMES`, `load()`)
+- `fase2_clasificador/README.md`, `MANUAL_ESTUDIANTES.md`
+- `fase1_telemetria/tests/test_postprocess.py`, `fase2_clasificador/tests/test_train_phase.py`
+- Nuevos: `fase1_telemetria/diagnose_cache_event.py`,
+  `fase1_telemetria/tests/test_diagnose_cache_event.py`
+
+### Contrato de datos
+
+Columna `cache_miss_rate` (y `cache_miss_rate_relative`) en `windows.csv` y
+`training_cpu_intervals.csv`. Semántica: fracción de referencias de caché
+(evento genérico) que fueron miss. **No** se afirma que sea LLC/L3.
+
+### Pruebas ejecutadas y resultados
+
+- `pytest fase1_telemetria/tests/test_postprocess.py
+  fase1_telemetria/tests/test_diagnose_cache_event.py
+  fase2_clasificador/tests/test_train_phase.py` → **72 passed**.
+- Suite completa `fase1_telemetria fase2_clasificador fase3_daemon common` →
+  **684 passed**.
+- Test nuevo `test_load_acepta_csv_historico_con_llc_miss_rate` verifica la
+  compatibilidad de lectura.
+
+### Evidencia de hardware
+
+Ninguna todavía. `diagnose_cache_event.py` no se ha corrido en paccaA100.
+
+### Limitaciones
+
+- El diagnóstico da un veredicto textual; incluso si mostrara equivalencia con
+  un evento de último nivel, `cache_miss_rate` sigue siendo el nombre correcto
+  (no se revierte sin evidencia fuerte y multi-nodo).
+
+### Trabajo pendiente
+
+- Correr `diagnose_cache_event.py` en paccaA100 y adjuntar el JSON a este ID.
+
+### Criterio exacto de cierre
+
+Cerrado cuando: (a) ninguna ruta de código produce `llc_miss_rate`; (b) el
+entrenador y sus pruebas usan `cache_miss_rate`; (c) el JSON de
+`diagnose_cache_event.py` de paccaA100 está adjunto con su veredicto. (a) y (b)
+ya cumplen; (c) pendiente.
+
+---
+
+## F1-GPU-003 — Contrato de granularidad GPU y dataset intermedio por fase
+
+**Fecha de registro:** 2026-09-04
+**Estado:** implementado y validado localmente; a la espera de una campaña GPU
+real para poblarlo.
+
+### Problema
+
+`postprocess.py` producía, para GPU, **una fila por muestra NVML periódica**,
+todas con la misma intensidad operacional `ncu` (constante por kernel). Sirve
+para clasificar el régimen predominante, pero: (i) una muestra NVML aislada no
+es un ejemplo ML independiente — la evidencia de F1-GPU-002 mostró escalones de
+~105-120 ms en potencia/utilización; (ii) no hay marcas de fase para kernels de
+terceros (la intercepción de `cudaLaunchKernel` no funciona), así que no se
+pueden probar transiciones internas.
+
+### Decisión (contrato de granularidad GPU, formal)
+
+- Unidad de fila del dataset de entrenamiento GPU = **una corrida**
+  (`run_id` = kernel_ref × nivel_frecuencia_gpu × repetición), o una **fase
+  estable** si en el futuro hay marcas de fase alineadas con verdad offline.
+  Nunca una muestra NVML periódica.
+- Features NVML = agregados robustos sobre las muestras NVML **post-warmup y
+  válidas** de la corrida: mediana, media recortada 10%, desviación, IQR,
+  min/max, `n_distinct` (frescura / cota inferior de actualizaciones físicas),
+  `valid_frac`, duración cubierta, nº de muestras, fracción usable.
+- `phase_label_train`, `operational_intensity` (`ncu`) y `i_ridge_used` se
+  conservan **solo para trazabilidad/verdad**; el entrenador GPU no puede
+  leerlas como features (fuga).
+- `gpu_phasic_*` (sintéticos con fases programadas): **no elegible** para
+  entrenamiento con la etiqueta constante del catálogo; queda como control
+  diagnóstico (`training_eligible = False`, `phase_quality_status =
+  phasic_control_needs_marks`) salvo que existan marcas de fase + verdad
+  offline alineada.
+
+### Archivos modificados
+
+- Nuevo: `fase1_telemetria/gpu_phases.py` (contrato + builder + writers)
+- Nuevo: `fase1_telemetria/tests/test_gpu_phases.py`
+- `fase1_telemetria/postprocess.py` (`run_postprocess`: para `device=gpu` escribe
+  `training_gpu_phases.csv` + `training_gpu_phases_contract.json`)
+
+### Contrato de datos
+
+`training_gpu_phases.csv` — una fila por `run_id`. Columnas: trazabilidad
+(`run_id`, `repetition`, `kernel_ref`, `node_id`, `freq_level_id`,
+`gpu_freq_level_id`, `binary_checksum`, `roofline_calibration_ref`,
+`operational_intensity`, `i_ridge_used`, `phase_label_train`), `kernel_family`,
+`granularity` (`run`), `phase_quality_status` /
+`phase_quality_reason` / `training_eligible`, contadores de muestras y cobertura,
+`gpu_energy_delta_mj_sum` / `gpu_energy_covered`, y `<señal>_<agg>` para las 5
+señales NVML × 8 agregados. Sidecar
+`training_gpu_phases_contract.json` con el contrato formal.
+
+### Pruebas ejecutadas y resultados
+
+- `pytest fase1_telemetria/tests/test_gpu_phases.py
+  fase1_telemetria/tests/test_postprocess.py` → **69 passed**.
+- Test clave `test_muchas_muestras_de_una_corrida_producen_una_sola_fila`:
+  30 muestras NVML de una corrida → **1 fila**, no 30.
+
+### Evidencia de hardware
+
+Ninguna: no hay campaña GPU nueva. El builder se probó con `windows.csv`
+sintéticos.
+
+### Limitaciones
+
+- Sin marcas de fase, `granularity` es siempre `run`; no se resuelven fases
+  intra-corrida (coherente con `[[intra-kernel-phase-hunt-negative]]`).
+- Los agregados son robustos pero siguen dependiendo de la cadencia NVML real
+  (F1-GPU-002).
+
+### Trabajo pendiente
+
+- Poblar `training_gpu_phases.csv` con una campaña GPU real (tras F1-GPU-002 y
+  la selección de catálogo).
+- Implementar el entrenador GPU que consuma este CSV (F1-GPU-001).
+
+### Criterio exacto de cierre
+
+Cerrado cuando una campaña GPU real produce `training_gpu_phases.csv` con
+`training_eligible=True` en ≥ 5-6 familias por clase y el gate H no reporta
+`filas_gpu_no_son_muestras_independientes` en FAIL.
+
+---
+
+## F1-GPU-004 — Convergencia y procedencia de la verdad Roofline GPU (`ncu`)
+
+**Fecha de registro:** 2026-09-04
+**Estado:** parcialmente implementado (parser + lógica de convergencia + runbook,
+validados); ejecución de `ncu` bloqueada por hardware.
+
+### Problema
+
+Los kernels GPU históricos tuvieron análisis de convergencia (p. ej.
+`rodinia_lud`); los candidatos nuevos **no lo heredan**. Aceptar una etiqueta
+Roofline para un kernel GPU sin evidencia de que su intensidad operacional
+convergió — y sin distinguir FP32/FP64/mezcla/entero — es asignar una etiqueta
+sin fundamento.
+
+### Decisión
+
+Herramienta que: perfila un kernel con cantidades crecientes de trabajo;
+registra launches solicitados vs. observados; calcula FLOPs (fadd+fmul+2·ffma,
+y las dobles) y bytes DRAM coherentes con la precisión; detecta
+`fp32`/`fp64`/`mixed`/`integer_no_flops`/`no_flops`; aplica un criterio de
+convergencia **declarado antes**: cambio relativo de la OI < 1% entre los dos
+puntos con más trabajo, con launches observados ≈ solicitados; conserva salida
+cruda de `ncu`, comandos y versiones; **no** permite `roofline_label_eligible`
+sin convergencia; marca kernels enteros/sin FLOPs como
+`not_suitable_for_roofline_truth`.
+
+### Archivos modificados
+
+- Nuevo: `fase1_telemetria/ncu_convergence.py` (parser CSV de `ncu`,
+  `flops_and_precision`, `assess_convergence`, `build_kernel_report`, runner con
+  fallback a runbook si no hay `ncu`)
+- Nuevo: `fase1_telemetria/tests/test_ncu_convergence.py`
+
+### Contrato de datos
+
+`<kernel_ref>.json` por kernel: `precision`, `points[]`
+(`launch_count_requested/observed`, `flops`, `dram_bytes`,
+`operational_intensity`), `converged`, `converged_at_launch_count`,
+`final_operational_intensity`, `roofline_label_eligible`, `status`
+(`converged`/`not_converged`/`not_suitable_for_roofline_truth`),
+versiones `ncu`/driver/CUDA, `binary_checksum`, `kernel_args`. Es el archivo
+que lee el gate H (`candidatos_gpu_con_ncu_convergente`).
+
+### Pruebas ejecutadas y resultados
+
+- `pytest fase1_telemetria/tests/test_ncu_convergence.py` → **10 passed**.
+- Cubren: suma por bucket del parser, detección de precisión (fp32/fp64/mixed),
+  kernel entero → no apto, convergencia OK, no-convergencia por OI móvil y por
+  launches que no coinciden, generación de runbook, CLI `--from-csv`.
+
+### Evidencia de hardware
+
+Ninguna: `ncu` no está en el entorno local. El parser se probó con salida CSV
+de `ncu` fabricada con los nombres de métrica reales
+(`sm__sass_thread_inst_executed_op_*`, `dram__bytes.sum`).
+
+### Limitaciones
+
+- Los nombres de métrica de `ncu` cambian entre versiones; el parser mapea por
+  subcadena, tolerante, pero debe re-verificarse contra la versión de `ncu` de
+  paccaA100.
+- El criterio de "trabajo creciente" se expresa como `launch_count`; para
+  kernels cuyo trabajo escala por tamaño de problema hay que parametrizar el
+  `--exec-template` en consecuencia.
+
+### Trabajo pendiente
+
+- Correr el runbook por candidato GPU en paccaA100 y adjuntar los
+  `<kernel_ref>.json`.
+- Alimentar `--ncu-reports-dir` del gate H con esos JSON.
+
+### Criterio exacto de cierre
+
+Cerrado cuando todos los kernels GPU del catálogo congelado tienen un
+`<kernel_ref>.json` con `converged=True` y `roofline_label_eligible=True`, o
+están marcados `not_suitable_for_roofline_truth` y excluidos del dataset GPU.
+
+---
+
+## F1-XDEV-004 — Análisis Pearson/Spearman/VIF y contrato de features
+
+**Fecha de registro:** 2026-09-04
+**Estado:** implementado y validado con fixtures; selección definitiva pendiente
+del dataset real.
+
+### Problema
+
+El plan (§2.5) exige Pearson, Spearman y VIF sobre las columnas candidatas del
+dataset real antes de fijar las features, y documentar los descartes. Hoy el
+entrenador CPU lleva a la vez `mpki` y `cache_miss_rate` (misma señal por dos
+caminos) y no hay ningún módulo que haga ese análisis.
+
+### Decisión
+
+Módulo de análisis pre-entrenamiento (no entrenador) que: consume el CSV
+intermedio final por dispositivo; opera solo sobre filas elegibles; calcula
+Pearson y Spearman; reporta pares con `|ρ| > 0.85`; calcula VIF tras el primer
+filtrado; trata ausencias/constantes/infinitos/escala explícitamente; recomienda
+descartes priorizando la medición física más directa; **nunca** propone una
+columna de verdad Roofline como feature; produce CSV+JSON; permite **congelar**
+un contrato versionado por dispositivo (`freeze_contract`, que rechaza fuga y
+columnas no elegibles). CPU y GPU se analizan por separado (fuente de verdad y
+columnas de calidad distintas).
+
+### Archivos modificados
+
+- Nuevo: `fase2_clasificador/analysis/feature_contract.py`
+- Nuevo: `fase2_clasificador/run_feature_contract.py`
+- Nuevo: `fase2_clasificador/tests/test_feature_contract.py`
+
+### Contrato de datos
+
+`feature_contract_<device>.json` (diagnóstico: candidatas, diagnóstico por
+columna, `high_corr_pairs`, `vif`, `recommended_drops`,
+`recommended_feature_set`, `roofline_truth_columns_seen`) +
+`feature_contract_<device>_pairs.csv`. `frozen_feature_contract_<device>.json`
+(contrato revisado a mano: `features[]`, `device`, `frozen_at_utc`).
+`ROOFLINE_TRUTH_COLUMNS` es la lista compartida de columnas prohibidas.
+
+### Pruebas ejecutadas y resultados
+
+- `pytest fase2_clasificador/tests/test_feature_contract.py` → **11 passed**.
+- Cubren: detección de par muy correlado y preferencia por la medición directa
+  (`cache_miss_rate` sobre `mpki`), exclusión dura de columnas Roofline,
+  constante/mayormente-ausente/infinito, VIF alto, `freeze` que rechaza fuga y
+  no elegibles, dispositivo GPU con su propia columna de calidad, 0 filas
+  elegibles.
+
+### Evidencia de hardware
+
+No aplica (análisis sobre CSV).
+
+### Limitaciones
+
+- Los umbrales (`|ρ|>0.85`, VIF>10) son puntos de partida; se ajustan sobre el
+  dataset real.
+- `recommended_feature_set` es una propuesta; la selección final se fija con
+  `freeze_contract` tras revisar el reporte real.
+
+### Trabajo pendiente
+
+- Correr sobre `training_cpu_intervals.csv` y `training_gpu_phases.csv` reales.
+- Congelar `frozen_feature_contract_cpu.json` / `_gpu.json`.
+- Alinear `train_phase.py::FEATURES` con el contrato congelado (paso manual con
+  artefacto real; este módulo no lo toca automáticamente).
+
+### Criterio exacto de cierre
+
+Cerrado cuando existen los dos `frozen_feature_contract_<device>.json` derivados
+del dataset real, sin fuga, y el gate H reporta
+`analisis_pearson_spearman_vif_presente` y `contrato_final_de_features_presente`
+en PASS.
+
+---
+
+## Gate H — Auditoría de readiness pre-entrenamiento
+
+**Fecha de registro:** 2026-09-04
+**Estado:** implementada y validada con fixtures; a la espera de un dataset real
+para dictaminar. No es una decisión nueva del plan: es el gate que verifica que
+las demás (`F1-*`, `F2-XDEV-001`) están cumplidas antes de entrenar.
+
+### Problema
+
+No existía una verificación única y ejecutable de "¿este dataset está listo para
+entrenamiento?". Los criterios estaban repartidos entre secciones.
+
+### Decisión
+
+Auditoría con 13 gates, cada uno `PASS` / `FAIL` / `BLOCKED` / `NA` por
+dispositivo. Un dataset está *listo para entrenamiento* solo si ningún gate está
+en `FAIL` ni `BLOCKED`. `BLOCKED` (no `PASS`) para lo que necesita hardware,
+permisos o campaña real. Gates: checksums/procedencia; warmup calibrado y
+documentado; calibración Roofline presente (por dispositivo/precisión/frecuencia);
+etiqueta no de hint ni proxy; cobertura ≥ 5 familias por clase; filas GPU no
+independientes (contrato); candidatos GPU con `ncu` convergente; frecuencia
+verificada bajo carga; calidad/rechazos reportados; contrato final de features
+presente; sin columnas de fuga; Pearson/Spearman/VIF presente; granularidad
+declarada.
+
+### Archivos modificados
+
+- Nuevo: `fase2_clasificador/analysis/pretraining_readiness.py`
+- Nuevo: `fase2_clasificador/run_pretraining_readiness.py`
+- Nuevo: `fase2_clasificador/tests/test_pretraining_readiness.py`
+
+### Contrato de datos
+
+Entrada: rutas a `training_cpu_intervals.csv` / `training_gpu_phases.csv`, a los
+contratos de features y sus reportes, al dir de reportes `ncu`, al artefacto de
+warmup, al reporte de cobertura y al agregado de transición. Salida:
+`readiness.json` (`schema: f1/pretraining_readiness/1`, `gates[]` con cpu/gpu/
+detail, `summary`, `cpu_ready_for_training`, `gpu_ready_for_training`) + tabla
+humana. `rc=0` si algún dispositivo está listo, `rc=1` si no.
+
+### Pruebas ejecutadas y resultados
+
+- `pytest fase2_clasificador/tests/test_pretraining_readiness.py` → **7 passed**.
+- Cubren: sin artefactos nada está listo; GPU sin `ncu` queda `BLOCKED` (no
+  `PASS` con fixture); detección de fuga en el contrato; etiqueta == hint falla;
+  cobertura insuficiente por familia falla; bundle CPU completo y coherente pasa;
+  CLI `rc` y JSON.
+
+### Evidencia de hardware
+
+No aplica (opera sobre artefactos).
+
+### Limitaciones
+
+- Algunos gates dependen de artefactos que hoy no existen (warmup real, reportes
+  `ncu`, contratos congelados) → hoy el gate reportaría `FAIL`/`BLOCKED` en
+  varios puntos, que es el resultado correcto: **ningún dataset está listo**.
+- El gate `frecuencia_verificada_bajo_carga` para GPU queda `BLOCKED`: no existe
+  todavía una traza de verificación del reloj GPU bajo carga por corrida.
+
+### Trabajo pendiente
+
+- Ejecutarlo cuando existan el dataset y los artefactos reales; adjuntar el
+  `readiness.json` resultante.
+
+### Criterio exacto de cierre
+
+Cerrado (para un dispositivo) cuando `<device>_ready_for_training` es `True`
+sobre artefactos reales.
+
+---
+
+## Actualizaciones a decisiones ya registradas (2026-09-04)
+
+- **F1-XDEV-002** pasa de "pendiente" a **implementado (módulo)**: se añadió
+  `fase1_telemetria/warmup_calibration.py` (detección portada y auditada de
+  `old/scripts/pacca/measure_warmup.py`: CV de dos ventanas + segmentación por
+  puntos de cambio; margen ×1.2; criterio robusto = máximo entre ≥3 corridas;
+  estados `measured`/`insufficient_signal`/`documented_fallback`/`not_suitable`;
+  artefacto CSV+JSON; propuesta al catálogo sin reemplazo silencioso, con backup
+  `.bak` y verificación de checksum) + CLI + `fase1_telemetria/tests/
+  test_warmup_calibration.py` (**9 passed**). **Bloqueado**: la calibración real
+  necesita mini-campañas con `warmup_seconds: 0` en paccaA100.
+- **F1-XDEV-001 / F1-XDEV-003** ganan generador de manifiesto definitivo:
+  `fase1_telemetria/campaigns/generate_final_manifest.py` (exige la lista
+  congelada de kernels; resuelve la rejilla fina MHz → `fraction` contra el
+  rango real del nodo; sin datos del nodo marca
+  `frequency_grid_status: assumed_range_pending_node_verification` y
+  `verify_grid_against_node()` falla) + `test_generate_final_manifest.py`
+  (**6 passed**, uno carga el manifiesto generado con el parser real).
+- **F1-GPU-002** gana el comparador de cadencia de la Etapa A:
+  `fase1_telemetria/gpu_transition/cadence_sweep.py` (agrega los `summary.json`
+  del probe a 5/10/50/100 ms y recomienda `q_produccion` = la cadencia más
+  gruesa que conserva ≥ 80% de los escalones observados frente a 5 ms) +
+  `test_cadence_sweep.py` (**5 passed**). Sigue **pendiente de medición real**.
+
+---
+
+## Notas de literatura externa (no son cambios al plan)
+
+Registro de trabajos publicados que informan decisiones metodológicas ya
+tomadas o pendientes. No modifican el plan; sirven como respaldo citable y como
+lista de tareas menores para Fase 2 y para el documento final.
+
+### LIT-001 — Littman & Deakin, "Classifying Performance Bounds Using Machine Learning" (póster SC25)
+
+**Revisado:** 2026-09-04. Universidad de Bristol; deriva de una tesis de
+pregrado. `doi` del dataset: `10.5281/zenodo.17194638`.
+
+**Qué es:** estudio *preliminar* que hace únicamente el clasificador
+compute-bound / bandwidth-bound a nivel de programa completo (1 registro = 1
+corrida agregada, sin dimensión temporal ni de fase). No hay DVFS, daemon, EDP
+ni actuación. Plataforma declarada explícitamente "arbitraria" (Xeon E5-2680 v4
+Broadwell). 8 códigos (SGEMM, DGEMM, miniBUDE compute; STREAM, LBM D2Q9, HPCCG,
+3D-Heat, LU-MKL bandwidth), 100 registros c/u, 1 200 filas. Features: GFLOPs,
+FLOPc, IPC, %retiring/%frontend/%backend/%bad-speculation (Top-Down), ratios de
+vectorización SP y DP, y cache-miss ratio L1/L2/L3. Modelos DT/k-NN/LogReg/RF/
+SVM/MLP + 3 baselines (uniforme/proporcional/mayoría). Accuracy 0.83–0.92;
+reportan *accuracy perfecta con hiperparámetros por defecto* y un t-SNE con un
+cluster nítido por código.
+
+**Coincidencias con Hyperion (refuerzan lo ya decidido):**
+
+- Etiqueta por régimen conocido + confirmación Roofline — igual criterio que
+  §2.3 del plan.
+- Reconocen escasez de cargas FP-bound como limitación aceptada y
+  *"indicative of much current high-performance software"* — encuadre
+  reutilizable casi literal para la escasez de compute-bound GPU de
+  `F1-XDEV-001`.
+
+**Divergencias (Hyperion es más estricto, no cambiar de rumbo):**
+
+- Su CV es leave-one-out **por registro**: train y test comparten el mismo
+  kernel. Con t-SNE mostrando un "performance fingerprint" por código, su
+  0.92 mide probablemente reconocimiento de código, no de régimen. Es
+  evidencia citable a favor de `leave-one-familia-out` (§2.6 / `F2-XDEV-001`),
+  no en contra del tamaño del catálogo.
+- Señal de memoria por cache-miss ratio (sin visibilidad de prefetch);
+  Hyperion usa bytes DRAM reales de `uncore_imc`. Mantener cache-miss fuera
+  también de las features (ya está en `FORBIDDEN`).
+- Funden LLC-bandwidth y DRAM-bandwidth en una clase; el `memory_bound` de
+  Hyperion es específicamente DRAM.
+- Multiplexado por 3 corridas fusionadas; Hyperion abre los ~10 contadores en
+  una sola corrida sin multiplexado.
+
+**Tareas menores que aporta (Fase 2, no bloqueantes):**
+
+1. Reportar el trío de baselines explícito (uniforme / proporcional / mayoría)
+   como su Tabla 3, además del `DummyClassifier` ya presente en `train_phase.py`.
+2. Añadir un paso de visualización t-SNE (o UMAP) a la EDA de Fase 2 como
+   diagnóstico de separabilidad trivial / fingerprint por familia; si aparece
+   un blob por familia con clases limpias, documentarlo en resultados.
+3. Usar el dataset de Zenodo como prueba de humo externa del pipeline de
+   entrenamiento, sin correr campañas.
+
+**Dónde cita al trabajo:** ver más abajo el mapeo al `docs/libro/main.tex`.
+
+### LIT-002 — Antici et al., "MCBound" (SC24)
+
+**Revisado:** 2026-09-04. `doi:10.1109/SC41406.2024.00062`. Ya citado en el
+libro como `Antici2024` (planteamiento del problema); esta nota amplía su uso.
+
+**Qué es:** primer framework *online* que clasifica *jobs* HPC como memory- o
+compute-bound **antes de ejecutarlos**, a partir de metadatos de envío +
+histórico de jobs. Fin: guiar scheduling / co-scheduling / asignación de
+recursos / selección de frecuencia de nodo. Fugaku (A64FX), 2,2 M de jobs
+(dic-2023 a mar-2024), evaluación sobre >700 000 jobs de febrero 2024.
+
+**Etiquetado (verdad de referencia):** Roofline sobre totales de job. Con
+`p_j = #flops_j / (duration_j · #nodes_j)` y
+`mb_j = #moved_bytes_j / (duration_j · #nodes_j)`, etiqueta = compute-bound si
+`op_j = p_j/mb_j > op_r`. Ridge de nodo Fugaku ≈ 3,3 Flops/Byte. `#flops` de
+eventos PMU del A64FX (`FP_FIXED_OPS_SPEC` + `FP_SCALE_OPS_SPEC·4`);
+`#moved_bytes` de `BUS_READ/WRITE_TOTAL_MEM · 256 B / 12`. **Es la misma lógica
+OI-vs-ridge del §2.3 de Hyperion**, solo que sobre el total del job en vez de
+por ventana `uncore` — triangulación fuerte del criterio de etiquetado.
+
+**Predictor:** *no usa contadores en inferencia* (predice pre-ejecución). Usa
+metadatos de envío (usuario, nombre del job, #cores, frecuencia solicitada)
+codificados con SBERT (`all-MiniLM-L6-v2`, 384-dim). Modelos KNN y Random
+Forest (scikit-learn). Validación **temporal** (entrena α∈{15,30,45,60} días,
+reentrena cada β∈{1,2,5,10}), no agrupada por kernel — su regimen (2,2 M jobs
+reales distintos) hace que la fuga por kernel no aplique igual que en Hyperion.
+
+**Resultados:** F1-macro RF = 0,90 (α=15, β=1); KNN = 0,89 (α=30, β=1).
+Desbalance de clases **memory:compute ≈ 3,5:1** (1 643 477 vs 477 975) — misma
+dirección que la escasez FP-bound de LIT-001 y que la escasez compute-bound GPU
+de `F1-XDEV-001`; **tercer testimonio independiente** del mismo sesgo, muy
+citable. Overhead: caracterización ~1e-6 s/job, inferencia RF ~2e-6 s/job,
+KNN ~2,3e-3 s/job; corre en **máquina desacoplada**, cero overhead en los nodos
+de cómputo.
+
+**Estimación de impacto (insumo directo para el encuadre del Objetivo 4):**
+con 90% de acierto, selección semi-automática de frecuencia; a escala Fugaku,
+mover 750 k jobs memory-bound de *boost* a modo normal ahorraría ~450 MW de
+potencia y 14 GJ de energía; 330 k jobs compute-bound en normal que deberían
+ir en *boost* cuestan >1700 h de cómputo. Sobre el nodo, **54% de los jobs
+memory-bound corren a 2,0 GHz y solo 30% de los compute-bound en boost** — "no
+hay correlación observable entre la frecuencia elegida por el usuario y la
+posición Roofline": la motivación de automatizar la decisión.
+
+**Contrastes con Hyperion (para la discusión):**
+
+- MCBound actúa a granularidad de **job entero** y con **2 niveles discretos**
+  (normal/boost); Hyperion actúa por **fase intra-corrida** y sobre un barrido.
+  Granularidad más fina = novedad, pero también hace que el overhead del
+  agente sea un problema real (ellos lo resuelven trivialmente con máquina
+  aparte; Hyperion corre *en* el nodo → Objetivo 2/4).
+- MCBound predice de metadatos, no de telemetría: su 0,90 **no** es evidencia
+  de que los contadores clasifiquen bien, sino de que hasta el nombre del job
+  correlaciona con la clase — el mismo "performance fingerprint" de LIT-001.
+- Ni MCBound ni LIT-001 hacen clasificación de fases intra-job. Coherente con
+  `[[intra-kernel-phase-hunt-negative]]`: la "fase" de Hyperion es de hecho
+  cercana a whole-run a configuración fija; conviene ser explícito en el libro.
