@@ -40,6 +40,27 @@ Sin `--output-dir`: modo exploración, imprime las tablas comparativas sin
 guardar nada. Ver `--help` para el resto de flags (`--kernels`, `--levels`,
 `--seed`, `--per-run-sample`, `--latency-weight`).
 
+## Diagnóstico previo de cobertura (`F2-XDEV-001`)
+
+Antes de entrenar o decidir cuotas de balance, ejecutar el diagnóstico sobre
+la mini campaña. No altera los CSV de Fase 1 ni entrena un modelo: genera
+`family_class_frequency_summary.csv`, `kernel_quality_summary.csv` y
+`phase_coverage_report.json` para seleccionar familias y verificar cobertura
+por clase.
+
+```bash
+python3 fase2_clasificador/run_phase_coverage.py \
+  --campaign-dir ~/hyperion-results/campaigns/pacca_phase_coverage_cpu_screen_20260903 \
+  --campaign-id pacca_phase_coverage_cpu_screen_20260903 \
+  --device cpu \
+  --output-dir fase2_clasificador/reports/phase_coverage_cpu/
+```
+
+Para GPU, `--device gpu` describe las muestras NVML y sus etiquetas actuales,
+pero el JSON marca explícitamente que no son fases independientes. No se debe
+usar ese resultado para entrenar hasta implementar la agregación por corrida o
+fase estable.
+
 ## ⚠️ Fuga de información (data leakage) — la regla más importante de este módulo
 
 La etiqueta `phase_label_train` se calcula en Fase 1 como

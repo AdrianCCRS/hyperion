@@ -1,0 +1,149 @@
+# F1-XDEV-001 — cribado GPU de cobertura compute_bound/memory_bound.
+#
+# Objetivo: medir cobertura de clases con ncu como verdad offline y NVML como
+# proxy de inferencia, antes de decidir el catálogo final. Contiene:
+#   - 13 candidatos externos actualmente ejecutables;
+#   - gpu_dgemm_n4096 como ancla compute/control, no candidato automático;
+#   - 3 controles gpu_phasic (requieren cruce offline de marcas; su etiqueta
+#     automática de catálogo es constante y NO sirve para entrenar);
+#   - 6 representantes dual_* en cuarentena, uno por familia.
+#
+# Los cinco candidatos GPU propuestos en §2.1 del plan NO se incluyen todavía:
+# rodinia_kmeans, rodinia_srad, rodinia_nw, rodinia_b+tree y rodinia_cfd no
+# existen en catalog.yaml ni tienen binario/checksum/OI ncu en paccaA100.
+#
+# Matriz actual: 23 kernels x 1 nivel CPU x 3 niveles GPU x 3 repeticiones =
+# 207 corridas. La OI ncu debe estar medida por kernel antes de aceptar una
+# etiqueta; NVML por sí solo nunca construye la verdad Roofline.
+
+campaign_id: pacca_phase_coverage_gpu_screen_20260903
+environment_tier: hpc_sc3
+seed: 20260903
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_phase_coverage_gpu_screen_20260903
+overwrite: true
+
+catalog_path: ../catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  # Rodinia: un tamaño por algoritmo; las otras cuatro variantes DWT2D se
+  # reservan para una prueba posterior de robustez al tamaño.
+  - kernel_ref: rodinia_gaussian
+  - kernel_ref: rodinia_backprop
+  - kernel_ref: rodinia_lavamd
+  - kernel_ref: rodinia_heartwall
+  - kernel_ref: rodinia_lud
+  - kernel_ref: rodinia_myocyte
+  - kernel_ref: rodinia_dwt2d
+
+  # RAJAPerf-CUDA. reduce3_int e indexlist_3loop se recolectan para auditar
+  # elegibilidad; no se asume que una OI basada en FLOPs sea válida para ellos.
+  - kernel_ref: gpu_rajaperf_stream_copy
+  - kernel_ref: gpu_rajaperf_stream_triad
+  - kernel_ref: gpu_rajaperf_reduce3_int
+  - kernel_ref: gpu_rajaperf_indexlist_3loop
+  - kernel_ref: gpu_rajaperf_jacobi_2d
+  - kernel_ref: gpu_rajaperf_heat_3d
+
+  # Ancla compute/control. Se mantiene separada conceptualmente del conjunto
+  # final porque también cumple una función de infraestructura.
+  - kernel_ref: gpu_dgemm_n4096
+
+  # Controles temporales sintéticos. Solo valen con marcas PHASE cruzadas
+  # offline; nunca usar phase_label_train automático para entrenarlos.
+  - kernel_ref: gpu_phasic_p010
+  - kernel_ref: gpu_phasic_p100
+  - kernel_ref: gpu_phasic_p1000
+
+  # Cuarentena dual_*: un tamaño representativo por familia.
+  - kernel_ref: dual_gemm_gpu_N2048
+  - kernel_ref: dual_fft_gpu_N4096
+  - kernel_ref: dual_axpy_gpu_N10000000
+  - kernel_ref: dual_stencil_gpu_N1024
+  - kernel_ref: dual_cholesky_gpu_N2048
+  - kernel_ref: dual_spmv_gpu_N1000000
+
+# La CPU anfitriona queda nativa: esta campaña explora el eje GPU.
+frequency_levels:
+  - {id: REF, mode: native_governor}
+
+# Rejilla validada más reciente: REF, punto medio F3 y mínimo F6.
+gpu_frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F3, mode: fixed, fraction: 0.5}
+  - {id: F6, mode: fixed, fraction: 0.0}
+
+repetitions_per_combination: 3
+baseline_repetition_indices: [1]
+target_windows_per_repetition: 5
+interval_ns: 1000000
+gpu_interval_ns: 5000000
+running_ratio_min: 0.90
+
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+  grace_seconds: 0.05
+
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+
+turbo:
+  require_disabled: true
+
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+
+projected_campaign_bytes: 2147483648
+remaining_core_hours: 1000.0
+projected_core_hours: 12.0
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+cgroup_path: null
+perf_enabled: true
+
+rapl:
+  enabled: true
+
+# ARC-191: la matriz es 100 % GPU; uncore CPU no construye su verdad.
+uncore:
+  enabled: false
+
+gpu:
+  enabled: true
+  calibration:
+    - gpu_stream_bw
+    - gpu_ert_probe_fp32
+    - gpu_ert_probe_fp64
+  idle_power_mw_by_level:
+    REF: 34837.9
+    F3: 36941.6
+    F6: 34368.9
+  active_power_margin_mw:
+    REF: 800.0
+    F3: 1200.0
+    F6: 800.0
+
+timeouts_seconds:
+  ready: 15
+  run: 300
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 480000000000

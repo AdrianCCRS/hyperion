@@ -1,0 +1,142 @@
+# F1-XDEV-001 — cribado CPU de cobertura compute_bound/memory_bound.
+#
+# Objetivo: explorar el plano Roofline con UNA campaña reducida antes del
+# barrido final. No es una campaña de EDP ni convierte automáticamente todos
+# sus kernel_ref en datos de entrenamiento. El análisis posterior debe separar:
+#   - 23 candidatos externos actualmente ejecutables;
+#   - 4 controles sintéticos HYPERION-PHASE (nunca entrenamiento final);
+#   - 6 representantes dual_* en cuarentena (uno por familia).
+#
+# Los cinco candidatos CPU propuestos en §2.1 del plan NO se incluyen todavía:
+# npb_ep, rodinia_kmeans_omp, rodinia_srad_omp, rodinia_nw_omp y
+# rodinia_particlefilter_omp no existen en catalog.yaml y carecen de binario y
+# checksum para paccaA100. Deben añadirse después de compilar/verificar; no se
+# inventan referencias inválidas en este manifiesto.
+#
+# Matriz actual: 33 kernels x 3 niveles x 3 repeticiones = 297 corridas.
+# MAN-02 impide bajar de tres repeticiones. REF/F2/F4 cubren gobernador nativo,
+# punto medio y mínimo; los sobrevivientes pasan después al barrido completo.
+
+campaign_id: pacca_phase_coverage_cpu_screen_20260903
+environment_tier: hpc_sc3
+seed: 20260903
+
+output_dir: /home/latorresn/hyperion-results/campaigns/pacca_phase_coverage_cpu_screen_20260903
+overwrite: true
+
+catalog_path: ../catalog.yaml
+
+calibration:
+  - kernel_ref: stream_official
+  - kernel_ref: ert_probe
+
+kernels:
+  # Candidatos externos: NPB, BLAS, Rodinia y RAJAPerf originales.
+  - kernel_ref: npb_bt
+  - kernel_ref: npb_mg
+  - kernel_ref: npb_cg
+  - kernel_ref: npb_sp
+  - kernel_ref: npb_ft
+  - kernel_ref: npb_lu
+  - kernel_ref: dgemm_n2048
+  - kernel_ref: rodinia_lavamd_omp
+  - kernel_ref: rajaperf_polybench_3mm_omp
+
+  # Nueve sobrevivientes RAJAPerf del cribado alpha. Aportan cuatro familias
+  # conservadoras; no deben recibir nueve veces el peso de una familia única.
+  - kernel_ref: cpu_rajaperf_stream_mul
+  - kernel_ref: cpu_rajaperf_stream_triad
+  - kernel_ref: cpu_rajaperf_stream_add
+  - kernel_ref: cpu_rajaperf_lcals_first_sum
+  - kernel_ref: cpu_rajaperf_lcals_tridiag_elim
+  - kernel_ref: cpu_rajaperf_polybench_jacobi_1d
+  - kernel_ref: cpu_rajaperf_polybench_fdtd_2d
+  - kernel_ref: cpu_rajaperf_basic_daxpy
+  - kernel_ref: cpu_rajaperf_basic_init3
+
+  # Aplicaciones externas complejas. GAP queda sujeto a verificar que FLOPs
+  # sea una medida válida de trabajo útil; este cribado no presupone que lo sea.
+  - kernel_ref: cpu_lulesh
+  - kernel_ref: cpu_hpcg
+  - kernel_ref: cpu_gap_bfs
+  - kernel_ref: cpu_gap_pr
+  - kernel_ref: cpu_cholmod
+
+  # Controles sintéticos: validan extremos/transiciones, pero la regla 2 de
+  # §2.1 impide usarlos para entrenar el modelo final.
+  - kernel_ref: ptrchase
+  - kernel_ref: phasic_p010
+  - kernel_ref: phasic_p100
+  - kernel_ref: phasic_p1000
+
+  # Cuarentena dual_*: un tamaño representativo por familia. Su inclusión en
+  # el dataset final depende de procedencia, optimización y Roofline real.
+  - kernel_ref: dual_gemm_cpu_N2048
+  - kernel_ref: dual_fft_cpu_N4096
+  - kernel_ref: dual_axpy_cpu_N10000000
+  - kernel_ref: dual_stencil_cpu_N1024
+  - kernel_ref: dual_cholesky_cpu_N2048
+  - kernel_ref: dual_spmv_cpu_N1000000
+
+frequency_levels:
+  - {id: REF, mode: native_governor}
+  - {id: F2, mode: fixed, fraction: 0.5}
+  - {id: F4, mode: fixed, fraction: 0.0}
+
+repetitions_per_combination: 3
+baseline_repetition_indices: [1]
+target_windows_per_repetition: 50
+interval_ns: 1000000
+running_ratio_min: 0.90
+
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+  grace_seconds: 0.15
+  tail_grace_seconds: 0.15
+
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+
+turbo:
+  require_disabled: true
+
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+
+projected_campaign_bytes: 12884901888
+remaining_core_hours: 100000
+projected_core_hours: 20
+
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+
+smt_policy: one_thread_per_physical_core
+cgroup_path: null
+perf_enabled: true
+
+rapl:
+  enabled: true
+
+uncore:
+  enabled: true
+
+gpu:
+  enabled: false
+
+timeouts_seconds:
+  ready: 15
+  run: 300
+  shutdown: 15
+
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 480000000000
