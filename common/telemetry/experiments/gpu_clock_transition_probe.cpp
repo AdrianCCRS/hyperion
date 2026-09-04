@@ -97,7 +97,7 @@ struct Options {
         "Measure NVML cadence and T_transicion_gpu = t_estable - t_solicitud under load.\n\n"
         "Required:\n"
         "  --workload-cmd \"<shell cmd>\"   Sustained CUDA load; run via `sh -c`.\n"
-        "  --to-clock <MHz>               Destination SM clock (snapped to a supported clock).\n"
+        "  --to-clock <MHz>               Destination graphics clock (snapped to a supported clock).\n"
         "  --tolerance-mhz <MHz>          Stability band; must be < half the neighbouring supported-clock gap.\n"
         "  --out-dir <path>              Directory for the three artifacts.\n\n"
         "Optional:\n"
@@ -184,7 +184,9 @@ extern "C" void on_signal(int) {
     // Negative pid -> the workload's process group (child calls setpgid(0,0)),
     // so `sh -c` wrappers forward the signal to the real load. async-signal-safe.
     if (g_workload_pid > 1) ::kill(-g_workload_pid, SIGTERM);
-    if (g_stop_count >= 2) ::_exit(130);                        // second Ctrl-C: bail hard
+    // Do not use _exit here: it skips atexit and could leave -lgc applied.
+    // The command runner is interruptible and the normal cleanup path is
+    // bounded, so a second signal only reinforces the stop request.
 }
 
 // argv for `nvidia-smi -rgc`, kept global so an atexit handler can run it even
@@ -194,14 +196,19 @@ bool g_actuation_touched_clock = false;
 bool g_restore_done = false;
 bool g_restore_ok = false;
 
-int run_command_blocking(const std::vector<std::string>& args, int64_t& t_return_ns);
+int run_command_blocking(const std::vector<std::string>& args, int64_t& t_return_ns,
+                         int64_t timeout_ns = 30'000'000'000LL,
+                         bool interrupt_on_stop = true);
 
 void run_restore() {
     if (g_restore_done) return;
     g_restore_done = true;
     if (!g_actuation_touched_clock || g_rgc_argv.empty()) { g_restore_ok = true; return; }
     int64_t ignored = 0;
-    const int rc = run_command_blocking(g_rgc_argv, ignored);
+    // A signal must stop the workload, but it must not cancel the restoration
+    // command itself.  Give -rgc its bounded timeout even during teardown.
+    const int rc = run_command_blocking(g_rgc_argv, ignored, 30'000'000'000LL,
+                                        /*interrupt_on_stop=*/false);
     g_restore_ok = (rc == 0);
     if (!g_restore_ok) {
         std::cerr << "WARNING: `nvidia-smi -rgc` restore returned " << rc
@@ -215,7 +222,8 @@ void atexit_restore() { run_restore(); }
 // Small process / hashing helpers
 // --------------------------------------------------------------------------
 
-int run_command_blocking(const std::vector<std::string>& args, int64_t& t_return_ns) {
+int run_command_blocking(const std::vector<std::string>& args, int64_t& t_return_ns,
+                         int64_t timeout_ns, bool interrupt_on_stop) {
     std::vector<char*> c_argv;
     c_argv.reserve(args.size() + 1);
     for (const auto& s : args) c_argv.push_back(const_cast<char*>(s.c_str()));
@@ -228,18 +236,37 @@ int run_command_blocking(const std::vector<std::string>& args, int64_t& t_return
         ::_exit(127);
     }
     int status = 0;
+    const int64_t deadline = static_cast<int64_t>(now_ns()) + timeout_ns;
     while (true) {
-        const pid_t w = ::waitpid(pid, &status, 0);
+        const pid_t w = ::waitpid(pid, &status, WNOHANG);
         if (w == pid) break;
-        if (w < 0 && errno == EINTR) {
-            if (g_stop) { ::kill(pid, SIGTERM); continue; }
+        if (w == 0) {
+            if ((interrupt_on_stop && g_stop) || static_cast<int64_t>(now_ns()) >= deadline) {
+                ::kill(pid, SIGTERM);
+                (void)::waitpid(pid, &status, 0);
+                t_return_ns = now_ns();
+                return g_stop ? -3 : -2;
+            }
+            struct timespec nap{0, 10'000'000};
+            nanosleep(&nap, nullptr);
             continue;
         }
+        if (w < 0 && errno == EINTR) continue;
         if (w < 0) { t_return_ns = now_ns(); return -1; }
     }
     t_return_ns = now_ns();
     if (WIFEXITED(status)) return WEXITSTATUS(status);
     return -1;
+}
+
+std::string csv_escape(const std::string& text) {
+    std::string out{"\""};
+    for (char c : text) {
+        if (c == '\"') out += "\"\"";
+        else out += c;
+    }
+    out += '\"';
+    return out;
 }
 
 std::string sha256_of_file(const std::string& path) {
@@ -300,14 +327,15 @@ struct ProbeReport {
     // derived
     gt::CadenceStats cadence;
     gt::TransitionMetrics metrics;
-    gt::SignalStepStats step_power, step_util, step_sm_clock;
+    gt::SignalStepStats step_power, step_util, step_mem_util, step_temperature,
+                        step_energy, step_graphics_clock, step_sm_clock;
     std::vector<RawRow> raw;
 };
 
 void write_raw_csv(const ProbeReport& rep, const fs::path& path) {
     std::ofstream out(path);
     out << "replicate_id,label,from_clock,to_clock,seq,phase,t_mono_ns,dt_ns_from_prev,"
-           "sm_clock_mhz,sm_clock_valid,util_pct,util_valid,mem_util_pct,mem_util_valid,"
+           "graphics_clock_mhz,graphics_clock_valid,sm_clock_mhz,sm_clock_valid,util_pct,util_valid,mem_util_pct,mem_util_valid,"
            "power_mw,power_valid,temperature_c,temperature_valid,energy_mj,energy_valid,"
            "throttle_reasons_hex,throttle_valid\n";
     int64_t prev = 0;
@@ -316,9 +344,10 @@ void write_raw_csv(const ProbeReport& rep, const fs::path& path) {
         const auto& r = row.r;
         const int64_t dt = have_prev ? (r.t_mono_ns - prev) : 0;
         prev = r.t_mono_ns; have_prev = true;
-        out << rep.opt.replicate_id << ',' << json_escape(rep.opt.label) << ','
+        out << rep.opt.replicate_id << ',' << csv_escape(rep.opt.label) << ','
             << rep.opt.from_clock << ',' << rep.opt.to_clock << ','
             << row.seq << ',' << row.phase << ',' << r.t_mono_ns << ',' << dt << ','
+            << r.graphics_clock_mhz << ',' << (r.graphics_clock_valid ? 1 : 0) << ','
             << r.sm_clock_mhz << ',' << (r.sm_clock_valid ? 1 : 0) << ','
             << r.util_pct << ',' << (r.util_valid ? 1 : 0) << ','
             << r.mem_util_pct << ',' << (r.mem_util_valid ? 1 : 0) << ','
@@ -337,15 +366,15 @@ void write_matrix_csv(const ProbeReport& rep, const fs::path& path) {
            "conservative_upper_bound_ns,optimistic_ns,metrics_valid,"
            "probe_interval_p50_ns,probe_interval_p95_ns,n_readings,"
            "gpu_uuid,driver_version,cuda_version\n";
-    out << rep.opt.replicate_id << ',' << json_escape(rep.opt.label) << ','
+    out << rep.opt.replicate_id << ',' << csv_escape(rep.opt.label) << ','
         << rep.opt.from_clock << ',' << rep.to_mhz << ','
-        << rep.result << ',' << json_escape(rep.failure_reason) << ','
+        << rep.result << ',' << csv_escape(rep.failure_reason) << ','
         << rep.metrics.t_actuacion_ns << ',' << rep.metrics.command_latency_ns << ','
         << rep.metrics.settle_after_command_ns << ',' << rep.metrics.conservative_upper_bound_ns << ','
         << rep.metrics.optimistic_ns << ',' << (rep.metrics.valid ? 1 : 0) << ','
         << rep.cadence.p50_delta_ns << ',' << rep.cadence.p95_delta_ns << ','
-        << rep.raw.size() << ',' << json_escape(rep.gpu_uuid) << ','
-        << json_escape(rep.driver_version) << ',' << json_escape(rep.cuda_version) << '\n';
+        << rep.raw.size() << ',' << csv_escape(rep.gpu_uuid) << ','
+        << csv_escape(rep.driver_version) << ',' << csv_escape(rep.cuda_version) << '\n';
 }
 
 void write_summary_json(const ProbeReport& rep, const fs::path& path) {
@@ -415,6 +444,10 @@ void write_summary_json(const ProbeReport& rep, const fs::path& path) {
     o << "    \"_note\": \"n_consecutive_changes_lower_bound and observed_update_rate_hz_lower_bound are LOWER BOUNDS on physical sensor updates, never a confirmed physical rate. A fine probe interval does not turn redundant readings into independent 5 ms observations.\",\n";
     dump_steps("power_mw", rep.step_power, false);
     dump_steps("util_pct", rep.step_util, false);
+    dump_steps("mem_util_pct", rep.step_mem_util, false);
+    dump_steps("temperature_c", rep.step_temperature, false);
+    dump_steps("energy_mj", rep.step_energy, false);
+    dump_steps("graphics_clock_mhz", rep.step_graphics_clock, false);
     dump_steps("sm_clock_mhz", rep.step_sm_clock, true);
     o << "  },\n";
     o << "  \"transition_metrics\": {\n";
@@ -516,8 +549,14 @@ int neighbour_gap(int mhz, const std::vector<unsigned int>& supported) {
 
 gt::ClockReading sample_once(nvmlDevice_t dev) {
     gt::ClockReading r;
-    r.t_mono_ns = static_cast<int64_t>(now_ns());
+    r.t_poll_start_ns = static_cast<int64_t>(now_ns());
     unsigned int v = 0;
+    r.graphics_clock_valid = (nvmlDeviceGetClockInfo(dev, NVML_CLOCK_GRAPHICS, &v) == NVML_SUCCESS);
+    r.graphics_clock_mhz = r.graphics_clock_valid ? v : 0;
+    // Timestamp AFTER the actuation-domain query: this makes a stable reading
+    // an observable upper bound rather than a timestamp from before its value.
+    r.t_mono_ns = static_cast<int64_t>(now_ns());
+    v = 0;
     r.sm_clock_valid = (nvmlDeviceGetClockInfo(dev, NVML_CLOCK_SM, &v) == NVML_SUCCESS);
     r.sm_clock_mhz = r.sm_clock_valid ? v : 0;
     nvmlUtilization_t u{};
@@ -620,7 +659,7 @@ int main(int argc, char** argv) {
     // actuation argv (mirrors gpu_freqctl.py._default_run_nvidia_smi / restore_gpu_state)
     auto smi_argv = [&](std::vector<std::string> tail) {
         std::vector<std::string> a;
-        if (opt.use_sudo) a.push_back("sudo");
+        if (opt.use_sudo) { a.push_back("sudo"); a.push_back("-n"); }
         a.push_back(opt.nvidia_smi);
         a.push_back("-i"); a.push_back(opt.gpu);
         for (auto& t : tail) a.push_back(std::move(t));
@@ -806,6 +845,22 @@ int main(int argc, char** argv) {
             }
         }
     }
+    // `workload_min_active_ns` is a contract, not merely a default used to
+    // place the request.  Keep observing until that post-warmup duration has
+    // actually elapsed, otherwise reject the replicate as too short.
+    if (!failed && stability.outcome == gt::StabilityOutcome::Stable) {
+        const int64_t min_active_end = start + opt.warmup_ns + opt.workload_min_active_ns;
+        while (!g_stop && static_cast<int64_t>(now_ns()) < min_active_end) {
+            if (!workload_alive()) {
+                abort_with("workload_inactive", "workload ended before workload_min_active_ns elapsed");
+                failed = true;
+                break;
+            }
+            post_readings.push_back(poll_push("post_request"));
+            next_tick += opt.probe_interval_ns;
+            sleep_until_ns(std::max(next_tick, static_cast<int64_t>(now_ns())));
+        }
+    }
     if (g_stop && rep.result.empty()) abort_with("aborted", "SIGINT/SIGTERM while waiting for the destination clock");
     if (g_stop && rep.result == "not_started") abort_with("aborted", "SIGINT/SIGTERM while waiting for the destination clock");
 
@@ -827,22 +882,36 @@ int main(int argc, char** argv) {
 
     // ---- assemble derived analysis ----
     rep.raw = raw;
-    if (stability.outcome == gt::StabilityOutcome::Stable) rep.result = "stable";
+    if (!failed && stability.outcome == gt::StabilityOutcome::Stable) rep.result = "stable";
     else if (rep.result.empty() || rep.result == "not_started") rep.result = "aborted";
 
     std::vector<int64_t> ts;
-    std::vector<long long> pw, ut, sm;
-    std::vector<bool> pw_ok, ut_ok, sm_ok;
+    std::vector<long long> pw, ut, mu, temp, energy, graphics, sm;
+    std::vector<bool> pw_ok, ut_ok, mu_ok, temp_ok, energy_ok, graphics_ok, sm_ok;
     ts.reserve(raw.size());
     for (const auto& row : raw) {
         ts.push_back(row.r.t_mono_ns);
         pw.push_back(row.r.power_mw);   pw_ok.push_back(row.r.power_valid);
         ut.push_back(row.r.util_pct);   ut_ok.push_back(row.r.util_valid);
+        mu.push_back(row.r.mem_util_pct); mu_ok.push_back(row.r.mem_util_valid);
+        temp.push_back(row.r.temperature_c); temp_ok.push_back(row.r.temperature_valid);
+        energy.push_back(static_cast<long long>(row.r.energy_mj)); energy_ok.push_back(row.r.energy_valid);
+        graphics.push_back(row.r.graphics_clock_mhz); graphics_ok.push_back(row.r.graphics_clock_valid);
         sm.push_back(row.r.sm_clock_mhz); sm_ok.push_back(row.r.sm_clock_valid);
     }
-    rep.cadence = gt::compute_cadence_stats(ts);
+    // The command invocation deliberately blocks polling.  It must not be
+    // mistaken for collector jitter when selecting q_produccion, so cadence
+    // is computed from the uninterrupted post-request polling segment.
+    std::vector<int64_t> steady_ts;
+    steady_ts.reserve(post_readings.size());
+    for (const auto& reading : post_readings) steady_ts.push_back(reading.t_mono_ns);
+    rep.cadence = gt::compute_cadence_stats(steady_ts);
     rep.step_power = gt::analyze_signal_steps(ts, pw, pw_ok);
     rep.step_util = gt::analyze_signal_steps(ts, ut, ut_ok);
+    rep.step_mem_util = gt::analyze_signal_steps(ts, mu, mu_ok);
+    rep.step_temperature = gt::analyze_signal_steps(ts, temp, temp_ok);
+    rep.step_energy = gt::analyze_signal_steps(ts, energy, energy_ok);
+    rep.step_graphics_clock = gt::analyze_signal_steps(ts, graphics, graphics_ok);
     rep.step_sm_clock = gt::analyze_signal_steps(ts, sm, sm_ok);
     rep.metrics = gt::compute_transition_metrics(rep.t_request_ns, rep.t_command_return_ns,
                                                  post_readings, stability);

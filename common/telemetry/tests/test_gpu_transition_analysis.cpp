@@ -21,6 +21,8 @@ ClockReading mk(int64_t t_ns, unsigned int mhz, bool valid = true,
                 bool throttle_valid = true) {
     ClockReading r;
     r.t_mono_ns = t_ns;
+    r.graphics_clock_mhz = mhz;
+    r.graphics_clock_valid = valid;
     r.sm_clock_mhz = mhz;
     r.sm_clock_valid = valid;
     r.util_pct = util;
@@ -115,8 +117,8 @@ int main() {
         if (c.max_delta_ns != 21'000'000) return 20;
         // sorted deltas: 4,5,5,5,6,21 -> p50 (index floor(0.5*5)=2) = 5ms.
         if (c.p50_delta_ns != 5'000'000) return 21;
-        // p95 index floor(0.95*5)=4 -> 6ms (NOT the 21ms outlier at index 5).
-        if (c.p95_delta_ns != 6'000'000) return 22;
+        // Nearest-rank p95 includes the tail observation: ceil(.95*6)-1=5.
+        if (c.p95_delta_ns != 21'000'000) return 22;
     }
 
     // 5. NVML data absent: invalid SM-clock readings never count toward stability.
@@ -170,6 +172,15 @@ int main() {
         if (s.outcome != StabilityOutcome::Stable) return 28;
     }
 
+    // 5e. -lgc constrains graphics clocks, so the default must not accept a
+    // matching SM value when graphics itself is still outside tolerance.
+    {
+        std::vector<ClockReading> r = {mk(1000, 1200), mk(2000, 1200), mk(3000, 1200)};
+        for (auto& reading : r) reading.sm_clock_mhz = 1400;
+        auto s = detect_stability(r, 0, cfg_1400(), NEVER);
+        if (s.outcome == StabilityOutcome::Stable) return 29;
+    }
+
     // 6. Signal-step / redundancy analysis + conservative lower-bound framing.
     {
         //            t(ms):   0   5  10  15  20  25
@@ -179,13 +190,13 @@ int main() {
         std::vector<long long> pw = {100, 100, 100, 110, 110, 120};
         std::vector<bool> ok = {true, true, true, true, true, true};
         auto st = analyze_signal_steps(ts, pw, ok);
-        if (st.n_valid != 6) return 29;
-        if (st.n_consecutive_changes != 2) return 30;   // 100->110, 110->120
+        if (st.n_valid != 6) return 30;
+        if (st.n_consecutive_changes != 2) return 31;   // 100->110, 110->120
         // 5 adjacent pairs, 3 unchanged -> redundancy 0.6
-        if (!(st.redundancy_ratio > 0.59 && st.redundancy_ratio < 0.61)) return 31;
+        if (!(st.redundancy_ratio > 0.59 && st.redundancy_ratio < 0.61)) return 32;
         // steps: [0..15]=15ms, [15..25]=10ms, trailing [25..25]=0 -> sorted 0,10,15
-        if (st.median_step_duration_ns != 10'000'000) return 32;
-        if (st.max_step_duration_ns != 15'000'000) return 33;
+        if (st.median_step_duration_ns != 10'000'000) return 33;
+        if (st.max_step_duration_ns != 15'000'000) return 34;
     }
 
     // 6b. All-invalid signal -> no stats, no divide-by-zero.
@@ -194,19 +205,19 @@ int main() {
         std::vector<long long> v = {1, 2, 3};
         std::vector<bool> ok = {false, false, false};
         auto st = analyze_signal_steps(ts, v, ok);
-        if (st.n_valid != 0) return 34;
-        if (st.n_consecutive_changes != 0) return 35;
+        if (st.n_valid != 0) return 35;
+        if (st.n_consecutive_changes != 0) return 36;
     }
 
     // 7. Empty / single-reading inputs must not crash and must not be "stable".
     {
         std::vector<ClockReading> empty;
         auto s = detect_stability(empty, 0, cfg_1400(), NEVER);
-        if (s.outcome == StabilityOutcome::Stable) return 36;
+        if (s.outcome == StabilityOutcome::Stable) return 37;
         auto c = compute_cadence_stats({});
-        if (c.n_intervals != 0) return 37;
+        if (c.n_intervals != 0) return 38;
         auto c1 = compute_cadence_stats({42});
-        if (c1.n_intervals != 0) return 38;
+        if (c1.n_intervals != 0) return 39;
     }
 
     return 0;

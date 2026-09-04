@@ -1,5 +1,6 @@
 #pragma once
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -41,7 +42,16 @@ namespace telemetry::gpu_transition {
      * sm_clock_valid is false can never count toward stability.
      */
     struct ClockReading {
-        int64_t  t_mono_ns = 0;             ///< CLOCK_MONOTONIC ns of THIS poll (measured, not scheduled).
+        /// Start of the polling bundle.  This is diagnostic only: it MUST NOT
+        /// be used as the instant at which a clock value was observed.
+        int64_t  t_poll_start_ns = 0;
+        /// CLOCK_MONOTONIC timestamp taken immediately AFTER the graphics
+        /// clock query returns.  It is deliberately the timestamp used by
+        /// stability/transition calculations, so T_actuacion never predates
+        /// the observation that confirmed it.
+        int64_t  t_mono_ns = 0;
+        unsigned int graphics_clock_mhz = 0;
+        bool     graphics_clock_valid = false;
         unsigned int sm_clock_mhz = 0;
         bool     sm_clock_valid = false;
         unsigned int util_pct = 0;          ///< nvmlDeviceGetUtilizationRates().gpu
@@ -75,12 +85,16 @@ namespace telemetry::gpu_transition {
       | 0x80ULL; /* nvmlClocksThrottleReasonHwPowerBrakeSlowdown*/
 
     struct StabilityConfig {
+        enum class ClockDomain { Graphics, Sm };
         unsigned int target_mhz = 0;
         unsigned int tolerance_mhz = 0;
         int          required_consecutive = 3;
         bool         require_active = true;
         unsigned int active_util_threshold_pct = 5;
         unsigned long long invalidating_throttle_mask = kDefaultInvalidatingThrottleMask;
+        /// -lgc locks the graphics clock.  Graphics is therefore the safe
+        /// default for validating actuation; SM remains an exported signal.
+        ClockDomain clock_domain = ClockDomain::Graphics;
     };
 
     enum class StabilityOutcome { Stable, Timeout, Pending };
@@ -100,8 +114,12 @@ namespace telemetry::gpu_transition {
 
     /** @brief True if one reading qualifies as "at target, right now". */
     inline bool reading_qualifies(const ClockReading& r, const StabilityConfig& cfg) {
-        if (!r.sm_clock_valid) return false;
-        const long diff = static_cast<long>(r.sm_clock_mhz) - static_cast<long>(cfg.target_mhz);
+        const bool clock_valid = cfg.clock_domain == StabilityConfig::ClockDomain::Graphics
+            ? r.graphics_clock_valid : r.sm_clock_valid;
+        const unsigned int clock_mhz = cfg.clock_domain == StabilityConfig::ClockDomain::Graphics
+            ? r.graphics_clock_mhz : r.sm_clock_mhz;
+        if (!clock_valid) return false;
+        const long diff = static_cast<long>(clock_mhz) - static_cast<long>(cfg.target_mhz);
         if (std::abs(diff) > static_cast<long>(cfg.tolerance_mhz)) return false;
         if (cfg.require_active) {
             if (!r.util_valid) return false;
@@ -211,14 +229,14 @@ namespace telemetry::gpu_transition {
         int64_t max_delta_ns = 0;
     };
 
-    /** @brief Lower-rank percentile of a copy of `values` (values may be unsorted). */
-    inline int64_t percentile_lower(std::vector<int64_t> values, double q) {
+    /** @brief Nearest-rank percentile of a copy of `values` (values may be unsorted). */
+    inline int64_t percentile_nearest_rank(std::vector<int64_t> values, double q) {
         if (values.empty()) return 0;
         std::sort(values.begin(), values.end());
         if (q <= 0.0) return values.front();
         if (q >= 1.0) return values.back();
-        const double rank = q * static_cast<double>(values.size() - 1);
-        return values[static_cast<std::size_t>(rank)];  // floor -> conservative
+        const auto index = static_cast<std::size_t>(std::ceil(q * values.size())) - 1;
+        return values[std::min(index, values.size() - 1)];
     }
 
     /**
@@ -237,8 +255,8 @@ namespace telemetry::gpu_transition {
         s.n_intervals = deltas.size();
         s.min_delta_ns = *std::min_element(deltas.begin(), deltas.end());
         s.max_delta_ns = *std::max_element(deltas.begin(), deltas.end());
-        s.p50_delta_ns = percentile_lower(deltas, 0.50);
-        s.p95_delta_ns = percentile_lower(deltas, 0.95);
+        s.p50_delta_ns = percentile_nearest_rank(deltas, 0.50);
+        s.p95_delta_ns = percentile_nearest_rank(deltas, 0.95);
         return s;
     }
 

@@ -25,6 +25,10 @@ def _summary(from_clock, to_mhz, result="stable", cub_ns=1_000_000, cmd_lat_ns=3
         "from_clock": from_clock,
         "to_clock_mhz": to_mhz,
         "result": result,
+        "dry_run_actuation": False,
+        "restoration": {"confirmed": True},
+        "gpu": {"uuid": "GPU-test", "driver_version": "test-driver"},
+        "workload_checksum_sha256": "sha256:test",
         "transition_metrics": {
             "valid": metrics_valid,
             "conservative_upper_bound_ns": cub_ns,
@@ -135,3 +139,20 @@ def test_direccion_del_par_importa():
     ]
     rep = conservative_transition_ns(summaries)
     assert set(rep["per_pair"].keys()) == {"REF->1410", "1410->0"}
+
+
+def test_dry_run_o_restauracion_fallida_bloquean_politica():
+    summaries = [_summary("REF", 1410, cub_ns=5_000_000) for _ in range(3)]
+    summaries[0]["dry_run_actuation"] = True
+    summaries[1]["restoration"] = {"confirmed": False}
+    rep = conservative_transition_ns(summaries)
+    assert rep["usable_for_policy"] is False
+    assert any("dry_run" in warning for warning in rep["warnings"])
+    assert any("restauración" in warning for warning in rep["warnings"])
+
+
+def test_par_requerido_ausente_bloquea_politica():
+    summaries = [_summary("REF", 1410) for _ in range(3)]
+    rep = conservative_transition_ns(summaries, required_pairs={"REF->1410", "REF->210"})
+    assert rep["usable_for_policy"] is False
+    assert any("REF->210" in warning for warning in rep["warnings"])

@@ -2,8 +2,9 @@
 
 Infraestructura reproducible para medir, **bajo carga real en la A100**:
 
-- `T_actuacion = t_estable − t_solicitud` para una transición dirigida de reloj
-  SM, con `t_command_return` registrado por separado; y
+- `T_actuacion = t_estable − t_solicitud` para una transición dirigida del
+  reloj **graphics** que fija `nvidia-smi -lgc`, con `t_command_return`
+  registrado por separado. El reloj SM se conserva como señal auxiliar; y
 - la **cadencia efectiva observada** de las señales NVML (reloj SM, utilización,
   potencia, temperatura, energía), reportada siempre como *cota inferior de
   actualizaciones físicas*, nunca como tasa de refresco confirmada.
@@ -22,16 +23,16 @@ Ver `Seguimiento_Cambios_Plan_Director.md` § `F1-GPU-002` y
 | Archivo | Rol |
 |---|---|
 | `common/telemetry/include/telemetry/gpu_transition_analysis.hpp` | Lógica pura (detección de estabilidad, percentiles de cadencia, `T_actuacion`, análisis de escalones). Sin NVML/CUDA. Unit-tested sin GPU. |
-| `common/telemetry/experiments/gpu_clock_transition_probe.cpp` | Ejecutable. Sondeo de reloj **siempre** vía `nvmlDeviceGetClockInfo`. `nvidia-smi` **solo** para actuación (`-lgc`/`-rgc`), replicando el contrato sudo/restauración de `common/hpc/gpu_freqctl.py`. |
+| `common/telemetry/experiments/gpu_clock_transition_probe.cpp` | Ejecutable. Verifica actuación con `NVML_CLOCK_GRAPHICS` y exporta además `NVML_CLOCK_SM`; cada timestamp de estabilidad se toma después de leer graphics. `nvidia-smi` **solo** actúa (`-lgc`/`-rgc`) y usa `sudo -n` con timeout. |
 | `common/telemetry/tests/test_gpu_transition_analysis.cpp` | Pruebas de la lógica pura (convergencia, primer toque + salida de tolerancia, timeout, timestamps irregulares, NVML ausente, throttling, `T_actuacion`). |
 | `fase1_telemetria/gpu_transition/aggregate_transition_matrix.py` | Junta varios `gpu_clock_transition_summary.json` y deriva `T_transicion_gpu_ns_conservative` = **máximo** sobre pares y réplicas (nunca promedio). |
-| `fase1_telemetria/tests/test_aggregate_transition_matrix.py` | Pruebas del agregador. |
+| `fase1_telemetria/tests/test_aggregate_transition_matrix.py` | Pruebas del agregador, incluidas matriz incompleta, dry-run y restauración no confirmada. |
 
 Artefactos que produce **cada corrida** del probe (en `--out-dir`):
 
 - `gpu_clock_transition_raw.csv` — una fila por lectura NVML: `seq`, fase
   (`pre_request`/`post_request`), timestamp monotónico, intervalo real desde la
-  lectura previa, reloj SM, utilización, memoria, potencia, temperatura,
+  lectura previa, relojes graphics y SM, utilización, memoria, potencia, temperatura,
   energía, `throttle_reasons` (hex) — cada una con su bit `*_valid`.
 - `gpu_clock_transition_summary.json` — metadatos (UUID/modelo GPU, driver,
   CUDA, clocks soportados, checksum y comando de carga, origen/destino,
@@ -98,7 +99,7 @@ vecino, o el probe aborta.
 ### 4.1 Etapa A — cadencia efectiva (elegir `q_produccion`)
 
 El bloque `observed_cadence` + `signal_step_analysis` del summary ya da, para
-**el reloj SM**, la distribución real de `delta_timestamp_ns`, los cambios
+los relojes **graphics y SM**, la distribución real de `delta_timestamp_ns`, los cambios
 consecutivos (cota inferior) y la duración de escalones. Para cubrir el resto
 de señales (util, potencia, memoria, temperatura, energía) a varias cadencias,
 correr el probe con `--dry-run-actuation` a `--probe-interval-ns` de
@@ -170,13 +171,17 @@ Reglas (del plan y del `Seguimiento`):
   **cota superior observable**, no una latencia exacta — y sigue siendo válida
   para `min_dwell_ns`.
 - El probe **restaura** el reloj (`nvidia-smi -rgc`) al terminar, ante SIGINT,
-  fallo de comando o timeout. Un segundo Ctrl-C fuerza la salida.
+  fallo de comando o timeout. Una segunda señal no salta la restauración.
 
 ### 4.3 Agregar y derivar la cota conservadora
 
 ```bash
 python3 -m fase1_telemetria.gpu_transition.aggregate_transition_matrix \
     "$RESULTS" \
+    --require-pair "REF->${MID_MHZ}" \
+    --require-pair "REF->${MIN_MHZ}" \
+    --require-pair "${MID_MHZ}->${MIN_MHZ}" \
+    --require-pair "${MIN_MHZ}->${MID_MHZ}" \
     --output "$RESULTS/transition_matrix_aggregate.json"
 ```
 
@@ -188,7 +193,9 @@ T_transicion_gpu_ns_conservative = <N>  (cota superior observable; par peor: <A-
 ```
 
 `<N>` es el **máximo** de `conservative_upper_bound_ns` sobre todos los pares y
-réplicas estables — nunca un promedio ni un percentil.
+réplicas estables — nunca un promedio ni un percentil. El agregador falla
+cerrado para política si falta un par declarado, hay timeout/dry-run, la
+restauración no fue confirmada o cambian UUID, driver o checksum de carga.
 
 ### 4.4 Alimentar la derivación de política
 
@@ -226,7 +233,7 @@ Lo implementado aquí se probó en un entorno **sin GPU**:
 
 - ✅ Build CPU-only del probe (imprime el aviso de `-DWITH_GPU` y sale 2).
 - ✅ `gpu_transition_analysis_test` — 8 grupos de casos de la lógica pura.
-- ✅ `test_aggregate_transition_matrix.py` — 7 casos del agregador.
+- ✅ `test_aggregate_transition_matrix.py` — 9 casos del agregador.
 - ✅ Suite completa `common/telemetry` (`ctest`, 15/15) y
   `pytest fase1_telemetria common` (530).
 

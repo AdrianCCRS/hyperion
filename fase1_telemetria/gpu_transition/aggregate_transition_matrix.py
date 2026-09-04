@@ -65,7 +65,9 @@ def load_summaries(paths: Iterable[str | Path]) -> list[dict[str, Any]]:
     return out
 
 
-def conservative_transition_ns(summaries: list[dict[str, Any]]) -> dict[str, Any]:
+def conservative_transition_ns(
+    summaries: list[dict[str, Any]], *, required_pairs: set[str] | None = None,
+) -> dict[str, Any]:
     """Deriva la cota conservadora a partir de resúmenes ya cargados.
 
     No lee disco: recibe la lista de dicts (facilita las pruebas). Devuelve un
@@ -77,11 +79,33 @@ def conservative_transition_ns(summaries: list[dict[str, Any]]) -> dict[str, Any
     n_stable = 0
     n_timeout = 0
     n_other = 0
+    provenance: tuple[str | None, str | None, str | None] | None = None
 
     for s in summaries:
         result = s.get("result")
         metrics = s.get("transition_metrics") or {}
         pair = _pair_key(s)
+        gpu = s.get("gpu") or {}
+        identity = (
+            gpu.get("uuid"), gpu.get("driver_version"),
+            s.get("workload_checksum_sha256"),
+        )
+        if provenance is None:
+            provenance = identity
+        elif identity != provenance:
+            warnings.append(
+                f"provenance incompatible en {s.get('_source_path', '<inline>')}: "
+                "GPU UUID, driver o checksum de carga no coincide con la primera corrida"
+            )
+        if s.get("dry_run_actuation") is True:
+            warnings.append(
+                f"{s.get('_source_path', '<inline>')}: dry_run_actuation=true no es una transición medible"
+            )
+        restoration = s.get("restoration") or {}
+        if restoration.get("confirmed") is not True:
+            warnings.append(
+                f"{s.get('_source_path', '<inline>')}: restauración no confirmada"
+            )
         entry = by_pair.setdefault(
             pair,
             {
@@ -102,9 +126,16 @@ def conservative_transition_ns(summaries: list[dict[str, Any]]) -> dict[str, Any
         elif result != "stable":
             n_other += 1
 
-        if result != "stable" or not metrics.get("valid"):
+        if result != "stable" or not metrics.get("valid") or s.get("dry_run_actuation") is True \
+                or restoration.get("confirmed") is not True:
             if result != "stable":
                 entry["non_stable_results"].append(result)
+            elif not metrics.get("valid"):
+                entry["non_stable_results"].append("stable_metrics_invalid")
+            elif s.get("dry_run_actuation") is True:
+                entry["non_stable_results"].append("dry_run_actuation")
+            else:
+                entry["non_stable_results"].append("restoration_unconfirmed")
             continue
 
         n_stable += 1
@@ -137,6 +168,9 @@ def conservative_transition_ns(summaries: list[dict[str, Any]]) -> dict[str, Any
                 f"par {pair!r}: solo {e['stable_replicates']} réplica(s) estable(s), "
                 f"se requieren >= {MIN_REPLICATES}"
             )
+    for pair in sorted(required_pairs or set()):
+        if pair not in by_pair:
+            warnings.append(f"par requerido {pair!r}: no se entregó ninguna réplica")
     if n_timeout:
         warnings.append(
             f"{n_timeout} corrida(s) con result='timeout': la actuación GPU puede no "
@@ -170,15 +204,18 @@ def conservative_transition_ns(summaries: list[dict[str, Any]]) -> dict[str, Any
         "worst_pair": worst_pair,
         "per_pair": by_pair,
         "warnings": warnings,
-        "usable_for_policy": bool(conservative is not None and not any(
-            w.startswith("par ") for w in warnings
-        )),
+        # Fail closed: an incomplete, dry-run, mixed-provenance, timed-out or
+        # unrestored matrix must never silently enable GPU actuation.
+        "required_pairs": sorted(required_pairs or set()),
+        "usable_for_policy": bool(conservative is not None and not warnings),
     }
 
 
-def aggregate_summaries(paths: Iterable[str | Path]) -> dict[str, Any]:
+def aggregate_summaries(
+    paths: Iterable[str | Path], *, required_pairs: set[str] | None = None,
+) -> dict[str, Any]:
     """load_summaries + conservative_transition_ns."""
-    return conservative_transition_ns(load_summaries(paths))
+    return conservative_transition_ns(load_summaries(paths), required_pairs=required_pairs)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -188,9 +225,11 @@ def main(argv: list[str] | None = None) -> int:
                         help="Archivos gpu_clock_transition_summary.json o directorios a recorrer.")
     parser.add_argument("--output", type=Path, default=None,
                         help="Ruta del JSON agregado. Sin esto, solo imprime a stdout.")
+    parser.add_argument("--require-pair", action="append", default=[], metavar="FROM->TO",
+                        help="Par dirigido exigido para habilitar política; repetir por cada par.")
     args = parser.parse_args(argv)
 
-    report = aggregate_summaries(args.inputs)
+    report = aggregate_summaries(args.inputs, required_pairs=set(args.require_pair))
 
     if args.output is not None:
         args.output.parent.mkdir(parents=True, exist_ok=True)
