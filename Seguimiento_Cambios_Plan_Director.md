@@ -1512,6 +1512,7 @@ posición Roofline": la motivación de automatizar la decisión.
 
 **Fecha de registro:** 2026-09-04
 **Estado:** implementado y validado localmente; ejecución de hardware pendiente
+**Commit de implementación:** `cfccb58`
 
 ### Problema
 
