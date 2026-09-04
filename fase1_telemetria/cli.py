@@ -178,7 +178,18 @@ def cmd_postprocess(args: argparse.Namespace) -> int:
         kernel_entry=entry, node_id=args.node_id, freq_level_id=args.freq_level_id,
         calibration_dir=args.calibration_dir or str(manifest.output_dir),
         freq_khz_applied=freq_khz_applied,
-        warmup_seconds=entry.warmup_seconds or 0.0, running_ratio_min=manifest.running_ratio_min,
+        # F1-XDEV-002: manifest.warmup_seconds_override, si está declarado,
+        # pisa el catálogo para TODA la campaña -- pliega la calibración de
+        # warmup dentro de la campaña real (ver
+        # fase1_telemetria/repostprocess_campaign.py, que la ignora a
+        # propósito para regenerar el dataset final con el catálogo ya
+        # corregido).
+        warmup_seconds=(
+            manifest.warmup_seconds_override
+            if manifest.warmup_seconds_override is not None
+            else (entry.warmup_seconds or 0.0)
+        ),
+        running_ratio_min=manifest.running_ratio_min,
         rapl_enabled=bool(manifest.rapl.get("enabled", False)),
         freq_tolerance_fraction=frequency_validation.get("tolerance_fraction"),
         freq_expected_cpu_count=len(manifest.cores.delegated_cpus),

@@ -259,11 +259,25 @@ def test_arc73_projected_bytes_y_core_hours_se_leen_del_manifiesto(tmp_path, mon
     assert resultado.load_threshold == pytest.approx(2.5)
 
 
-@pytest.mark.parametrize("field", ["projected_campaign_bytes", "remaining_core_hours", "projected_core_hours", "load_threshold"])
+@pytest.mark.parametrize("field", ["projected_campaign_bytes", "remaining_core_hours", "projected_core_hours", "load_threshold", "warmup_seconds_override"])
 def test_arc73_projected_bytes_y_core_hours_negativos_fallan(tmp_path, monkeypatch, catalogo, campaign, field):
     campaign[field] = -1
     with pytest.raises(manifest.ManifestValidationError, match="MAN-00"):
         cargar(tmp_path, monkeypatch, catalogo, campaign)
+
+
+def test_f1_xdev_002_warmup_seconds_override_ausente_por_defecto(tmp_path, monkeypatch, catalogo, campaign):
+    # F1-XDEV-002: ausente -> cli.py/campaign.py deben seguir usando
+    # entry.warmup_seconds del catálogo, comportamiento de todo manifiesto
+    # anterior a este cambio.
+    resultado = cargar(tmp_path, monkeypatch, catalogo, campaign)
+    assert resultado.warmup_seconds_override is None
+
+
+def test_f1_xdev_002_warmup_seconds_override_se_lee_del_manifiesto(tmp_path, monkeypatch, catalogo, campaign):
+    campaign["warmup_seconds_override"] = 0.0
+    resultado = cargar(tmp_path, monkeypatch, catalogo, campaign)
+    assert resultado.warmup_seconds_override == 0.0
 
 
 def test_man_t02_hpc_sc3_no_requiere_cgroup(tmp_path, monkeypatch, catalogo, campaign):

@@ -160,6 +160,13 @@ def compute_protocol_fingerprint(manifest: Any, catalog: Mapping[str, Any], harn
         "temperature": dict(getattr(manifest, "temperature", None) or {}),
         "uncore": dict(getattr(manifest, "uncore", None) or {}),
         "load_threshold": getattr(manifest, "load_threshold", None),
+        # F1-XDEV-002: cambia qué warmup_seconds usa run_postprocess() para
+        # TODA la campaña, exactamente igual que el warmup_seconds de un
+        # kernel individual en el catálogo (ya incluido arriba en
+        # kernel_fingerprint) -- dos manifiestos que solo difieran aquí
+        # producirían windows.csv con distinto criterio de exclusión bajo
+        # el mismo run_id.
+        "warmup_seconds_override": getattr(manifest, "warmup_seconds_override", None),
         "timeouts_seconds": {
             "ready": manifest.timeouts_seconds.ready,
             "run": manifest.timeouts_seconds.run,
@@ -1082,7 +1089,13 @@ def run_campaign(
                         freq_khz_requested=getattr(applied, "requested_khz", None),
                         freq_khz_applied=getattr(applied, "applied_khz", None),
                         freq_khz_observed=freq_khz_observed,
-                        warmup_seconds=entry.warmup_seconds or 0.0, running_ratio_min=manifest.running_ratio_min,
+                        # F1-XDEV-002: ver el mismo comentario en cli.py::cmd_postprocess.
+                        warmup_seconds=(
+                            manifest.warmup_seconds_override
+                            if manifest.warmup_seconds_override is not None
+                            else (entry.warmup_seconds or 0.0)
+                        ),
+                        running_ratio_min=manifest.running_ratio_min,
                         rapl_enabled=bool(manifest.rapl.get("enabled", False)), calibration_references=references,
                         # ARC-129: ridge de GPU calibrado por SU PROPIO nivel
                         # de reloj cuando la combinación trae uno independiente

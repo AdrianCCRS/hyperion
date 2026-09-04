@@ -6,26 +6,45 @@ anteriores a `primera_muestra + warmup_seconds` quedan `warmup_excluded`. Un
 valor heredado o puesto conservadoramente puede descartar datos válidos o dejar
 dentro un transitorio.
 
-Procedimiento (Seguimiento_Cambios_Plan_Director.md, F1-XDEV-002):
+Procedimiento recomendado -- PLEGADO dentro de la campaña real, sin
+mini-campaña aparte (Seguimiento_Cambios_Plan_Director.md, F1-XDEV-002):
 
-1. mini-campaña con `warmup_seconds: 0` para cada candidato/dispositivo, mismo
-   binario/checksum/args/tamaño/hilos/pinning/nodo/colector/frecuencias que la
-   campaña posterior;
-2. >= 3 repeticiones, cubriendo REF y los extremos de frecuencia a usar;
-3. detección sobre IPC (CPU) o `gpu_util_pct` (GPU): dos ventanas móviles
-   consecutivas con CV <= 5%; si no, segmentación por puntos de cambio y primer
-   segmento que alcanza 80% de la meseta de actividad;
-4. `warmup_seconds = 1.2 * t_detectado`;
-5. como el catálogo admite un único valor por kernel, se adopta el **máximo**
-   robustamente detectado entre esas condiciones;
-6. estados explícitos: `measured`, `insufficient_signal`, `documented_fallback`,
-   `not_suitable`;
-7. artefacto CSV/JSON con trazabilidad;
-8. propuesta al catálogo SIN reemplazo silencioso (requiere `--apply`).
+1. correr la campaña real (p. ej. el cribado F1-XDEV-001) con
+   `warmup_seconds_override: 0.0` declarado en el manifiesto (ver
+   `common/hpc/manifest.py`) -- como `warmup_seconds` solo afecta al
+   postproceso, nada cambia en lo que se mide; solo deja de excluirse el
+   transitorio, así que la campaña real ya sirve como fuente de calibración.
+   >= 3 repeticiones y cobertura de REF + extremos de frecuencia ya están
+   garantizados por ser la matriz real, no hace falta reservarlos aparte;
+2. calibrar con este módulo (`calibrate_kernel`/CLI) sobre los `windows.csv`
+   que esa misma campaña ya produjo: detección sobre IPC (CPU) o
+   `gpu_util_pct` (GPU) -- dos ventanas móviles consecutivas con CV <= 5%; si
+   no, segmentación por puntos de cambio y primer segmento que alcanza 80% de
+   la meseta de actividad; `warmup_seconds = 1.2 * t_detectado`; como el
+   catálogo admite un único valor por kernel, se adopta el **máximo**
+   robustamente detectado entre corridas/niveles; estados explícitos:
+   `measured`, `insufficient_signal`, `documented_fallback`, `not_suitable`;
+   artefacto CSV/JSON con trazabilidad;
+3. aplicar la propuesta al catálogo REAL sin reemplazo silencioso
+   (`apply_proposals_to_catalog(..., apply=True)`: backup `.bak` +
+   verificación de checksum);
+4. **re-postprocesar la MISMA campaña** con
+   `fase1_telemetria/repostprocess_campaign.py` (relee el catálogo ya
+   corregido, ignora `warmup_seconds_override` a propósito, no relanza ningún
+   kernel) -- el resultado de este paso es el dataset final, con el
+   transitorio correcto ya excluido por el mismo criterio de análisis.
+
+Procedimiento alternativo (mini-campaña de calibración separada, previa a la
+campaña real): sigue siendo válido -- mismo binario/checksum/args/tamaño/
+hilos/pinning/nodo/colector/frecuencias que la campaña posterior, >= 3
+repeticiones cubriendo REF y extremos -- pero implica correr dos campañas en
+vez de una. Se prefiere el flujo plegado de arriba salvo que se quiera un
+chequeo rápido y barato antes de comprometer tiempo de clúster a la campaña
+completa.
 
 La lógica de detección se portó de `old/scripts/pacca/measure_warmup.py`
 (auditada, no copiada a ciegas). Este módulo NO inventa valores: opera sobre
-`windows.csv` reales de la mini-campaña.
+`windows.csv` reales de una campaña ya ejecutada (plegada o separada).
 """
 from __future__ import annotations
 

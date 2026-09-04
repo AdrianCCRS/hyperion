@@ -16,8 +16,29 @@
 # Matriz actual: 33 kernels x 3 niveles x 3 repeticiones = 297 corridas.
 # MAN-02 impide bajar de tres repeticiones. REF/F2/F4 cubren gobernador nativo,
 # punto medio y mínimo; los sobrevivientes pasan después al barrido completo.
+#
+# F1-XDEV-002 — calibración de warmup plegada dentro de ESTE cribado.
+# warmup_seconds solo afecta al postproceso (postprocess.py), nunca a la
+# recolección (runner.py no lo lee) -- samples.csv siempre trae la traza
+# completa. Por eso esta campaña sirve dos propósitos con una sola pasada:
+#   1. warmup_seconds_override: 0.0 -> ninguna ventana queda warmup_excluded
+#      al postprocesar; se conserva el transitorio completo de cada corrida.
+#   2. Tras correrla, calibrar con fase1_telemetria/warmup_calibration.py
+#      sobre los windows.csv ya producidos (>=3 repeticiones, REF+F2+F4 ya
+#      cubiertos por esta misma matriz -- no hace falta una mini-campaña
+#      aparte).
+#   3. Aplicar los valores calibrados al catálogo REAL
+#      (warmup_calibration.apply_proposals_to_catalog(..., apply=True) --
+#      backup .bak + verificación de checksum).
+#   4. Re-postprocesar ESTA MISMA campaña con
+#      fase1_telemetria/repostprocess_campaign.py (ignora
+#      warmup_seconds_override a propósito, relee el catálogo ya corregido)
+#      -- sin relanzar ningún kernel. El resultado de este paso 4 es el
+#      dataset de cribado real que consume phase_coverage.py.
+# Ver Seguimiento_Cambios_Plan_Director.md § F1-XDEV-002.
 
 campaign_id: pacca_phase_coverage_cpu_screen_20260903
+warmup_seconds_override: 0.0
 environment_tier: hpc_sc3
 seed: 20260903
 

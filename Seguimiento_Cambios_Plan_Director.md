@@ -31,7 +31,7 @@ de fase y alcance. Esta convención mantiene el formato propuesto
 | `F1-GPU-003` | Contrato de granularidad GPU + dataset intermedio por corrida/fase con agregación NVML robusta | Implementado y validado; a la espera de campaña GPU real para poblarlo |
 | `F1-GPU-004` | Convergencia y procedencia de la verdad Roofline GPU (`ncu`) por kernel | Parcialmente implementado (parser + lógica de convergencia + runbook, validados); **ejecución de `ncu` bloqueada por hardware** |
 | `F1-XDEV-001` | Tratar las 232 entradas como banco de candidatos y seleccionar por cobertura Roofline/familia | En preparación (manifiestos de cribado creados; generador de manifiesto definitivo implementado) |
-| `F1-XDEV-002` | Recalibrar y congelar el warmup de cada candidato antes de una campaña de datos | Implementado (módulo + CLI + detección portada + pruebas); **calibración real bloqueada por campañas `warmup_seconds: 0`** |
+| `F1-XDEV-002` | Recalibrar y congelar el warmup de cada candidato, plegado dentro de la campaña real (sin mini-campaña aparte) | Implementado (módulo + CLI + `warmup_seconds_override` de manifiesto + `repostprocess_campaign.py` + pruebas); **calibración real bloqueada por campaña en paccaA100** |
 | `F1-XDEV-003` | Usar cribado de frecuencia reducido solo para selección y rejilla fina en el dataset definitivo | Implementado (generador de manifiesto por lista congelada + resolución MHz→fracción + gate); manifiestos finales pendientes del resultado del cribado |
 | `F1-XDEV-004` | Análisis Pearson/Spearman/VIF y contrato versionado de features antes de entrenar | Implementado y validado con fixtures; **selección definitiva pendiente del dataset real** |
 | `F2-XDEV-001` | Diagnosticar cobertura Roofline y calidad antes de seleccionar/balancear entrenamiento | Implementado (sin datos de campaña aún) |
@@ -232,7 +232,8 @@ de refresco general. La evidencia local se conserva en
 ### Objetivo y unidades de resultado
 
 Medir, bajo carga GPU sostenida, la latencia observable entre solicitar un
-cambio de reloj y verificar que el reloj SM se mantiene en el destino:
+cambio de reloj y verificar que el reloj graphics (el dominio de `-lgc`) se
+mantiene en el destino; el reloj SM se conserva como señal auxiliar:
 
 \[
 T_{actuacion}=t_{estable}-t_{solicitud}.
@@ -279,7 +280,7 @@ pueda ser solicitado por la política, y también desde `REF` hacia cada nivel
 fijo candidato:
 
 1. fijar y confirmar el origen bajo carga;
-2. comenzar el sondeo de reloj SM con la cadencia fina seleccionada para el
+2. comenzar el sondeo de reloj graphics con la cadencia fina seleccionada para el
    **probe** (inicialmente 5 ms, aun si `q_produccion` resulta 10 ms);
 3. marcar `t_solicitud` inmediatamente antes de invocar `nvidia-smi -lgc` y
    `t_command_return` al recibir su resultado;
@@ -334,27 +335,31 @@ el entrenador GPU ni `derive_policy_table.py`.
   duración de escalones **como cota inferior**, con nota explícita de que
   5 ms no implica información independiente cada 5 ms).
 - `common/telemetry/experiments/gpu_clock_transition_probe.cpp` — ejecutable.
-  Sondeo de reloj **siempre** por `nvmlDeviceGetClockInfo`; `nvidia-smi` solo
-  para actuación (`-lgc`/`-rgc`), replicando el contrato sudo/restauración de
-  `common/hpc/gpu_freqctl.py`. Fija y confirma el reloj origen bajo carga,
+  Verifica el reloj **graphics** (el dominio que fija `-lgc`) mediante
+  `nvmlDeviceGetClockInfo` y exporta el reloj SM como señal auxiliar;
+  `nvidia-smi` solo actúa (`-lgc`/`-rgc`) con `sudo -n` y timeout. El timestamp
+  de estabilidad se toma después de recibir la lectura graphics, por lo que la
+  cota no antecede a su observación. Fija y confirma el reloj origen bajo carga,
   lanza la carga vía `sh -c`, verifica actividad por NVML, solicita el destino
   a mitad de la carga, registra cada lectura (reloj/util/potencia/temp/energía/
   `throttle_reasons`) con timestamp monotónico, y restaura ante `atexit`,
-  SIGINT/SIGTERM, fallo de comando o timeout (segundo Ctrl-C fuerza salida).
+  SIGINT/SIGTERM, fallo de comando o timeout; una segunda señal no omite la
+  restauración.
   Compila CPU-only (imprime aviso `-DWITH_GPU` y sale 2). Produce
   `gpu_clock_transition_raw.csv`, `gpu_clock_transition_summary.json` y
   `gpu_clock_transition_matrix.csv`, con crudo incluso al fallar.
 - `fase1_telemetria/gpu_transition/aggregate_transition_matrix.py` — junta los
   `summary.json` de varias corridas, agrupa por par dirigido y deriva
   `T_transicion_gpu_ns_conservative` = **máximo** de `conservative_upper_bound_ns`
-  sobre pares y réplicas (nunca promedio); avisa si un par tiene < 3 réplicas
-  estables, si hubo `timeout` o resultados no estables, y si no hay ningún dato
-  estable (devuelve `None` → documentar como bloqueo).
+  sobre pares y réplicas (nunca promedio). Exige declarar todos los pares de
+  política y falla cerrado si falta uno, hay `timeout`/dry-run, restauración no
+  confirmada o procedencia incompatible; sin datos estables devuelve `None`.
 - Pruebas: `common/telemetry/tests/test_gpu_transition_analysis.cpp` (8 grupos:
   convergencia, primer toque + salida de tolerancia, timeout, timestamps
   irregulares, NVML ausente, GPU ociosa, throttling invalidante vs. el bit de
   `-lgc`, escalones/redundancia, cálculo de `T_actuacion`/latencia/cota) y
-  `fase1_telemetria/tests/test_aggregate_transition_matrix.py` (7 casos).
+  `fase1_telemetria/tests/test_aggregate_transition_matrix.py` (9 casos,
+  incluidos dry-run/restauración no confirmada y par requerido ausente).
 - Documentación y procedimiento: `fase1_telemetria/gpu_transition/README.md`
   (build `-DWITH_GPU=ON`, Etapa A de cadencia, Etapa B de matriz dirigida con
   ≥ 3 réplicas y `REF→fijo` separado, agregación y alimentación de
@@ -521,6 +526,12 @@ deben demostrar que FLOPs/byte describe trabajo útil antes de ser elegibles.
   niveles `REF/F2/F4`, tres repeticiones: 297 corridas.
 - GPU: `campaign_pacca_phase_coverage_gpu_screen.yaml`, 23 kernels ejecutables,
   CPU en `REF`, GPU en `REF/F3/F6`, tres repeticiones: 207 corridas.
+- Ambos manifiestos declaran `warmup_seconds_override: 0.0` (F1-XDEV-002,
+  actualización 2026-09-04): esta misma corrida sirve también como fuente de
+  calibración de warmup, sin mini-campaña aparte. El dataset de cribado real
+  es el que resulta de re-postprocesar con
+  `fase1_telemetria/repostprocess_campaign.py` una vez calibrado y aplicado el
+  catálogo — no el `windows.csv` crudo con warmup en 0.
 
 La separación por dispositivo impide que una dependencia o permiso de GPU
 bloquee CPU y viceversa. `MAN-02` exige tres repeticiones como mínimo; por eso
@@ -1185,7 +1196,8 @@ sobre artefactos reales.
   artefacto CSV+JSON; propuesta al catálogo sin reemplazo silencioso, con backup
   `.bak` y verificación de checksum) + CLI + `fase1_telemetria/tests/
   test_warmup_calibration.py` (**9 passed**). **Bloqueado**: la calibración real
-  necesita mini-campañas con `warmup_seconds: 0` en paccaA100.
+  necesita correr una campaña real con `warmup_seconds` en 0 en paccaA100. Ver
+  el rediseño de este mismo flujo, más abajo.
 - **F1-XDEV-001 / F1-XDEV-003** ganan generador de manifiesto definitivo:
   `fase1_telemetria/campaigns/generate_final_manifest.py` (exige la lista
   congelada de kernels; resuelve la rejilla fina MHz → `fraction` contra el
@@ -1198,6 +1210,175 @@ sobre artefactos reales.
   del probe a 5/10/50/100 ms y recomienda `q_produccion` = la cadencia más
   gruesa que conserva ≥ 80% de los escalones observados frente a 5 ms) +
   `test_cadence_sweep.py` (**5 passed**). Sigue **pendiente de medición real**.
+
+---
+
+## F1-XDEV-002 (actualización) — Calibración de warmup plegada dentro de la campaña real
+
+**Fecha:** 2026-09-04
+**Estado:** implementado y validado localmente; calibración real bloqueada por
+campaña. Reemplaza el flujo de "mini-campaña separada" descrito arriba por uno
+plegado dentro de la campaña real, sin dejarlo de soportar como alternativa.
+
+### Problema
+
+El flujo original de F1-XDEV-002 pedía una mini-campaña de calibración previa
+a cada campaña real, con `warmup_seconds: 0` en el catálogo, replicando
+binario/args/tamaño/hilos/pinning/nodo/colector/frecuencias de la campaña
+posterior. Auditando el código se confirmó que **`warmup_seconds` solo se lee
+en el postproceso** (`postprocess.py:492`, vía `cli.py::cmd_postprocess` y
+`campaign.py`); `runner.py` no lo referencia en ningún punto — la recolección
+siempre captura la traza completa desde el inicio, sea cual sea el valor
+declarado. Por tanto, dos campañas (una de calibración, otra de datos) miden
+exactamente lo mismo si comparten manifiesto; la separación era trabajo de
+clúster duplicado sin necesidad técnica.
+
+### Decisión
+
+Plegar la calibración dentro de la campaña real, con la MISMA verificación por
+análisis sobre las filas ya recolectadas:
+
+1. La campaña real (p. ej. el cribado `F1-XDEV-001`) declara
+   `warmup_seconds_override: 0.0` en su manifiesto — nuevo campo opcional de
+   `Manifest`, consumido solo por `cli.py::cmd_postprocess` y el postproceso en
+   vivo de `campaign.py`. Ausente (el default, y el único valor de todo
+   manifiesto anterior) preserva el comportamiento de siempre: usar
+   `kernel_entry.warmup_seconds` del catálogo. Con el override, ninguna ventana
+   queda `warmup_excluded` al postprocesar esa campaña — se conserva el
+   transitorio completo, con `>= 3` repeticiones y cobertura de REF + extremos
+   de frecuencia garantizadas por ser la matriz real, no una reserva aparte.
+2. `warmup_calibration.py` (sin cambios de lógica) calibra sobre los
+   `windows.csv` que esa misma campaña ya produjo.
+3. La propuesta se aplica al catálogo real con
+   `apply_proposals_to_catalog(..., apply=True)` (ya con backup `.bak` y
+   verificación de checksum, sin reemplazo silencioso).
+4. `fase1_telemetria/repostprocess_campaign.py` (nuevo) **re-postprocesa la
+   misma campaña sin relanzar ningún kernel**: reutiliza `samples.csv`/
+   `metadata.json` ya escritos, localiza cada corrida por el `run_id` real
+   (`build_matrix()` + `runner.build_run_id()`, nunca una heurística de nombre
+   de directorio), y llama a `run_postprocess()` de nuevo con el catálogo YA
+   CORREGIDO. Ignora `manifest.warmup_seconds_override` **a propósito**
+   (`ignore_manifest_override=True` por defecto) — ese campo es solo para el
+   paso 1; el paso 4 debe reflejar siempre el valor calibrado, nunca repetir
+   el forzado a 0.
+5. El flujo de mini-campaña separada (documentado arriba) sigue siendo válido
+   como alternativa — por ejemplo, para un chequeo barato antes de comprometer
+   tiempo de clúster a la campaña completa — pero deja de ser el camino
+   recomendado.
+6. `compute_protocol_fingerprint()` (CAM-09) incluye ahora
+   `warmup_seconds_override`: dos manifiestos que solo difirieran en ese campo
+   antes compartían huella de protocolo, lo que podía mezclar corridas con
+   distinto criterio de exclusión bajo el mismo `run_id` en una reanudación.
+7. **Re-validación del veredicto accepted/rejected** (añadido el mismo día,
+   tras una revisión posterior). El accept/reject de cada corrida se decide,
+   en la campaña en vivo, sobre el `windows.csv` PROVISIONAL (warmup=0, nada
+   excluido) — es el único que existe en ese momento, antes de calibrar. Una
+   corrida al límite de `target_windows_per_repetition` puede tener MENOS
+   ventanas usables una vez excluido el warmup real, y seguiría figurando como
+   `accepted` si nadie la reevaluara. `repostprocess_campaign.py`, al
+   reprocesar con éxito, ahora también corre `validation.validate_windows()`
+   sobre el `windows.csv` ya corregido y sobrescribe `verdict.json`
+   (`validation.write_verdict()`) — nunca borra ni mueve la corrida (VAL-06),
+   solo dice honestamente si sigue aceptada. Cada resultado trae
+   `verdict_accepted`/`verdict_factor_id`/`verdict_message` y
+   `verdict_changed` (si difiere del veredicto que ya estaba en disco); el CLI
+   imprime cada cambio de veredicto explícitamente y los cuenta en el resumen,
+   para que se revisen a mano antes de dar la campaña por cerrada.
+
+### Archivos modificados
+
+- `common/hpc/manifest.py`: campo `Manifest.warmup_seconds_override: float |
+  None`, parseado con `_parse_optional_non_negative_number` (reutiliza el
+  helper ya existente para `load_threshold`, mismo código de error `MAN-00`).
+- `fase1_telemetria/cli.py::cmd_postprocess`, `fase1_telemetria/campaign.py`
+  (postproceso en vivo): usan el override cuando está declarado.
+- `fase1_telemetria/campaign.py::compute_protocol_fingerprint`: incluye el
+  campo nuevo.
+- Nuevo: `fase1_telemetria/repostprocess_campaign.py` (+ test).
+- `fase1_telemetria/warmup_calibration.py`: docstring reescrito con el flujo
+  plegado como recomendado.
+- `fase1_telemetria/catalog/campaigns/campaign_pacca_phase_coverage_{cpu,gpu}_
+  screen.yaml`: `warmup_seconds_override: 0.0` + comentario del flujo de 4
+  pasos. **`catalog_path` no cambia** (sigue `../catalog.yaml`, el catálogo
+  real) — no hace falta un catálogo temporal aparte.
+- Tests: `common/tests/test_manifest.py` (+2), `fase1_telemetria/tests/
+  test_cli.py` (+1 override, +1 assert en el existente), `fase1_telemetria/
+  tests/test_campaign.py` (+1 variante de fingerprint), nuevo
+  `fase1_telemetria/tests/test_repostprocess_campaign.py` (12 casos, incluida
+  la re-validación).
+
+### Contrato de datos
+
+`warmup_seconds_override` (manifiesto, opcional, `float >= 0` o ausente):
+fuerza el `warmup_seconds` usado por **todo** kernel de esa campaña al
+postprocesar, sin tocar `catalog.yaml`. No afecta la recolección. Nunca debe
+quedar declarado en el manifiesto usado para producir el dataset final leído
+por Fase 2 — `repostprocess_campaign.py` existe exactamente para volver a
+generar ese dataset final ignorándolo. `verdict.json` de cada corrida queda
+sobrescrito con el veredicto recalculado sobre el `windows.csv` corregido.
+
+### Pruebas ejecutadas y resultados
+
+- `pytest common/tests/test_manifest.py fase1_telemetria/tests/test_cli.py
+  fase1_telemetria/tests/test_campaign.py
+  fase1_telemetria/tests/test_repostprocess_campaign.py` → todo verde.
+- Suite completa `fase1_telemetria fase2_clasificador fase3_daemon common` →
+  **702 passed**.
+- Casos clave: el override pisa el catálogo en la recolección
+  (`test_postprocess_respeta_warmup_seconds_override_del_manifiesto`);
+  `repostprocess_campaign` usa el catálogo dado y NO el override por defecto
+  (`test_ignora_warmup_seconds_override_por_defecto`); una corrida sin
+  `samples.csv` se reporta `skipped`, nunca se fabrica; un fallo real de una
+  corrida se reporta `error` sin detener las demás; el fingerprint cambia si
+  cambia el override; una corrida cuyo `windows.csv` corregido cae por debajo
+  de `target_windows_per_repetition` pasa de `accepted` a `rejected` y
+  `verdict.json` en disco queda actualizado
+  (`test_corregir_el_warmup_puede_hacer_que_una_corrida_al_limite_se_rechace`);
+  sin `verdict.json` previo, `verdict_changed` es `False` (no se fabrica un
+  "cambio" contra la nada); el CLI imprime cada veredicto cambiado.
+- Los dos manifiestos de cribado modificados se verificaron cargando de
+  verdad con `common.hpc.manifest.load()`: `warmup_seconds_override=0.0`,
+  33/23 kernels intactos, `catalog_path` sigue apuntando al catálogo real.
+
+### Evidencia de hardware
+
+Ninguna: el flujo completo (recolección → calibración → aplicación →
+re-postproceso) no se ha corrido en paccaA100.
+
+### Limitaciones
+
+- El campo es un interruptor de campaña completa (todo o nada): no permite
+  forzar 0 solo para un subconjunto de kernels dentro de la misma campaña. Si
+  hiciera falta, habría que filtrar por `--kernel` en un manifiesto aparte.
+- `repostprocess_campaign.py` no borra ni archiva el `windows.csv`/
+  `training_cpu_intervals.csv` anterior (el del override en 0): los
+  sobrescribe. Quien necesite conservar la traza "sin calibrar" para auditoría
+  debe copiar el directorio antes de re-postprocesar.
+- ~~El accept/reject de cada corrida seguía reflejando el `windows.csv`
+  provisional (warmup=0) después de corregir el warmup.~~ **Resuelto el mismo
+  día** (punto 7 de la Decisión, arriba): `repostprocess_campaign.py` ahora
+  recalcula el veredicto y sobrescribe `verdict.json`. `run_campaign.py`
+  sigue sin re-archivar una corrida que pase de aceptada a rechazada tras la
+  corrección (VAL-06: nunca se borra); si eso importa para el reporte de
+  cobertura, `phase_coverage.py` debe filtrar por `verdict.json` actualizado,
+  no asumir que `accepted_run_ids` de `campaign_metadata.json` (que sigue
+  reflejando la decisión en vivo) está al día tras un re-postproceso.
+
+### Trabajo pendiente
+
+- Ejecutar el cribado real con `warmup_seconds_override: 0.0` en paccaA100.
+- Calibrar, aplicar al catálogo, re-postprocesar con
+  `repostprocess_campaign.py`, y adjuntar `warmup_calibration.json` +
+  el resumen de `repostprocess_campaign` a este ID.
+
+### Criterio exacto de cierre
+
+Cerrado cuando el cribado real (CPU y GPU) tiene un `warmup_calibration.json`
+con `status="measured"` para cada kernel candidato (o `not_suitable`/
+`documented_fallback` explícitamente justificado), el catálogo real quedó
+actualizado con esos valores, y `repostprocess_campaign.py` regeneró
+`windows.csv`/`training_cpu_intervals.csv`/`training_gpu_phases.csv` finales
+sobre esa misma campaña sin relanzar ningún kernel.
 
 ---
 

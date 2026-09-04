@@ -142,6 +142,19 @@ class Manifest:
     # monotono con el tiempo esperado (8s asento limpio, 12s inmediatamente
     # despues fallo peor que 8s), asi que una pausa ciega no es confiable.
     frequency_settle: Mapping[str, Any] = field(default_factory=dict)
+    # F1-XDEV-002: fuerza warmup_seconds=0 para TODOS los kernels de esta
+    # campaña, sin editar catalog.yaml -- pliega la calibración de warmup
+    # dentro de la campaña real en vez de exigir una mini-campaña aparte
+    # (warmup_seconds solo afecta al postproceso, nunca a la recolección:
+    # runner.py no lo lee, así que esto no cambia qué se mide, solo qué
+    # ventanas quedan "warmup_excluded" al postprocesar). None (el default,
+    # y el único valor de todo manifiesto anterior a este cambio) preserva
+    # el comportamiento de siempre: usar kernel_entry.warmup_seconds del
+    # catálogo. Ver Seguimiento_Cambios_Plan_Director.md § F1-XDEV-002 y
+    # fase1_telemetria/repostprocess_campaign.py, que IGNORA este campo a
+    # propósito y siempre relee el catálogo (ya corregido) para regenerar
+    # el dataset final.
+    warmup_seconds_override: float | None = None
 
 
 def _error(rule_id: str, field: str, message: str) -> None:
@@ -409,6 +422,7 @@ def load(path: str | Path) -> Manifest:
     remaining_core_hours = _parse_optional_non_negative_number(document, "remaining_core_hours")
     projected_core_hours = _parse_optional_non_negative_number(document, "projected_core_hours")
     load_threshold = _parse_optional_non_negative_number(document, "load_threshold")
+    warmup_seconds_override = _parse_optional_non_negative_number(document, "warmup_seconds_override")
 
     # ARC-88: mismo criterio de validación que interval_ns (entero positivo),
     # pero opcional -- ausente significa "usar el default del launcher"
@@ -533,7 +547,7 @@ def load(path: str | Path) -> Manifest:
         hardware_datasheet, projected_campaign_bytes, remaining_core_hours, projected_core_hours,
         load_threshold, gpu_interval_ns_raw, dict(uncore_raw), gpu_frequency_levels,
         dict(turbo_raw), dict(frequency_validation_raw), dict(temperature_raw),
-        dict(frequency_settle_raw),
+        dict(frequency_settle_raw), warmup_seconds_override,
     )
     matrix_size = compute_matrix_size(manifest)
     # MAN-03: cada combinación tiene baseline y telemetry, por eso se duplica.

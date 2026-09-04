@@ -1007,6 +1007,7 @@ def test_arc141_fingerprint_cubre_campos_de_protocolo_omitidos(tmp_path):
         replace(manifest, load_threshold=0.25),
         replace(manifest, hardware_datasheet={"bw_pico_bytes_per_s": 1.0}),
         replace(manifest, gpu_frequency_levels=(FrequencyLevel("GREF", "native_governor"),)),
+        replace(manifest, warmup_seconds_override=0.0),
     ]
 
     for variant in variants:

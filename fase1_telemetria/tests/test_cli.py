@@ -237,6 +237,36 @@ def test_postprocess_resuelve_el_kernel_desde_el_catalogo(monkeypatch, tmp_path)
     assert exit_code == 0
     assert calls["kwargs"]["kernel_entry"] is entry
     assert calls["kwargs"]["node_id"] == "felix-sc3"
+    # F1-XDEV-002: sin override en el manifiesto, se usa entry.warmup_seconds.
+    assert calls["kwargs"]["warmup_seconds"] == 0.5
+
+
+def test_postprocess_respeta_warmup_seconds_override_del_manifiesto(monkeypatch, tmp_path):
+    """F1-XDEV-002: manifest.warmup_seconds_override pisa
+    entry.warmup_seconds del catálogo -- pliega la calibración de warmup
+    dentro de la campaña real en vez de exigir una mini-campaña aparte."""
+    from types import SimpleNamespace
+
+    manifest = _fake_manifest(tmp_path)
+    manifest.warmup_seconds_override = 0.0
+    entry = SimpleNamespace(warmup_seconds=1.7)  # valor del catálogo, debe ignorarse
+    monkeypatch.setattr(cli.manifest_module, "load", lambda path: manifest)
+    monkeypatch.setattr(cli.catalog_module, "load_catalog", lambda path: {"npb_ep": entry})
+
+    calls = {}
+    monkeypatch.setattr(
+        cli.postprocess_module, "run_postprocess",
+        lambda run_dir, **kwargs: calls.update(kwargs) or (Path(run_dir) / "windows.csv"),
+    )
+
+    exit_code = cli.main([
+        "postprocess", "--manifest", "camp.yaml", "--run-dir", str(tmp_path / "run_x"),
+        "--run-id", "run_x", "--repetition", "1", "--kernel-ref", "npb_ep",
+        "--node-id", "felix-sc3", "--freq-level-id", "REF",
+    ])
+
+    assert exit_code == 0
+    assert calls["warmup_seconds"] == 0.0
 
 
 def test_report_lee_metadata_y_veredictos(monkeypatch, tmp_path):
@@ -317,6 +347,9 @@ def _fake_manifest(tmp_path: Path):
         # los campos que cada test individual usaba antes.
         frequency_levels=[SimpleNamespace(id="REF", mode="native_governor")],
         frequency_validation={},
+        # F1-XDEV-002: ausente por defecto -- cmd_postprocess() debe usar
+        # entry.warmup_seconds del catálogo cuando esto es None.
+        warmup_seconds_override=None,
     )
 
 

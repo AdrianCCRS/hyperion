@@ -15,8 +15,18 @@
 # Matriz actual: 23 kernels x 1 nivel CPU x 3 niveles GPU x 3 repeticiones =
 # 207 corridas. La OI ncu debe estar medida por kernel antes de aceptar una
 # etiqueta; NVML por sí solo nunca construye la verdad Roofline.
+#
+# F1-XDEV-002 — calibración de warmup plegada dentro de ESTE cribado, mismo
+# razonamiento que la versión CPU de este manifiesto (warmup_seconds solo
+# afecta al postproceso GPU vía quality_status="warmup_excluded", nunca a la
+# recolección). warmup_calibration.py detecta sobre gpu_util_pct. Tras
+# calibrar y aplicar al catálogo, re-postprocesar con
+# fase1_telemetria/repostprocess_campaign.py (mismo flujo de 4 pasos que la
+# versión CPU) -- ese resultado es el dataset de cribado GPU real.
+# Ver Seguimiento_Cambios_Plan_Director.md § F1-XDEV-002.
 
 campaign_id: pacca_phase_coverage_gpu_screen_20260903
+warmup_seconds_override: 0.0
 environment_tier: hpc_sc3
 seed: 20260903
 
