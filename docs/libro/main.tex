@@ -1,0 +1,156 @@
+%==============================================================================
+% Plantilla LaTeX para Tesis de Pregrado
+% Universidad Industrial de Santander
+% Diseño e Implementación de un Agente en Espacio de Usuario para la Gestión
+% Dinámica de Frecuencia (DVFS) en Sistemas Heterogéneos mediante Modelos
+% Ligeros de Machine Learning
+%==============================================================================
+%
+% ESTRUCTURA MODULAR (2026-09-04): el documento se dividió en un archivo
+% maestro (este) que solo contiene preámbulo y front/back matter, más un
+% capítulo por archivo bajo secciones/, todos incluidos vía \input. Editar
+% un capítulo ya no requiere abrir el monolito completo; compilar sigue
+% siendo `latexmk main.tex` desde este directorio.
+%
+% El capítulo 1 (Marco de referencia) se reconstruyó a partir de la versión
+% ampliada y corregida en docs/libro/main_fase02.tex --- ese documento
+% quedó fuera de alcance como fuente de Metodología/Resultados porque
+% describe el proyecto de "selector de dispositivo CPU/GPU" declarado fuera
+% del alcance aprobado (ver Plan_Detallado_Realineacion_Hyperion.md §7 y
+% Seguimiento_Cambios_Plan_Director.md); su Marco Conceptual, en cambio, es
+% extrapolable al proyecto real (clasificador compute/memory-bound) y se
+% incorporó aquí, excluyendo únicamente las dos subsecciones específicas del
+% selector de dispositivo (rango dinámico de potencia entre CPU/GPU y costo
+% de despacho amortizado) y una mención puntual del EDP como variable
+% objetivo directa. Marco Legal y Estado del Arte resultaron idénticos entre
+% ambos documentos.
+%
+% ESTADO DEL DOCUMENTO (2026-08-14): Redactado completo con los resultados
+% reales de la Fase 1. La campaña CPU de reemplazo terminó con 126/126
+% combinaciones aceptadas y datos de clasificación limpios, pero la
+% verificación posterior de frecuencia efectiva por ventana demostró que los
+% límites escritos en sysfs no retenían el reloj bajo carga mientras el
+% turbo global permanecía activo; por ello esa campaña no constituye todavía
+% evidencia de seis estados DVFS efectivos. El catálogo GPU fue auditado y
+% corregido por precisión aritmética; el mecanismo operativo
+% `nvidia-smi -lgc` quedó validado bajo carga real en dos objetivos
+% distintos, sin atribuir el resultado a una versión de driver, aunque la
+% campaña GPU completa sigue pendiente. Capítulos de Resultados, Discusión y
+% Conclusiones redactados con estos datos; las Fases 2-4 (clasificador,
+% agente, evaluación EDP) quedan fuera de alcance y se incorporarán al
+% cerrarse cada una.
+%
+% PENDIENTES MARCADOS EN EL TEXTO:
+%   - Sección 1.2 (Marco legal): a definir por los autores.
+%==============================================================================
+
+\documentclass[12pt,oneside,spanish]{book}
+
+%==============================================================================
+% PAQUETES
+%==============================================================================
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-tabla]{babel}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{hyperref}
+\usepackage{setspace}
+\usepackage{fancyhdr}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage[numbers]{natbib}
+\usepackage{multirow}
+\usepackage{xcolor}
+\usepackage{float}
+\usepackage{rotating}
+\usepackage{adjustbox}
+\usepackage{tabularx}
+\usepackage{ltablex}
+\usepackage{tikz}
+\usetikzlibrary{positioning,fit,backgrounds,arrows.meta,calc}
+\usepackage[indent=2em]{parskip}
+
+%==============================================================================
+% CONFIGURACIÓN DE ESPACIADO
+%==============================================================================
+
+\onehalfspacing
+
+%==============================================================================
+% ENCABEZADOS Y PIES
+%==============================================================================
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[R]{\thepage}
+\setlength{\headheight}{14.5pt}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+
+%==============================================================================
+% CONFIGURACIÓN DE HIPERENLACES
+%==============================================================================
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=black,
+    citecolor=black,
+    urlcolor=blue,
+    pdftitle={Diseño e Implementación de un Agente en Espacio de Usuario para la Gestión Dinámica de Frecuencia (DVFS) en Sistemas Heterogéneos mediante Modelos Ligeros de Machine Learning},
+    pdfauthor={Yeison Adrián Cáceres Torres; Ricardo Andrés Pérez Porras},
+    pdfcreator={LaTeX with hyperref},
+    pdfproducer={pdfTeX}
+}
+
+%==============================================================================
+% NUEVA DEFINICIÓN DE CAPÍTULOS Y SECCIONES
+%==============================================================================
+
+\renewcommand{\thechapter}{\arabic{chapter}}
+\renewcommand{\theequation}{\arabic{chapter}.\arabic{equation}}
+\renewcommand{\thefigure}{\arabic{chapter}.\arabic{figure}}
+\renewcommand{\thetable}{\arabic{chapter}.\arabic{table}}
+
+%==============================================================================
+% INICIO DEL DOCUMENTO
+%==============================================================================
+
+\begin{document}
+
+\input{secciones/00_frontmatter}
+\input{secciones/01_marco_referencia}
+\input{secciones/02_metodologia}
+\input{secciones/03_resultados}
+\input{secciones/04_discusion}
+\input{secciones/05_conclusiones}
+
+%==============================================================================
+% REFERENCIAS BIBLIOGRÁFICAS
+%==============================================================================
+
+\begin{sloppypar}
+\bibliographystyle{plainnat}
+\bibliography{main}
+\end{sloppypar}
+
+%==============================================================================
+% REPOSITORIO Y RECURSOS COMPLEMENTARIOS
+%==============================================================================
+
+\chapter*{Repositorio y recursos complementarios}
+\addcontentsline{toc}{chapter}{Repositorio y recursos complementarios}
+
+Repositorio público del proyecto:
+
+\url{https://github.com/AdrianCCRS/hyperion}
+
+%==============================================================================
+% FIN DEL DOCUMENTO
+%==============================================================================
+
+\end{document}

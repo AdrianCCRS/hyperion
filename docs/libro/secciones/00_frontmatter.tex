@@ -1,0 +1,216 @@
+
+%==============================================================================
+% PORTADA
+%==============================================================================
+
+\begin{titlepage}
+    \centering
+    \vspace*{1cm}
+
+    {\Large \textbf{Diseño e Implementación de un Agente en Espacio de Usuario}}
+
+    \vspace{0.3cm}
+
+    {\Large \textbf{para la Gestión Dinámica de Frecuencia (DVFS) en Sistemas}}
+
+    \vspace{0.3cm}
+
+    {\Large \textbf{Heterogéneos mediante Modelos Ligeros de Machine Learning}}
+
+    \vspace{2cm}
+
+    {\large Yeison Adrián Cáceres Torres}
+
+    {\large Ricardo Andrés Pérez Porras}
+
+    \vspace{2cm}
+
+    {\large Trabajo de Grado para Optar el Título de Ingeniero de Sistemas}
+
+    \vspace{2cm}
+
+    {\large \textbf{Director}}
+
+    {\large Gilberto Javier Díaz Toro}
+
+    {\large Doctor en Ingeniería}
+
+    \vspace{\fill}
+
+    {\large Universidad Industrial de Santander}
+
+    {\large Facultad de Ingenierías Físico-Mecánicas}
+
+    {\large Escuela de Ingeniería de Sistemas e Informática}
+
+    {\large Bucaramanga}
+
+    {\large 2026}
+
+\end{titlepage}
+
+%==============================================================================
+% PÁGINA DE AGRADECIMIENTOS
+%==============================================================================
+
+\chapter*{Agradecimientos}
+\addcontentsline{toc}{chapter}{Agradecimientos}
+
+\vspace{1cm}
+
+% [PENDIENTE: redactar agradecimientos]
+
+%==============================================================================
+% RESUMEN
+%==============================================================================
+
+\chapter*{Resumen}
+\addcontentsline{toc}{chapter}{Resumen}
+
+\vspace{1cm}
+
+\noindent\textbf{Título:} Diseño e Implementación de un Agente en Espacio de Usuario para la Gestión Dinámica de Frecuencia (DVFS) en Sistemas Heterogéneos mediante Modelos Ligeros de Machine Learning.
+
+\medskip
+
+\noindent\textbf{Autores:} Yeison Adrián Cáceres Torres; Ricardo Andrés Pérez Porras.
+
+\medskip
+
+\noindent\textbf{Palabras Clave:} DVFS; eficiencia energética; computación de alto rendimiento; modelo Roofline; telemetría microarquitectónica; aprendizaje automático supervisado.
+
+\vspace{0.5cm}
+
+\noindent\textbf{Descripción:}
+
+El consumo energético constituye hoy una restricción estructural para el escalamiento de la computación de alto rendimiento (HPC), particularmente en nodos heterogéneos que integran CPU y aceleradores gráficos. El Escalado Dinámico de Voltaje y Frecuencia (DVFS) es el principal mecanismo de control disponible a nivel de hardware, pero su aprovechamiento efectivo depende de decidir, durante la ejecución, cuál punto operativo conviene según el comportamiento de la carga. Los gobernadores nativos del sistema operativo deciden a partir de la utilización agregada del procesador, una señal que no distingue si el rendimiento está limitado por la capacidad aritmética del núcleo o por la transferencia de datos desde memoria; en el segundo caso, sostener la frecuencia máxima incrementa el consumo sin una mejora proporcional del tiempo de ejecución.
+
+Este trabajo propone el diseño, la implementación y la evaluación de un agente en espacio de usuario que infiere el régimen de ejecución de la aplicación a partir de telemetría microarquitectónica y traduce esa inferencia en decisiones discretas de DVFS sobre CPU y GPU, con el objetivo de optimizar el Producto Energía--Retardo (EDP) sin incurrir en una penalización severa del rendimiento ni en una sobrecarga de inferencia que anule el beneficio energético.
+
+El desarrollo se organiza en cuatro fases: caracterización de cargas y construcción del conjunto de datos; entrenamiento y selección de un clasificador supervisado ligero; implementación del servicio de control; y validación experimental frente a los gobernadores nativos de Linux. El presente documento reporta el instrumento de medición y el protocolo experimental construidos durante la primera fase, cuyo aporte metodológico central es un procedimiento reproducible para etiquetar ventanas de ejecución como \textit{compute-bound} o \textit{memory-bound} mediante una calibración empírica del modelo Roofline sobre la plataforma de medición, con trazabilidad explícita de la calidad de cada observación.
+
+% [PENDIENTE: al cerrar las Fases 2-4, incorporar aquí las cifras de
+%  desempeño del clasificador, ahorro energético y EDP obtenidos.]
+
+%==============================================================================
+% ABSTRACT
+%==============================================================================
+
+\chapter*{Abstract}
+\addcontentsline{toc}{chapter}{Abstract}
+
+\vspace{1cm}
+
+\noindent\textbf{Title:} Design and Implementation of a User-Space Agent for Dynamic Frequency Management (DVFS) in Heterogeneous Systems through Lightweight Machine Learning Models.
+
+\medskip
+
+\noindent\textbf{Authors:} Yeison Adrián Cáceres Torres; Ricardo Andrés Pérez Porras.
+
+\medskip
+
+\noindent\textbf{Keywords:} DVFS; energy efficiency; high performance computing; Roofline model; microarchitectural telemetry; supervised machine learning.
+
+\vspace{0.5cm}
+
+\noindent\textbf{Description:}
+
+Energy consumption has become a structural constraint on the scaling of high performance computing (HPC), particularly on heterogeneous nodes that combine CPUs and graphics accelerators. Dynamic Voltage and Frequency Scaling (DVFS) is the main control mechanism available at the hardware level, but exploiting it effectively requires deciding, at run time, which operating point suits the current workload behaviour. Native operating system governors base that decision on aggregate processor utilisation, a signal that does not distinguish whether performance is limited by the arithmetic capability of the core or by data transfer from memory; in the latter case, sustaining maximum frequency raises power draw without a proportional improvement in execution time.
+
+This work proposes the design, implementation and evaluation of a user-space agent that infers the execution regime of an application from microarchitectural telemetry and translates that inference into discrete DVFS decisions over CPU and GPU, aiming to optimise the Energy--Delay Product (EDP) without incurring a severe performance penalty or an inference overhead that cancels the energy benefit.
+
+The work is organised in four phases: workload characterisation and dataset construction; training and selection of a lightweight supervised classifier; implementation of the control service; and experimental validation against the native Linux governors. This document reports the measurement instrument and experimental protocol built during the first phase, whose central methodological contribution is a reproducible procedure for labelling execution windows as \textit{compute-bound} or \textit{memory-bound} through an empirical calibration of the Roofline model on the measurement platform, with explicit traceability of the quality of each observation.
+
+%==============================================================================
+% TABLA DE CONTENIDOS
+%==============================================================================
+
+\clearpage
+\tableofcontents
+
+%==============================================================================
+% LISTA DE TABLAS
+%==============================================================================
+
+\clearpage
+\listoftables
+
+%==============================================================================
+% LISTA DE FIGURAS
+%==============================================================================
+
+\clearpage
+\listoffigures
+
+%==============================================================================
+% INTRODUCCIÓN
+%==============================================================================
+
+\chapter*{Introducción}
+\addcontentsline{toc}{chapter}{Introducción}
+\setcounter{chapter}{0}
+\setcounter{equation}{0}
+\setcounter{figure}{0}
+\setcounter{table}{0}
+
+En los sistemas de cómputo de alto rendimiento (HPC), el consumo energético se ha consolidado como una restricción crítica para el escalado sostenible, especialmente en arquitecturas heterogéneas CPU--GPU. En este contexto, el Escalado Dinámico de Voltaje y Frecuencia (DVFS) constituye el principal mecanismo de control a nivel de hardware, permitiendo ajustar los estados operativos de los procesadores para optimizar el compromiso entre consumo energético y tiempo de ejecución. Sin embargo, la efectividad de este mecanismo depende de la capacidad del sistema para adaptar dinámicamente la frecuencia al comportamiento cambiante de las aplicaciones, lo cual representa un desafío abierto en entornos HPC modernos.
+
+En la literatura, este problema ha sido abordado principalmente mediante dos enfoques. Por un lado, los gobernadores de energía del sistema operativo, como \texttt{ondemand} o \texttt{schedutil}, emplean políticas reactivas basadas principalmente en la utilización del procesador, sin considerar la naturaleza microarquitectónica de la carga de trabajo, lo que limita su capacidad de adaptación a cargas de trabajo científicas dinámicas. Por otro lado, diversas propuestas han explorado estrategias heurísticas basadas en métricas microarquitectónicas, utilizando reglas deterministas para ajustar la frecuencia de operación. Aunque estos métodos presentan bajo \textit{overhead}, su dependencia de umbrales estáticos y su limitada capacidad de generalización reducen su efectividad en escenarios donde las fases computacionales varían rápidamente.
+
+A pesar de estos avances, persiste una limitación fundamental: la incapacidad de los enfoques actuales para capturar de forma robusta las transiciones dinámicas entre regímenes \textit{compute-bound} y \textit{memory-bound}, así como para adaptarse a la heterogeneidad CPU--GPU sin intervención manual o ajuste específico por carga de trabajo. Esta brecha evidencia la necesidad de mecanismos de control más flexibles que permitan inferir el régimen computacional de la aplicación en tiempo de ejecución y tomar decisiones de escalado de frecuencia fundamentadas en el perfil de ejecución.
+
+En este contexto, el presente trabajo propone el diseño e implementación de un agente en espacio de usuario basado en modelos ligeros de aprendizaje automático, capaz de clasificar en tiempo de ejecución las fases de una aplicación como \textit{compute-bound} o \textit{memory-bound} a partir de telemetría microarquitectónica. Con base en esta clasificación, el sistema ajusta dinámicamente la frecuencia de CPU y GPU con el objetivo de optimizar el Producto Energía--Retardo (EDP). Se espera que este enfoque permita mejorar la eficiencia energética en comparación con los gobernadores tradicionales de Linux, manteniendo una degradación controlada del rendimiento y un \textit{overhead} mínimo asociado a la inferencia.
+
+Ahora bien, antes de que un modelo de aprendizaje automático pueda decidir sobre la frecuencia de operación, es necesario disponer de un conjunto de datos etiquetado que asocie observaciones de telemetría con regímenes de ejecución. Construir ese conjunto no es un paso preparatorio trivial: exige resolver de forma explícita cómo se atribuye la telemetría al proceso medido, con qué resolución temporal se observa, bajo qué criterio se declara que una ventana de ejecución pertenece a un régimen u otro, y qué observaciones deben descartarse por no ser representativas. Estas decisiones condicionan la validez de todo lo que se construya después, razón por la cual el presente documento dedica una parte sustancial de su desarrollo metodológico a la construcción y verificación del instrumento de medición.
+
+%------------------------------------------------------------------------------
+% PLANTEAMIENTO Y JUSTIFICACIÓN DEL PROBLEMA
+%------------------------------------------------------------------------------
+
+\section*{Planteamiento y justificación del problema}
+\addcontentsline{toc}{section}{Planteamiento y justificación del problema}
+
+Existe una ineficiencia energética estructural en la operación de los sistemas de alto rendimiento (HPC), especialmente en infraestructuras que integran aceleradores gráficos (GPU) para ejecutar aplicaciones científicas intensivas. Cuando una aplicación entra en una fase donde el procesamiento depende principalmente de la transferencia de datos desde memoria, mantener la CPU o la GPU a su frecuencia máxima no mejora el rendimiento de manera proporcional. En estas condiciones, los núcleos de cómputo permanecen parcialmente inactivos esperando datos, lo que genera un consumo energético elevado sin un beneficio equivalente en tiempo de ejecución. Esta desalineación entre demanda computacional y frecuencia operativa ha motivado el estudio del escalado de frecuencia como mecanismo para mejorar la eficiencia energética en aplicaciones científicas \cite{Simsek2024} y en sistemas de gran escala donde la gestión de potencia impacta el comportamiento global del sistema \cite{Costa2025}.
+
+El problema se agrava por la naturaleza multifásica de las aplicaciones HPC, cuyo perfil de ejecución cambia a lo largo del tiempo de ejecución. En particular, estas aplicaciones alternan entre fases donde el rendimiento está limitado por la capacidad de cómputo del procesador (\textit{compute-bound}) y fases donde está restringido por la transferencia de datos desde memoria (\textit{memory-bound}). Esta distinción es crítica porque, en el régimen \textit{memory-bound}, incrementos de frecuencia tienden a producir mejoras marginales en el tiempo de ejecución, mientras aumentan el consumo energético; en contraste, en fases \textit{compute-bound} la frecuencia sí impacta el desempeño de forma más directa. Por ello, se han propuesto marcos de caracterización para identificar y clasificar estas fases en entornos HPC, con el fin de habilitar decisiones de control más informadas \cite{Antici2024,Calore2017}.
+
+A partir de este contexto, la gestión eficiente de frecuencia no depende únicamente de la disponibilidad del mecanismo DVFS en el hardware, sino de la capacidad del sistema para decidir, en tiempo de ejecución, cuál configuración resulta más conveniente según el comportamiento de la carga. Aunque se han propuesto mecanismos automatizados para seleccionar frecuencias óptimas de GPU con el fin de mejorar la eficiencia energética sin comprometer significativamente el desempeño \cite{Ali2023}, persiste una brecha en la implementación de estrategias que integren de forma coordinada componentes CPU--GPU y que operen durante la ejecución de la aplicación, considerando además el costo computacional asociado al propio proceso de decisión.
+
+Esta brecha resulta especialmente relevante en entornos académicos y científicos, donde el consumo eléctrico incide directamente en los costos operativos, la disponibilidad efectiva de recursos y la sostenibilidad institucional. En este contexto, contar con un mecanismo capaz de observar el comportamiento de la aplicación, inferir su fase de ejecución y ajustar la frecuencia de operación sin intervenir el código fuente constituye una alternativa con valor técnico y práctico.
+
+Desde la perspectiva internacional, la literatura reciente ha mostrado avances en la optimización energética mediante escalado de frecuencia, gestión de potencia y caracterización de cargas HPC \cite{Simsek2024,Costa2025,Antici2024,Calore2017,Ali2023}. Sin embargo, a nivel nacional y regional, este tipo de soluciones aún no se encuentra ampliamente implementado en infraestructuras académicas de cómputo científico, particularmente bajo esquemas que combinen telemetría de bajo nivel, modelos ligeros de aprendizaje automático y control en espacio de usuario. En consecuencia, el problema no solo es técnicamente relevante, sino también pertinente en términos de aplicabilidad local.
+
+A partir de esta necesidad de optimización energética en sistemas heterogéneos, se formula la siguiente pregunta de investigación que servirá como eje de desarrollo del proyecto:
+
+\vspace{0.5cm}
+
+\noindent\fbox{\parbox{0.97\textwidth}{%
+\textbf{¿En qué medida el diseño e implementación de un agente en espacio de usuario, guiado por modelos ligeros de aprendizaje automático, permite ajustar la frecuencia de operación (DVFS) en sistemas heterogéneos CPU--GPU para reducir el consumo energético, sin que el costo de la inferencia computacional degrade el rendimiento global de la aplicación, en comparación con los gobernadores nativos de Linux?}
+}}
+
+\vspace{0.5cm}
+
+%------------------------------------------------------------------------------
+% OBJETIVOS
+%------------------------------------------------------------------------------
+
+\section*{Objetivos}
+\addcontentsline{toc}{section}{Objetivos}
+
+\subsection*{Objetivo General}
+
+Caracterizar, diseñar, implementar y evaluar un agente en espacio de usuario basado en modelos ligeros de Aprendizaje Automático para el ajuste dinámico de frecuencia (DVFS) en sistemas heterogéneos CPU--GPU, con el propósito de maximizar la eficiencia energética en aplicaciones científicas sin inducir una penalización severa en su rendimiento global.
+
+\subsection*{Objetivos Específicos}
+
+\begin{enumerate}
+
+    \item Caracterizar el comportamiento computacional y el consumo energético de cargas de trabajo representativas (intensivas en cómputo y en memoria) bajo distintos estados de frecuencia, recolectando telemetría de bajo nivel mediante contadores de rendimiento por hardware e interfaces de potencia estándar (Perf y RAPL para CPU y NVML para GPU).
+
+    \item Entrenar y validar modelos clásicos de Aprendizaje Automático (tales como Árboles de Decisión o Bosques Aleatorios) que sean capaces de clasificar, en tiempo de ejecución y con baja latencia de inferencia, las fases de ejecución de las aplicaciones basándose en la telemetría extraída.
+
+    \item Desarrollar un servicio de control (\textit{daemon}) en el espacio de usuario que interactúe de forma asíncrona con el sistema operativo, leyendo el estado de los contadores de hardware, ejecutando la inferencia del modelo clasificador y aplicando políticas proactivas de DVFS a través de las interfaces estándar del sistema operativo, en función de la fase de ejecución inferida por el modelo.
+
+    \item Evaluar el impacto empírico del sistema propuesto mediante el cálculo del Producto Energía--Retardo (EDP), con el fin de determinar estadísticamente si el ahorro energético compensa la sobrecarga computacional (\textit{overhead}) derivado de la inferencia del modelo en comparación con los gobernadores nativos de Linux.
+
+\end{enumerate}
