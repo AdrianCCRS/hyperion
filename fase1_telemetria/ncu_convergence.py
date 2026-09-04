@@ -27,6 +27,7 @@ import csv
 import io
 import json
 import re
+import shlex
 import shutil
 import subprocess
 from dataclasses import dataclass, field, asdict
@@ -35,6 +36,7 @@ from pathlib import Path
 
 REL_TOL_DEFAULT = 0.01           # 1% -- criterio declarado antes del resultado
 OBSERVED_MATCH_TOL = 0.02        # launches observados vs. solicitados
+MIXED_PRECISION_MIN_FRACTION = 0.001  # 0.1%; por debajo se trata como ruido
 
 # Métricas de `ncu` que buscamos (por subcadena, tolerante a versión).
 # FLOPs: instrucciones de punto flotante ejecutadas por operación.
@@ -85,6 +87,10 @@ class KernelConvergence:
     roofline_label_eligible: bool = False
     status: str = "pending"     # pending | converged | not_converged | not_suitable_for_roofline_truth
     reason: str = ""
+    catalog_declared_operational_intensity: float | None = None
+    catalog_declared_precision: str | None = None
+    operational_intensity_relative_difference: float | None = None
+    tensor_instructions_observed: float = 0.0
     generated_at_utc: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
@@ -100,18 +106,88 @@ def _num(s: str) -> float | None:
         return None
 
 
-def parse_ncu_csv(text: str) -> dict:
-    """Parsea la salida `ncu --csv` (estilo `--metrics`, una fila por launch,
-    una columna por métrica). Devuelve sumas por bucket sobre TODAS las filas
-    (== todos los launches de esa corrida) + nº de filas (launches observados).
+def _empty_parse() -> dict:
+    return {
+        "launches_observed": 0, "fp32_inst": 0.0, "fp64_inst": 0.0,
+        "int_inst": 0.0, "fma_inst": 0.0, "dram_bytes": 0.0,
+        "tensor_inst": 0.0, "by_metric": {}, "metric_names_present": [],
+        "csv_layout": "unknown",
+    }
 
-    Tolerante a versiones: mapea por subcadena del nombre de métrica.
+
+def _metric_bucket(name: str) -> tuple[str, ...]:
+    lowered = name.lower().strip()
+    buckets: list[str] = []
+    if any(k in lowered for k in _FP32_KEYS):
+        buckets.append("fp32_inst")
+    if any(k in lowered for k in _FP64_KEYS):
+        buckets.append("fp64_inst")
+    if any(k in lowered for k in _INT_KEYS):
+        buckets.append("int_inst")
+    if any(k in lowered for k in _FMA_KEYS):
+        buckets.append("fma_inst")
+    if lowered in _DRAM_BYTES_KEYS or ("dram__bytes" in lowered and lowered.endswith(".sum")):
+        buckets.append("dram_bytes")
+    if "pipe_tensor" in lowered or "tensor_op_" in lowered:
+        buckets.append("tensor_inst")
+    return tuple(buckets)
+
+
+def _parse_long_ncu_csv(rows: list[list[str]], header_index: int) -> dict:
+    """Formato real de ``ncu --csv --page raw``: una fila por
+    (lanzamiento, métrica), con columnas ``ID``, ``Metric Name`` y
+    ``Metric Value``. Las líneas informativas anteriores al encabezado se
+    ignoran de forma explícita.
+    """
+    reader = csv.DictReader(io.StringIO("\n".join(
+        ",".join(csv_quote(cell) for cell in row) for row in rows[header_index:]
+    )))
+    result = _empty_parse()
+    result["csv_layout"] = "ncu_long"
+    launches: set[tuple[str, str, str]] = set()
+    for row in reader:
+        name = (row.get("Metric Name") or "").strip()
+        value = _num(row.get("Metric Value") or "")
+        if not name:
+            continue
+        result["metric_names_present"].append(name)
+        launches.add((row.get("Process ID") or "", row.get("ID") or "", row.get("Kernel Name") or ""))
+        if value is None:
+            continue
+        result["by_metric"][name] = result["by_metric"].get(name, 0.0) + value
+        for bucket in _metric_bucket(name):
+            result[bucket] += value
+    # Una métrica produce muchas filas para el mismo lanzamiento; contar
+    # filas inflaría el número de launches por el número de métricas.
+    result["launches_observed"] = len(launches)
+    result["metric_names_present"] = sorted(set(result["metric_names_present"]))
+    return result
+
+
+def csv_quote(value: str) -> str:
+    """Serialización mínima para reconstruir las filas ya parseadas."""
+    output = io.StringIO()
+    csv.writer(output, lineterminator="").writerow([value])
+    return output.getvalue()
+
+
+def parse_ncu_csv(text: str) -> dict:
+    """Parsea tanto el CSV largo real de ``ncu --page raw`` como el formato
+    ancho usado por fixtures antiguos.
+
+    En el formato largo el número de lanzamientos se obtiene de los IDs
+    distintos, nunca del número de filas (cada launch aporta una fila por
+    métrica). Esta distinción es necesaria para evaluar convergencia.
     """
     reader = csv.reader(io.StringIO(text))
     rows = [r for r in reader if r]
     if not rows:
-        return {"launches_observed": 0, "fp32_inst": 0.0, "fp64_inst": 0.0,
-                "int_inst": 0.0, "fma_inst": 0.0, "dram_bytes": 0.0, "by_metric": {}}
+        return _empty_parse()
+    for index, row in enumerate(rows):
+        normalized = {cell.strip().strip('"') for cell in row}
+        if {"Metric Name", "Metric Value"} <= normalized:
+            return _parse_long_ncu_csv(rows, index)
+
     header = [h.strip().strip('"') for h in rows[0]]
     data = rows[1:]
 
@@ -127,7 +203,7 @@ def parse_ncu_csv(text: str) -> dict:
     kname_cols = col_idx(lambda h: h in ("kernel name", "\"kernel name\"", "demangled name"))
 
     sums = {"fp32_inst": 0.0, "fp64_inst": 0.0, "int_inst": 0.0, "fma_inst": 0.0,
-            "dram_bytes": 0.0}
+            "dram_bytes": 0.0, "tensor_inst": 0.0}
     by_metric: dict[str, float] = {}
     launches = 0
     for r in data:
@@ -145,6 +221,7 @@ def parse_ncu_csv(text: str) -> dict:
                     sums[key] += v
                     by_metric[header[ci]] = by_metric.get(header[ci], 0.0) + v
     return {"launches_observed": launches, "by_metric": by_metric, **sums,
+            "metric_names_present": sorted(by_metric), "csv_layout": "wide_fixture",
             "has_kernel_name_col": bool(kname_cols)}
 
 
@@ -166,9 +243,10 @@ def flops_and_precision(parsed: dict) -> tuple[float, str]:
         return 0.0, ("integer_no_flops" if ints > 0 else "no_flops")
     flops = fp32 + fp64 + fma
     frac64 = fp64 / total_fp
-    if frac64 >= 0.9:
+    frac32 = fp32 / total_fp
+    if frac32 < MIXED_PRECISION_MIN_FRACTION:
         prec = "fp64"
-    elif frac64 <= 0.1:
+    elif frac64 < MIXED_PRECISION_MIN_FRACTION:
         prec = "fp32"
     else:
         prec = "mixed"
@@ -193,12 +271,31 @@ def assess_convergence(points: list[NcuPoint], *, rel_tol: float = REL_TOL_DEFAU
         return {"converged": False, "reason": "menos de 2 puntos con OI definida"}
     ordered = sorted(valid, key=lambda p: p.launch_count_requested)
     a, b = ordered[-2], ordered[-1]
-    for p in (a, b):
-        req = max(p.launch_count_requested, 1)
-        if abs(p.launch_count_observed - p.launch_count_requested) / req > OBSERVED_MATCH_TOL:
-            return {"converged": False,
-                    "reason": f"launches observados ({p.launch_count_observed}) != "
-                              f"solicitados ({p.launch_count_requested})"}
+    if a.launch_count_observed <= 0 or b.launch_count_observed <= 0:
+        return {"converged": False, "reason": "ncu no observó lanzamientos CUDA"}
+    # Dos casos válidos: (1) ncu alcanzó ambos límites crecientes, o (2) la
+    # aplicación terminó antes del límite y ambos puntos finales capturaron
+    # el mismo conjunto completo. Un valor observado arbitrariamente menor
+    # en el último punto no demuestra convergencia.
+    limits_reached = (
+        abs(a.launch_count_observed - a.launch_count_requested) /
+        max(a.launch_count_requested, 1) <= OBSERVED_MATCH_TOL
+        and abs(b.launch_count_observed - b.launch_count_requested) /
+        max(b.launch_count_requested, 1) <= OBSERVED_MATCH_TOL
+    )
+    full_workload_saturated = (
+        a.launch_count_observed == b.launch_count_observed
+        and a.launch_count_observed < a.launch_count_requested
+        and b.launch_count_observed < b.launch_count_requested
+    )
+    if not (limits_reached or full_workload_saturated):
+        return {
+            "converged": False,
+            "reason": "los launches observados no alcanzan los límites ni demuestran "
+                      "saturación estable de la aplicación "
+                      f"({a.launch_count_observed}/{a.launch_count_requested}, "
+                      f"{b.launch_count_observed}/{b.launch_count_requested})",
+        }
     rel = abs(b.operational_intensity - a.operational_intensity) / a.operational_intensity
     if rel < rel_tol:
         return {"converged": True, "converged_at_launch_count": b.launch_count_requested,
@@ -213,22 +310,40 @@ def build_kernel_report(kernel_ref: str, points: list[NcuPoint], *,
                         kernel_args: list[str] | None = None,
                         ncu_version: str | None = None, driver_version: str | None = None,
                         cuda_version: str | None = None,
+                        catalog_declared_operational_intensity: float | None = None,
+                        catalog_declared_precision: str | None = None,
+                        tensor_instructions_observed: float = 0.0,
                         rel_tol: float = REL_TOL_DEFAULT) -> KernelConvergence:
     rep = KernelConvergence(
         kernel_ref=kernel_ref, exec_path=exec_path, binary_checksum=binary_checksum,
         kernel_args=list(kernel_args or []), ncu_version=ncu_version,
         driver_version=driver_version, cuda_version=cuda_version,
         points=[asdict(p) for p in points],
+        catalog_declared_operational_intensity=catalog_declared_operational_intensity,
+        catalog_declared_precision=catalog_declared_precision,
+        tensor_instructions_observed=tensor_instructions_observed,
     )
     precisions = {p.precision for p in points if p.precision not in (None, "")}
     rep.precision = ("mixed" if len(precisions) > 1
                      else (next(iter(precisions)) if precisions else None))
 
+    if tensor_instructions_observed > 0:
+        rep.status = "not_suitable_for_roofline_truth"
+        rep.reason = ("se observaron instrucciones Tensor Core, pero este contrato solo "
+                      "convierte ADD/MUL/FMA escalares/vectoriales a FLOPs; se requiere "
+                      "un método explícito para contabilizar Tensor Core")
+        return rep
     if rep.precision in ("integer_no_flops", "no_flops") or precisions <= {"integer_no_flops", "no_flops"}:
         rep.status = "not_suitable_for_roofline_truth"
         rep.reason = ("sin FLOPs de punto flotante útiles: FLOPs/byte no describe "
                       "trabajo -- NO se asigna etiqueta Roofline")
         rep.roofline_label_eligible = False
+        return rep
+
+    if rep.precision == "mixed":
+        rep.status = "not_suitable_for_roofline_truth"
+        rep.reason = ("precisión FP32/FP64 mixta: no se asigna automáticamente un único "
+                      "ridge Roofline")
         return rep
 
     conv = assess_convergence(points, rel_tol=rel_tol)
@@ -237,8 +352,12 @@ def build_kernel_report(kernel_ref: str, points: list[NcuPoint], *,
     rep.final_operational_intensity = conv.get("final_operational_intensity")
     if rep.converged:
         rep.status = "converged"
-        rep.roofline_label_eligible = rep.precision in ("fp32", "fp64", "mixed")
+        rep.roofline_label_eligible = rep.precision in ("fp32", "fp64")
         rep.reason = f"convergió (cambio relativo {conv.get('relative_change', 0):.4f})"
+        if catalog_declared_operational_intensity not in (None, 0):
+            rep.operational_intensity_relative_difference = abs(
+                rep.final_operational_intensity - catalog_declared_operational_intensity
+            ) / abs(catalog_declared_operational_intensity)
     else:
         rep.status = "not_converged"
         rep.roofline_label_eligible = False
@@ -255,9 +374,10 @@ _METRICS_ARG = ",".join([
     "sm__sass_thread_inst_executed_op_dadd_pred_on.sum",
     "sm__sass_thread_inst_executed_op_dmul_pred_on.sum",
     "sm__sass_thread_inst_executed_op_dfma_pred_on.sum",
-    "sm__sass_thread_inst_executed_op_iadd_pred_on.sum",
-    "sm__sass_thread_inst_executed_op_imad_pred_on.sum",
     "dram__bytes.sum",
+    # Guardarraíl: no intentamos convertir Tensor Core a FLOPs sin una regla
+    # arquitectural explícita. Si aparece actividad, el reporte queda no apto.
+    "sm__inst_executed_pipe_tensor.sum",
 ])
 
 
@@ -284,11 +404,11 @@ def runbook(kernel_ref: str, exec_tmpl: str, launch_counts: list[int], out_dir: 
         "",
     ]
     for lc in launch_counts:
-        cmd = exec_tmpl.replace("{launches}", str(lc)).replace("{N}", str(lc))
         lines += [
             f'echo "=== launches={lc} ==="',
-            f'ncu --csv --metrics {_METRICS_ARG} --target-processes all \\',
-            f'    {cmd} > "$OUT/{kernel_ref}__lc{lc}.csv" 2> "$OUT/{kernel_ref}__lc{lc}.log"',
+            f'ncu --csv --page raw --print-units base --metrics {_METRICS_ARG} \\',
+            f'    --target-processes all --launch-count {lc} \\',
+            f'    {exec_tmpl} > "$OUT/{kernel_ref}__lc{lc}.csv" 2> "$OUT/{kernel_ref}__lc{lc}.log"',
         ]
     lines += [
         "",
@@ -325,7 +445,8 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--kernel", required=True)
     p.add_argument("--exec-template", default=None,
-                   help="Comando del kernel con {launches}/{N} como placeholder del trabajo.")
+                   help=("Comando fijo real del kernel. La cantidad creciente se "
+                         "aplica mediante ncu --launch-count; no use placeholders."))
     p.add_argument("--exec-path", default=None)
     p.add_argument("--binary-checksum", default=None)
     p.add_argument("--launch-counts", default="10,50,100,500")
@@ -334,6 +455,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--rel-tol", type=float, default=REL_TOL_DEFAULT)
     p.add_argument("--out-dir", type=Path, required=True)
     a = p.parse_args(argv)
+    if a.exec_template and ("{launches}" in a.exec_template or "{N}" in a.exec_template):
+        raise SystemExit(
+            "--exec-template debe ser el comando fijo real del catálogo; "
+            "ncu --launch-count controla cuántos lanzamientos se perfilan"
+        )
     a.out_dir.mkdir(parents=True, exist_ok=True)
     launch_counts = [int(x) for x in a.launch_counts.split(",")]
 
@@ -346,15 +472,21 @@ def main(argv: list[str] | None = None) -> int:
         for lc in launch_counts:
             if not a.exec_template:
                 raise SystemExit("--exec-template es obligatorio para invocar ncu")
-            cmd = a.exec_template.replace("{launches}", str(lc)).replace("{N}", str(lc))
+            cmd = a.exec_template
             csv_path = a.out_dir / f"{a.kernel}__lc{lc}.csv"
             r = subprocess.run(
-                [a.ncu, "--csv", "--metrics", _METRICS_ARG, "--target-processes", "all",
-                 *cmd.split()],
+                [a.ncu, "--csv", "--page", "raw", "--print-units", "base",
+                 "--metrics", _METRICS_ARG, "--target-processes", "all",
+                 "--launch-count", str(lc), *shlex.split(cmd)],
                 capture_output=True, text=True, timeout=1200, check=False,
             )
             csv_path.write_text(r.stdout)
             (a.out_dir / f"{a.kernel}__lc{lc}.log").write_text(r.stderr)
+            if r.returncode != 0:
+                raise SystemExit(
+                    f"ncu falló para {a.kernel}, launch-count={lc}, rc={r.returncode}; "
+                    f"ver {a.out_dir / f'{a.kernel}__lc{lc}.log'}"
+                )
             parsed = parse_ncu_csv(r.stdout)
             flops, prec = flops_and_precision(parsed)
             points.append(NcuPoint(lc, parsed.get("launches_observed", 0), flops,
@@ -369,6 +501,10 @@ def main(argv: list[str] | None = None) -> int:
     rep = build_kernel_report(
         a.kernel, points, exec_path=a.exec_path, binary_checksum=a.binary_checksum,
         kernel_args=(a.exec_template.split() if a.exec_template else []),
+        tensor_instructions_observed=sum(
+            float(p.raw_metric_sums.get("sm__inst_executed_pipe_tensor.sum", 0.0))
+            for p in points
+        ),
         rel_tol=a.rel_tol, **({} if a.from_csv else versions),
     )
     out = a.out_dir / f"{a.kernel}.json"

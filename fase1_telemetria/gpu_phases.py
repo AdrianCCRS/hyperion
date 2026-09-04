@@ -74,6 +74,10 @@ GPU_PHASE_COLUMNS: tuple[str, ...] = (
     "phase_quality_status",     # ok | insufficient_samples | no_usable_samples | label_missing | phasic_control_needs_marks
     "phase_quality_reason",
     "training_eligible",        # bool
+    "gpu_freq_mhz_requested",
+    "gpu_freq_mhz_applied",
+    "gpu_frequency_quality_status",  # valid | invalid | not_applicable_native
+    "gpu_frequency_valid_fraction",
     "n_nvml_samples",
     "n_nvml_samples_warmup_excluded",
     "usable_sample_fraction",
@@ -187,6 +191,9 @@ def build_gpu_phase_rows(
     min_nvml_samples: int = 8,
     min_usable_sample_fraction: float = 0.5,
     phase_marks: dict[str, list] | None = None,
+    gpu_freq_mhz_requested: int | None = None,
+    gpu_freq_mhz_applied: int | None = None,
+    gpu_freq_tolerance_fraction: float = 0.05,
 ) -> list[dict[str, Any]]:
     """Agrupa las ventanas GPU de `windows.csv` por corrida y produce una fila
     de dataset por corrida (o fase, si `phase_marks` -- hook no implementado).
@@ -219,6 +226,8 @@ def build_gpu_phase_rows(
         kernel_ref = first.get("kernel_ref") or ""
         result["kernel_family"] = _kernel_family(kernel_ref)
         result["granularity"] = "run"
+        result["gpu_freq_mhz_requested"] = gpu_freq_mhz_requested
+        result["gpu_freq_mhz_applied"] = gpu_freq_mhz_applied
         result["n_nvml_samples"] = len(rows)
         result["n_nvml_samples_warmup_excluded"] = warmup_excluded.get(rid, 0)
 
@@ -242,6 +251,18 @@ def build_gpu_phase_rows(
             for suf in _AGG_SUFFIXES:
                 result[f"{sig}_{suf}"] = agg[suf]
 
+        clocks = [_to_float(row.get("gpu_sm_clock_mhz")) for row in rows]
+        clocks = [clock for clock in clocks if clock is not None]
+        if gpu_freq_mhz_applied is None:
+            result["gpu_frequency_quality_status"] = "not_applicable_native"
+            result["gpu_frequency_valid_fraction"] = None
+        else:
+            tolerance = max(abs(gpu_freq_mhz_applied) * gpu_freq_tolerance_fraction, 1.0)
+            valid_count = sum(abs(clock - gpu_freq_mhz_applied) <= tolerance for clock in clocks)
+            valid_fraction = valid_count / len(clocks) if clocks else 0.0
+            result["gpu_frequency_valid_fraction"] = valid_fraction
+            result["gpu_frequency_quality_status"] = "valid" if valid_fraction >= 0.9 else "invalid"
+
         # --- calidad / elegibilidad ---
         label = first.get("phase_label_train")
         status, reason, eligible = "ok", "", True
@@ -261,6 +282,11 @@ def build_gpu_phase_rows(
             status, eligible = "insufficient_samples", False
             reason = (f"usable_sample_fraction={result['usable_sample_fraction']:.2f} "
                       f"< {min_usable_sample_fraction}")
+        elif result["gpu_frequency_quality_status"] == "invalid":
+            status, eligible = "gpu_frequency_invalid", False
+            reason = (f"solo {result['gpu_frequency_valid_fraction']:.1%} de clocks NVML "
+                      f"dentro de ±{gpu_freq_tolerance_fraction:.1%} de "
+                      f"{gpu_freq_mhz_applied} MHz")
         result["phase_quality_status"] = status
         result["phase_quality_reason"] = reason
         result["training_eligible"] = eligible

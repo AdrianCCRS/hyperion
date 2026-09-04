@@ -1241,7 +1241,11 @@ def run_postprocess(
         freq_khz_requested=freq_khz_requested,
         freq_khz_applied=freq_khz_applied,
         freq_khz_observed=freq_khz_observed,
-        binary_checksum=kernel_entry.binary_checksum,
+        binary_checksum=(
+            kernel_entry.binary_checksum.get(node_id)
+            if isinstance(kernel_entry.binary_checksum, dict)
+            else kernel_entry.binary_checksum
+        ),
         roofline_calibration_ref=str(
             Path(calibration_dir) / calibration_module.calibration_filename(freq_level_id)
         ),
@@ -1282,8 +1286,19 @@ def run_postprocess(
     if is_gpu:
         from fase1_telemetria import gpu_phases as _gpu_phases
 
+        try:
+            with (run_dir / "metadata.json").open(encoding="utf-8") as metadata_file:
+                run_metadata = json.load(metadata_file)
+        except (OSError, json.JSONDecodeError):
+            run_metadata = {}
+
         _gpu_phases.write_gpu_phases_csv(
-            _gpu_phases.build_gpu_phase_rows(windows),
+            _gpu_phases.build_gpu_phase_rows(
+                windows,
+                gpu_freq_mhz_requested=run_metadata.get("gpu_freq_mhz_requested"),
+                gpu_freq_mhz_applied=run_metadata.get("gpu_freq_mhz_applied"),
+                gpu_freq_tolerance_fraction=freq_tolerance_fraction,
+            ),
             destination_dir / _gpu_phases.GPU_PHASE_DATASET_FILENAME,
         )
         _gpu_phases.write_contract(

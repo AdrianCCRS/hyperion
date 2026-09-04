@@ -92,6 +92,20 @@ def test_pocas_muestras_no_es_elegible():
     assert rows[0]["phase_quality_status"] == "insufficient_samples"
 
 
+def test_reloj_gpu_fijo_se_verifica_sobre_muestras_bajo_carga():
+    wins = [_gpu_win("run_A", 1000 + i * 100, util=90, power=2e5, sm_clock=1200)
+            for i in range(20)]
+    rows = gpu_phases.build_gpu_phase_rows(
+        wins, gpu_freq_mhz_requested=900, gpu_freq_mhz_applied=900,
+        gpu_freq_tolerance_fraction=0.05,
+    )
+    row = rows[0]
+    assert row["gpu_frequency_quality_status"] == "invalid"
+    assert row["gpu_frequency_valid_fraction"] == 0.0
+    assert row["training_eligible"] is False
+    assert row["phase_quality_status"] == "gpu_frequency_invalid"
+
+
 def test_sin_etiqueta_no_es_elegible():
     wins = [_gpu_win("run_A", 1000 + i * 100, util=90, power=2e5, sm_clock=1400, label="")
             for i in range(20)]

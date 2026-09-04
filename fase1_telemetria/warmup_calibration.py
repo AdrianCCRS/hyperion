@@ -355,7 +355,8 @@ def apply_proposals_to_catalog(catalog_path: Path, proposals: list[dict], *,
             continue
         cur = entry.get("warmup_seconds")
         cat_ck = entry.get("binary_checksum")
-        if p.get("binary_checksum") and cat_ck and p["binary_checksum"] != cat_ck:
+        accepted_checksums = set(cat_ck.values()) if isinstance(cat_ck, dict) else {cat_ck}
+        if p.get("binary_checksum") and cat_ck and p["binary_checksum"] not in accepted_checksums:
             diff.append({"kernel_ref": p["kernel_ref"], "action": "skip",
                          "reason": f"checksum distinto (catálogo {cat_ck} vs propuesta {p['binary_checksum']})"})
             continue
@@ -403,13 +404,49 @@ def _discover_runs(campaign_dir: Path, kernel_ref: str) -> list[tuple[Path, str 
     """Busca subdirectorios `*__<kernel_ref>__<LEVEL>__rep*` con windows.csv."""
     runs = []
     for d in sorted(campaign_dir.glob(f"*__{kernel_ref}__*__rep*")):
+        if any(marker in d.name for marker in ("__baseline", "__rejected", "__incomplete")):
+            continue
         wc = d / "windows.csv"
         if not wc.exists():
             continue
+        try:
+            verdict = json.loads((d / "verdict.json").read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        if verdict.get("accepted") is not True:
+            continue
+        try:
+            metadata = json.loads((d / "metadata.json").read_text())
+        except (OSError, json.JSONDecodeError):
+            metadata = {}
         parts = d.name.split("__")
-        level = parts[2] if len(parts) >= 3 else None
+        level = metadata.get("gpu_freq_level_id") or metadata.get("freq_level_id")
+        if level is None:
+            level = parts[2] if len(parts) >= 3 else None
         runs.append((wc, d.name, level))
     return runs
+
+
+def _checksum_from_runs(runs: list[tuple[Path, str | None, str | None]]) -> str | None:
+    """Recupera el checksum resuelto por nodo que postprocess dejó en cada
+    ``windows.csv``. Corridas del mismo kernel con checksums distintos no se
+    pueden combinar en una sola calibración de warmup.
+    """
+    checksums: set[str] = set()
+    for path, _, _ in runs:
+        try:
+            with path.open(newline="", encoding="utf-8") as source:
+                first = next(csv.DictReader(source), None)
+        except (OSError, StopIteration):
+            first = None
+        value = (first or {}).get("binary_checksum")
+        if value:
+            checksums.add(value)
+    if len(checksums) > 1:
+        raise ValueError(
+            f"corridas con checksums distintos en una calibración: {sorted(checksums)}"
+        )
+    return next(iter(checksums), None)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -438,7 +475,10 @@ def main(argv: list[str] | None = None) -> int:
                 notes=["sin windows.csv de mini-campaña -- no se calibra"],
             ))
             continue
-        results.append(calibrate_kernel(runs, kernel_ref=k, device=a.device))
+        results.append(calibrate_kernel(
+            runs, kernel_ref=k, device=a.device,
+            binary_checksum=_checksum_from_runs(runs),
+        ))
 
     json_path, csv_path = write_artifact(results, a.out_dir)
     for r in results:

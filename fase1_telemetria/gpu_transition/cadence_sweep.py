@@ -17,7 +17,27 @@ import json
 from pathlib import Path
 
 BASELINE_NS = 5_000_000
-_SIGNALS = ("power_mw", "util_pct", "sm_clock_mhz")
+_SIGNALS = (
+    "power_mw",
+    "util_pct",
+    "mem_util_pct",
+    "sm_clock_mhz",
+    "graphics_clock_mhz",
+    "temperature_c",
+    "energy_mj",
+)
+# Señales online que deben conservar resolución para elegir q_produccion. La
+# temperatura cambia mucho más lentamente y la energía es acumulativa: se
+# reportan para conocer su frescura, pero no convierten por sí solas una
+# cadencia en inválida. graphics_clock_mhz verifica la actuación; la feature
+# que consume el modelo es sm_clock_mhz.
+_GATING_SIGNALS = (
+    "power_mw",
+    "util_pct",
+    "mem_util_pct",
+    "sm_clock_mhz",
+    "graphics_clock_mhz",
+)
 # tolerancia: una cadencia candidata es aceptable si conserva al menos este
 # porcentaje de los escalones observados por señal frente al baseline de 5 ms.
 STEP_RETENTION_MIN = 0.8
@@ -76,11 +96,11 @@ def compare_cadences(summaries: list[dict]) -> dict:
         candidates = sorted(q for q in by_interval if q > BASELINE_NS)
         for q in candidates:
             ret = per_interval[q].get("step_retention_vs_5ms", {})
-            checks = [v for v in ret.values() if v is not None]
+            checks = [ret[sig] for sig in _GATING_SIGNALS if ret.get(sig) is not None]
             if checks and all(v >= STEP_RETENTION_MIN for v in checks):
                 recommended = q
                 reason = (f"{q/1e6:.0f} ms conserva >= {STEP_RETENTION_MIN:.0%} de los "
-                          "escalones observados en todas las señales frente a 5 ms")
+                          "escalones observados en todas las señales de decisión frente a 5 ms")
             else:
                 break  # más grueso solo empeora
         if recommended == BASELINE_NS:
@@ -90,13 +110,17 @@ def compare_cadences(summaries: list[dict]) -> dict:
         "schema": "f1-gpu-002/cadence_sweep/1",
         "baseline_ns": BASELINE_NS,
         "step_retention_min": STEP_RETENTION_MIN,
+        "signals_reported": list(_SIGNALS),
+        "signals_used_for_decision": list(_GATING_SIGNALS),
         "per_interval": per_interval,
         "q_produccion_ns": recommended,
         "q_produccion_reason": reason,
         "note": ("El nº de escalones es una COTA INFERIOR de actualizaciones físicas "
                  "del sensor. q_produccion no convierte lecturas redundantes en "
                  "observaciones independientes; solo reduce redundancia sin perder "
-                 "resolución temporal observable."),
+                 "resolución temporal observable. Temperatura y energía se "
+                 "informan, pero no gobiernan q_produccion por ser lenta y "
+                 "acumulativa, respectivamente."),
     }
 
 

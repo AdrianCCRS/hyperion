@@ -21,6 +21,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from fase1_telemetria.postprocess import TRAINING_CPU_INTERVALS_FILENAME  # noqa: E402
+from fase1_telemetria.gpu_phases import GPU_PHASE_DATASET_FILENAME  # noqa: E402
 from fase2_clasificador.eval.protocol import derive_kernel_family  # noqa: E402
 
 CPU_REQUIRED = {
@@ -29,7 +30,8 @@ CPU_REQUIRED = {
 }
 GPU_REQUIRED = {
     "kernel_ref", "freq_level_id", "gpu_freq_level_id", "phase_label_train",
-    "quality_status", "operational_intensity", "i_ridge_used",
+    "phase_quality_status", "phase_quality_reason", "training_eligible",
+    "operational_intensity", "i_ridge_used",
 }
 
 
@@ -41,7 +43,7 @@ def _read_campaign(
     campaign_dir: Path, campaign_id: str, device: str
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Lee todas las corridas existentes, preservando los rechazos para QA."""
-    filename = TRAINING_CPU_INTERVALS_FILENAME if device == "cpu" else "windows.csv"
+    filename = TRAINING_CPU_INTERVALS_FILENAME if device == "cpu" else GPU_PHASE_DATASET_FILENAME
     required = CPU_REQUIRED if device == "cpu" else GPU_REQUIRED
     frames: list[pd.DataFrame] = []
     missing_files: list[str] = []
@@ -57,6 +59,11 @@ def _read_campaign(
                 f"{path} no tiene las columnas necesarias para diagnóstico: {sorted(missing_columns)}"
             )
         frame["_source_run_dir"] = run_dir.name
+        try:
+            verdict = json.loads((run_dir / "verdict.json").read_text())
+            frame["_run_verdict_accepted"] = verdict.get("accepted") is True
+        except (OSError, json.JSONDecodeError):
+            frame["_run_verdict_accepted"] = False
         frames.append(frame)
     if not frames:
         raise FileNotFoundError(
@@ -74,12 +81,14 @@ def _read_campaign(
 def _valid_rows(frame: pd.DataFrame, device: str) -> tuple[pd.Series, pd.Series]:
     label_present = frame["phase_label_train"].notna() & (frame["phase_label_train"] != "")
     if device == "cpu":
-        usable = (frame["training_quality_status"] == "ok") & label_present
+        usable = (frame["training_quality_status"] == "ok") & label_present & frame["_run_verdict_accepted"]
         reason = frame["training_quality_reason"].fillna("")
     else:
-        # Esto describe cobertura de las muestras NVML, no fases independientes.
-        usable = (frame["quality_status"] == "gpu_telemetry") & label_present
-        reason = frame["quality_status"].fillna("")
+        # F1-GPU-003: una fila es una corrida/fase agregada, nunca una muestra
+        # NVML periódica independiente.
+        eligible = frame["training_eligible"].astype(str).str.lower().isin(("true", "1"))
+        usable = eligible & (frame["phase_quality_status"] == "ok") & label_present & frame["_run_verdict_accepted"]
+        reason = frame["phase_quality_reason"].fillna("")
     return usable, reason
 
 
@@ -206,7 +215,7 @@ def analyze_campaign(
     semantics = (
         "one_uncore_interval_per_row"
         if device == "cpu"
-        else "raw_nvml_samples_only_not_independent_gpu_phases"
+        else "one_gpu_run_or_aligned_phase_per_row"
     )
     report = {
         "schema_version": 1,
@@ -214,19 +223,14 @@ def analyze_campaign(
         "campaign_id": campaign_id,
         "device": device,
         "row_semantics": semantics,
-        "eligible_for_training_without_additional_aggregation": device == "cpu",
+        "eligible_for_training_without_additional_aggregation": True,
         "input": input_metadata,
         "diagnostics": diagnostics,
         "artifacts": {
             "family_class_frequency_summary_csv": str(coverage_path),
             "kernel_quality_summary_csv": str(quality_path),
         },
-        "pending": (
-            [] if device == "cpu" else [
-                "Agregar muestras NVML por corrida o fase antes de entrenar GPU.",
-                "No interpretar las filas NVML periódicas como ejemplos independientes.",
-            ]
-        ),
+        "pending": [],
     }
     report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return report

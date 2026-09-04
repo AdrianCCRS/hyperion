@@ -59,6 +59,18 @@ def test_precision_mixta():
     assert prec == "mixed"
 
 
+def test_precision_minoritaria_no_trivial_no_se_oculta():
+    p = nc.parse_ncu_csv(_csv('"k",999,0,0,1,0,0,0,0,10000'))
+    _, prec = nc.flops_and_precision(p)
+    assert prec == "mixed"
+    rep = nc.build_kernel_report("mixed", [
+        nc.NcuPoint(10, 10, 1000, 1000, 1.0, "mixed"),
+        nc.NcuPoint(50, 50, 5000, 5000, 1.0, "mixed"),
+    ])
+    assert rep.roofline_label_eligible is False
+    assert "ridge" in rep.reason
+
+
 def test_kernel_entero_sin_flops_es_no_apto():
     p = nc.parse_ncu_csv(_csv('"k",0,0,0,0,0,0,9000,9000,50000'))
     flops, prec = nc.flops_and_precision(p)
@@ -118,11 +130,46 @@ def test_menos_de_dos_puntos_no_converge():
 
 
 def test_runbook_se_genera_cuando_no_hay_ncu(tmp_path):
-    rb = nc.runbook("rodinia_cfd", "cfd_bin -launches {launches}", [10, 100], tmp_path)
+    rb = nc.runbook("rodinia_cfd", "cfd_bin --size 4096", [10, 100], tmp_path)
     assert rb.exists()
     txt = rb.read_text()
-    assert "ncu --csv --metrics" in txt
+    assert "ncu --csv --page raw --print-units base --metrics" in txt
+    assert "--launch-count 10" in txt
     assert "lc10" in txt and "lc100" in txt
+
+
+def test_parsea_csv_largo_real_de_ncu_y_cuenta_ids_no_filas():
+    header = ('"ID","Process ID","Process Name","Host Name","Kernel Name",'
+              '"Context","Stream","Block Size","Grid Size","Device","CC",'
+              '"Section Name","Metric Name","Metric Unit","Metric Value"')
+
+    def row(launch, metric, value):
+        return (f'"{launch}","42","app","host","kernel","1","7",'
+                f'"(1,1,1)","(1,1,1)","0","8.0","Raw",'
+                f'"{metric}","unit","{value}"')
+
+    raw = "\n".join([
+        "==PROF== Connected", header,
+        row(0, "dram__bytes.sum", "1,000"),
+        row(0, "sm__sass_thread_inst_executed_op_ffma_pred_on.sum", "100"),
+        row(1, "dram__bytes.sum", "2,000"),
+        row(1, "sm__sass_thread_inst_executed_op_ffma_pred_on.sum", "200"),
+    ])
+    parsed = nc.parse_ncu_csv(raw)
+    assert parsed["csv_layout"] == "ncu_long"
+    assert parsed["launches_observed"] == 2
+    assert parsed["dram_bytes"] == 3000
+    flops, precision = nc.flops_and_precision(parsed)
+    assert flops == 600
+    assert precision == "fp32"
+
+
+def test_convergencia_acepta_aplicacion_completa_antes_del_limite():
+    points = [
+        nc.NcuPoint(20, 2, 100, 100, 1.0, "fp32"),
+        nc.NcuPoint(50, 2, 101, 100, 1.01, "fp32"),
+    ]
+    assert nc.assess_convergence(points, rel_tol=0.02)["converged"] is True
 
 
 def test_main_from_csv_produce_reporte_para_el_gate_h(tmp_path):

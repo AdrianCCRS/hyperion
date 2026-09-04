@@ -104,6 +104,10 @@ def generate(
                          "del cribado; este generador no inventa una selección")
     doc = yaml.safe_load(template_path.read_text())
     out = copy.deepcopy(doc)
+    # El template de cribado fuerza warmup=0 para conservar el transitorio y
+    # calibrarlo después. El manifiesto definitivo debe usar los valores ya
+    # medidos del catálogo; heredar este interruptor invalidaría ese contrato.
+    out.pop("warmup_seconds_override", None)
     out["campaign_id"] = campaign_id
     out["kernels"] = [{"kernel_ref": k} for k in kernels]
     if catalog_path is not None:

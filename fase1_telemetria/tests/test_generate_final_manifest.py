@@ -44,6 +44,7 @@ def test_cpu_resuelve_mhz_a_fraccion_contra_el_nodo(tmp_path):
     assert fixed[0]["fraction"] == 1.0
     assert fixed[-1]["fraction"] == 0.0
     assert m["metadata"]["frequency_grid_status"] == "resolved_against_node"
+    assert "warmup_seconds_override" not in m
     ok, _ = gen.verify_grid_against_node(m)
     assert ok is True
 

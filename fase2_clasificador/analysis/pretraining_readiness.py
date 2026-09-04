@@ -262,10 +262,16 @@ def _g_freq_verified_under_load(cpu: pd.DataFrame | None, gpu: pd.DataFrame | No
                 if elig.any() else False
             r.cpu = PASS if good else FAIL
     if gpu is not None:
-        # No existe verificación por-ventana del reloj GPU bajo carga todavía
-        # (F1-GPU-002 mide transición, no una traza de verificación por corrida).
-        r.gpu = BLOCKED
-        r.detail = "[gpu] sin traza de verificación de reloj GPU bajo carga por corrida"
+        col = "gpu_frequency_quality_status"
+        if col not in gpu.columns:
+            r.gpu = BLOCKED
+            r.detail = "[gpu] dataset anterior sin verificación del reloj bajo carga"
+        else:
+            eligible = gpu.get("training_eligible", pd.Series(False, index=gpu.index)).astype(str).str.lower().isin(("true", "1"))
+            good = gpu.loc[eligible, col].astype(str).isin(("valid", "not_applicable_native")).all() if eligible.any() else False
+            r.gpu = PASS if good else FAIL
+            if not good:
+                r.detail = "[gpu] hay corridas elegibles sin reloj NVML sostenido dentro de tolerancia"
     return r
 
 

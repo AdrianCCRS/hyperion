@@ -54,6 +54,12 @@ python3 /ruta/al/repo/fase1_telemetria/run_campaign.py --help
 
 ## Uso
 
+Para ejecutar el flujo completo de selección hasta el informe de utilidad de
+los kernels tentativos (sin entrenar ni lanzar todavía la rejilla fina), ver
+[`SCREENING_TO_REPORT.md`](SCREENING_TO_REPORT.md) y usar
+`bash run_screening_to_report.sh`. Ese flujo aplica obligatoriamente el gate
+`ncu` antes del cribado GPU.
+
 `run_campaign.py` es una envoltura delgada sobre `cli.py`, que expone 5
 subcomandos (ver `--help` de cada uno para la lista completa de flags):
 
@@ -134,7 +140,7 @@ plan para el detalle completo.
 python3 -m pytest fase1_telemetria/tests/ -q
 ```
 
-251 tests, hermáticos (mocks de sysfs/subprocess, sin requerir hardware
+328 tests, herméticos (mocks de sysfs/subprocess, sin requerir hardware
 real) — igual que `common/tests/`, deben poder correr en cualquier entorno
 Linux, incluido CI.
 

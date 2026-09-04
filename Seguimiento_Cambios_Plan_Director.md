@@ -34,6 +34,7 @@ de fase y alcance. Esta convención mantiene el formato propuesto
 | `F1-XDEV-002` | Recalibrar y congelar el warmup de cada candidato, plegado dentro de la campaña real (sin mini-campaña aparte) | Implementado (módulo + CLI + `warmup_seconds_override` de manifiesto + `repostprocess_campaign.py` + pruebas); **calibración real bloqueada por campaña en paccaA100** |
 | `F1-XDEV-003` | Usar cribado de frecuencia reducido solo para selección y rejilla fina en el dataset definitivo | Implementado (generador de manifiesto por lista congelada + resolución MHz→fracción + gate); manifiestos finales pendientes del resultado del cribado |
 | `F1-XDEV-004` | Análisis Pearson/Spearman/VIF y contrato versionado de features antes de entrenar | Implementado y validado con fixtures; **selección definitiva pendiente del dataset real** |
+| `F1-XDEV-005` | Orquestar el cribado hasta un informe de utilidad, con `ncu` obligatorio antes de GPU | Implementado; pendiente ejecución real en paccaA100 |
 | `F2-XDEV-001` | Diagnosticar cobertura Roofline y calidad antes de seleccionar/balancear entrenamiento | Implementado (sin datos de campaña aún) |
 | `H` (gate) | Auditoría única de readiness pre-entrenamiento (PASS/FAIL/BLOCKED por gate) | Implementada y validada; a la espera de un dataset real para dictaminar |
 
@@ -765,10 +766,11 @@ identificador de campaña y escribe, sin modificar las fuentes:
   memory o mixtas, cobertura por clase y artefactos generados.
 
 En CPU solo acepta para cobertura las filas
-`training_quality_status="ok"` de `training_cpu_intervals.csv`. En GPU lee
-`windows.csv` para describir las muestras NVML y usa `gpu_freq_level_id`, pero
-marca el reporte como `eligible_for_training_without_additional_aggregation:
-false`: una muestra periódica NVML no equivale a una fase independiente.
+`training_quality_status="ok"` de `training_cpu_intervals.csv`. La versión
+inicial de GPU leía `windows.csv` y bloqueaba su uso como filas independientes.
+Ese pendiente quedó resuelto por `F1-XDEV-005`: ahora lee
+`training_gpu_phases.csv`, exige calidad de fase y `verdict.json` aceptado, y
+declara una corrida o fase alineada como unidad de observación.
 
 Se añadieron pruebas herméticas para intervalos CPU válidos/rechazados y para
 el guardarraíl GPU. El módulo no cambia `train_phase.py`, no entrena modelos,
@@ -785,8 +787,9 @@ no selecciona familias automáticamente y no altera los CSV fuente.
    aplicado solo al índice de entrenamiento de cada fold LOFO y registrado en
    la metadata del modelo. Las cuotas no se fijan antes de observar la mini
    campaña.
-5. Implementar la agregación GPU por corrida o fase estable antes de crear el
-   entrenador GPU o interpretar sus muestras NVML como filas ML.
+5. ~~Implementar la agregación GPU por corrida o fase estable antes de crear
+   el entrenador GPU.~~ Resuelto por `F1-XDEV-005`; sigue pendiente implementar
+   el entrenador GPU que consuma esas filas.
 
 ---
 
@@ -1004,25 +1007,26 @@ que lee el gate H (`candidatos_gpu_con_ncu_convergente`).
 
 ### Pruebas ejecutadas y resultados
 
-- `pytest fase1_telemetria/tests/test_ncu_convergence.py` → **10 passed**.
-- Cubren: suma por bucket del parser, detección de precisión (fp32/fp64/mixed),
-  kernel entero → no apto, convergencia OK, no-convergencia por OI móvil y por
-  launches que no coinciden, generación de runbook, CLI `--from-csv`.
+- Las pruebas de `test_ncu_convergence.py` cubren el formato largo real y el
+  fixture ancho heredado, conteo de launches distintos, precisión
+  fp32/fp64/mixta, saturación de una carga, convergencia y exclusiones.
 
 ### Evidencia de hardware
 
-Ninguna: `ncu` no está en el entorno local. El parser se probó con salida CSV
-de `ncu` fabricada con los nombres de métrica reales
-(`sm__sass_thread_inst_executed_op_*`, `dram__bytes.sum`).
+No se generó evidencia nueva porque `ncu` no está en el entorno local. La
+corrección del parser se contrastó además con el CSV largo histórico conservado
+de paccaA100 (`ID`, `Metric Name`, `Metric Value`); falta revalidarlo con la
+versión actualmente instalada en el servidor.
 
 ### Limitaciones
 
 - Los nombres de métrica de `ncu` cambian entre versiones; el parser mapea por
   subcadena, tolerante, pero debe re-verificarse contra la versión de `ncu` de
   paccaA100.
-- El criterio de "trabajo creciente" se expresa como `launch_count`; para
-  kernels cuyo trabajo escala por tamaño de problema hay que parametrizar el
-  `--exec-template` en consecuencia.
+- `ncu --launch-count` limita cuántos lanzamientos coincidentes se perfilan; no
+  cambia el tamaño del problema. Los comandos de catálogo se mantienen fijos.
+  Si un kernel no expone suficientes launches, el reporte registra saturación
+  del workload o falta de convergencia, sin sustituir argumentos del kernel.
 
 ### Trabajo pendiente
 
@@ -1172,7 +1176,10 @@ No aplica (opera sobre artefactos).
   `ncu`, contratos congelados) → hoy el gate reportaría `FAIL`/`BLOCKED` en
   varios puntos, que es el resultado correcto: **ningún dataset está listo**.
 - El gate `frecuencia_verificada_bajo_carga` para GPU queda `BLOCKED`: no existe
-  todavía una traza de verificación del reloj GPU bajo carga por corrida.
+  en datasets históricos. Las campañas nuevas agregan la traza NVML por
+  corrida, la comparan contra `gpu_freq_mhz_applied` y exponen
+  `gpu_frequency_quality_status`; el gate permanece `BLOCKED` únicamente para
+  archivos anteriores sin esas columnas.
 
 ### Trabajo pendiente
 
@@ -1498,3 +1505,75 @@ posición Roofline": la motivación de automatizar la decisión.
 - Ni MCBound ni LIT-001 hacen clasificación de fases intra-job. Coherente con
   `[[intra-kernel-phase-hunt-negative]]`: la "fase" de Hyperion es de hecho
   cercana a whole-run a configuración fija; conviene ser explícito en el libro.
+
+---
+
+## F1-XDEV-005 — Orquestador de cribado hasta informe de utilidad
+
+**Fecha de registro:** 2026-09-04
+**Estado:** implementado y validado localmente; ejecución de hardware pendiente
+
+### Problema
+
+El orden previo permitía lanzar el cribado GPU usando la OI histórica del
+catálogo antes de demostrar con `ncu` que esa OI, su precisión y su
+convergencia eran válidas. Una etiqueta errónea habría producido falsa
+cobertura Roofline. Además, los pasos de transición, warmup, agregación GPU y
+cobertura existían como comandos separados, sin un gate operacional que
+impidiera ejecutarlos fuera de orden.
+
+Durante la implementación se encontró que el parser nuevo de F1-GPU-004 solo
+entendía un fixture ancho artificial. El CSV real conservado de paccaA100 usa
+el formato largo de Nsight Compute: una fila por métrica y lanzamiento, con
+`ID`, `Metric Name` y `Metric Value`. También se estaba sustituyendo el valor
+de `--launch-count` dentro de `{N}`/`{launches}` del comando del kernel, aunque
+`--launch-count` es un filtro propio de `ncu` y no el tamaño del problema.
+
+### Decisión
+
+Añadir `run_screening_to_report.sh`, separado de `run_all.sh`, con etapas
+reanudables `prepare`, `validate`, `screen-cpu`, `transition`, `ncu`,
+`screen-gpu`, `warmup` y `report` (`screen` conserva el atajo conjunto). El
+flujo termina antes de seleccionar o ejecutar la rejilla fina.
+
+1. CPU conserva su OI medida en vivo por intervalo `uncore_imc`; no depende de
+   `ncu` y su cribado puede ejecutarse en una reserva independiente. `all` lo
+   serializa para evitar interferencia dentro de un único nodo.
+2. GPU ejecuta F1-GPU-004 antes del cribado. Se usa el comando fijo real del
+   catálogo y límites `ncu --launch-count` crecientes.
+3. El parser acepta el CSV largo real y cuenta IDs de lanzamiento distintos,
+   no filas de métricas. Precisión mixta, ausencia de FLOPs y Tensor Core sin
+   regla explícita quedan no elegibles.
+4. Solo `roofline_label_eligible=true` entra a `gpu_eligible.yaml`; su OI y
+   precisión medidas actualizan una copia de trabajo del catálogo, nunca el
+   archivo versionado sin revisión.
+5. El cribado conserva el transitorio, calibra warmup sobre las mismas
+   corridas y después re-postprocesa los crudos.
+6. El diagnóstico GPU consume `training_gpu_phases.csv` agregado por corrida y
+   filtra por `verdict.json`, en vez de ponderar cada muestra NVML como ejemplo.
+7. El informe `tentative_kernel_utility.{csv,json,md}` separa candidatos
+   externos, controles, semántica FLOPs dudosa y `dual_*` en cuarentena; el
+   mínimo de familias no cuenta controles.
+8. El barrido de cadencia reporta todas las señales NVML del probe. La decisión
+   usa potencia, utilización GPU/memoria y relojes SM/gráfico; temperatura y
+   energía quedan diagnósticas porque son lenta y acumulativa.
+
+### Correcciones relacionadas
+
+- `generate_final_manifest.py` elimina explícitamente
+  `warmup_seconds_override` heredado del template: el manifiesto final usa el
+  warmup calibrado del catálogo.
+- `training_gpu_phases.csv` incorpora requested/applied MHz, fracción de
+  muestras NVML dentro de tolerancia y `gpu_frequency_quality_status`. El gate
+  H ya puede verificar reloj GPU bajo carga en campañas nuevas.
+- La guía ejecutable y el significado de cada etapa quedan en
+  `fase1_telemetria/SCREENING_TO_REPORT.md`.
+
+### Criterio de salida
+
+Se cierra en hardware cuando una misma ejecución versionada produce: reporte
+de cadencia y matriz de transición; reporte `ncu` terminal para cada candidato
+GPU; cribados CPU/GPU re-postprocesados con warmup medido; cobertura por
+familia; e informe de utilidad. El informe puede terminar en FAIL de cobertura:
+ese es un resultado válido que ordena compilar y caracterizar candidatos
+adicionales antes de construir la campaña fina.

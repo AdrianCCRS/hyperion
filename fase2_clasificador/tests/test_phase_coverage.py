@@ -13,6 +13,7 @@ from fase2_clasificador.analysis import phase_coverage
 def _run_dir(root: Path, campaign_id: str, kernel: str, level: str = "F2") -> Path:
     path = root / f"{campaign_id}__{kernel}__{level}__rep01"
     path.mkdir()
+    (path / "verdict.json").write_text('{"accepted": true}')
     return path
 
 
@@ -53,28 +54,30 @@ def test_cpu_coverage_usa_solo_intervalos_validos_y_registra_rechazos(tmp_path):
     assert json.loads((tmp_path / "report" / "phase_coverage_report.json").read_text())["schema_version"] == 1
 
 
-def test_gpu_coverage_se_declara_no_elegible_hasta_agregar_por_fase(tmp_path):
+def test_gpu_coverage_usa_dataset_ya_agregado_por_corrida(tmp_path):
     campaign_id = "gpu_screen"
     run = _run_dir(tmp_path, campaign_id, "rodinia_gaussian", "REF")
     pd.DataFrame([
         {
             "kernel_ref": "rodinia_gaussian", "freq_level_id": "REF", "gpu_freq_level_id": "F3",
-            "phase_label_train": "memory_bound", "quality_status": "gpu_telemetry",
+            "phase_label_train": "memory_bound", "phase_quality_status": "ok",
+            "phase_quality_reason": "", "training_eligible": True,
             "operational_intensity": 1.0, "i_ridge_used": 4.0,
         },
         {
             "kernel_ref": "rodinia_gaussian", "freq_level_id": "REF", "gpu_freq_level_id": "F3",
-            "phase_label_train": "memory_bound", "quality_status": "warmup_excluded",
+            "phase_label_train": "memory_bound", "phase_quality_status": "insufficient_samples",
+            "phase_quality_reason": "pocas muestras", "training_eligible": False,
             "operational_intensity": 1.0, "i_ridge_used": 4.0,
         },
-    ]).to_csv(run / "windows.csv", index=False)
+    ]).to_csv(run / "training_gpu_phases.csv", index=False)
 
     report = phase_coverage.analyze_campaign(
         tmp_path, campaign_id, tmp_path / "report", device="gpu"
     )
 
-    assert report["eligible_for_training_without_additional_aggregation"] is False
+    assert report["eligible_for_training_without_additional_aggregation"] is True
     assert report["diagnostics"]["rows_usable"] == 1
-    assert report["pending"]
+    assert report["pending"] == []
     quality = pd.read_csv(tmp_path / "report" / "kernel_quality_summary.csv")
-    assert quality.loc[0, "primary_rejection_reason"] == "warmup_excluded"
+    assert quality.loc[0, "primary_rejection_reason"] == "pocas muestras"
