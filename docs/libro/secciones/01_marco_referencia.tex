@@ -1,10 +1,39 @@
 \chapter{Marco de referencia}
 
 \section{Marco Conceptual}
+\label{sec:marco-conceptual}
 
-El ajuste dinámico de frecuencia y voltaje para la optimización energética se fundamenta en la relación no lineal entre los parámetros de operación del hardware y la disipación de calor. A continuación, se definen los principios termodinámicos, arquitectónicos y de aprendizaje computacional que rigen el diseño de este agente de control en espacio de usuario, así como los conceptos de instrumentación y medición que sustentan la construcción del conjunto de datos experimental.
+El ajuste dinámico de frecuencia y voltaje para la optimización energética se
+fundamenta en la relación no lineal entre los parámetros de operación del
+hardware y la disipación de calor. Sobre esa base física, este trabajo asume
+una cadena de dependencias que articula el resto del capítulo: el régimen que
+limita el rendimiento de una fase de ejecución, entendido en los términos del
+modelo Roofline, deja una traza observable en los contadores del procesador y
+en las interfaces de telemetría de la plataforma; esa traza puede resumirse en
+un vector de características y, si es suficientemente discriminante, permite
+inferir el régimen mediante un modelo de clasificación cuyo costo de inferencia
+sea compatible con un lazo de control; y esa inferencia habilita, a su vez, una
+política discreta de frecuencia cuyo beneficio neto debe juzgarse con una
+métrica que integre energía y tiempo. Cada eslabón de esa cadena es una
+suposición que puede fallar, y las secciones siguientes desarrollan tanto el
+concepto que lo sustenta como las condiciones bajo las cuales deja de
+sostenerse.
+
+El capítulo sigue ese mismo orden. Las secciones \ref{sec:marco-cmos} a
+\ref{sec:intensidad} establecen el fundamento físico y el criterio de
+clasificación de regímenes; las secciones \ref{sec:marco-telemetria} a
+\ref{sec:marco-interfaces} describen qué puede observarse realmente de ese
+comportamiento y con qué limitaciones de alcance, privilegio y granularidad; la
+sección \ref{sec:dvfs-cpu} presenta el mecanismo de actuación y sus
+restricciones temporales; la sección \ref{sec:marco-cargas} delimita las cargas
+sobre las que se mide; las secciones \ref{sec:marco-ml-ligero} a
+\ref{sec:marco-validacion-anidada} desarrollan el modelo de inferencia, su
+evaluación y las condiciones de validez de esa evaluación; y las secciones
+\ref{sec:marco-pruebas-estadisticas} y \ref{sec:marco-edp} fijan los criterios
+con los que se decidirá si el sistema propuesto aporta una mejora defendible.
 
 \subsection{Termodinámica del silicio y potencia CMOS}
+\label{sec:marco-cmos}
 
 La disipación de potencia en un circuito CMOS moderno se descompone en potencia estática (corrientes de fuga) y potencia dinámica, originada por la conmutación de cargas capacitivas. Como DVFS actúa sobre frecuencia y voltaje, su efecto principal recae sobre la potencia dinámica, modelable para una compuerta como:
 
@@ -30,7 +59,7 @@ donde $P_{\text{pico}}$ es el rendimiento aritmético pico, $I$ la intensidad op
     \centering
     \includegraphics[width=0.75\textwidth]
         {figuras/fig_modelo_roofline_conceptual_williams2009.png}
-    \caption[Modelo Roofline conceptual]{Modelo Roofline conceptual: relación entre el techo de ancho de banda de memoria y el techo de rendimiento de cómputo. Fuente: tomada de Williams et al. \cite[Fig.~1(a)]{Williams2009}.}
+    \caption[Modelo Roofline conceptual]{Modelo Roofline conceptual: relación entre el techo de ancho de banda de memoria y el techo de rendimiento de cómputo. Fuente: tomado de Williams et al. \cite[Fig.~1(a)]{Williams2009}.}
     \label{fig:modelo-roofline-conceptual}
 \end{figure}
 
@@ -50,6 +79,7 @@ caché es, por tanto, un indicio útil, pero no un criterio suficiente para
 clasificar una carga como \textit{memory-bound} o \textit{compute-bound}.
 
 \subsubsection{Punto de inflexión y criterio de clasificación}
+\label{sec:marco-ridge}
 
 La frontera entre regímenes es el punto de inflexión o \textit{ridge point}, donde ambas ramas de \eqref{eq:roofline} se igualan:
 
@@ -58,7 +88,7 @@ I_{\text{ridge}} = \frac{P_{\text{pico}}}{BW_{\text{pico}}}
 \label{eq:ridge}
 \end{equation}
 
-En este trabajo, $I_{\text{ridge}}$ se adopta como umbral operativo de
+$I_{\text{ridge}}$ se convierte así en el umbral operativo de
 etiquetado: una intensidad observada inferior se clasifica como
 \textit{memory-bound} y una superior como \textit{compute-bound}, de
 acuerdo con la separación de regímenes que plantea el modelo Roofline
@@ -72,15 +102,23 @@ $I_{\text{ridge}}$. Una carga de precisión mixta no puede compararse
 directamente con un único techo sin definir previamente cómo se tratará
 esa mezcla.
 
+Por la misma razón, $I_{\text{ridge}}$ tampoco es una constante del
+dispositivo cuando el punto operativo varía. Ambos términos de
+\eqref{eq:ridge} dependen de la frecuencia: el rendimiento aritmético pico
+escala con el reloj de las unidades de cómputo, mientras que el ancho de
+banda alcanzable hacia memoria principal responde a un dominio de reloj
+distinto y no necesariamente en la misma proporción
+\cite{Guerreiro2019,Ali2023}. En consecuencia, un barrido de frecuencia
+desplaza el punto de inflexión, y comparar intensidades medidas en niveles
+distintos contra un único $I_{\text{ridge}}$ atribuiría al régimen de la
+carga un efecto que en realidad procede del punto operativo. La
+calibración debe entonces resolverse por precisión y por nivel de
+frecuencia, no una sola vez por dispositivo.
+
 Los valores de fábrica sirven como referencia inicial, pero no representan
 necesariamente los techos alcanzables bajo la configuración experimental.
 La caracterización Roofline recomienda estimarlos mediante microkernels y
-condiciones de ejecución representativas \cite{NERSC2026}. Por ello, este
-trabajo determina empíricamente los techos de cómputo y ancho de banda con
-cargas diseñadas para saturarlos por separado, ejecutadas bajo la misma
-afinidad de núcleos que la campaña experimental. Así,
-$I_{\text{ridge}}$ corresponde a la plataforma y a la configuración
-efectivamente evaluadas, no solo a una cifra de la ficha técnica.
+condiciones de ejecución representativas \cite{NERSC2026}.
 
 \subsubsection{Cálculo de la intensidad operacional observada}
 \label{sec:intensidad}
@@ -95,9 +133,12 @@ I_i = \frac{\text{FLOPs}_i}{B_i^{\text{DRAM}}}
 
 donde $\text{FLOPs}_i$ representa el trabajo aritmético realizado y
 $B_i^{\text{DRAM}}$ los bytes transferidos hacia o desde memoria principal
-durante el intervalo $i$. Ambos términos deben corresponder al mismo
-intervalo temporal; dividir magnitudes obtenidas con granularidades
-distintas produciría una intensidad sin consistencia física.
+durante el intervalo $i$ \cite{Williams2009}. Ambos términos deben 
+corresponder al mismo intervalo temporal; dividir magnitudes obtenidas 
+con granularidades distintas produciría una intensidad sin consistencia 
+física (sección \ref{sec:ventanas}).
+
+
 
 Los contadores de rendimiento no miden FLOPs como una magnitud abstracta,
 sino eventos definidos por una microarquitectura concreta. Incluso eventos
@@ -107,45 +148,128 @@ diferencias de implementación y sensibilidad a las condiciones de medición
 FLOPs requiere verificar la disponibilidad, la codificación y la semántica
 del evento utilizado.
 
-El tráfico hacia memoria principal se observa desde un dominio distinto:
-los contadores \textit{uncore} del controlador de memoria integrado
-(IMC), que permiten contabilizar comandos de lectura y escritura enviados
-a la DRAM \cite{IntelUncore2021}. Estos contadores tienen alcance de
-sistema y no pueden atribuirse directamente a un proceso individual.
-Cuando su granularidad temporal es más gruesa que la de los contadores de
-núcleo, los FLOPs deben agregarse sobre el mismo intervalo antes de
-calcular la intensidad operacional.
+El tráfico hacia memoria principal se observa desde un dominio distinto,
+mediante los contadores \textit{uncore} del controlador de memoria integrado
+(IMC), descritos en la sección \ref{sec:uncore}. Cuando su granularidad
+temporal es más gruesa que la de los contadores de núcleo, los FLOPs deben
+agregarse sobre el mismo intervalo antes de calcular la intensidad
+operacional.
 
 \subsection{Telemetría microarquitectónica}
+\label{sec:marco-telemetria}
 
-Los procesadores modernos incorporan Unidades de Monitorización de
-Rendimiento (PMU), compuestas por contadores fijos y programables que permiten
-observar eventos asociados al flujo de instrucciones y a la jerarquía de
-memoria \cite{Weaver2015,IntelSDM2026}. Su cantidad y sus capacidades dependen
-de la microarquitectura, pero el número de eventos que pueden observarse
-simultáneamente es limitado, lo que motiva el uso de mecanismos de
-multiplexación cuando la demanda supera los contadores disponibles
-\cite{Liu2024}.
+Los procesadores modernos incorporan Unidades de Monitorización de Rendimiento
+(\textit{Performance Monitoring Units}, PMU), encargadas de registrar mediante
+hardware eventos asociados al comportamiento interno del procesador. Para ello,
+disponen de Contadores de Monitorización de Rendimiento
+(\textit{Performance Monitoring Counters}, PMC), que acumulan ocurrencias de
+eventos como instrucciones retiradas, ciclos de ejecución, fallos de caché o
+accesos a determinados recursos microarquitectónicos. Los PMC pueden ser fijos
+o programables. Los primeros están asociados a eventos predefinidos por la
+arquitectura y, en la documentación de Intel, se identifican como registros de
+función fija independientes de los programables (FC$_0$, FC$_1$, \ldots); los
+segundos permiten seleccionar el evento que se desea contabilizar mediante
+registros de configuración y se identifican como PMC$_0$, PMC$_1$, \ldots,
+PMC$_n$ \cite{IntelSDM2026}. En arquitecturas Intel, esta selección se expresa
+principalmente mediante un código de evento (\textit{Event Select}) y una
+máscara de unidad (\textit{Unit Mask}), junto con calificadores adicionales
+cuando el evento lo requiere \cite{IntelSDM2026} (Figura
+\ref{fig:pmu-conceptual}).
+
+\begin{figure}[H]
+    \centering
+
+    \begin{tikzpicture}[
+        font=\small,
+        box/.style={
+            draw,
+            rounded corners,
+            align=center,
+            minimum height=1cm,
+            minimum width=4.4cm
+        },
+        arrow/.style={
+            -{Latex[length=2mm]},
+            thick
+        }
+    ]
+
+    % Entrada
+    \node[align=center] (events)
+        {Eventos\\microarquitectónicos};
+
+    % Contadores
+    \node[box, right=2.2cm of events, yshift=1.25cm] (fixed)
+        {\textbf{Contadores fijos}\\
+        FC$_0$, FC$_1$, \ldots\\
+        eventos predefinidos\\
+        (instrucciones, ciclos)};
+
+    \node[box, below=0.8cm of fixed] (programmable)
+        {\textbf{Contadores programables}\\
+        PMC$_0$, PMC$_1$, \ldots, PMC$_n$};
+
+    % Configuración
+    \node[box, below=0.8cm of programmable] (control)
+        {\textbf{Registros de configuración}\\
+        \textit{Event Select} + \textit{Unit Mask}\\
+        + calificadores};
+
+    % Marco de PMU
+    \node[
+        draw,
+        rounded corners,
+        fit=(fixed)(programmable)(control),
+        inner sep=0.35cm,
+        label=above:\textbf{PMU}
+    ] (pmu) {};
+
+    % Flechas
+    \draw[arrow] (events.east) -- ++(0.75,0)
+        |- (fixed.west);
+
+    \draw[arrow] (events.east) -- ++(0.75,0)
+        |- (programmable.west);
+
+    \draw[arrow] (control.north) -- (programmable.south);
+
+    \end{tikzpicture}
+
+    \caption[Unidad de Monitorización de Rendimiento (PMU)]{Organización conceptual de una Unidad de Monitorización de
+    Rendimiento (PMU) con contadores fijos y programables.
+    Fuente: elaboración propia.}
+    \label{fig:pmu-conceptual}
+\end{figure}
+
+La cantidad de contadores disponibles para realizar mediciones simultáneas es
+limitada y depende de la microarquitectura. En consecuencia, aunque el
+procesador pueda exponer un catálogo amplio de eventos, solo un subconjunto
+puede contabilizarse al mismo tiempo. Cuando la cantidad de eventos solicitados
+supera los contadores físicos disponibles, es necesario compartirlos mediante
+mecanismos de multiplexación \cite{Liu2024}, cuyo efecto sobre la medición se
+discute a continuación.
 
 \subsubsection{Multiplexación de contadores y escalado de medidas}
 \label{sec:multiplexacion}
 
 Cuando los eventos solicitados exceden los contadores físicos disponibles,
-el kernel puede alternarlos periódicamente sobre ellos. En ese caso, cada
-lectura se escala mediante la relación entre el tiempo durante el cual el
-evento estuvo habilitado y el tiempo durante el cual contó efectivamente. El
-resultado es una extrapolación que supone una tasa de eventos aproximadamente
-estable durante los intervalos no observados, supuesto que pierde validez
-cuando el comportamiento cambia dentro de la ventana \cite{Liu2024}.
+el kernel puede multiplexarlos, alternando periódicamente su asignación sobre
+los contadores de hardware. En este caso, el conteo observado se escala a partir
+de la relación entre el tiempo durante el cual el evento permaneció habilitado
+(\textit{time enabled}) y el tiempo durante el cual contó efectivamente
+(\textit{time running}). Este procedimiento constituye una extrapolación y
+supone que la tasa de ocurrencia del evento se mantiene aproximadamente estable
+durante los intervalos no observados, supuesto que puede perder validez cuando
+el comportamiento de la carga cambia dentro de la ventana \cite{Liu2024}.
 
-Para evitar esta fuente de incertidumbre, el conjunto de eventos empleado en
-este trabajo se dimensionó dentro del presupuesto de contadores físicos
-simultáneos de la plataforma y se comprobó durante la calificación del
-instrumento. Los tiempos de habilitación y conteo conservados por el
-instrumento proporcionan, además, una señal de control sobre el funcionamiento
-de la medición de referencia.
+La multiplexación introduce, por tanto, una fuente adicional de incertidumbre
+en la medición. Para reducirla, conviene limitar el conjunto de eventos a la
+capacidad física de la PMU y verificar la relación entre \textit{time running}
+y \textit{time enabled}, que permite identificar si una lectura estuvo sujeta
+a multiplexación \cite{Liu2024,LinuxPerfEventOpen2026}.
 
 \subsubsection{Eventos genéricos y eventos crudos}
+\label{sec:eventos-genericos-crudos}
 
 Los eventos genéricos son una abstracción portable que el kernel traduce a
 la codificación concreta de la microarquitectura; los eventos crudos se
@@ -167,11 +291,11 @@ recursos compartidos del zócalo, como el controlador de memoria, la caché de
 último nivel distribuida y las interconexiones, y por tanto son de alcance de
 sistema, no atribuibles a un proceso específico. Los contadores del controlador
 de memoria contabilizan el tráfico que alcanza la memoria principal, tanto por
-accesos de demanda como por precarga \cite{IntelUncore2021}. Por ello,
-constituyen la fuente empleada en este trabajo para el denominador de la
-ecuación \eqref{eq:intensidad} (sección \ref{sec:intensidad}), aunque su acceso
-está sujeto a una categoría de privilegio distinta (sección
-\ref{sec:paranoid}).
+accesos de demanda como por precarga \cite{IntelUncore2021}, por lo que
+constituyen la fuente estándar para estimar el denominador de la intensidad
+operacional (ecuación \eqref{eq:intensidad}). Su acceso, sin embargo, está
+sujeto a una categoría de privilegio distinta a la de los contadores de núcleo
+(sección \ref{sec:paranoid}).
 
 \begin{figure}[H]
 \centering
@@ -265,53 +389,88 @@ está sujeto a una categoría de privilegio distinta (sección
 atribución de los contadores de núcleo y de \textit{uncore} dentro del paquete
 del procesador. Los contadores de núcleo observan eventos locales de un núcleo
 concreto y pueden asociarse a un proceso; los de \textit{uncore} observan
-recursos compartidos del zócalo y son de alcance de sistema. Elaboración propia.}
+recursos compartidos del zócalo y son de alcance de sistema. Fuente: elaboración propia.}
 \label{fig:core-uncore-counters}
 \end{figure}
 
 \subsubsection{Métricas microarquitectónicas de eficiencia}
+\label{sec:marco-metricas-eficiencia}
 
-Las instrucciones por ciclo (IPC), la tasa de fallos de caché y la fracción
-de ciclos de estancamiento describen aspectos complementarios del
-comportamiento de la ejecución. El IPC relaciona las instrucciones retiradas
-con los ciclos transcurridos \cite[Ch.~6]{Gregg2020}, mientras que los eventos
-de caché permiten observar la frecuencia relativa de accesos que no son
-atendidos en el nivel representado por el evento configurado
-\cite[Ch.~2]{Gregg2020}.
+Las instrucciones por ciclo (IPC), las métricas de fallos de caché y los ciclos
+de estancamiento describen aspectos complementarios del comportamiento de la
+ejecución. El IPC relaciona las instrucciones retiradas con los ciclos
+transcurridos y constituye una medida del aprovechamiento efectivo del
+procesador \cite[Ch.~6]{Gregg2020}. Por su parte, los eventos genéricos de Linux
+\texttt{cache-references} y \texttt{cache-misses} permiten derivar métricas como
+la tasa de fallos de caché y los fallos por cada mil instrucciones (MPKI). La
+primera normaliza los fallos respecto al número de referencias, mientras que
+el MPKI los normaliza respecto al trabajo retirado, por lo que ambas métricas
+describen aspectos distintos de la presión ejercida sobre la jerarquía de
+memoria. No obstante, la abstracción genérica de estos eventos no garantiza
+un nivel específico de caché: aunque habitualmente se asocian al último nivel,
+su correspondencia puede variar entre procesadores e incluir accesos de
+precarga o tráfico de coherencia \cite{LinuxPerfEventOpen2026}.
 
-Los ciclos de estancamiento contabilizan intervalos en los que la ejecución no
-progresa. Esta señal puede aumentar por dependencias de datos, latencias de
-memoria u otras restricciones del procesador, por lo que no identifica por sí
-sola la causa del estancamiento. En este trabajo se utiliza como una
-característica complementaria del clasificador, no como sustituto de la
-intensidad operacional ni como criterio directo para asignar la etiqueta
-\textit{memory-bound}. La clasificación se determina mediante la intensidad
-operacional observada y el punto de inflexión correspondiente.
+Los ciclos de estancamiento representan intervalos durante los cuales la
+ejecución no progresa al ritmo esperado. Sin embargo, un contador agregado de
+estancamiento del \textit{backend} no permite identificar por sí solo la causa
+del bloqueo. Este puede originarse tanto en esperas relacionadas con memoria
+como en limitaciones internas del núcleo, entre ellas dependencias entre
+instrucciones o saturación de recursos de ejecución \cite{VTune2026}. Para
+obtener una señal más directamente relacionada con presión de memoria pueden
+emplearse eventos que contabilizan ciclos con cargas pendientes hacia el
+subsistema de memoria, disponibles de forma específica para determinadas
+microarquitecturas \cite{IntelPerfmon2026}. Como ocurre con otros eventos
+crudos de la PMU (sección \ref{sec:eventos-genericos-crudos}), su disponibilidad,
+codificación y semántica deben verificarse para la plataforma evaluada antes de
+interpretarlos \cite{Weaver2008,IntelSDM2026}.
+
+En conjunto, IPC, fallos de caché y ciclos de estancamiento constituyen señales
+microarquitectónicas complementarias para caracterizar el comportamiento de una
+carga y pueden utilizarse como características de entrada para un clasificador.
+Sin embargo, ninguna de estas métricas determina por sí sola que una ejecución
+sea \textit{compute-bound} o \textit{memory-bound}. En el modelo Roofline, esta
+distinción se establece a partir de la intensidad operacional de la carga y de
+su posición respecto al punto de inflexión de la plataforma
+\cite{Williams2009} (sección \ref{sec:intensidad}).
 
 \subsubsection{Ventanas de muestreo y naturaleza temporal de la observación}
 \label{sec:ventanas}
 
-En modo de conteo, cada lectura representa el valor acumulado desde la
-habilitación o el último reinicio del contador
-\cite{LinuxPerfEventOpen2026}. Por ello, la unidad de análisis no es una lectura
-individual, sino la diferencia entre dos lecturas consecutivas, teniendo en
-cuenta posibles desbordamientos \cite{IntelSDM2026}. En contraste, el modo de
-reporte periódico de \texttt{perf stat} entrega deltas por intervalo, que no
-deben volver a diferenciarse \cite{LinuxPerfStat2026}.
+En modo de conteo, las lecturas de los eventos de rendimiento representan
+valores acumulados desde su habilitación o último reinicio
+\cite{LinuxPerfEventOpen2026}. Para analizar el comportamiento dentro de una
+ventana temporal, interesa por tanto el incremento entre dos lecturas
+consecutivas y no únicamente el valor acumulado. En contraste, existen modos
+de reporte periódico que entregan directamente los conteos correspondientes a
+cada intervalo de observación, en lugar del valor acumulado
+\cite{LinuxPerfStat2026}.
 
-La elección del período de muestreo establece un compromiso. Un período corto
-ofrece mayor resolución temporal, pero exige observaciones más frecuentes; en
-herramientas de reporte intervalado como \texttt{perf stat}, esta frecuencia
-puede elevar la sobrecarga de medición \cite{LinuxPerfStat2026}. Un período
-largo acumula más eventos, pero puede integrar en una sola observación cambios
-ocurridos dentro del intervalo. Por ello, las tasas derivadas deben calcularse
-sobre el tiempo efectivamente transcurrido entre lecturas, empleando una base
-temporal que no experimente saltos discontinuos, como
-\texttt{CLOCK\_MONOTONIC} \cite{LinuxClockGettime2026}.
+El período de muestreo determina la resolución temporal de la observación.
+Intervalos más cortos permiten distinguir cambios de comportamiento con mayor
+detalle, pero requieren lecturas más frecuentes y pueden aumentar la
+sobrecarga de medición \cite{LinuxPerfStat2026}. Intervalos más largos reducen
+la frecuencia de observación, aunque pueden agrupar dentro de una misma ventana
+comportamientos distintos. Por esta razón, las tasas derivadas deben calcularse utilizando el tiempo
+realmente transcurrido entre lecturas, medido con una fuente temporal que no
+se vea afectada por ajustes del reloj del sistema
+\cite{LinuxClockGettime2026}.
 
 \subsection{Espacios de ejecución: \textit{user-space} y \textit{kernel-space}}
+\label{sec:marco-espacios-ejecucion}
 
-Los sistemas operativos modernos separan la ejecución en dominios de privilegio diferenciados, apoyados en modos de operación del procesador. En modo usuario, el software solo accede a memoria de espacio de usuario; en modo kernel, puede acceder también al espacio del kernel \cite[ch.~2]{Kerrisk2010}. Operaciones sensibles, como la gestión de memoria, el acceso a hardware y la entrada/salida, requieren privilegios de kernel, lo que impide que procesos ordinarios interfieran con estructuras críticas \cite[ch.~2]{Kerrisk2010}. Por eso el software de aplicación no accede a recursos privilegiados de forma directa, sino mediante mecanismos de mediación: en sistemas Unix y Linux, principalmente llamadas al sistema \cite{McCarty2015}. Cualquier mecanismo de monitoreo o control implementado fuera del kernel debe apoyarse, en consecuencia, en interfaces explícitamente expuestas por la plataforma.
+Los sistemas operativos modernos emplean distintos niveles de privilegio para
+regular el acceso a los recursos del sistema. Los procesos en modo usuario
+operan con acceso restringido, mientras que el modo kernel permite acceder
+también a las regiones de memoria y recursos reservados al núcleo. Operaciones sensibles, como la gestión de memoria,
+la entrada/salida o la interacción directa con el hardware, requieren estos
+privilegios para proteger las estructuras críticas del sistema frente a
+procesos ordinarios \cite[ch.~2]{Kerrisk2010}. En consecuencia, las
+aplicaciones acceden a dichos recursos mediante interfaces controladas por el
+sistema operativo, principalmente llamadas al sistema en entornos Unix y Linux
+\cite{McCarty2015}. Del mismo modo, cualquier mecanismo de monitoreo o control
+implementado en espacio de usuario debe apoyarse en interfaces que el kernel o
+la propia plataforma expongan explícitamente.
 
 \begin{figure}[H]
 \centering
@@ -369,127 +528,1369 @@ Los sistemas operativos modernos separan la ejecución en dominios de privilegio
     \node[hw, below=1.2cm of kernelzone] (hardware) {\textbf{HARDWARE}\\\small(Hardware físico)};
     \draw[{Stealth[length=2mm]}-{Stealth[length=2mm]}, thick] (kernelzone.south) -- (hardware.north);
 \end{tikzpicture}
-\caption[Espacios de usuario y de kernel]{Relación conceptual entre \textit{user-space}, \textit{kernel-space} y el hardware físico, mediada por la interfaz de llamadas al sistema. Elaboración propia.}
+\caption[Espacios de usuario y de kernel]{Relación conceptual entre \textit{user-space}, \textit{kernel-space} y el hardware físico, mediada por la interfaz de llamadas al sistema. Fuente: elaboración propia.}
 \label{fig:user-kernel-space}
 \end{figure}
 
 \subsection{Interfaces estándar de observabilidad e instrumentación}
+\label{sec:marco-interfaces}
 
 La observabilidad de sistemas heterogéneos CPU--GPU depende de interfaces que expongan, desde \textit{user-space}, métricas de rendimiento, utilización y consumo sin modificar el kernel ni los controladores. Las plataformas modernas exponen \texttt{perf\_event} para contadores de CPU, Intel RAPL para energía de CPU, y NVIDIA Management Library (NVML) para telemetría de GPU \cite{Calore2017,Weaver2015,David2010,NVML2026}.
 
-\subsubsection{La interfaz \texttt{perf\_event} y los modos de atribución}
+\subsubsection{La interfaz \texttt{perf\_event}}
 \label{sec:perfevent}
 
-\texttt{perf\_event} es la infraestructura estándar en Linux para acceder a la PMU desde \textit{user-space} \cite{Weaver2015}. El alcance de atribución de la medida es determinante para la validez experimental: la medición de alcance de CPU contabiliza todo lo que ocurre en un procesador dado, incluida actividad ajena al experimento; la medición por proceso contabiliza únicamente ese proceso, con independencia de sobre qué CPU se planifique. Cuando la carga es paralela, la interfaz permite heredar el contador a los descendientes creados tras habilitarlo, de modo que la medida abarque el árbol completo de ejecución y solo ese árbol: la combinación de atribución por proceso con herencia adoptada en este trabajo. Con herencia habilitada, sin embargo, la interfaz no admite lectura agrupada de varios contadores en una operación; cada evento se lee de forma independiente, lo que introduce un desfase de orden microsegundo entre lecturas de una misma ventana, despreciable frente a períodos de muestreo del orden del milisegundo pero declarado aquí como característica conocida del instrumento.
+Linux proporciona la infraestructura \texttt{perf\_event} para acceder desde
+espacio de usuario a los mecanismos de monitorización de rendimiento del
+procesador. A través de esta interfaz, el kernel configura los eventos de la
+PMU, administra su asignación sobre los contadores físicos disponibles y
+expone los conteos obtenidos a las herramientas de instrumentación
+\cite{LinuxPerfEventOpen2026}. De esta forma, herramientas como \texttt{perf}
+pueden observar eventos asociados a instrucciones, ciclos de ejecución,
+comportamiento de caché y otros aspectos microarquitectónicos sin acceder
+directamente a los registros de la PMU. En particular, el modo de reporte
+periódico introducido en la sección \ref{sec:ventanas} corresponde al
+subcomando \texttt{perf stat}, que entrega los conteos de cada intervalo de
+observación en lugar del valor acumulado \cite{LinuxPerfStat2026}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.58\textwidth]
+    {figuras/fig_contadores_liu_2024.png}
+    \caption[Lectura de eventos mediante \texttt{perf\_event}]{Flujo de configuración y lectura de eventos de rendimiento mediante
+    el subsistema \texttt{perf\_event} de Linux.
+    Fuente: tomado de Liu et al. \cite{Liu2024}.}
+    \label{fig:perf-event-flujo}
+\end{figure}
+
+La interfaz permite además definir el alcance de una medición. Un evento puede
+asociarse a una tarea, siguiendo su ejecución aunque sea planificada sobre
+distintas CPU, o a una CPU determinada, contabilizando la actividad que ocurre
+en ese procesador durante el intervalo observado
+\cite{LinuxPerfEventOpen2026}. Esta distinción determina qué actividad
+contribuye al conteo y, por tanto, condiciona la interpretación de las métricas
+obtenidas.
+
 
 \subsubsection{Niveles de privilegio en el acceso a contadores}
 \label{sec:paranoid}
 
-El acceso a la infraestructura de monitorización desde el espacio de usuario está regulado en Linux por el parámetro \texttt{perf\_event\_paranoid}, que limita de forma progresiva las capacidades de los usuarios sin privilegios \cite{LinuxPerfEventOpen2026}. En sus niveles más restrictivos, este parámetro impide recolectar eventos de ámbito de sistema, categoría a la que pertenecen los contadores de \textit{uncore} (sección \ref{sec:uncore}), y solo permite la medición del propio proceso. Esto tiene una implicación metodológica directa: la disponibilidad de las métricas no depende únicamente del hardware, sino de la política de administración del sistema, lo que convierte a la caracterización previa de la plataforma en un paso obligatorio para el diseño experimental.
+El acceso a los contadores de rendimiento desde espacio de usuario está
+regulado en Linux por el parámetro \texttt{perf\_event\_paranoid}, que
+establece restricciones para los procesos que no disponen de privilegios
+específicos de monitorización \cite{LinuxPerfEventOpen2026}. A medida que su
+valor aumenta, se restringe progresivamente el alcance de las mediciones: los
+niveles más restrictivos impiden la monitorización de alcance de CPU o sistema
+y pueden limitar la observación a la ejecución del propio proceso en espacio
+de usuario.
+
+Esta restricción es especialmente relevante para las PMU de \textit{uncore},
+cuyos eventos representan actividad de componentes compartidos a nivel de
+paquete o socket y, por tanto, no se atribuyen exclusivamente a un proceso
+individual (sección \ref{sec:uncore}) \cite{LinuxPerfEventOpen2026}. En
+consecuencia, la disponibilidad efectiva de una métrica depende tanto de las
+capacidades de monitorización del hardware como de las políticas de acceso
+establecidas por el sistema operativo.
 
 \subsubsection{Intel RAPL}
+\label{sec:rapl}
 
-RAPL (\textit{Running Average Power Limit}) expone energía acumulada para dominios como paquete del procesador, núcleos y DRAM \cite{David2010,Thamm2025}. Reporta mediante registros específicos del modelo, en unidades dependientes de la plataforma, sin cobertura exhaustiva del consumo total del nodo ni disponibilidad uniforme entre microarquitecturas \cite{Thamm2025}. Al ser acumulativos, los registros pueden desbordarse, lo que exige que el instrumento registre el valor máximo del rango antes de capturar, para distinguir un desbordamiento real de un consumo negativo espurio. RAPL es una capacidad del procesador, no una interfaz universal: microarquitecturas anteriores a su introducción carecen de ella sin alternativa por software, por lo que su disponibilidad es criterio de admisibilidad para cualquier plataforma de este tipo de estudio.
+RAPL (\textit{Running Average Power Limit}) es un mecanismo de gestión y
+monitorización energética incorporado en procesadores Intel que permite
+observar el consumo de energía mediante dominios asociados a distintos
+componentes del sistema. Entre los dominios disponibles pueden encontrarse el
+paquete completo del procesador (\textit{Package}), los núcleos
+(\textit{PP0/Core}) y la memoria DRAM, aunque su disponibilidad depende de la
+microarquitectura \cite{David2010,Thamm2025}.
 
-\subsubsection{NVIDIA Management Library}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.55\textwidth]
+        {figuras/fig_rapl_domains_thamm_2025.png}
+    \caption[Dominios energéticos de Intel RAPL]{Dominios energéticos expuestos mediante Intel RAPL.
+    Fuente: tomado de Thamm y Leser \cite{Thamm2025}.}
+    \label{fig:rapl-dominios}
+\end{figure}
 
-NVML permite consultar el estado operativo de una GPU NVIDIA (utilización, potencia, memoria y otros parámetros del dispositivo) \cite{NVML2026}, orientada a la telemetría del acelerador como dispositivo completo y no a eventos microarquitectónicos de un kernel concreto \cite{Calore2017,NVML2026}. Esta diferencia de granularidad es relevante para el problema abordado: la utilización que NVML reporta indica qué fracción del tiempo hubo trabajo activo, no cuántas operaciones por byte realizó ese trabajo, así que caracterizar el régimen de ejecución en GPU exige una estrategia distinta a la de CPU (sección \ref{sec:gpu-calibracion}).
+La información energética se mantiene mediante contadores acumulativos
+expuestos por registros específicos del modelo (MSR), cuyos valores deben
+interpretarse utilizando las unidades definidas por la plataforma
+\cite{David2010,Thamm2025}. Debido a que estos contadores poseen un rango
+finito, pueden presentar desbordamiento durante ejecuciones prolongadas, por
+lo que este comportamiento debe considerarse al calcular diferencias entre
+lecturas consecutivas. Asimismo, RAPL no representa necesariamente el consumo
+energético completo del nodo, sino únicamente los dominios que el procesador
+expone mediante esta infraestructura \cite{Thamm2025}.
 
-\subsection{Gestión dinámica de frecuencia en sistemas operativos: DVFS, P-states y \textit{governors}}
+\subsubsection{NVIDIA Management Library y Nsight Compute}
+\label{sec:marco-nvml-ncu}
 
-DVFS ajusta el punto operativo del hardware mediante cambios coordinados de frecuencia y voltaje, apoyado en reguladores de voltaje y unidades de control de potencia dedicadas que ejecutan las transiciones \cite{Hebbar2022}. El estándar ACPI formaliza esto mediante \textit{performance states} (P-states, niveles operativos dentro del estado activo, con P0 como el de mayor rendimiento) y \textit{C-states} (niveles de inactividad) \cite{Hebbar2022,Gregg2020}.
+NVIDIA Management Library (NVML) proporciona una interfaz para consultar el
+estado operativo de GPUs NVIDIA, incluyendo métricas de utilización, memoria,
+potencia y frecuencia \cite{NVML2026}. Su información se obtiene a nivel del
+dispositivo y mediante períodos de muestreo definidos por el controlador. Por
+ejemplo, la utilización de GPU representa la fracción del intervalo durante la
+cual uno o más kernels estuvieron en ejecución, mientras que la utilización de
+memoria indica la fracción del intervalo durante la cual la memoria global fue
+leída o escrita \cite{NVML2026}. Estas métricas describen actividad y estado
+operativo, pero no proporcionan directamente el número de operaciones
+aritméticas ni el volumen de datos transferidos necesarios para calcular la
+intensidad operacional del modelo Roofline.
 
-Sobre esta base operan los \textit{governors}: políticas que deciden cuándo y cómo transicionar entre P-states, sin implementar el mecanismo físico. Las políticas de frecuencia fija (\texttt{performance}, \texttt{powersave}) sitúan al procesador en un extremo operativo; los gobernadores dinámicos (\texttt{ondemand}, \texttt{conservative}, \texttt{schedutil}) ajustan la frecuencia según carga observada o, en el caso de \texttt{schedutil}, integrada con el planificador \cite{Hebbar2022}. En Linux, dos controladores dominan: \texttt{acpi-cpufreq}, genérico, que expone un gobernador \texttt{userspace} capaz de fijar una frecuencia objetivo explícita, e \texttt{intel\_pstate}, por defecto en muchas generaciones Intel, que solo soporta \texttt{performance}/\texttt{powersave} y no incluye gobernador \texttt{userspace} \cite{Hebbar2022}. Bajo este segundo controlador, fijar un punto operativo concreto se logra restringiendo el rango permitido mediante límites inferior y superior, no escribiendo una frecuencia objetivo directamente. Esta diferencia tiene consecuencias operativas directas: un agente de control portable debe detectar el controlador activo y adaptar su estrategia de actuación en consecuencia. Adicionalmente, las transiciones entre P-states no son instantáneas: del orden de 10~ms, o ~1~ms con \textit{hardware P-states} \cite{Hebbar2022}, por lo que una política de control debe amortizar ese costo y no decidir a un ritmo superior al que el sistema puede materializar.
+Nsight Compute, en cambio, es un perfilador orientado al análisis detallado de
+kernels CUDA. La herramienta permite recolectar métricas de rendimiento
+asociadas al uso de unidades de cómputo, jerarquía de memoria, instrucciones y
+tráfico de datos mediante contadores de hardware e instrumentación del kernel
+\cite{Nsight2026}. Debido a que no todas las métricas pueden obtenerse
+simultáneamente, algunos perfiles requieren múltiples pasadas o repeticiones
+del lanzamiento analizado, lo que incrementa significativamente la sobrecarga
+de la medición \cite{Nsight2026}.
 
-\subsubsection{Dominios de frecuencia y aislamiento experimental}
+NVML y Nsight Compute responden, por tanto, a niveles de observación distintos:
+la primera proporciona telemetría agregada del estado del dispositivo, mientras
+que el segundo permite caracterizar con mayor detalle el comportamiento de los
+kernels ejecutados. Esta diferencia determina el tipo de información que puede
+obtenerse de cada herramienta y su adecuación a distintos tipos de análisis.
+
+\subsection{Gestión dinámica de frecuencia en sistemas operativos:
+DVFS, P-states y \textit{governors}}
+\label{sec:dvfs-cpu}
+
+El escalado dinámico de voltaje y frecuencia
+(\textit{Dynamic Voltage and Frequency Scaling}, DVFS) permite modificar el
+punto operativo del procesador para adaptar su capacidad de cómputo y consumo
+energético a las necesidades de la carga. Estas transiciones se apoyan en
+mecanismos hardware de gestión de potencia encargados de materializar los
+cambios solicitados por el sistema operativo \cite{Hebbar2022}. Dentro del
+modelo ACPI, los estados de rendimiento o P-states representan distintos
+niveles de capacidad mientras el procesador permanece activo en C0. P0
+corresponde al mayor nivel de rendimiento, mientras que estados sucesivos
+reducen progresivamente dicha capacidad. Los C-states, en cambio, representan
+estados de inactividad con distintos compromisos entre ahorro energético y
+latencia de reactivación.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.48\textwidth]
+        {figuras/fig_pstates_cstates_hebbar_2022.png}
+    \caption[P-states y C-states del procesador]{Relación conceptual entre estados de rendimiento (P-states) y
+    estados de inactividad (C-states) del procesador.
+    Fuente: tomado de Hebbar y Milenković \cite{Hebbar2022}.}
+    \label{fig:pstates-cstates}
+\end{figure}
+
+Sobre estos mecanismos operan los \textit{governors}, políticas software que
+determinan el nivel de rendimiento solicitado en función del estado del
+sistema. En el subsistema CPUFreq de Linux, los gobernadores genéricos
+\texttt{performance} y \texttt{powersave} solicitan respectivamente los
+límites superior e inferior de frecuencia disponibles, mientras que
+\texttt{ondemand}, \texttt{conservative} y \texttt{schedutil} modifican el
+nivel solicitado dinámicamente. El gobernador \texttt{userspace}, por su
+parte, permite que una aplicación en espacio de usuario solicite explícitamente
+la frecuencia de una política \cite{Hebbar2022,LinuxCPUFreq2026}.
+
+La política de selección y el mecanismo encargado de actuar sobre el hardware
+son componentes distintos. Controladores como \texttt{acpi-cpufreq} operan
+junto con los gobernadores genéricos de CPUFreq, mientras que
+\texttt{intel\_pstate} puede funcionar en modos activo y pasivo. En modo activo,
+\texttt{intel\_pstate} utiliza sus propios algoritmos
+\texttt{performance} y \texttt{powersave}; este último realiza selección
+dinámica del nivel de rendimiento y no equivale al gobernador genérico
+\texttt{powersave}. En modo pasivo, el controlador se integra con los
+gobernadores genéricos de CPUFreq y se identifica como
+\texttt{intel\_cpufreq} \cite{LinuxIntelPstate2026}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.78\textwidth]
+        {figuras/fig_jerarquia_dvfs_hebbar_2022.png}
+    \caption[Jerarquía de los mecanismos DVFS]{Jerarquía de los mecanismos de gestión de rendimiento desde la
+    interfaz de espacio de usuario hasta el hardware.
+    Fuente: tomado de Hebbar y Milenković \cite{Hebbar2022}.}
+    \label{fig:jerarquia-dvfs}
+\end{figure}
+
+Las transiciones entre niveles de rendimiento no son instantáneas y su tiempo
+de respuesta depende del procesador, del controlador utilizado y del grado de
+autonomía concedido al hardware. Mecanismos como los
+\textit{Hardware-Managed P-states} (HWP) trasladan parte de la selección del
+estado operativo al propio procesador, reduciendo la intervención directa del
+sistema operativo \cite{Hebbar2022}. En consecuencia, la granularidad temporal
+de una política DVFS debe considerar la capacidad efectiva de la plataforma
+para materializar sus decisiones.
+
+Esa autonomía del hardware alcanza también al límite superior del rango. Los
+procesadores modernos incorporan mecanismos de incremento oportunista de
+frecuencia, conocidos en las plataformas Intel como Turbo Boost, que permiten
+superar la frecuencia base cuando las condiciones térmicas, de corriente y de
+número de núcleos activos lo admiten. Su activación depende del estado del
+procesador y no de una solicitud explícita del sistema operativo, por lo que el
+reloj efectivamente alcanzado puede no coincidir con el nivel solicitado a
+través de la interfaz de escalado \cite{LinuxIntelPstate2026,Hebbar2022}. Esta
+distinción es determinante para cualquier experimento que compare niveles de
+frecuencia fijos: si el mecanismo permanece habilitado, distintos niveles
+solicitados pueden materializarse en relojes efectivos similares, y la
+diferencia de potencia atribuida al nivel quedaría contaminada. Por ello, el
+estado de este mecanismo debe fijarse explícitamente y la frecuencia
+efectivamente alcanzada debe verificarse por relectura durante la ejecución, en
+lugar de asumirse a partir del valor solicitado.
+
+\subsubsection{Dominios de frecuencia y topología SMT}
 \label{sec:dominios}
 
-El dominio de frecuencia (el conjunto de procesadores lógicos afectados simultáneamente por una misma solicitud de cambio) puede abarcar un zócalo completo o reducirse a cada núcleo individual, según la generación de hardware. Si el dominio excede los núcleos asignados al experimento, la actuación puede alterar procesos ajenos y viceversa, comprometiendo tanto la validez interna del experimento como la convivencia en infraestructura compartida. Por ello, el dominio real de frecuencia, consultado en la plataforma y no supuesto a partir del modelo de procesador, es una verificación previa obligatoria antes de habilitar cualquier actuación. De forma relacionada, cuando \textit{simultaneous multithreading} comparte los recursos de un núcleo físico entre dos procesadores lógicos, la política de asignación debe declararse explícitamente y verificarse contra la topología real, para evitar que hilos de medición y de carga compitan por los mismos recursos.
+El alcance de una solicitud de frecuencia no coincide necesariamente con la
+afinidad de ejecución de una carga. En Linux, el subsistema CPUFreq organiza
+el control mediante políticas asociadas a una o varias CPU lógicas, cuya
+composición depende del hardware y del controlador activo. Los atributos
+\texttt{affected\_cpus} y \texttt{related\_cpus} permiten identificar las CPU
+asociadas a cada política \cite{LinuxCPUFreq2026}.
 
-Conviene distinguir aquí dos decisiones que, por involucrar ambas a \textit{SMT}, pueden confundirse entre sí pese a operar en capas distintas del sistema. La primera es una política de \emph{colocación} de la carga: cuando dos procesadores lógicos comparten las unidades de ejecución y la jerarquía de caché de un mismo núcleo físico, ejecutar la medición en ambos simultáneamente introduce contención entre los propios hilos medidos, distorsionando el resultado por una razón ajena a la frecuencia. La mitigación, restringir la carga a un único hilo lógico por núcleo físico y dejar el resto sin uso, resuelve exactamente ese problema, y solo ese: decide dónde se \emph{ejecuta} la carga, no qué frecuencia puede \emph{solicitar} cada procesador lógico del sistema.
+Esta distinción es especialmente relevante cuando está habilitado
+\textit{simultaneous multithreading} (SMT). Dos procesadores lógicos hermanos
+comparten un mismo núcleo físico y, aunque puedan exponer límites de
+rendimiento independientes a nivel de software, su frecuencia efectiva no es
+necesariamente independiente. En particular, la documentación de
+\texttt{intel\_pstate} establece que, con SMT habilitado, una solicitud de
+mayor rendimiento realizada por uno de los hermanos puede elevar el nivel
+efectivo alcanzado por el otro, incluso por encima del límite establecido en
+su política individual \cite{LinuxIntelPstate2026}.
 
-Esa distinción importa porque dejar sin uso al segundo procesador lógico de cada núcleo no equivale a deshabilitar \textit{SMT}, una operación de firmware fuera del alcance de un experimento sin privilegios administrativos sobre una plataforma compartida. El procesador lógico no utilizado sigue activo ante el sistema operativo, con su propia política de \texttt{cpufreq} independiente y escribible, y su gobernador queda en el extremo de mayor rendimiento por defecto salvo que se le restrinja explícitamente, exactamente como cualquier otro procesador lógico del sistema. Que nunca ejecute la carga medida no le impide seguir solicitando el punto operativo más alto que el firmware permita, y como ambos hermanos comparten el mismo reloj físico subyacente pese a exponer políticas de control nominalmente independientes, el mecanismo de coordinación de límites del hardware puede conceder ese punto sobre el núcleo físico compartido con independencia del límite, más bajo, declarado en la política del hermano restringido y efectivamente en uso. Una política de colocación correcta y ya verificada no protege, por tanto, contra esta segunda vía de interferencia: la disciplina de aislamiento experimental, declarar y verificar el dominio real de frecuencia, debe extenderse también a los hermanos de \textit{SMT} que la política de colocación decidió dejar sin uso, no solo a los procesadores lógicos que efectivamente ejecutan la carga medida.
+Por tanto, la colocación de la carga y el control de frecuencia deben tratarse
+como decisiones distintas. Restringir la ejecución a un solo procesador lógico
+por núcleo evita la contención entre hermanos SMT, pero no garantiza por sí
+solo el aislamiento del estado de frecuencia. Cuando se requiere controlar el
+punto operativo de un núcleo físico, deben considerarse también las solicitudes
+de rendimiento de sus procesadores lógicos hermanos y verificarse la frecuencia
+efectivamente alcanzada en la plataforma.
+
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}[
+        font=\small,
+        cpu/.style={
+            draw,
+            rounded corners,
+            minimum width=3cm,
+            minimum height=1cm,
+            align=center
+        },
+        request/.style={
+            draw,
+            rounded corners,
+            minimum width=2.6cm,
+            minimum height=0.9cm,
+            align=center
+        },
+        arrow/.style={
+            -{Latex[length=2mm]},
+            thick
+        }
+    ]
+
+    % Procesadores lógicos
+    \node[cpu] (cpu0)
+        {CPU lógica A\\\footnotesize ejecuta la carga};
+
+    \node[cpu, right=2.2cm of cpu0] (cpu1)
+        {CPU lógica B\\\footnotesize hermano SMT};
+
+    % Núcleo físico compartido
+    \node[
+        draw,
+        rounded corners,
+        fit=(cpu0)(cpu1),
+        inner sep=0.5cm,
+        label=above:\textbf{Núcleo físico compartido}
+    ] (core) {};
+
+    % Límites / solicitudes
+    \node[request, below=1.3cm of cpu0] (req0)
+        {Límite solicitado\\$f_{\mathrm{baja}}$};
+
+    \node[request, below=1.3cm of cpu1] (req1)
+        {Solicitud del hermano\\$f_{\mathrm{alta}}$};
+
+    \draw[arrow] (req0.north) -- (cpu0.south);
+    \draw[arrow] (req1.north) -- (cpu1.south);
+
+    % Ancla invisible que abarca ambas solicitudes, sin importar su altura real
+    \node[fit=(req0)(req1), inner sep=0pt] (requests) {};
+
+    % Frecuencia efectiva
+    \node[
+        draw,
+        rounded corners,
+        minimum width=4.5cm,
+        minimum height=1cm,
+        align=center,
+        below=0.9cm of requests
+    ] (effective)
+        {\textbf{Frecuencia efectiva del núcleo}\\
+        condicionada por ambas solicitudes};
+
+    \draw[arrow] (core.south) -- (effective.north);
+
+    \end{tikzpicture}
+
+    \caption[Solicitudes de frecuencia entre hermanos SMT]{Relación conceptual entre las solicitudes de rendimiento de dos
+    procesadores lógicos hermanos y la frecuencia efectiva de un núcleo físico
+    con SMT habilitado. Fuente: elaboración propia con base en la documentación
+    de \texttt{intel\_pstate} \cite{LinuxIntelPstate2026}.}
+    \label{fig:smt-frecuencia}
+\end{figure}
 
 \subsubsection{Particularidades de DVFS en GPU}
+\label{sec:dvfs-gpu}
 
-En GPU, DVFS no se reduce al esquema de CPU: el comportamiento energético y temporal depende de la interacción entre al menos dos dominios funcionales, procesamiento (multiprocesadores de \textit{streaming}) y memoria del dispositivo, que no responden igual a un cambio de frecuencia \cite{Guerreiro2019}. Cuando el rendimiento está limitado por cómputo, la frecuencia del dominio de procesamiento impacta más directamente el tiempo de ejecución; cuando predomina la limitación por memoria, esa sensibilidad disminuye y el dominio de memoria pasa a ser más determinante \cite{Guerreiro2019,Ali2023}. Además, potencia, rendimiento y energía no varían de forma independiente con la frecuencia: bajar la frecuencia puede reducir la potencia instantánea sin reducir la energía total si el tiempo de ejecución aumenta demasiado, y viceversa \cite{Guerreiro2019,Ali2023}.
+En las GPU, el control de frecuencia involucra dominios funcionales con
+sensibilidades distintas frente a la carga. De forma general, puede
+distinguirse un dominio de procesamiento, asociado principalmente a los
+multiprocesadores de \textit{streaming} (SM), y un dominio de memoria,
+asociado a la memoria principal del dispositivo. La frecuencia de ambos
+subsistemas puede influir de manera diferente sobre el rendimiento y el
+consumo energético de una aplicación \cite{Guerreiro2019,Ali2023}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.58\textwidth]
+        {figuras/fig_dominios_gpu_guerreiro_2019.jpg}
+    \caption[Dominios de procesamiento y memoria en GPU]{Representación conceptual de los dominios de procesamiento y
+    memoria en una GPU.
+    Fuente: tomado de Guerreiro et al. \cite{Guerreiro2019}.}
+    \label{fig:dominios-gpu}
+\end{figure}
+
+La sensibilidad a estos dominios depende del régimen de ejecución. En cargas
+limitadas por cómputo, cambios en la frecuencia del dominio de procesamiento
+tienden a afectar de forma más directa el tiempo de ejecución. En cargas
+limitadas por memoria, la influencia de esta frecuencia disminuye y adquiere
+mayor relevancia el comportamiento del subsistema de memoria
+\cite{Guerreiro2019,Ali2023}. Esta relación también condiciona el consumo
+energético: una reducción de frecuencia puede disminuir la potencia
+instantánea, pero aumentar la energía total si el incremento del tiempo de
+ejecución compensa dicho ahorro \cite{Ali2023}.
+
+A estas diferencias entre dominios se suma el costo temporal de modificar la
+frecuencia. En GPU, una transición requiere que la solicitud emitida desde el
+host sea recibida y aplicada por el acelerador, por lo que el cambio no es
+instantáneo. La latencia resultante depende de la arquitectura y del par de
+frecuencias involucrado, y puede alcanzar escalas de varios milisegundos
+\cite{Velicka2025}. Este costo limita la granularidad con la que puede aplicarse
+DVFS durante la ejecución, ya que cambios demasiado frecuentes pueden introducir
+una sobrecarga comparable al tiempo de ejecución de fases cortas.
 
 \subsection{Cargas de trabajo: kernels, benchmarks y microbenchmarks}
+\label{sec:marco-cargas}
 
-En HPC, un kernel es una rutina computacional bien delimitada que concentra una fracción relevante del trabajo de una aplicación --- una multiplicación de matrices, una transformada de Fourier, una actualización de \textit{stencil} \cite{SDKernel2026}. Al encapsular un patrón dominante de ejecución más estable que la aplicación completa, el kernel es una unidad de observación especialmente adecuada para analizar regímenes \textit{compute-bound} y \textit{memory-bound}.
+Las aplicaciones de cómputo de alto rendimiento pueden combinar fases con
+demandas distintas sobre las unidades de cómputo, la jerarquía de memoria y
+otros recursos del sistema. Por esta razón, su comportamiento no siempre se
+describe adecuadamente mediante una única medida agregada de ejecución. El
+análisis puede realizarse sobre unidades más acotadas, denominadas kernels,
+que representan operaciones computacionales bien delimitadas, como una
+multiplicación de matrices, una transformada de Fourier o una actualización de
+\textit{stencil}. Al concentrar un patrón definido de cómputo y acceso a datos,
+los kernels permiten estudiar con mayor claridad la relación entre intensidad
+operacional, ancho de banda de memoria y capacidad de cómputo
+\cite{Williams2009}.
 
-Un benchmark es una carga diseñada o seleccionada para medir y comparar el comportamiento de un sistema bajo condiciones reproducibles, facilitando comparación entre arquitecturas o políticas de control \cite[Ch.~12]{Gregg2020}. Un microbenchmark es una forma más reducida, orientada a aislar el comportamiento de un componente o mecanismo específico --- por ejemplo, ancho de banda de memoria o densidad aritmética \cite[Ch.~12]{Gregg2020} ---, y es el instrumento adecuado para la calibración Roofline de la sección \ref{sec:roofline}, mientras que los benchmarks representativos constituyen el objeto de caracterización.
+Un benchmark es una carga utilizada para medir y comparar el comportamiento de
+un sistema bajo condiciones reproducibles. Dependiendo de su propósito, puede
+representar una aplicación completa, una parte significativa de ella o un
+conjunto de operaciones representativas. Su utilidad radica en proporcionar
+una base común para comparar arquitecturas, configuraciones o mecanismos de
+gestión del sistema \cite[Ch.~12]{Gregg2020}.
 
-Las suites de benchmarks científicos suelen reportar, al finalizar, una medida agregada de trabajo realizado --- pero esa medida no siempre corresponde a operaciones de punto flotante: algunos programas cuantifican su trabajo en unidades distintas (números aleatorios, claves ordenadas) según la naturaleza del problema. Como el numerador de la intensidad operacional (ecuación \eqref{eq:intensidad}) debe expresarse en FLOPs para ser comparable con un techo calibrado en esas unidades, verificar explícitamente la unidad reportada por cada carga es un criterio de admisión al catálogo experimental, no un detalle de implementación (sección \ref{sec:unidades}).
+Un microbenchmark persigue un objetivo distinto: aislar una propiedad concreta
+del hardware o del software mediante una carga deliberadamente simple y
+controlada. Entre sus usos habituales se encuentran la medición del ancho de
+banda de memoria, la latencia de acceso o la capacidad de ejecución aritmética
+\cite[Ch.~12]{Gregg2020}. En consecuencia, los benchmarks buscan representar
+comportamientos relevantes de una carga, mientras que los microbenchmarks
+permiten caracterizar de forma aislada mecanismos específicos de la plataforma.
 
 \subsection{Aprendizaje automático supervisado ligero}
+\label{sec:marco-ml-ligero}
 
-El aprendizaje supervisado infiere una función que mapea variables de entrada hacia una salida a partir de datos etiquetados, dividiendo el conjunto en entrenamiento y prueba para evaluar generalización \cite{Pandey2019}. En contextos con restricciones de tiempo y recursos, un clasificador ligero es aquel cuya inferencia exige baja complejidad computacional y memoria acotada, sin sacrificar capacidad razonable de generalización. Entre los clasificadores supervisados clásicos más relevantes para este problema se encuentran:
+El aprendizaje supervisado busca estimar una función que relacione un conjunto
+de variables de entrada con una salida a partir de observaciones previamente
+etiquetadas. El modelo se ajusta utilizando datos de entrenamiento y su
+capacidad de generalización se evalúa sobre observaciones que no participaron
+en dicho ajuste \cite[Ch.~2]{James2021}.
 
-\paragraph{Bosques Aleatorios (\textit{Random Forest}).} Método de aprendizaje en conjunto que combina múltiples árboles de decisión entrenados de forma independiente, agregando sus predicciones (votación mayoritaria en clasificación) \cite{IBMRF2026}. Dos mecanismos estocásticos --- \textit{bootstrap} sobre las muestras de entrenamiento y selección aleatoria de un subconjunto de variables en cada división --- garantizan baja correlación entre árboles, mitigando el sobreajuste característico de árboles individuales profundos \cite{IBMRF2026}.
+En el contexto de este trabajo, el término \emph{ligero} se utiliza para
+describir modelos cuya inferencia puede ejecutarse con baja latencia y un costo
+computacional acotado, de modo que su incorporación a un bucle de control no
+introduzca una sobrecarga comparable al beneficio que se pretende obtener.
+Esta propiedad no depende únicamente de la familia del modelo, sino también de
+su complejidad efectiva, determinada por factores como la profundidad de los
+árboles y el número de estimadores del ensamble.
 
-\paragraph{Regresión Logística.} Estima la probabilidad de pertenencia a una clase mediante un predictor lineal transformado por la función sigmoide:
+\subsubsection{Familias de modelos candidatas}
+\label{sec:marco-familias-modelos}
+
+\paragraph{Regresión logística.}
+
+La regresión logística modela la probabilidad de pertenencia a una clase
+binaria a partir de una combinación lineal de las características. Para un
+vector de entrada $x$, se define
+
 \begin{equation}
-z = \beta_{0} + \beta_{1}x_{1} + \cdots + \beta_{n}x_{n}, \qquad P(y=1\mid x) = \frac{1}{1+e^{-z}}
+    z = \beta_0 + \beta_1x_1 + \cdots + \beta_nx_n,
+    \qquad
+    P(y=1\mid x) = \frac{1}{1+e^{-z}}.
 \end{equation}
-Sus ventajas son simplicidad, bajo costo de inferencia e interpretabilidad; su limitación principal es la frontera de decisión lineal, insuficiente cuando la separación entre clases depende de relaciones fuertemente no lineales \cite{IBMLR2026}.
 
-\paragraph{Árbol de decisión.} Modelo que particiona recursivamente el espacio de características mediante umbrales sobre una variable a la vez, hasta alcanzar hojas suficientemente puras según un criterio de impureza. Su interés en este trabajo es doble: ofrece una frontera de decisión no lineal a un costo de inferencia muy bajo --- recorrer una rama es una secuencia de comparaciones escalares ---, y es directamente inspeccionable, de modo que la regla aprendida puede leerse y contrastarse contra el comportamiento físico esperado. Su limitación conocida es la varianza: un árbol profundo ajustado sobre pocos ejemplos es sensible a perturbaciones menores del conjunto de entrenamiento, que es justamente lo que los métodos de ensamble mitigan.
+La transformación sigmoide restringe la salida al intervalo $[0,1]$. Su
+estructura proporciona un modelo de baja complejidad e interpretación directa,
+aunque produce una frontera de decisión lineal en el espacio original de
+características, lo que limita su capacidad para representar separaciones
+fuertemente no lineales \cite[Ch.~4]{James2021}.
 
-\paragraph{XGBoost.} Ensamble de árboles potenciados de forma secuencial y aditiva, donde cada nuevo árbol corrige los residuos del modelo actual, incorporando regularización directamente en el objetivo de aprendizaje para controlar la complejidad \cite{IBMXGB2026}. Frente a la regresión logística es más expresivo; frente a un árbol individual, más robusto --- a costa de mayor complejidad estructural.
+\paragraph{Árbol de decisión.}
 
-Estas cuatro familias no se presentan como alternativas equivalentes entre las que elegir por preferencia, sino como una escala ordenada de capacidad expresiva y de costo de inferencia: un piso lineal, una frontera no lineal interpretable, un ensamble por promediado y un ensamble por potenciación regularizada. Compararlas bajo condiciones idénticas permite establecer si la complejidad adicional se traduce en una mejora real de la decisión o si el problema se resuelve igual de bien en el extremo barato de esa escala, lo cual es una respuesta legítima y no un resultado fallido.
+Un árbol de decisión particiona recursivamente el espacio de características
+mediante reglas asociadas a variables individuales. Cada observación recorre
+una secuencia de divisiones desde la raíz hasta una hoja, donde se determina
+la clase predicha. Esta estructura permite representar fronteras de decisión
+no lineales y facilita la inspección de las reglas aprendidas. Sin embargo,
+árboles de elevada profundidad pueden presentar alta varianza y ajustarse en
+exceso a los datos de entrenamiento \cite[Ch.~8]{James2021}.
 
-\subsection{Hiperparámetros y su optimización}
+\paragraph{Bosques aleatorios (\textit{Random Forest}).}
+
+Random Forest combina múltiples árboles de decisión mediante un esquema de
+ensamble. Cada árbol se entrena sobre una muestra \textit{bootstrap} del
+conjunto de entrenamiento y, durante la construcción de sus divisiones, solo
+se considera un subconjunto aleatorio de características. Estos mecanismos
+introducen diversidad entre los árboles y reducen su correlación. En
+clasificación, la predicción del bosque se obtiene agregando las decisiones
+individuales de los árboles, habitualmente mediante votación mayoritaria
+\cite{Breiman2001}.
+
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}[
+        font=\small,
+        dataset/.style={
+            draw,
+            rounded corners,
+            align=center,
+            text width=3.0cm,
+            minimum width=3.2cm,
+            minimum height=1.0cm
+        },
+        tree/.style={
+            draw,
+            rounded corners,
+            align=center,
+            text width=2.0cm,
+            minimum width=2.2cm,
+            minimum height=1.0cm
+        },
+        prediction/.style={
+            draw,
+            rounded corners,
+            align=center,
+            text width=1.8cm,
+            minimum width=2.0cm,
+            minimum height=0.85cm
+        },
+        final/.style={
+            draw,
+            thick,
+            rounded corners,
+            align=center,
+            text width=3.0cm,
+            minimum width=3.2cm,
+            minimum height=1.0cm
+        },
+        arrow/.style={
+            -{Latex[length=2mm]},
+            thick
+        }
+    ]
+
+    % Conjunto de entrenamiento
+    \node[dataset] (data)
+        {\textbf{Conjunto de entrenamiento}};
+
+    % Árboles
+    \node[tree, below=1.5cm of data, xshift=-2.6cm] (tree1)
+        {\textbf{Árbol 1}\\
+        muestra \textit{bootstrap}};
+
+    \node[tree, below=1.5cm of data] (tree2)
+        {\textbf{Árbol 2}\\
+        muestra \textit{bootstrap}};
+
+    \node[tree, below=1.5cm of data, xshift=2.6cm] (treen)
+        {\textbf{Árbol $n$}\\
+        muestra \textit{bootstrap}};
+
+    % Puntos suspensivos
+    \node at ($(tree2)!0.5!(treen)$) {\Large $\cdots$};
+
+    % Conjunto de entrenamiento -> árboles
+    \draw[arrow] (data.south) -- ++(0,-0.45)
+        -| (tree1.north);
+
+    \draw[arrow] (data.south) -- (tree2.north);
+
+    \draw[arrow] (data.south) -- ++(0,-0.45)
+        -| (treen.north);
+
+    % Predicciones individuales
+    \node[prediction, below=1.2cm of tree1] (pred1)
+        {Predicción 1};
+
+    \node[prediction, below=1.2cm of tree2] (pred2)
+        {Predicción 2};
+
+    \node[prediction, below=1.2cm of treen] (predn)
+        {Predicción $n$};
+
+    \draw[arrow] (tree1.south) -- (pred1.north);
+    \draw[arrow] (tree2.south) -- (pred2.north);
+    \draw[arrow] (treen.south) -- (predn.north);
+
+    % Agregación
+    \node[dataset, below=1.5cm of pred2] (vote)
+        {\textbf{Agregación}\\
+        votación mayoritaria};
+
+    \draw[arrow] (pred1.south) -- ++(0,-0.4)
+        -| (vote.west);
+
+    \draw[arrow] (pred2.south) -- (vote.north);
+
+    \draw[arrow] (predn.south) -- ++(0,-0.4)
+        -| (vote.east);
+
+    % Resultado final
+    \node[final, below=1.1cm of vote] (output)
+        {\textbf{Predicción final}};
+
+    \draw[arrow] (vote.south) -- (output.north);
+
+    \end{tikzpicture}
+
+    \caption[Bosque aleatorio (\textit{Random Forest})]{Esquema conceptual del funcionamiento de un bosque aleatorio
+    (\textit{Random Forest}). Los árboles se construyen a partir de muestras
+    \textit{bootstrap}, incorporando además selección aleatoria de
+    características durante las divisiones, y sus predicciones se agregan para
+    obtener la decisión final.
+    Fuente: Adaptado de IBM \cite{IBMRF2026}.}
+    \label{fig:random-forest}
+\end{figure}
+
+\paragraph{Árboles extremadamente aleatorizados (\textit{Extra-Trees}).}
+
+Extra-Trees es un método de ensamble de árboles que introduce un grado adicional
+de aleatorización durante la construcción de las divisiones. En cada nodo se
+selecciona aleatoriamente un subconjunto de características y se genera un punto
+de corte aleatorio para cada característica candidata; posteriormente se elige
+la mejor división entre esos candidatos aleatorios. En su formulación original,
+los árboles se construyen utilizando el conjunto de entrenamiento completo, en
+lugar de muestras \textit{bootstrap} independientes \cite{Geurts2006}.
+
+La aleatorización de los puntos de corte modifica el compromiso entre sesgo y
+varianza respecto a métodos que optimizan cada división y reduce el costo de
+construcción de los árboles. El efecto concreto depende del grado de
+aleatorización, de la configuración del ensamble y de las características de
+los datos \cite{Geurts2006}.
+
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}[
+        font=\small,
+        data/.style={
+            draw,
+            rounded corners,
+            align=center,
+            text width=3.0cm,
+            minimum height=1.0cm
+        },
+        tree/.style={
+            draw,
+            rounded corners,
+            align=center,
+            text width=2.4cm,
+            minimum height=1.25cm
+        },
+        pred/.style={
+            draw,
+            rounded corners,
+            align=center,
+            text width=1.8cm,
+            minimum height=0.8cm
+        },
+        final/.style={
+            draw,
+            thick,
+            rounded corners,
+            align=center,
+            text width=3.0cm,
+            minimum height=1.0cm
+        },
+        arrow/.style={
+            -{Latex[length=2mm]},
+            thick
+        }
+    ]
+
+    % Dataset completo
+    \node[data] (data)
+        {\textbf{Conjunto de entrenamiento completo}};
+
+    % Árboles
+    \node[tree, below=1.5cm of data, xshift=-2.8cm] (tree1)
+        {\textbf{Árbol 1}\\
+        subconjunto aleatorio\\
+        de características\\
+        + cortes aleatorios};
+
+    \node[tree, below=1.5cm of data] (tree2)
+        {\textbf{Árbol 2}\\
+        subconjunto aleatorio\\
+        de características\\
+        + cortes aleatorios};
+
+    \node[tree, below=1.5cm of data, xshift=2.8cm] (treen)
+        {\textbf{Árbol $n$}\\
+        subconjunto aleatorio\\
+        de características\\
+        + cortes aleatorios};
+
+    % Continuación conceptual
+    \node at ($(tree2)!0.5!(treen)$) {\Large $\cdots$};
+
+    % Dataset -> árboles
+    \draw[arrow] (data.south) -- ++(0,-0.4)
+        -| (tree1.north);
+
+    \draw[arrow] (data.south) -- (tree2.north);
+
+    \draw[arrow] (data.south) -- ++(0,-0.4)
+        -| (treen.north);
+
+    % Predicciones
+    \node[pred, below=1.1cm of tree1] (pred1)
+        {Predicción 1};
+
+    \node[pred, below=1.1cm of tree2] (pred2)
+        {Predicción 2};
+
+    \node[pred, below=1.1cm of treen] (predn)
+        {Predicción $n$};
+
+    \draw[arrow] (tree1.south) -- (pred1.north);
+    \draw[arrow] (tree2.south) -- (pred2.north);
+    \draw[arrow] (treen.south) -- (predn.north);
+
+    % Agregación
+    \node[data, below=1.4cm of pred2] (vote)
+        {\textbf{Agregación}\\
+        votación mayoritaria};
+
+    \draw[arrow] (pred1.south) -- ++(0,-0.35)
+        -| (vote.west);
+
+    \draw[arrow] (pred2.south) -- (vote.north);
+
+    \draw[arrow] (predn.south) -- ++(0,-0.35)
+        -| (vote.east);
+
+    % Predicción final
+    \node[final, below=1.0cm of vote] (output)
+        {\textbf{Predicción final}};
+
+    \draw[arrow] (vote.south) -- (output.north);
+
+    \end{tikzpicture}
+
+    \caption[Árboles extremadamente aleatorizados (Extra-Trees)]{Esquema conceptual de un ensamble de árboles extremadamente
+    aleatorizados (\textit{Extra-Trees}). En su formulación original, los
+    árboles utilizan el conjunto de entrenamiento completo e introducen
+    aleatoriedad tanto en la selección de características como en los puntos
+    de corte considerados durante las divisiones.
+    Fuente: elaboración propia con base en Geurts et al.
+    \cite{Geurts2006}.}
+    \label{fig:extra-trees}
+\end{figure}
+
+\paragraph{XGBoost.}
+
+XGBoost implementa un ensamble aditivo de árboles construido de forma
+secuencial. En cada iteración se incorpora un nuevo árbol con el propósito de
+reducir la función objetivo del modelo acumulado, utilizando información de
+primer y segundo orden de la función de pérdida. La formulación incorpora
+además términos de regularización destinados a controlar la complejidad de los
+árboles \cite{Chen2016}. Esta estructura permite representar relaciones no
+lineales e interacciones entre características, aunque su costo de inferencia
+depende del número y la profundidad de los árboles que conforman el ensamble.
+
+Las cinco familias consideradas presentan compromisos diferentes entre
+capacidad de representación, interpretabilidad y costo de inferencia. La
+regresión logística proporciona una referencia lineal; el árbol de decisión
+introduce una frontera no lineal directamente inspeccionable; Random Forest y
+Extra-Trees combinan múltiples árboles mediante estrategias distintas de
+aleatorización y agregación; y XGBoost construye el ensamble de forma
+secuencial mediante potenciación. La complejidad efectiva de cada modelo
+depende además de sus hiperparámetros, por lo que su comparación debe considerar
+tanto el desempeño predictivo como el costo del modelo resultante.
+
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}[
+        font=\small,
+        state/.style={
+            draw,
+            rounded corners,
+            align=center,
+            text width=2.2cm,
+            minimum height=1.0cm
+        },
+        tree/.style={
+            draw,
+            rounded corners,
+            align=center,
+            text width=2.3cm,
+            minimum height=1.15cm
+        },
+        loss/.style={
+            draw,
+            dashed,
+            rounded corners,
+            align=center,
+            text width=2.6cm,
+            minimum height=1.0cm
+        },
+        final/.style={
+            draw,
+            thick,
+            rounded corners,
+            align=center,
+            text width=3.1cm,
+            minimum height=1.0cm
+        },
+        arrow/.style={
+            -{Latex[length=2mm]},
+            thick
+        }
+    ]
+
+    % Estado inicial
+    \node[state] (f0)
+        {\textbf{Modelo inicial}\\
+        $F_0(x)$};
+
+    % Información de pérdida 1
+    \node[loss, below=1.2cm of f0] (loss1)
+        {Derivadas de la\\
+        función de pérdida};
+
+    \draw[arrow] (f0.south) -- (loss1.north);
+
+    % Árbol 1
+    \node[tree, right=1.8cm of loss1] (tree1)
+        {\textbf{Árbol 1}\\
+        $f_1(x)$};
+
+    \draw[arrow] (loss1.east) -- (tree1.west);
+
+    % Modelo acumulado 1
+    \node[state, right=1.8cm of tree1] (f1)
+        {\textbf{Modelo acumulado}\\
+        $F_1(x)=F_0(x)+\eta f_1(x)$};
+
+    \draw[arrow] (tree1.east) -- (f1.west);
+
+    % Información de pérdida 2
+    \node[loss, below=1.4cm of f1] (loss2)
+        {Nuevas derivadas de la\\
+        función de pérdida};
+
+    \draw[arrow] (f1.south) -- (loss2.north);
+
+    % Árbol 2
+    \node[tree, left=1.8cm of loss2] (tree2)
+        {\textbf{Árbol 2}\\
+        $f_2(x)$};
+
+    \draw[arrow] (loss2.west) -- (tree2.east);
+
+    % Modelo acumulado 2
+    \node[state, left=1.8cm of tree2] (f2)
+        {\textbf{Modelo acumulado}\\
+        $F_2(x)=F_1(x)+\eta f_2(x)$};
+
+    \draw[arrow] (tree2.west) -- (f2.east);
+
+    % Continuación
+    \node[below=1.0cm of f2] (dots)
+        {\Large $\vdots$};
+
+    % Modelo final
+    \node[final, below=0.9cm of dots] (final)
+        {\textbf{Modelo final}\\
+        $F_M(x)=F_0(x)+
+        \displaystyle\sum_{m=1}^{M}\eta f_m(x)$};
+
+    \draw[arrow] (dots.south) -- (final.north);
+
+    \end{tikzpicture}
+
+    \caption[Construcción aditiva de un modelo XGBoost]{Esquema conceptual de la construcción secuencial y aditiva de un
+    modelo XGBoost. Cada nuevo árbol se obtiene a partir de la información de
+    la función de pérdida del modelo acumulado y su contribución se incorpora
+    a la predicción existente. Fuente: elaboración propia con base en Chen y
+    Guestrin \cite{Chen2016}.}
+    \label{fig:xgboost}
+\end{figure}
+
+\subsection{Evaluación del desempeño de un clasificador}
+\label{sec:marco-evaluacion-clasificador}
+
+La matriz de confusión relaciona las clases reales con las clases predichas y
+permite distinguir, en clasificación binaria, verdaderos positivos ($TP$),
+verdaderos negativos ($TN$), falsos positivos ($FP$) y falsos negativos ($FN$).
+A partir de estos valores pueden derivarse distintas métricas, cada una sensible
+a aspectos diferentes del comportamiento del clasificador
+\cite{SokolovaLapalme2009}.
+
+La exactitud (\textit{accuracy}) expresa la proporción total de predicciones
+correctas:
+
+\begin{equation}
+    \mathrm{Accuracy}
+    =
+    \frac{TP+TN}{TP+TN+FP+FN}.
+\end{equation}
+
+Aunque proporciona una medida directa de la tasa global de aciertos, puede
+resultar poco informativa cuando existe un desequilibrio importante entre las
+clases, ya que una elevada proporción de ejemplos de la clase mayoritaria puede
+dominar el resultado \cite{Brodersen2010}. Una alternativa es la exactitud
+balanceada (\textit{balanced accuracy}), que en clasificación binaria
+corresponde al promedio entre la sensibilidad y la especificidad:
+
+\begin{equation}
+    \mathrm{BalancedAccuracy}
+    =
+    \frac{1}{2}
+    \left(
+        \frac{TP}{TP+FN}
+        +
+        \frac{TN}{TN+FP}
+    \right).
+\end{equation}
+
+La precisión y la sensibilidad se definen, respectivamente, como
+
+\begin{equation}
+    \mathrm{Precision}
+    =
+    \frac{TP}{TP+FP},
+    \qquad
+    \mathrm{Recall}
+    =
+    \frac{TP}{TP+FN}.
+\end{equation}
+
+A partir de ellas, el puntaje $F_1$ se obtiene mediante su media armónica:
+
+\begin{equation}
+    F_1
+    =
+    2
+    \frac{
+        \mathrm{Precision}\,\mathrm{Recall}
+    }{
+        \mathrm{Precision}+\mathrm{Recall}
+    }.
+\end{equation}
+
+Esta métrica permite considerar conjuntamente ambos aspectos del desempeño
+sobre una clase de interés, sin sustituir por ello a las demás métricas de
+evaluación \cite{SokolovaLapalme2009}.
+
+Precisión, sensibilidad y $F_1$ se definen respecto a una clase tomada como
+positiva, de modo que su valor cambia según cuál de las dos clases se elija.
+Reportar un único valor global oculta esa asimetría y puede enmascarar un
+desempeño pobre sobre la clase menos representada. Por ello conviene reportar
+las tres métricas por separado para cada clase y, cuando se requiera un
+resumen único, emplear el promedio macro, que promedia el valor obtenido en
+cada clase otorgándoles el mismo peso con independencia de su frecuencia
+\cite{SokolovaLapalme2009}. Cuando las observaciones se agrupan en unidades
+experimentales heterogéneas, el mismo argumento se extiende a esas unidades:
+un promedio sobre todas las observaciones puede quedar dominado por los grupos
+más numerosos y ocultar un comportamiento distinto en el resto.
+
+Otra medida derivada de los cuatro componentes de la matriz de confusión es el
+coeficiente de correlación de Matthews (MCC):
+
+\begin{equation}
+    \mathrm{MCC}
+    =
+    \frac{TP\,TN-FP\,FN}
+    {\sqrt{
+        (TP+FP)(TP+FN)(TN+FP)(TN+FN)
+    }}.
+\end{equation}
+
+El MCC toma valores entre $-1$ y $1$, donde $1$ representa concordancia
+perfecta entre las clases reales y predichas, $0$ indica ausencia de
+correlación y $-1$ corresponde a una discordancia perfecta. Al incorporar
+simultáneamente los cuatro componentes de la matriz de confusión, constituye
+una medida complementaria para evaluar clasificadores binarios, especialmente
+cuando la distribución de las clases no es uniforme
+\cite{ChiccoJurman2020}.
+
+\subsubsection{Líneas base de referencia}
+\label{sec:marco-lineas-base}
+
+Ninguna de las métricas anteriores es interpretable en términos absolutos sin
+una referencia con la cual compararla. Un clasificador trivial que predice
+siempre la clase mayoritaria alcanza una exactitud igual a la frecuencia de esa
+clase y puede incluso obtener un $F_1$ elevado sobre ella, sin haber aprendido
+ninguna relación entre las características y la etiqueta
+\cite{ChiccoJurman2020}. Por esta razón, el desempeño de un modelo se contrasta
+frente a líneas base sin capacidad predictiva, habitualmente la predicción
+constante de la clase mayoritaria y la asignación aleatoria que respeta las
+proporciones observadas.
+
+La comparación debe realizarse bajo el mismo esquema de partición que el modelo
+evaluado, de modo que ambas estimaciones estén sujetas a las mismas condiciones.
+Solo una mejora apreciable y sostenida sobre esas referencias permite atribuir
+el resultado a información contenida en las características. Cuando un modelo no
+supera su línea base, la conclusión pertinente es que las señales disponibles no
+bastan para separar las clases en ese contexto de observación, lo que constituye
+un resultado informativo por sí mismo y no un fallo del procedimiento de
+evaluación.
+
+\subsubsection{Costo de inferencia como dimensión de evaluación}
+\label{sec:marco-costo-inferencia}
+
+Cuando un clasificador se destina a operar dentro de un lazo de decisión sujeto
+a un presupuesto temporal, su costo de inferencia deja de ser un detalle de
+implementación y pasa a ser una dimensión de evaluación equiparable a la calidad
+predictiva. La magnitud relevante es la latencia por predicción individual, ya
+que el lazo decide sobre una observación a la vez y no sobre lotes.
+
+Esta latencia depende de la microarquitectura, de la implementación empleada y
+de la complejidad efectiva del modelo entrenado, entre otros factores el número
+y la profundidad de los árboles de un ensamble. En consecuencia, no puede
+estimarse analíticamente a partir de la familia del modelo ni extrapolarse desde
+otra plataforma: debe medirse sobre el mismo hardware en el que operará.
+
+Reportar únicamente la latencia media es insuficiente para un componente sujeto
+a un plazo. Lo que condiciona la viabilidad es el peor caso acotado, porque una
+predicción ocasionalmente lenta puede exceder la ventana de decisión aunque el
+promedio se mantenga holgado. Por ello la caracterización se expresa mediante
+percentiles altos de la distribución, por ejemplo los percentiles 95 y 99, y no
+solo mediante su tendencia central, siguiendo el principio de evaluación
+estadísticamente rigurosa del desempeño de un sistema \cite{Georges2007}. Un
+modelo cuya latencia en la cola de la distribución compromete el plazo del lazo
+de control no resulta admisible aunque su exactitud sea superior, de modo que la
+elección final se plantea como un compromiso entre dos criterios en conflicto
+(sección \ref{sec:marco-hiperparametros}).
+
+\subsection{Hiperparámetros y selección multiobjetivo}
 \label{sec:marco-hiperparametros}
 
-Los modelos anteriores no quedan determinados únicamente por los datos. Cada familia expone un conjunto de \textbf{hiperparámetros} --- la fuerza de regularización de la regresión logística, la profundidad máxima de un árbol, el número de estimadores de un ensamble, la tasa de aprendizaje de la potenciación --- cuyos valores no se estiman durante el ajuste sino que se fijan antes de él y condicionan qué función puede aprenderse. Dejarlos en sus valores por defecto es una decisión, no una omisión neutral: compara implementaciones bajo una configuración arbitraria en lugar de comparar familias bajo su mejor configuración alcanzable, y penaliza sistemáticamente a las familias con más grados de libertad.
+Los parámetros internos de un modelo se estiman durante el ajuste a partir de
+los datos de entrenamiento. Los hiperparámetros, en cambio, controlan la
+estructura del modelo o el propio procedimiento de ajuste y deben fijarse antes
+de este, por lo que no se obtienen del mismo proceso de estimación. Son
+ejemplos la fuerza de regularización de la regresión logística, la profundidad
+máxima de un árbol, el número de estimadores de un ensamble o la tasa de
+aprendizaje de un modelo potenciado. Su elección modifica simultáneamente la
+capacidad predictiva y la complejidad efectiva del modelo resultante
+\cite{Bergstra2012}.
 
-La búsqueda de esos valores puede plantearse por rejilla exhaustiva, por muestreo aleatorio o mediante métodos que aprovechen la información de las evaluaciones previas. La \textbf{optimización bayesiana} pertenece a esta tercera clase: construye un modelo sustituto de la relación entre configuración y desempeño, y lo emplea para decidir qué configuración probar a continuación, concentrando el presupuesto de evaluaciones en las regiones prometedoras del espacio. Su ventaja sobre la rejilla es relevante cuando cada evaluación es costosa y el espacio tiene dimensiones continuas, ambas condiciones presentes aquí.
+La configuración se selecciona evaluando distintas combinaciones sobre datos
+reservados para ese fin. Entre las estrategias habituales se encuentran la
+búsqueda exhaustiva sobre una rejilla de valores predefinidos y el muestreo
+aleatorio del espacio de configuración; esta última resulta preferible cuando
+solo una fracción de los hiperparámetros influye de forma apreciable sobre el
+resultado, ya que dedica el mismo presupuesto de evaluaciones a explorar más
+valores distintos de las dimensiones relevantes \cite{Bergstra2012}. En todos
+los casos, la comparación exige que la estimación final del desempeño se realice
+sobre datos que no intervinieron en esta selección, condición que motiva el
+procedimiento descrito en la sección \ref{sec:marco-validacion-anidada}.
 
-Cuando el criterio de calidad no es único, el problema deja de tener un óptimo escalar. En este trabajo concurren dos objetivos legítimos y en tensión: la calidad de la clasificación, y el costo de emitirla, dado que la pregunta de investigación exige explícitamente que el sobrecosto de la inferencia no degrade el rendimiento. Un modelo que clasificara marginalmente mejor a costa de una latencia sustancialmente mayor no sería preferible. Para este caso se emplea la \textbf{optimización multiobjetivo}, cuyo resultado no es una configuración única sino un \textbf{frente de Pareto}: el conjunto de configuraciones para las cuales no existe otra que mejore un objetivo sin empeorar el otro. Elegir un punto de ese frente es una decisión de diseño que debe declararse explícitamente durante la Fase 2 de este trabajo.
+Cuando la elección debe atender simultáneamente a varios criterios en conflicto,
+como la calidad predictiva y el costo de inferencia de la sección
+\ref{sec:marco-costo-inferencia}, ninguna métrica escalar basta por sí sola para
+ordenar las alternativas. La comparación se formaliza entonces mediante la
+relación de dominancia: una configuración domina a otra si no es peor en ninguno
+de los criterios considerados y es estrictamente mejor en al menos uno. Las
+configuraciones que no son dominadas por ninguna otra conforman el frente de
+Pareto, que representa el conjunto de compromisos alcanzables entre los
+objetivos \cite{Deb2002}.
 
-Los algoritmos evolutivos multiobjetivo son una vía habitual para aproximar ese frente. El empleado aquí ordena la población de configuraciones por dominancia de Pareto y, dentro de cada nivel de dominancia, favorece las soluciones situadas en regiones menos densas del frente, con lo que la aproximación resultante no se concentra en un solo extremo del compromiso entre objetivos.
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}[
+        x=0.95cm,
+        y=0.85cm,
+        font=\small,
+        pareto/.style={
+            circle,
+            draw,
+            fill=white,
+            minimum size=7pt,
+            inner sep=0pt,
+            thick
+        },
+        dominated/.style={
+            circle,
+            draw=gray,
+            fill=gray!25,
+            minimum size=7pt,
+            inner sep=0pt
+        },
+        arrow/.style={
+            -{Latex[length=2mm]},
+            thick
+        }
+    ]
+
+    % Eje X
+    \draw[arrow] (0,0) -- (7.4,0);
+
+    \node[align=center, anchor=north]
+        at (3.7,-0.35)
+        {Latencia de inferencia\\
+        \footnotesize menor es mejor};
+
+    % Eje Y
+    \draw[arrow] (0,0) -- (0,5.8);
+
+    \node[align=center, rotate=90]
+        at (-0.8,2.9)
+        {Calidad predictiva\\
+        \footnotesize mayor es mejor};
+
+    % Configuraciones no dominadas
+    \node[pareto] (a) at (1.1,2.0) {};
+    \node[pareto] (b) at (1.9,3.0) {};
+    \node[pareto] (c) at (3.1,3.9) {};
+    \node[pareto] (d) at (4.7,4.6) {};
+
+    \node[left=3pt of a] {A};
+    \node[left=3pt of b] {B};
+    \node[above=3pt of c] {C};
+    \node[above=3pt of d] {D};
+
+    % Frente de Pareto
+    \draw[thick, dashed]
+        (a.center) -- (b.center) -- (c.center) -- (d.center);
+
+    \node[
+        anchor=west,
+        align=left
+    ] at (5.0,4.65)
+        {\textbf{Frente de Pareto}\\
+         \footnotesize configuraciones no dominadas};
+
+    % Configuración dominada de ejemplo
+    \node[dominated] (e) at (3.4,2.2) {};
+    \node[below right=2pt of e] {E};
+
+    % Otras configuraciones dominadas
+    \node[dominated] at (4.3,2.8) {};
+    \node[dominated] at (5.1,3.1) {};
+    \node[dominated] at (5.8,2.4) {};
+
+    % Dominancia B -> E
+    \draw[arrow]
+        (e.west)
+        .. controls (2.8,2.35) and (2.4,2.55) ..
+        (b.south east);
+
+    \node[align=center]
+        at (3.1,1.15)
+        {\footnotesize B domina a E};
+
+    \node[align=center]
+        at (8.2,2.15)
+        {\footnotesize configuraciones dominadas};
+
+    \end{tikzpicture}
+
+    \caption{Representación conceptual del frente de Pareto para dos objetivos
+    en conflicto: maximizar la calidad predictiva y minimizar la latencia de
+    inferencia. Cada punto representa una configuración de hiperparámetros.
+    Las configuraciones A--D no son dominadas, mientras que E es dominada por
+    B al presentar simultáneamente mayor latencia y menor calidad predictiva.
+    Fuente: elaboración propia con base en Deb et al. \cite{Deb2002}.}
+    \label{fig:pareto-ml}
+\end{figure}
+
+El frente delimita las opciones defendibles, pero no designa una entre ellas:
+seleccionar un único modelo requiere un criterio adicional, ya sea la
+combinación de los objetivos en una función escalar con pesos declarados
+explícitamente, o la imposición de una restricción sobre uno de ellos, por
+ejemplo un límite superior de latencia admisible por el lazo de control, para
+optimizar el restante dentro de esa frontera. El mismo razonamiento no se
+limita a las configuraciones de un modelo: permite también comparar familias
+distintas entre sí, al decidir si la ganancia predictiva de un ensamble más
+costoso justifica su mayor latencia frente a una alternativa más simple.
 
 \subsection{Validación anidada y fuga de información}
 \label{sec:marco-validacion-anidada}
 
-Optimizar hiperparámetros introduce un riesgo metodológico específico. Si la configuración se elige observando el mismo conjunto sobre el que después se reporta el desempeño, la métrica resultante ya no estima la capacidad de generalización: mide cuán bien se ajustó la búsqueda a ese conjunto particular. El sesgo resultante es optimista y crece con el número de configuraciones evaluadas, de modo que una búsqueda más intensa produce una estimación más engañosa.
+La optimización de hiperparámetros introduce una etapa de selección adicional
+al entrenamiento del modelo. Si las configuraciones se seleccionan utilizando
+la misma información sobre la que posteriormente se estima su desempeño, la
+evaluación puede presentar un sesgo optimista, ya que el proceso de selección
+se adapta indirectamente a esos datos \cite{Cawley2010}.
 
-La \textbf{validación anidada} resuelve esa circularidad separando dos bucles. El bucle externo reserva una partición que no interviene en ninguna decisión de modelado y sobre la cual se reporta el desempeño final. Dentro de cada partición externa, un bucle interno --- que solo ve los datos de entrenamiento de esa partición --- ejecuta la búsqueda de hiperparámetros y selecciona una configuración. El modelo así configurado se evalúa una única vez sobre la partición externa reservada. Así, ninguna información de la partición de prueba participa en la elección de hiperparámetros.
+La validación cruzada anidada separa ambos procesos mediante dos niveles. El
+bucle externo reserva observaciones para estimar la capacidad de
+generalización, mientras que el bucle interno utiliza únicamente los datos de
+entrenamiento correspondientes para seleccionar los hiperparámetros. Una vez
+elegida la configuración, el modelo se reajusta con los datos disponibles en
+el entrenamiento externo y se evalúa sobre la partición externa que no
+participó en su selección \cite{Cawley2010}. Esta separación se representa
+conceptualmente en la Figura~\ref{fig:validacion-anidada}.
 
-A esa separación se añade una segunda, independiente de la anterior: la \textbf{fuga de la variable objetivo} hacia las características de entrada. Ocurre cuando una característica codifica, directa o indirectamente, información que solo estaría disponible después de conocer el resultado que se pretende predecir. En este problema, el caso más evidente es incluir directamente la intensidad operacional medida de la ventana o cualquier magnitud derivada de ella con el mismo criterio que produce la etiqueta: el modelo alcanzaría un desempeño casi perfecto sin haber aprendido nada útil a partir de la telemetría de bajo nivel, dado que en tiempo de inferencia esa intensidad es precisamente lo que no está disponible sin el propio instrumento que se busca reemplazar. La prevención de esta fuga no se resuelve por inspección visual del conjunto de datos, sino declarando explícitamente qué columnas están prohibidas como característica de entrada y verificándolo de forma automática durante la Fase 2.
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}[
+        font=\small,
+        box/.style={
+            draw,
+            rounded corners,
+            align=center,
+            text width=2.6cm,
+            minimum height=1.0cm
+        },
+        smallbox/.style={
+            draw,
+            rounded corners,
+            align=center,
+            text width=2.6cm,
+            minimum height=1.0cm
+        },
+        arrow/.style={
+            -{Latex[length=2mm]},
+            thick
+        }
+    ]
+
+    % Datos
+    \node[box] (data)
+        {\textbf{Conjunto de datos}};
+
+   % División externa
+\node[box, below=1.1cm of data, xshift=-2.7cm, text width=3.5cm, align=center] (trainouter)
+    {\textbf{Entrenamiento externo}};
+
+
+    \node[box, below=1.1cm of data, xshift=2.4cm] (testouter)
+        {\textbf{Evaluación externa}\\
+        partición reservada};
+
+    \draw[arrow] (data.south) -- ++(0,-0.35)
+        -| (trainouter.north);
+
+    \draw[arrow] (data.south) -- ++(0,-0.35)
+        -| (testouter.north);
+
+    % Validación interna
+    \node[smallbox, below=1.25cm of trainouter, xshift=-1.7cm]
+        (innertrain)
+        {Entrenamiento\\interno};
+
+    \node[smallbox, below=1.25cm of trainouter, xshift=1.5cm]
+        (innerval)
+        {Validación\\interna};
+
+    \draw[arrow] (trainouter.south) -- ++(0,-0.35)
+        -| (innertrain.north);
+
+    \draw[arrow] (trainouter.south) -- ++(0,-0.35)
+        -| (innerval.north);
+
+    % Selección
+    \node[box, text width=3.2cm, below=1.8cm of trainouter, yshift=-1.45cm] (select)
+        {\textbf{Selección de}\\
+        \textbf{hiperparámetros}};
+
+    \draw[arrow] (innertrain.south) -- ++(0,-0.3)
+        -| (select.north);
+
+    \draw[arrow] (innerval.south) -- ++(0,-0.3)
+        -| (select.north);
+
+    % Reajuste
+    \node[box, below=1.0cm of select] (refit)
+        {\textbf{Reajuste}\\
+        entrenamiento externo completo};
+
+    \draw[arrow] (select.south) -- (refit.north);
+
+    % Evaluación
+    \node[box, below=1.15cm of refit, xshift=2.4cm] (evaluate)
+        {\textbf{Estimación de}\\
+        \textbf{generalización}};
+
+    \draw[arrow] (refit.south) -- ++(0,-0.35)
+        -| (evaluate.west);
+
+    \draw[arrow] (testouter.south) -- ++(0,-4.6)
+        -| (evaluate.east);
+
+    % Bucle interno
+    \node[
+        draw,
+        dashed,
+        rounded corners,
+        fit=(innertrain)(innerval)(select),
+        inner sep=0.35cm,
+        label={[font=\bfseries]left:Bucle interno}
+    ] {};
+
+    % Nota repetición externa
+    \node[align=center, below=0.55cm of evaluate]
+        {\footnotesize El procedimiento se repite para cada partición externa};
+
+    \end{tikzpicture}
+
+    \caption[Validación cruzada anidada]{Esquema conceptual de la validación cruzada anidada. La selección
+    de hiperparámetros se realiza únicamente dentro del conjunto de
+    entrenamiento externo, mientras que la partición externa reservada se
+    utiliza exclusivamente para estimar la capacidad de generalización.
+    Fuente: elaboración propia con base en Cawley y Talbot
+    \cite{Cawley2010}.}
+    \label{fig:validacion-anidada}
+\end{figure}
+
+La fuga de información constituye un problema diferente. Ocurre cuando las
+características utilizadas por el modelo contienen información sobre la
+variable objetivo que no estaría legítimamente disponible en el momento de
+realizar una predicción \cite{Kaufman2012}. Por ejemplo, si una etiqueta se
+construye a partir de una determinada magnitud, emplear esa misma magnitud o
+una variable que la revele directamente como característica de entrada
+permitiría al clasificador acceder de forma indirecta al criterio que pretende
+inferir.
+
+La independencia entre las particiones también debe considerar la estructura
+de los datos. Cuando varias observaciones proceden de una misma unidad o de
+grupos estrechamente relacionados, distribuirlas entre entrenamiento y
+evaluación puede producir estimaciones excesivamente optimistas. En estos
+casos, la partición debe realizarse a nivel de grupo, de modo que las
+observaciones relacionadas permanezcan juntas y la evaluación refleje la
+generalización hacia grupos no observados \cite{Roberts2017}. Esta restricción
+debe preservarse también dentro del proceso de selección de hiperparámetros
+cuando se emplea validación anidada.
+
+\subsection{Comparaciones estadísticas pareadas}
+\label{sec:marco-pruebas-estadisticas}
+
+Cuando dos condiciones se evalúan sobre las mismas unidades experimentales,
+las observaciones correspondientes forman pares y no deben tratarse como
+muestras independientes. El análisis se realiza entonces sobre las diferencias
+observadas para cada unidad, permitiendo evaluar si existe un efecto sistemático
+asociado a la condición comparada \cite[Ch.~2]{Montgomery2017}.
+
+La prueba $t$ pareada contrasta si la media de estas diferencias es
+estadísticamente distinguible de cero y supone una distribución aproximadamente
+normal de las diferencias. Cuando este supuesto no resulta adecuado, la prueba
+de rangos con signo de Wilcoxon constituye una alternativa no paramétrica que
+utiliza el signo y el orden de las diferencias en lugar de depender
+directamente de sus magnitudes \cite[Ch.~3]{Hollander2014}. El valor $p$
+obtenido mediante una prueba de hipótesis permite cuantificar la evidencia
+contra la ausencia de una diferencia sistemática, pero no expresa por sí mismo
+la magnitud del efecto observado.
+
+El remuestreo \textit{bootstrap} permite complementar este análisis mediante
+la estimación de intervalos de confianza para el estadístico de interés. A
+partir de remuestreos con reemplazo de las observaciones disponibles se obtiene
+una distribución empírica que permite caracterizar la incertidumbre asociada
+al efecto estimado sin imponer una distribución paramétrica específica
+\cite[Chs.~12--14]{EfronTibshirani1993}.
+
+La capacidad para detectar una diferencia depende del número de observaciones
+y de su variabilidad. Por esta razón, un resultado no significativo indica
+falta de evidencia suficiente para rechazar la hipótesis nula, pero no demuestra
+que las condiciones comparadas sean equivalentes.
 
 \subsection{Producto Energía--Retardo (EDP)}
+\label{sec:marco-edp}
 
-Evaluar una estrategia de optimización energética exige una métrica que integre energía y rendimiento simultáneamente: minimizar solo una de las dos puede resultar globalmente inconveniente (ahorro energético con degradación severa, o máximo desempeño con costo energético desproporcionado). El Producto Energía--Retardo cumple ese rol \cite{Laros2013}:
+La evaluación de una estrategia de gestión energética debe considerar
+conjuntamente el consumo de energía y el tiempo de ejecución, ya que una
+reducción de potencia puede acompañarse de un incremento temporal suficiente
+para anular el beneficio energético. El Producto Energía--Retardo
+(\textit{Energy--Delay Product}, EDP) combina ambas magnitudes en una única
+métrica \cite{Laros2013}:
 
 \begin{equation}
-EDP = E \cdot T^{w}
+    EDP = E \cdot T,
 \end{equation}
 
-donde $E$ es la energía consumida, $T$ el tiempo de ejecución y $w$ un factor de ponderación; $w=1$ da el EDP clásico, $w=2$ una variante que penaliza más fuertemente la degradación temporal (\textit{Energy--Delay}$^2$ \textit{Product}) \cite{Ali2023,Laros2013}. Su utilidad radica en evitar decisiones sesgadas por una sola dimensión: reducir únicamente la potencia puede inducir pérdidas de rendimiento que terminen aumentando la energía total consumida, por lo que una función multiobjetivo basada en EDP resulta más adecuada para seleccionar configuraciones DVFS \cite{Ali2023}.
+donde $E$ corresponde a la energía consumida y $T$ al tiempo de ejecución.
+Un menor valor de EDP representa un compromiso más favorable entre ambas
+magnitudes bajo este criterio.
 
-%------------------------------------------------------------------------------
-% MARCO LEGAL
-%------------------------------------------------------------------------------
+La formulación admite una generalización que pondera explícitamente el peso
+relativo del tiempo frente a la energía:
 
-\section{Marco Legal}
+\begin{equation}
+    \mathrm{ED}^{n}\mathrm{P} = E \cdot T^{n},
+    \label{eq:ednp}
+\end{equation}
 
-% [PENDIENTE: sección a definir por los autores.
-%  Elementos candidatos a considerar, a confirmar con la Escuela:
-%   - Licenciamiento del software de terceros empleado (suites de benchmarks,
-%     bibliotecas de álgebra lineal, herramientas de instrumentación) y las
-%     condiciones de redistribución que imponen sobre el repositorio del
-%     proyecto.
-%   - Condiciones de uso de la infraestructura de cómputo institucional sobre
-%     la cual se ejecutan los experimentos.
-%   - Licencia bajo la cual se publican los artefactos producidos por este
-%     trabajo (código del instrumento de medición y conjunto de datos).
-%  No se redacta contenido en este apartado para no atribuir normativa que no
-%  haya sido verificada por los autores.]
+donde $n$ expresa cuánto se penaliza la degradación temporal. Con $n=1$ se
+recupera el EDP, mientras que $n=2$ define el ED$^{2}$P, empleado cuando el
+rendimiento debe preservarse con mayor prioridad que el consumo
+\cite{Laros2013,Ali2023}. La elección de $n$ es una decisión del evaluador y no
+una propiedad del sistema medido: dos valores distintos pueden ordenar de forma
+diferente las mismas configuraciones, por lo que debe declararse explícitamente
+antes de comparar resultados.
+
+El EDP resulta especialmente útil en la evaluación de técnicas DVFS, donde la
+reducción de frecuencia puede disminuir la potencia instantánea pero aumentar
+el tiempo de ejecución. Por ello, evaluar únicamente potencia, energía o
+rendimiento de forma aislada puede conducir a conclusiones distintas de las
+obtenidas al considerar conjuntamente el costo energético y temporal
+\cite{Ali2023,Laros2013}.
+
+\subsection{Síntesis: alcance y límites del marco adoptado}
+\label{sec:marco-sintesis}
+
+Los conceptos anteriores convergen en un compromiso metodológico concreto. La
+etiqueta de régimen procede del modelo Roofline y exige una medida directa de
+trabajo aritmético y de tráfico hacia memoria principal, disponible fuera de
+línea pero costosa o inaccesible durante la ejecución. Las señales que sí
+pueden leerse con baja intrusión describen actividad y no intensidad
+operacional, de modo que el clasificador se define precisamente como el
+sustituto que traduce las segundas en la primera. Esta separación entre la
+fuente de la verdad y la fuente de la predicción es la decisión de diseño
+central del trabajo, y de ella se desprenden las salvaguardas desarrolladas en
+las secciones previas: la exclusión de la magnitud que origina la etiqueta del
+vector de entrada, la partición por unidad experimental y no por observación
+individual, y la comparación contra líneas base sin capacidad predictiva.
+
+Este marco delimita también lo que el trabajo no puede afirmar. La
+clasificación es binaria y estática respecto a un umbral calibrado, por lo que
+no describe fases intermedias ni transiciones continuas entre regímenes. La
+observabilidad disponible es asimétrica entre dispositivos, de manera que la
+misma pregunta no admite el mismo grado de evidencia en CPU y en GPU. Y el
+mecanismo de actuación tiene un costo temporal propio que acota la granularidad
+útil de cualquier política, con independencia de la calidad del clasificador.
+En consecuencia, un resultado que no muestre mejora sobre las líneas base o
+sobre los gobernadores nativos no invalidaría el marco: sería la respuesta que
+este marco permite dar sobre los límites de la telemetría y del mecanismo de
+control disponibles en la plataforma evaluada.
+
 
 \section{Estado del Arte}
+\label{sec:estado-del-arte}
 
 La gestión energética en sistemas de alto rendimiento ha evolucionado desde enfoques estáticos de reducción de potencia hacia estrategias cada vez más adaptativas, orientadas a preservar el rendimiento sin incurrir en costos energéticos desproporcionados. En este contexto, el DVFS y las técnicas afines de \textit{frequency capping} y \textit{power capping} se han consolidado como mecanismos de control relevantes tanto en procesadores como en aceleradores GPU. Sin embargo, la eficacia de estos mecanismos depende de forma crítica del comportamiento dinámico de la carga de trabajo, lo que ha impulsado el desarrollo de modelos de caracterización, predicción y control cada vez más sofisticados \cite{Simsek2024,Costa2025,Calore2017,Ali2023,Guerreiro2019}.
 
