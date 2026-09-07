@@ -78,7 +78,7 @@ La Tabla \ref{tab:contadores} enumera las señales activas del instrumento de pr
 \midrule
 \texttt{instructions} & \texttt{PERF\_COUNT\_HW\_INSTRUCTIONS}, de núcleo y atribuible al proceso. Base de IPC e instrucciones por segundo. \\
 \texttt{cycles} & \texttt{PERF\_COUNT\_HW\_CPU\_CYCLES}, de núcleo y atribuible al proceso. Denominador de IPC y de las fracciones de stall. \\
-\texttt{cache\_references} y \texttt{cache\_misses} & Eventos genéricos de \texttt{perf}; en Ice Lake-SP se traducen a referencias y fallos de L3 (LLC). Producen \texttt{llc\_miss\_rate} y MPKI; son indicadores de presión de memoria, no bytes transferidos a DRAM. \\
+\texttt{cache\_references} y \texttt{cache\_misses} & Eventos genéricos de \texttt{perf}; el kernel los traduce a un evento concreto de la PMU, cuya correspondencia exacta con el último nivel de caché no está verificada para esta plataforma \cite{LinuxPerfEventOpen2026}. Producen \texttt{cache\_miss\_rate} y MPKI; son indicadores de presión de memoria, no bytes transferidos a DRAM. \\
 \texttt{stalled\_cycles\_mem\_any} & Evento crudo \texttt{STALLS\_MEM\_ANY} (\texttt{0xA3/0x14}, \texttt{cmask=0x14}), de núcleo/proceso. Cuenta ciclos de ejecución bloqueados mientras hay una carga pendiente en memoria; se normaliza como \texttt{stall\_mem\_ratio}. Es una señal predictiva, no la etiqueta Roofline. \\
 Contadores \texttt{fp\_*\_double} & Subeventos de doble precisión de \texttt{FP\_ARITH\_INST\_RETIRED} (crudo \texttt{0xC7}), de núcleo/proceso. Forman el numerador de FLOPs: se ponderan por 1, 2, 4 u 8 elementos; FMA ya cuenta dos operaciones por elemento (ecuación \eqref{eq:flops-medidos}). \\
 \texttt{time\_enabled\_ns} y \texttt{time\_running\_ns} & Metadatos de \texttt{perf}, de núcleo/proceso. Diagnostican multiplexación y permiten escalar conteos; las ventanas degradadas se excluyen del entrenamiento. \\
@@ -91,7 +91,7 @@ RAPL: \texttt{pkg\_uj} y \texttt{dram\_uj} & Energía acumulada por zócalo. Sus
 
 El evento histórico \texttt{L2\_LINES\_IN\_ALL} (\texttt{0xF1/0x1F}) no integra el conjunto activo: se conservó únicamente su columna vacía en el CSV por compatibilidad de esquema. Se retiró porque el vigilante NMI del sistema operativo reserva un contador físico y, con diez eventos simultáneos, forzaba multiplexación que degradaba los contadores de FLOPs; el conjunto de producción usa nueve eventos (sección \ref{sec:resultados-interferencia-uncore}).
 
-A partir de estas señales se derivan, para cada ventana, IPC, tasa de fallos del último nivel de caché, MPKI, \texttt{stall\_mem\_ratio}, intensidad operacional y magnitudes energéticas. Las tasas de núcleo se calculan sobre el intervalo real entre lecturas consecutivas; la intensidad y la etiqueta Roofline conservan la granularidad del intervalo \textit{uncore}, conforme a lo argumentado en la sección \ref{sec:ventanas}.
+A partir de estas señales se derivan, para cada ventana, IPC, tasa de fallos de caché, MPKI, \texttt{stall\_mem\_ratio}, intensidad operacional y magnitudes energéticas. Las tasas de núcleo se calculan sobre el intervalo real entre lecturas consecutivas; la intensidad y la etiqueta Roofline conservan la granularidad del intervalo \textit{uncore}, conforme a lo argumentado en la sección \ref{sec:ventanas}.
 
 \section{Fase 1: Recolección de información y caracterización de cargas}
 
