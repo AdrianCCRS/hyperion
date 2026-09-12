@@ -20,6 +20,7 @@ set -uo pipefail
 
 JUMP="hpc-unicartagena"
 NODE="pacca"
+COMPUTE_NODE="paccaA100"
 FAIL=0
 
 run_remote() {
@@ -65,6 +66,41 @@ run_remote "hyperion-venv activable" \
 # 5. GPU visible desde el nodo de login (no siempre, pero si falla el
 #    binario CUDA/nvcc esto ya lo adelanta)
 run_remote "nvcc en PATH" "nvcc --version | tail -1" || true
+
+# 6. Chequeos que SOLO valen en el nodo de computo. El nodo de login y
+#    paccaA100 divergen en paquetes de sistema (p.ej. libjsoncpp existe en
+#    login pero no en paccaA100, lo que rompio cmake 2026-09-12) y el
+#    estado de cpufreq vive en el nodo real. Un srun corto y no exclusivo
+#    basta; sigue siendo mucho mas barato que descubrirlo en la cola.
+echo
+echo "--- Chequeos en el nodo de computo ($COMPUTE_NODE) ---"
+
+compute_out=$(ssh "$JUMP" "ssh $NODE $(printf '%q' "srun -p GPU -w $COMPUTE_NODE -N1 -n1 --time=00:03:00 -J hyp_preflight_env bash -c 'source ~/hyperion-venv/bin/activate 2>/dev/null; echo CMAKE=\$(cmake --version 2>&1 | head -1); for c in 0 1 2 3 4 5; do echo FREQ \$c \$(cat /sys/devices/system/cpu/cpu\$c/cpufreq/scaling_min_freq) \$(cat /sys/devices/system/cpu/cpu\$c/cpufreq/scaling_max_freq); done; echo NOTURBO=\$(cat /sys/devices/system/cpu/intel_pstate/no_turbo)'")" 2>&1)
+
+# 6a. cmake realmente EJECUTABLE en el nodo de computo, no solo en login.
+if echo "$compute_out" | grep -q "CMAKE=cmake version"; then
+  echo "[ OK ] cmake ejecutable en $COMPUTE_NODE: $(echo "$compute_out" | grep -o 'CMAKE=.*' | cut -d= -f2-)"
+else
+  echo "[FAIL] cmake NO corre en $COMPUTE_NODE (libreria de sistema ausente?)"
+  echo "$compute_out" | grep -i "CMAKE=" | sed 's/^/       /'
+  FAIL=1
+fi
+
+# 6b. Contaminacion de cpufreq: una campana muerta por SIGKILL (scancel,
+#     timeout de Slurm, OOM) no ejecuta el `finally` que restaura la
+#     frecuencia y deja los cores clavados en min==max. Toda calibracion
+#     posterior falla D03 con un P_pico absurdamente bajo. Ojo:
+#     max<cpuinfo_max con turbo desactivado NO es contaminacion, el kernel
+#     recorta al reloj base; la firma real es min == max.
+pinned=$(echo "$compute_out" | awk '/^FREQ /{if ($3 == $4) print $2}')
+if [[ -n "$pinned" ]]; then
+  echo "[FAIL] cpufreq CONTAMINADO: cores con min==max (clavados): $(echo $pinned | tr '\n' ' ')"
+  echo "$compute_out" | grep '^FREQ ' | sed 's/^/       /'
+  echo "       Reparar: escribir cpuinfo_min_freq/cpuinfo_max_freq en esos cores."
+  FAIL=1
+else
+  echo "[ OK ] cpufreq sin contaminacion (ningun core con min==max)"
+fi
 
 echo
 if [[ $FAIL -ne 0 ]]; then
