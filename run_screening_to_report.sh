@@ -118,7 +118,14 @@ stage_validate() {
   need_file "$WORKFLOW" prepare
   log "Readiness, build WITH_GPU=ON, tests y diagnóstico de manifiestos"
   "$PYTHON" common/readiness/check_node_readiness.py
-  cmake -S common/telemetry -B common/telemetry/build -DWITH_GPU=ON
+  # Algunos clusters HPC (modulos Lmod/OpenHPC) solo instalan
+  # libnvidia-ml.so.1 versionado, sin el symlink .so que find_library()
+  # espera (ver comentario en common/telemetry/CMakeLists.txt). Si el
+  # entorno define NVML_LIB/NVML_INCLUDE_DIR, se los pasamos a mano.
+  local -a nvml_cmake_args=()
+  [[ -n "${NVML_LIB:-}" ]] && nvml_cmake_args+=("-DNVML_LIB=$NVML_LIB")
+  [[ -n "${NVML_INCLUDE_DIR:-}" ]] && nvml_cmake_args+=("-DNVML_INCLUDE_DIR=$NVML_INCLUDE_DIR")
+  cmake -S common/telemetry -B common/telemetry/build -DWITH_GPU=ON "${nvml_cmake_args[@]}"
   cmake --build common/telemetry/build -j
   ctest --test-dir common/telemetry/build --output-on-failure
   local cpu_manifest gpu_manifest
