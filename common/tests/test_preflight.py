@@ -516,6 +516,16 @@ def test_d01_toolchain_y_checks_de_recursos(monkeypatch, tmp_path):
     assert preflight.check_core_hour_budget(1.0, 2.0).passed is False
 
 
+def test_check_disk_space_sube_al_ancestro_existente_mas_cercano(tmp_path):
+    # output_dir y su padre inmediato (p.ej. .../campaigns/) pueden no
+    # existir todavia la primera vez que corre una campana nueva; el
+    # chequeo es de solo lectura y no debe fallar con FileNotFoundError.
+    output_dir = tmp_path / "campaigns" / "cpu"
+    result = preflight.check_disk_space(output_dir, 0)
+    assert result.factor_id == "I09"
+    assert result.observed["free_bytes"] > 0
+
+
 def test_gpu_reporta_actividad_y_estado_indisponible():
     class GpuConProblemas:
         def active_processes(self): return [4321]

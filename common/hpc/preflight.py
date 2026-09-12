@@ -458,7 +458,14 @@ def check_rapl_domains(requested: Iterable[str], available: Iterable[str], rapl_
 
 
 def check_disk_space(output_dir: str | Path, projected_bytes: int) -> CheckResult:
-    free = shutil.disk_usage(Path(output_dir).parent).free
+    # output_dir (y a veces su padre, p.ej. .../campaigns/) todavía no
+    # existen la primera vez que corre una campaña nueva -- este chequeo es
+    # de solo lectura, no crea directorios, así que subimos al ancestro
+    # existente más cercano en vez de asumir que el padre inmediato ya está.
+    existing = Path(output_dir)
+    while not existing.exists() and existing != existing.parent:
+        existing = existing.parent
+    free = shutil.disk_usage(existing).free
     passed = projected_bytes >= 0 and free >= projected_bytes
     return _result("I09", "Espacio libre", passed, True, {"free_bytes": free, "projected_bytes": projected_bytes}, "El espacio libre es menor que el tamaño proyectado")
 
