@@ -122,10 +122,18 @@ stage_validate() {
   # libnvidia-ml.so.1 versionado, sin el symlink .so que find_library()
   # espera (ver comentario en common/telemetry/CMakeLists.txt). Si el
   # entorno define NVML_LIB/NVML_INCLUDE_DIR, se los pasamos a mano.
-  local -a nvml_cmake_args=()
-  [[ -n "${NVML_LIB:-}" ]] && nvml_cmake_args+=("-DNVML_LIB=$NVML_LIB")
-  [[ -n "${NVML_INCLUDE_DIR:-}" ]] && nvml_cmake_args+=("-DNVML_INCLUDE_DIR=$NVML_INCLUDE_DIR")
-  cmake -S common/telemetry -B common/telemetry/build -DWITH_GPU=ON "${nvml_cmake_args[@]}"
+  local -a cmake_extra_args=()
+  [[ -n "${NVML_LIB:-}" ]] && cmake_extra_args+=("-DNVML_LIB=$NVML_LIB")
+  [[ -n "${NVML_INCLUDE_DIR:-}" ]] && cmake_extra_args+=("-DNVML_INCLUDE_DIR=$NVML_INCLUDE_DIR")
+  # Si el `module load` activo antepone al PATH un compilador no estandar
+  # (p.ej. nvc++ del NVIDIA HPC SDK), el binario queda linkeado con RPATH
+  # (no RUNPATH, asi que LD_LIBRARY_PATH no ayuda) contra la libstdc++ del
+  # sistema, mas vieja que la que uso para compilar: falla en runtime con
+  # "GLIBCXX_x.y.z not found" aunque compile y linkee bien. Forzar un
+  # g++/clang++ real via CMAKE_CXX_COMPILER si el entorno lo define (ver
+  # comentario en common/telemetry/CMakeLists.txt).
+  [[ -n "${CMAKE_CXX_COMPILER:-}" ]] && cmake_extra_args+=("-DCMAKE_CXX_COMPILER=$CMAKE_CXX_COMPILER")
+  cmake -S common/telemetry -B common/telemetry/build -DWITH_GPU=ON "${cmake_extra_args[@]}"
   cmake --build common/telemetry/build -j
   ctest --test-dir common/telemetry/build --output-on-failure
   local cpu_manifest gpu_manifest

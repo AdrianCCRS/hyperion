@@ -4,9 +4,9 @@
 
 La presente investigación se desarrolla bajo un enfoque cuantitativo de tipo experimental aplicado, orientado al cumplimiento del objetivo general del proyecto. El propósito metodológico consiste en determinar en qué medida un agente de gestión DVFS permite maximizar la eficiencia energética sin degradar significativamente el rendimiento de la aplicación en ejecución. Dicho impacto se evalúa a través de métricas cuantificables y reproducibles, principalmente el tiempo de ejecución, la energía consumida y el Producto Energía--Retardo (EDP).
 
-El carácter experimental se sustenta en la manipulación deliberada de una variable independiente --- el estado de frecuencia impuesto al procesador --- sobre un conjunto controlado de cargas de trabajo, observando su efecto sobre variables dependientes de rendimiento y consumo. El carácter aplicado responde a que el producto de la investigación no es únicamente conocimiento descriptivo sobre el comportamiento energético de las cargas, sino un artefacto software funcional cuya utilidad se evalúa empíricamente frente a las alternativas ya disponibles en el sistema operativo.
+El carácter experimental se sustenta en la manipulación deliberada del estado de frecuencia impuesto al procesador como variable independiente, sobre un conjunto controlado de cargas de trabajo, observando su efecto sobre variables dependientes de rendimiento y consumo. El carácter aplicado responde a que el producto de la investigación no es únicamente conocimiento descriptivo sobre el comportamiento energético de las cargas, sino un artefacto software funcional cuya utilidad se evalúa empíricamente frente a las alternativas ya disponibles en el sistema operativo.
 
-El desarrollo se estructura en cuatro fases secuenciales e interdependientes, que abarcan desde la caracterización de cargas y extracción de telemetría hasta la validación empírica del sistema. Este capítulo describe en detalle el diseño de la primera fase, por ser la que se encuentra ejecutada al momento de redacción del presente documento, y presenta el diseño previsto para las fases restantes.
+El desarrollo se estructura en cuatro fases secuenciales e interdependientes, que abarcan desde la caracterización de cargas y extracción de telemetría hasta la validación empírica del sistema.
 
 \section{Diseño metodológico}
 
@@ -15,25 +15,24 @@ El desarrollo se estructura en cuatro fases secuenciales e interdependientes, qu
 La población de estudio está constituida por el conjunto de aplicaciones ejecutables en sistemas heterogéneos CPU--GPU. Debido a la imposibilidad de abarcar la totalidad de estas, se define una muestra no probabilística de tipo intencional, compuesta por benchmarks y microbenchmarks representativos de regímenes de ejecución contrastantes. Esta selección permite inducir comportamientos diferenciados y obtener evidencia experimental suficiente para construir un conjunto de datos útil para el entrenamiento del clasificador. El uso de benchmarks representativos y de una muestra intencional es coherente con la necesidad de trabajar con cargas controladas y reproducibles dentro del alcance de un proyecto de pregrado.
 
 \label{sec:unidades}
-El criterio de inclusión en el catálogo experimental combina tres condiciones. En primer lugar, la carga debe disponer de una verificación interna de corrección que permita descartar ejecuciones inválidas, de modo que una corrida cuyo resultado numérico no sea correcto no contamine el conjunto de datos. En segundo lugar, la carga debe reportar de forma explícita el volumen de trabajo realizado, requisito necesario para estimar el numerador de la intensidad operacional según lo descrito en la sección \ref{sec:intensidad}. En tercer lugar, ese volumen de trabajo debe estar expresado en operaciones de punto flotante y no en otra unidad (números aleatorios generados, claves ordenadas), pues de lo contrario no sería comparable con un techo Roofline calibrado en FLOPs; las cargas que cuantifican su trabajo en otras unidades quedan excluidas del catálogo de caracterización, con independencia de su relevancia como benchmarks en otros contextos.
+El criterio de inclusión en el catálogo experimental combina tres condiciones. En primer lugar, la carga debe disponer de una verificación interna de corrección que permita descartar ejecuciones inválidas, de modo que una corrida cuyo resultado numérico no sea correcto no contamine el conjunto de datos. En segundo lugar, el trabajo aritmético de la carga debe ser observable por el propio instrumento: en CPU, mediante los contadores de hardware de instrucciones de punto flotante retiradas descritos en la sección \ref{sec:validacion-flops}; en el acelerador, mediante el perfilado por contadores de hardware descrito en la sección \ref{sec:gpu-calibracion}. La carga no necesita reportar su propio conteo de operaciones, y cuando lo hace ese valor se emplea únicamente como contraste independiente de la medición directa, nunca como su fuente. En tercer lugar, ese trabajo debe consistir efectivamente en operaciones de punto flotante y no en otra clase de cómputo (generación de números aleatorios, ordenamiento de claves, recorrido de índices enteros): una carga de aritmética entera produce un conteo de operaciones de punto flotante cercano a cero y una intensidad operacional sin significado físico, no comparable con un techo Roofline calibrado en FLOPs. Las cargas cuyo trabajo no es genuinamente de punto flotante quedan excluidas del catálogo de caracterización, con independencia de su relevancia como benchmarks en otros contextos, según la regla de validez de FLOPs de la sección \ref{sec:banco-candidatos}.
 
 \subsection{Plataforma experimental}
 
 Los experimentos se ejecutan sobre un nodo de cómputo heterogéneo cuyas características se resumen en la Tabla \ref{tab:plataforma}. La selección de la plataforma no fue arbitraria: además de la disponibilidad de un acelerador gráfico instrumentable mediante NVML, se estableció como condición de admisibilidad la presencia de una interfaz de medición energética interna accesible sin privilegios administrativos, dado que, como se argumentó en el marco conceptual, dicha capacidad es una propiedad del procesador que no admite sustitución por software.
 
-La identidad precisa de la microarquitectura no es un dato meramente descriptivo en este trabajo: varios de los eventos crudos de PMU que el instrumento utiliza (sección \ref{sec:paranoid}) carecen de mapeo genérico en el kernel de este nodo y se abren mediante una codificación específica del procesador, verificada empíricamente y restringida en el código a coincidir exactamente con el par \texttt{cpu family}/\texttt{model} de la Tabla \ref{tab:plataforma}; ese mismo gateo es lo que impide, por diseño, que el instrumento aplique sin verificación una codificación cruda a un nodo distinto de este.
-
+La identidad precisa de la microarquitectura no es un dato meramente descriptivo en este trabajo: varios de los eventos crudos de PMU que el instrumento utiliza (sección \ref{sec:eventos-genericos-crudos}) carecen de mapeo genérico en el kernel de este nodo y se abren mediante una codificación específica del procesador, validada empíricamente. La restricción en el código para coincidir exactamente con el par \texttt{cpu family}/\texttt{model} de la Tabla \ref{tab:plataforma}, leído en tiempo de ejecución desde \texttt{/proc/cpuinfo}, actúa como un filtro de seguridad que impide, por diseño, aplicar una codificación cruda a un nodo distinto. Es el caso, por ejemplo, de los sub-eventos de \texttt{FP\_ARITH\_INST\_RETIRED} que sostienen la medición directa de FLOPs (sección \ref{sec:validacion-flops}).
 \begin{table}[H]
 \centering
 \caption{Características de la plataforma experimental.}
 \label{tab:plataforma}
-\begin{tabular}{@{}ll@{}}
+\begin{tabular}{@{}p{4.6cm}p{10.4cm}@{}}
 \toprule
 \textbf{Componente} & \textbf{Descripción} \\
 \midrule
 Procesador & 2 $\times$ Intel Xeon Gold 5315Y \\
 Microarquitectura & Ice Lake-SP (10~nm, generación de servidor lanzada en 2021) \\
-Identificador CPUID (\texttt{cpu family}/\texttt{model}) & 6 / 106 --- el mismo par leído en tiempo de ejecución desde \texttt{/proc/cpuinfo} que gatea, en el instrumento, cada \textit{encoding} crudo de PMU específico de esta plataforma (\texttt{stalled\_cycles\_backend}, \texttt{L2\_LINES\_IN\_ALL}, \texttt{FP\_ARITH\_INST\_RETIRED}) \\
+Identificador CPUID (\texttt{cpu family}/\texttt{model}) & 6 / 106 \\
 Extensiones SIMD relevantes & AVX2, FMA3, AVX-512 (\texttt{avx512f}, \texttt{avx512bw}, \texttt{avx512cd}, \texttt{avx512dq}, \texttt{avx512vl}, \texttt{avx512\_vnni}, entre otras) --- el ancho de 512 bits es el que domina el conteo de FLOPs medido en las cargas de álgebra lineal densa del catálogo \\
 Núcleos & 8 núcleos físicos por zócalo, 2 hilos por núcleo (32 lógicos) \\
 Nodos NUMA & 2 (uno por zócalo) \\
@@ -57,34 +56,210 @@ La recolección de telemetría se implementa mediante un instrumento propio, des
 
 La capa inferior es un ejecutor escrito en C++ que lanza la carga de trabajo como proceso hijo y adjunta los contadores de hardware sobre ella. El diseño de esta capa responde directamente a los requisitos de atribución expuestos en la sección \ref{sec:perfevent}: el proceso hijo se detiene inmediatamente después de su creación y antes de ejecutar la primera instrucción de la carga, momento en el cual el proceso padre abre los contadores asociados a ese identificador de proceso con herencia habilitada; solo entonces se reanuda la ejecución. Este protocolo garantiza que ninguna instrucción de la carga medida se ejecute fuera del intervalo de observación y que la medida abarque el árbol completo de procesos e hilos que la carga genere, sin incluir actividad ajena.
 
-El muestreo se realiza mediante un hilo productor dedicado, fijado a un procesador lógico distinto de los asignados a la carga, que a intervalos regulares lee los contadores y deposita las muestras en una estructura circular de productor y consumidor únicos. Un hilo consumidor, igualmente fijado a un procesador lógico separado, extrae las muestras y las persiste. Esta separación evita que la actividad de escritura a disco interfiera con la periodicidad del muestreo, y el aislamiento de ambos hilos respecto de los núcleos medidos reduce su interferencia sobre la carga observada. La ausencia de pérdidas en la estructura circular se registra como indicador de integridad de cada corrida.
+El muestreo se realiza mediante un hilo productor dedicado, fijado a un procesador lógico distinto de los asignados a la carga, que a intervalos regulares lee los contadores y deposita las muestras en una estructura circular de productor y consumidor únicos. Un hilo consumidor, igualmente fijado a un procesador lógico separado, extrae las muestras y las persiste. Esta separación evita que la actividad de escritura a disco interfiera con la periodicidad del muestreo, y el aislamiento de ambos hilos respecto de los núcleos medidos reduce su interferencia sobre la carga observada. La ausencia de pérdidas en la estructura circular se registra como indicador de integridad de cada corrida. La Figura \ref{fig:muestreo-spsc} resume esta ruta.
 
-La capa superior es un orquestador escrito en Python, responsable de la lógica experimental: interpreta el manifiesto que define la campaña, detecta las capacidades de la plataforma, ejecuta las verificaciones previas, realiza la calibración, planifica y lanza cada combinación experimental, aplica el estado de frecuencia correspondiente, valida el resultado de cada corrida y transforma las muestras crudas en el conjunto de datos final. La separación entre ambas capas responde a un criterio de responsabilidad: la capa C++ resuelve la medición de baja latencia, donde el costo de la instrumentación es crítico, mientras que la capa Python resuelve la lógica experimental, donde prima la claridad y la trazabilidad sobre el rendimiento.
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    font=\small,
+    box/.style={rectangle, draw, rounded corners=2pt, align=center,
+        minimum height=1.0cm, inner sep=5pt},
+    core/.style={box, draw=blue!45!black, fill=blue!8, text width=3.7cm},
+    thr/.style={box, draw=green!45!black, fill=green!12, text width=3.4cm},
+    sink/.style={box, draw=black!45, fill=black!6, text width=2.7cm},
+    slot/.style={circle, draw=orange!55!black, minimum size=0.74cm, inner sep=0pt},
+    occ/.style={slot, fill=orange!30},
+    free/.style={slot, fill=white},
+    wslot/.style={slot, fill=white, draw=green!45!black, line width=1.1pt},
+    rslot/.style={slot, fill=orange!30, draw=black!70, line width=1.1pt},
+    flow/.style={-{Latex[length=2.4mm]}, very thick},
+    rd/.style={-{Latex[length=2.4mm]}, thick, dashed},
+    lbl/.style={font=\footnotesize, align=center},
+]
+    \def\R{2.05}
+
+    % --- anillo: libres en el arco superior-derecho, ocupadas en el inferior-izquierdo ---
+    \foreach \i/\typ in {1/free,2/free,3/free,4/free,6/occ,7/occ,8/occ,9/occ} {
+        \node[\typ] (s\i) at ({90 - \i*36}:\R) {};
+    }
+    \node[wslot] (s0) at (90:\R) {};
+    \node[rslot] (s5) at (-90:\R) {};
+    \node[lbl, text=orange!50!black] at (0,0)
+        {\textbf{estructura}\\\textbf{circular}\\[1pt]\scriptsize un productor\\\scriptsize un consumidor};
+
+    % --- sentido en que avanzan ambos punteros ---
+    \draw[-{Latex[length=2.4mm]}, orange!55!black, line width=1pt]
+        ([shift=(52:\R+0.55)]0,0) arc[start angle=52, end angle=-52, radius=\R+0.55];
+    \node[lbl, text=orange!50!black, anchor=west] at (0:\R+0.8) {los punteros\\avanzan en\\este sentido};
+
+    % --- ranuras ocupadas ---
+    \node[lbl, text=orange!50!black, anchor=east] (occl) at (180:\R+0.8)
+        {ranuras escritas\\y aún no leídas};
+    \draw[orange!55!black, -{Latex[length=1.6mm]}, dashed] (occl.east) -- (s7.west);
+
+    % --- hilos, núcleos y disco ---
+    \node[thr, above=2.0cm of s0] (prod) {\textbf{Hilo productor}\\procesador lógico\\separado};
+    \node[thr, below=2.0cm of s5] (cons) {\textbf{Hilo consumidor}\\procesador lógico\\separado};
+    \node[core, left=3.1cm of prod] (load)
+        {\textbf{Núcleos medidos}\\carga (proceso hijo)\\con \texttt{perf\_event}};
+    \node[sink, left=2.7cm of cons] (disk) {Persistencia en disco};
+
+    % --- flujos ---
+    \draw[rd] (prod.west) -- node[lbl, above] {lee los contadores\\cada período} (load.east);
+    \draw[flow, green!45!black] (prod.south) --
+        node[lbl, left=1pt, text=green!40!black] {escribe en el\\puntero de escritura} (s0.north);
+    \draw[flow] (s5.south) --
+        node[lbl, left=1pt] {lee del puntero\\de lectura} (cons.north);
+    \draw[flow] (cons.west) -- node[lbl, above] {persiste} (disk.east);
+
+    % --- condición de pérdida ---
+    \node[lbl, text=gray, below=1.0cm of cons]
+        {si el puntero de escritura alcanza al de lectura la muestra se pierde;\\
+         ese conteo de pérdidas es el indicador de integridad de la corrida};
+\end{tikzpicture}
+\caption[Ruta de muestreo con estructura circular de un productor y un consumidor]{Ruta de una
+muestra de telemetría, desde la lectura de los contadores hasta su persistencia. El hilo productor
+escribe cada muestra en la ranura que señala el puntero de escritura (borde verde) y el hilo
+consumidor la retira por el puntero de lectura (borde negro); ambos punteros avanzan en el mismo
+sentido, de modo que las ranuras naranjas son las escritas que el consumidor aún no ha leído. Los
+dos hilos se fijan a procesadores lógicos distintos de los que ejecutan la carga, y la estructura
+circular desacopla la cadencia de muestreo de la escritura a disco. Fuente: elaboración propia.}
+\label{fig:muestreo-spsc}
+\end{figure}
+
+La capa superior es un orquestador escrito en Python, responsable de la lógica experimental: interpreta el manifiesto que define la campaña, detecta las capacidades de la plataforma, ejecuta las verificaciones previas, realiza la calibración, planifica y lanza cada combinación experimental, aplica el estado de frecuencia correspondiente, valida el resultado de cada corrida y transforma las muestras crudas en el conjunto de datos final. La separación entre ambas capas responde a un criterio de responsabilidad: la capa C++ resuelve la medición de baja latencia, donde el costo de la instrumentación es crítico, mientras que la capa Python resuelve la lógica experimental, donde prima la claridad y la trazabilidad sobre el rendimiento. La Figura \ref{fig:arquitectura-instrumento} resume el recorrido de una campaña a través de ambas capas.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    font=\footnotesize,
+    st/.style={draw, rounded corners=1.5pt, align=center,
+        minimum height=1.2cm, text width=2.55cm, inner sep=3pt},
+    py/.style={st, fill=blue!7, draw=blue!45!black},
+    cpp/.style={st, fill=orange!10, draw=orange!55!black},
+    ar/.style={-{Latex[length=2mm]}, semithick},
+    cr/.style={-{Latex[length=2mm]}, semithick, dashed},
+    sub/.style={font=\scriptsize, text=black!70, align=center},
+    zlab/.style={font=\scriptsize\bfseries, text=black!55},
+]
+    % ---------- Banda A: capa Python, preparación (izq -> der) ----------
+    \node[py] (man)  {Manifiesto de\\campaña\\{\scriptsize manifest}};
+    \node[py, right=0.42cm of man]  (pre)  {Verificaciones\\previas\\{\scriptsize preflight}};
+    \node[py, right=0.42cm of pre]  (cal)  {Calibración\\Roofline\\{\scriptsize calibration}};
+    \node[py, right=0.42cm of cal]  (plan) {Matriz y orden\\de ejecución\\{\scriptsize campaign}};
+    \node[py, right=0.42cm of plan] (loop) {\textbf{Bucle por}\\\textbf{combinación}\\{\scriptsize runner, freqctl}};
+    \draw[ar] (man) -- (pre);
+    \draw[ar] (pre) -- (cal);
+    \draw[ar] (cal) -- (plan);
+    \draw[ar] (plan) -- (loop);
+
+    % ---------- Banda B: capa C++, medición (der -> izq) ----------
+    \node[cpp, below=2.1cm of loop] (exec)
+        {Ejecutor de la carga\\{\scriptsize hijo detenido,}\\{\scriptsize adjuntado y reanudado}\\{\scriptsize kernel\_launcher}};
+    \node[cpp, left=0.42cm of exec] (coll)
+        {Colector y lectores\\{\scriptsize perf, uncore,}\\{\scriptsize RAPL, NVML}};
+    \node[cpp, left=0.42cm of coll] (ring)
+        {Estructura circular\\{\scriptsize (Figura \ref{fig:muestreo-spsc})}\\{\scriptsize spsc\_ring}};
+    \draw[ar] (exec) -- (coll);
+    \draw[ar] (coll) -- (ring);
+    \draw[cr] (loop.south) -- node[left, sub]
+        {invoca por subproceso;\\antes fija la frecuencia} (exec.north);
+
+    % ---------- Banda C: capa Python, consolidación (izq -> der) ----------
+    \node[py, below=2.35cm of ring] (val) {Validación de\\la corrida\\{\scriptsize validation}};
+    \node[py, right=0.42cm of val]  (post) {Post-proceso\\{\scriptsize postprocess}};
+    \node[py, right=0.42cm of post]  (data)
+        {\textbf{Conjunto de datos}\\{\scriptsize windows, intervalos}\\{\scriptsize \textit{uncore}, fases GPU}};
+    \draw[cr] (ring.south) -- node[right, sub]
+        {muestras crudas\\{\scriptsize (samples.csv)}} (val.north);
+    \draw[ar] (val) -- (post);
+    \draw[ar] (post) -- (data);
+
+    % ---------- zonas ----------
+    \begin{pgfonlayer}{background}
+        \node[draw=blue!35, fill=blue!3, rounded corners, inner sep=0.28cm,
+            fit=(man)(loop), label={[zlab, blue!45!black]above left:Capa Python: preparación y planificación}] {};
+        \node[draw=orange!45, fill=orange!4, rounded corners, inner sep=0.28cm,
+            fit=(exec)(ring), label={[zlab, orange!55!black]above left:Capa C++: medición}] {};
+        \node[draw=blue!35, fill=blue!3, rounded corners, inner sep=0.28cm,
+            fit=(val)(data), label={[zlab, blue!45!black]below left:Capa Python: validación y consolidación}] {};
+    \end{pgfonlayer}
+\end{tikzpicture}
+\caption[Recorrido de una campaña a través de las dos capas del instrumento]{Recorrido de una
+campaña a través de las dos capas del instrumento. La capa Python prepara la campaña (banda
+superior), invoca por subproceso el ejecutor de la capa C++ una vez por combinación de carga y
+frecuencia (banda intermedia), y consolida las muestras crudas que este produce en el conjunto de
+datos (banda inferior). La capa C++ concentra la medición sensible a la latencia; la capa Python,
+la lógica experimental, donde priman la claridad y la trazabilidad. Fuente: elaboración propia.}
+\label{fig:arquitectura-instrumento}
+\end{figure}
 
 \subsection{Variables observadas}
 
-Antes de describir las señales capturadas, conviene precisar qué se entiende por ventana de muestreo, término empleado de aquí en adelante. El hilo productor descrito en la sección anterior toma una lectura de los contadores cada cierto período configurado en la campaña; cada lectura individual es un valor acumulativo, y por sí sola no describe el comportamiento de un intervalo concreto. Una ventana de muestreo se define como el intervalo delimitado por dos lecturas consecutivas, y su contenido --- el trabajo realizado durante ese intervalo --- se obtiene restando la lectura anterior de la lectura actual, conforme a lo argumentado en la sección \ref{sec:ventanas}. Por tanto, una ventana no es un conjunto o agregado de varias muestras, sino el resultado de un único par de lecturas consecutivas; se requieren dos lecturas para producir una ventana, de modo que la primera lectura de cada corrida no genera ventana alguna, al carecer de una lectura previa contra la cual diferenciarse (condición registrada en la Tabla \ref{tab:calidad} como ``sin diferencia previa''). La duración real de una ventana corresponde al tiempo efectivamente transcurrido entre ambas lecturas, medido con un reloj monótono, y no al período nominal configurado.
+Antes de describir las señales capturadas, conviene precisar qué se entiende por ventana de muestreo, término empleado de aquí en adelante. El hilo productor descrito en la sección anterior toma una lectura de los contadores cada cierto período configurado en la campaña; cada lectura individual es un valor acumulativo, y por sí sola no describe el comportamiento de un intervalo concreto. Una ventana de muestreo se define como el intervalo delimitado por dos lecturas consecutivas, y su contenido se obtiene restando la lectura anterior de la lectura actual, conforme a lo argumentado en la sección \ref{sec:ventanas}. Por tanto, una ventana no es un conjunto o agregado de varias muestras, sino el resultado de un único par de lecturas consecutivas; se requieren dos lecturas para producir una ventana, de modo que la primera lectura de cada corrida no genera ventana alguna, al carecer de una lectura previa contra la cual diferenciarse (condición registrada en la Tabla \ref{tab:calidad} como ``sin diferencia previa''). La duración real de una ventana corresponde al tiempo efectivamente transcurrido entre ambas lecturas, medido con un reloj monótono, y no al período nominal configurado.
 
 La Tabla \ref{tab:contadores} enumera las señales activas del instrumento de producción y separa los contadores de núcleo, atribuibles a la carga, de los del controlador de memoria, que son de alcance de zócalo. El conjunto de eventos se dimensionó para permanecer dentro del presupuesto de contadores físicos simultáneos de la plataforma, verificado empíricamente sobre la máquina en lugar de asumirse a partir del modelo de procesador, con el fin de evitar el error de extrapolación asociado a la multiplexación descrito en la sección \ref{sec:multiplexacion}.
 
 \begin{table}[H]
 \centering
-\caption{Señales activas de telemetría CPU y su interpretación en el instrumento de producción.}
+\caption{Señales de telemetría de CPU activas en el instrumento de producción.}
 \label{tab:contadores}
 \small
-\begin{tabular}{@{}p{4.1cm}@{\hspace{0.4cm}}p{10cm}@{}}
+\setlength{\extrarowheight}{2.5pt}
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{4.35cm}@{\hspace{0.5cm}}>{\raggedright\arraybackslash}p{10.6cm}@{}}
 \toprule
-\textbf{Señal exportada} & \textbf{Evento, alcance e interpretación} \\
+\textbf{Señal exportada} & \textbf{Evento e interpretación} \\
 \midrule
-\texttt{instructions} & \texttt{PERF\_COUNT\_HW\_INSTRUCTIONS}, de núcleo y atribuible al proceso. Base de IPC e instrucciones por segundo. \\
-\texttt{cycles} & \texttt{PERF\_COUNT\_HW\_CPU\_CYCLES}, de núcleo y atribuible al proceso. Denominador de IPC y de las fracciones de stall. \\
-\texttt{cache\_references} y \texttt{cache\_misses} & Eventos genéricos de \texttt{perf}; el kernel los traduce a un evento concreto de la PMU, cuya correspondencia exacta con el último nivel de caché no está verificada para esta plataforma \cite{LinuxPerfEventOpen2026}. Producen \texttt{cache\_miss\_rate} y MPKI; son indicadores de presión de memoria, no bytes transferidos a DRAM. \\
-\texttt{stalled\_cycles\_mem\_any} & Evento crudo \texttt{STALLS\_MEM\_ANY} (\texttt{0xA3/0x14}, \texttt{cmask=0x14}), de núcleo/proceso. Cuenta ciclos de ejecución bloqueados mientras hay una carga pendiente en memoria; se normaliza como \texttt{stall\_mem\_ratio}. Es una señal predictiva, no la etiqueta Roofline. \\
-Contadores \texttt{fp\_*\_double} & Subeventos de doble precisión de \texttt{FP\_ARITH\_INST\_RETIRED} (crudo \texttt{0xC7}), de núcleo/proceso. Forman el numerador de FLOPs: se ponderan por 1, 2, 4 u 8 elementos; FMA ya cuenta dos operaciones por elemento (ecuación \eqref{eq:flops-medidos}). \\
-\texttt{time\_enabled\_ns} y \texttt{time\_running\_ns} & Metadatos de \texttt{perf}, de núcleo/proceso. Diagnostican multiplexación y permiten escalar conteos; las ventanas degradadas se excluyen del entrenamiento. \\
-CAS IMC: \texttt{read/write\_interval} & Contadores CAS de los controladores de memoria \textit{uncore}, de alcance sistema/zócalo. Cada CAS representa 64 bytes; su suma es el denominador DRAM de Roofline. Su intervalo práctico (\(\geq 10\) ms) es más grueso que la ventana CPU y su etiqueta se difunde a las ventanas cubiertas. \\
-RAPL: \texttt{pkg\_uj} y \texttt{dram\_uj} & Energía acumulada por zócalo. Sus diferencias, con corrección de desbordamiento, producen energía y potencia; no participan en la etiqueta compute/memory-bound. \\
-\texttt{scaling\_cur\_freq} por CPU delegado & Lectura \textit{sysfs} por núcleo lógico. Verifica la frecuencia efectiva durante la carga y detecta divergencias entre núcleos delegados (sección \ref{sec:dominios}). \\
+\multicolumn{2}{@{}l@{}}{\textbf{Contadores de núcleo} \mbox{\normalfont\itshape (atribuibles al proceso medido)}} \\
+\addlinespace[3pt]
+\texttt{instructions} &
+    \texttt{PERF\_COUNT\_HW\_INSTRUCTIONS}. Base de IPC e instrucciones por
+    segundo. \\
+\addlinespace[4pt]
+\texttt{cycles} &
+    \texttt{PERF\_COUNT\_HW\_CPU\_CYCLES}. Denominador de IPC y de las
+    fracciones de \textit{stall}. \\
+\addlinespace[4pt]
+\texttt{cache\_references},\newline \texttt{cache\_misses} &
+    Eventos genéricos de \texttt{perf} que producen
+    \texttt{cache\_miss\_rate} y MPKI, los cuales indican presión de memoria, no bytes
+    movidos a DRAM. \\
+\addlinespace[4pt]
+\texttt{stalled\_cycles\_}\newline\texttt{mem\_any} &
+    Evento crudo \texttt{STALLS\_MEM\_ANY} (\texttt{0xA3/0x14},
+    \texttt{cmask=0x14}). Ciclos de ejecución bloqueados mientras hay una
+    carga de memoria pendiente; se normaliza como \texttt{stall\_mem\_ratio}.
+    Señal predictiva, no la etiqueta Roofline. \\
+\addlinespace[4pt]
+\texttt{fp\_*\_double} &
+    Subeventos de doble precisión de \texttt{FP\_ARITH\_INST\_RETIRED}
+    (\texttt{0xC7}). Numerador de FLOPs, ponderados por 1, 2, 4 u 8
+    elementos. \\
+\addlinespace[4pt]
+\texttt{time\_enabled\_ns},\newline \texttt{time\_running\_ns} &
+    Metadatos de \texttt{perf}. Diagnostican la multiplexación y escalan los
+    conteos; las ventanas degradadas se excluyen del entrenamiento. \\
+\midrule
+\multicolumn{2}{@{}l@{}}{\textbf{Ámbito de zócalo o de sistema} \mbox{\normalfont\itshape (no atribuibles a un proceso)}} \\
+\addlinespace[3pt]
+Comandos CAS del IMC:\newline \texttt{read/write\_interval} &
+    Número de comandos \textit{Column Address Strobe} (CAS) de lectura y de
+    escritura emitidos por el controlador de memoria integrado (IMC),
+    contabilizados por su PMU de \textit{uncore}. Cada comando transfiere una
+    línea de 64~bytes hacia o desde la DRAM, de modo que la suma de ambos es
+    el denominador DRAM del modelo Roofline. Su intervalo práctico
+    ($\geq 10$~ms) es más grueso que la ventana de CPU, y su etiqueta se
+    difunde a las ventanas que cubre. \\
+\addlinespace[4pt]
+RAPL: \texttt{pkg\_uj},\newline \texttt{dram\_uj} &
+    Energía acumulada por zócalo. Sus diferencias, con corrección de
+    desbordamiento, producen energía y potencia; no intervienen en la
+    etiqueta \textit{compute}/\textit{memory-bound}. \\
+\addlinespace[4pt]
+\texttt{scaling\_cur\_freq}\newline por CPU delegado &
+    Lectura de \textit{sysfs} por núcleo lógico. Verifica la frecuencia
+    efectiva bajo carga y detecta divergencias entre los núcleos delegados
+    (sección \ref{sec:dominios}). \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -105,48 +280,99 @@ Antes de ejecutar cualquier medición se aplica una batería de verificaciones a
 Las verificaciones se clasifican en bloqueantes y no bloqueantes. Una verificación bloqueante que no se satisface detiene la campaña antes de tocar el sistema, bajo el principio de que es preferible no producir datos a producir datos cuya validez no puede sostenerse. Este mecanismo se ejecuta de forma automática como parte del comando que lanza la campaña, y no como un paso manual previo, de modo que no exista la posibilidad de iniciar una medición sin haberlo aplicado.
 
 \subsection{Catálogo de cargas de trabajo}
+\label{sec:banco-candidatos}
 
-El catálogo experimental se compone de cargas de dos roles distintos. Las cargas de calibración sirven para determinar empíricamente los techos del modelo Roofline sobre la plataforma: un microbenchmark de ancho de banda de memoria, cuyo conjunto de trabajo excede ampliamente la capacidad de la caché de último nivel para garantizar que el tráfico alcance la memoria principal, proporciona la estimación de $BW_{\text{pico}}$; y un microbenchmark de densidad aritmética sobre datos residentes en caché proporciona la estimación de $P_{\text{pico}}$. Las cargas de conjunto de datos son los benchmarks cuyo comportamiento se pretende caracterizar.
+El catálogo se compone de cargas de dos papeles. Las cargas de \textbf{calibración} determinan empíricamente los techos del modelo Roofline sobre la plataforma: un microbenchmark de ancho de banda de memoria, con un conjunto de trabajo dimensionado para exceder la caché de último nivel y hacer marginal la reutilización en caché, estima $BW_{\text{pico}}$, y un microbenchmark de densidad aritmética sobre datos en caché estima $P_{\text{pico}}$. Ambos valores son cotas empíricas de lo alcanzable en la plataforma, no las tasas exactas de transferencia a memoria ni de ejecución aritmética, cuya relación con el tráfico realmente observado se discute en la sección \ref{sec:roofline}. Las cargas de \textbf{conjunto de datos} son los benchmarks cuyo comportamiento se pretende caracterizar. Todas provienen de suites de amplia adopción, se emplean sin modificar su código fuente, se compilan sobre la plataforma con las opciones por defecto de cada suite, y se registran por su suma de verificación: ese registro, asociado a la plataforma de compilación, permite confirmar antes de cada corrida que el binario ejecutado es exactamente el caracterizado, y descarta que una recompilación silenciosa altere las condiciones a mitad de campaña. La Tabla \ref{tab:catalogo} enumera las cargas por nombre y suite de origen.
 
-La Tabla \ref{tab:catalogo} resume la composición final del catálogo, ya estabilizada tras dos extensiones sucesivas: el conjunto inicial de siete cargas (seis kernels de una suite de benchmarks paralelos más la referencia de álgebra lineal densa) se amplió con dos cargas adicionales, caracterizadas primero en el punto de operación nativo, al confirmarse que la distribución de etiquetas resultante del conjunto inicial por sí solo no cubría de forma suficiente el régimen intermedio entre los dos extremos del modelo Roofline. Todas las cargas de conjunto de datos provienen de suites de benchmarks científicos de amplia adopción, se emplean sin modificar su código fuente y se compilan sobre la plataforma experimental con las opciones por defecto de cada suite, registrando la suma de verificación del binario resultante. Este registro cumple una función metodológica precisa: permite confirmar, antes de cada corrida individual, que el binario ejecutado es exactamente el mismo que se caracterizó, descartando la posibilidad de que una recompilación silenciosa altere las condiciones a mitad de campaña. Dado que un mismo código fuente compilado con cadenas de herramientas distintas produce binarios funcionalmente equivalentes pero con sumas de verificación diferentes, este registro se mantiene asociado a la plataforma en la que se realizó la compilación.
-
-\begin{table}[H]
+\begin{table}[htbp]
 \centering
-\caption{Composición del catálogo experimental de cargas de trabajo.}
+\caption{Catálogo de cargas de trabajo.}
 \label{tab:catalogo}
-\begin{tabular}{@{}p{3.2cm}p{2.6cm}p{8.6cm}@{}}
+\footnotesize
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{4.9cm} >{\raggedright\arraybackslash}p{3.5cm} >{\raggedright\arraybackslash}p{6.3cm}@{}}
 \toprule
-\textbf{Rol} & \textbf{Cantidad} & \textbf{Propósito} \\
+\textbf{Carga} & \textbf{Suite u origen} & \textbf{Papel y régimen esperado} \\
 \midrule
-Calibración & 2 & Estimación empírica de $BW_{\text{pico}}$ (ancho de banda sostenido de memoria) y de $P_{\text{pico}}$ (densidad aritmética sobre datos en caché). \\
-\addlinespace
-Conjunto de datos & 6 & Kernels de una suite de benchmarks científicos paralelos, seleccionados por reportar su trabajo en operaciones de punto flotante y cubrir distintos patrones de acceso a memoria (resolución de sistemas por métodos implícitos, multigrid, gradiente conjugado, transformada rápida de Fourier). \\
-\addlinespace
-Conjunto de datos & 1 & Multiplicación densa de matrices sobre una biblioteca de álgebra lineal optimizada, como referencia de régimen intensivo en cómputo. \\
-\addlinespace
-Conjunto de datos & 1 & Dinámica molecular de N-cuerpos sobre una malla regular, de una suite de benchmarks heterogéneos originalmente concebida para acelerador gráfico y compilada aquí en su variante paralela de CPU. \\
-\addlinespace
-Conjunto de datos & 1 & Triple multiplicación de matrices densas, de una suite de \textit{kernels} de rendimiento en memoria compartida, con verificación numérica propia además de la suma de verificación del binario. \\
+\multicolumn{3}{@{}l@{}}{\textit{Calibración de los techos Roofline}} \\
+\addlinespace[2pt]
+STREAM & McCalpin \cite{McCalpin1995} & $BW_{\text{pico}}$ de CPU. \\
+ERT & Lo et al. \cite{Lo2015} & $P_{\text{pico}}$ de CPU. \\
+Microbenchmarks propios (BW, FP32, FP64) & Elaboración propia & Techos de ancho de banda y de cómputo del acelerador. \\
+DGEMM & NVIDIA cuBLAS & Referencia independiente del techo de cómputo del acelerador. \\
+\midrule
+\multicolumn{3}{@{}l@{}}{\textit{Conjunto de datos --- CPU}} \\
+\addlinespace[2pt]
+BT, MG, CG, SP, FT, LU & NAS Parallel Benchmarks \cite{Bailey1991} & Métodos implícitos, multigrid, gradiente conjugado y FFT; mayoría \textit{memory-bound}. \\
+DGEMM & Biblioteca BLAS optimizada \cite{Goto2008} & Multiplicación densa de matrices; ancla \textit{compute-bound}. \\
+LavaMD (OpenMP) & Rodinia \cite{Che2009} & Dinámica molecular de N-cuerpos; régimen intermedio. \\
+3MM (OpenMP) & RAJA Performance Suite \cite{Beckingsale2019} & Triple multiplicación densa, con verificación numérica propia; régimen intermedio. \\
+\midrule
+\multicolumn{3}{@{}l@{}}{\textit{Conjunto de datos --- acelerador}} \\
+\addlinespace[2pt]
+gaussian, backprop, heartwall, LUD, myocyte, DWT2D & Rodinia \cite{Che2009} & Eliminación gaussiana, retropropagación, seguimiento de rasgos, factorización LU, electrofisiología y transformada wavelet; mayoría \textit{memory-bound}. \\
+LavaMD & Rodinia \cite{Che2009} & Principal ancla \textit{compute-bound} del acelerador. \\
+DGEMM & NVIDIA cuBLAS & Referencia \textit{compute-bound} del acelerador. \\
+\midrule
+\multicolumn{3}{@{}l@{}}{\textit{Candidatos de ampliación del catálogo (sección \ref{sec:cribado})}} \\
+\addlinespace[2pt]
+EP & NAS Parallel Benchmarks \cite{Bailey1991} & Ancla \textit{compute-bound} pura en CPU. \\
+kmeans, SRAD, NW, particlefilter & Rodinia \cite{Che2009} & Patrones de acceso irregular en CPU: agrupamiento iterativo, difusión anisotrópica, programación dinámica en diagonal y filtro de partículas. \\
+kmeans, SRAD, NW, b\texttt{+}tree, CFD & Rodinia \cite{Che2009} & Los mismos patrones en el acelerador, más recorrido de árbol y volúmenes finitos; \texttt{kmeans}, \texttt{SRAD} y \texttt{NW} forman pares CPU/acelerador. \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Las dos cargas incorporadas en la segunda ronda comparten precisión doble y expectativa cualitativa de régimen intermedio; ambas se admitieron al catálogo bajo el mismo criterio de inclusión de la sección \ref{sec:unidades}, sin trato diferenciado por haberse incorporado en un momento posterior del proyecto.
+El bloque de calibración y las primeras filas de conjunto de datos de la Tabla \ref{tab:catalogo} son las cargas con las que se construyó y validó el instrumento de medición. La campaña de datos definitiva amplía ese conjunto con cargas adicionales, y esa ampliación obliga a precisar qué cuenta como una observación independiente.
+
+Una misma suite ofrece con frecuencia el mismo algoritmo en varios tamaños de problema: las NAS Parallel Benchmarks lo hacen mediante clases de tamaño, y los kernels de Rodinia mediante parámetros de dimensión de la entrada. Tratar cada tamaño como un ejemplo distinto inflaría el conjunto de datos sin añadir diversidad real, y dejar fuera de la evaluación un tamaño de un algoritmo no prueba generalización hacia un patrón computacional nuevo, sino solo hacia un tamaño nuevo del mismo patrón. Por esta razón, la unidad de diversidad que gobierna tanto la selección de cargas como la validación posterior es la \textbf{familia algorítmica}, entendida como el patrón de cómputo y de acceso a memoria compartido por todas las variantes de tamaño de una misma operación, y no la entrada individual del catálogo.
+
+De esta definición se derivan tres reglas de admisión, aplicadas antes de comprometer tiempo de cómputo en el barrido completo:
+
+\begin{enumerate}
+    \item \textbf{Objetivo mínimo por clase y por dispositivo.} Tras el etiquetado empírico, cada clase (\textit{compute-bound} y \textit{memory-bound}) debe quedar representada por al menos cinco o seis familias algorítmicas distintas en cada dispositivo. Un catálogo numeroso pero concentrado en una sola clase no satisface este criterio, y el número de variantes de tamaño de una familia no le concede mayor peso estadístico.
+    \item \textbf{Separación entre controles y cargas de entrenamiento.} Los microbenchmarks sintéticos propios sirven para verificar extremos del plano Roofline, resolución temporal del instrumento y presencia de transiciones, pero no pueblan el conjunto de datos de entrenamiento: una carga construida por el propio proyecto para exhibir un comportamiento no constituye evidencia de que el clasificador generalice hacia cargas científicas reales. Se declaran explícitamente como controles y quedan excluidos del cómputo del mínimo de familias por clase.
+    \item \textbf{Validez de FLOPs como medida de trabajo.} Toda familia cuya naturaleza aritmética invalide la intensidad operacional, en particular los recorridos sobre estructuras de datos y los kernels de aritmética entera sin operaciones de punto flotante, debe demostrar que el cociente FLOPs por byte describe trabajo útil antes de ser elegible; de lo contrario queda fuera del conjunto de entrenamiento, con su motivo registrado.
+\end{enumerate}
+
+El hueco de cobertura del catálogo no es de volumen sino de \textbf{diversidad de patrón de acceso a memoria}: las familias disponibles son intensivas en ancho de banda de forma bastante uniforme, y está poco representado el acceso irregular (recorridos de estructuras, agrupamiento iterativo, programación dinámica sobre diagonales, recorrido de árboles), que es precisamente donde se concentran los casos límite más informativos para un clasificador de régimen. Se identificaron diez candidatos adicionales para cerrar ese hueco, cinco de CPU y cinco de acelerador, escogidos además de modo que tres de ellos formen pares del mismo algoritmo en ambos dispositivos, lo que permite contrastar si un mismo patrón de acceso recibe la misma clase en uno y otro. Estos candidatos no se incorporan al catálogo como referencias declarativas: cada uno exige binario reproducible, suma de verificación, validación numérica y, en el caso del acelerador, intensidad operacional medida conforme a la sección \ref{sec:gpu-calibracion} antes de considerarse disponible.
+
+El punto que exige más atención al aplicar este criterio es la clase \textit{compute-bound} en el acelerador: varias de las cargas de Rodinia disponibles en el acelerador se eligieron en su momento por su presión sobre la memoria del dispositivo, de modo que alcanzar el mínimo de familias \textit{compute-bound} en el acelerador depende de incorporar los candidatos de refuerzo de esa clase, y ese requisito se satisface añadiendo familias, no relajando el umbral.
+
+\subsection{Cribado de cobertura y congelación del catálogo definitivo}
+\label{sec:cribado}
+
+Antes del barrido completo, las cargas candidatas pasan por una etapa de \textbf{cribado} más barata: una rejilla de frecuencia reducida a tres niveles por dispositivo y el número mínimo de repeticiones, con el único fin de descartar candidatos, comprobar que su señal es utilizable y estimar su cobertura del plano Roofline. El cribado no deriva ningún óptimo energético. Se ejecuta por separado para cada dispositivo, y en el acelerador la caracterización de intensidad operacional de la sección \ref{sec:gpu-calibracion} debe completarse antes, para no estimar la cobertura sobre etiquetas sin fundamento.
+
+Para cada familia y dispositivo se mide la fracción de observaciones en cada clase, la distribución de la intensidad operacional respecto al punto de inflexión, la cobertura y las causas de rechazo por calidad. En el acelerador estos criterios se interpretan distinto: como la etiqueta es una constante por kernel medida fuera de línea, la fracción por clase dentro de una corrida es siempre del cien por cien en una sola clase, y lo que el cribado aporta allí es qué familias quedan lo bastante cerca del punto de inflexión como para cambiar de clase entre niveles de frecuencia, y si las señales de baja intrusión disponibles en línea separan las clases. El resultado es una \textbf{lista versionada y congelada de familias elegibles}, que distingue candidatos externos, controles y familias con semántica de FLOPs dudosa; solo esas familias pasan al barrido completo, y si la cobertura no alcanza el mínimo por clase se añaden candidatos en lugar de rebajar el umbral.
 
 \subsection{Calibración y criterio de etiquetado}
 
-La calibración se ejecuta al inicio de cada campaña, sobre la misma asignación de núcleos y con la misma política de afinidad que se emplea después en las corridas de caracterización, de modo que los techos obtenidos correspondan a la configuración realmente utilizada. A partir de los valores medidos se calcula el punto de inflexión según la ecuación \eqref{eq:ridge}. Como control de validez, los valores obtenidos se contrastan contra una referencia empírica declarada en el manifiesto de la campaña, y una discrepancia superior a una tolerancia establecida detiene la ejecución: esta verificación protege frente a calibraciones realizadas bajo condiciones anómalas que pasarían inadvertidas si el valor resultante se aceptara sin contraste.
+La calibración se ejecuta al inicio de cada campaña, sobre la misma asignación de núcleos y con la misma política de afinidad que se emplea después en las corridas de caracterización, de modo que los techos obtenidos correspondan a la configuración realmente utilizada. A partir de los valores medidos se calcula el punto de inflexión de la ecuación \eqref{eq:ridge} para cada dispositivo y cada precisión aritmética y, en la campaña que barre varios niveles de frecuencia, también para cada nivel, conforme al criterio de la sección \ref{sec:marco-ridge}; no se calcula una sola vez por dispositivo. Como control de validez, los valores obtenidos se contrastan contra una referencia empírica declarada en el manifiesto de la campaña, y una discrepancia superior a una tolerancia establecida detiene la ejecución: esta verificación protege frente a calibraciones realizadas bajo condiciones anómalas que pasarían inadvertidas si el valor resultante se aceptara sin contraste.
 
-Sobre esta base se define el etiquetado. Cada ventana de muestreo recibe una etiqueta derivada exclusivamente de la comparación entre su intensidad operacional observada y el punto de inflexión calibrado, sin intervención de juicio manual. Adicionalmente, cada carga del catálogo declara una expectativa cualitativa de régimen, proveniente de la literatura sobre la suite correspondiente. Es importante subrayar que ambas anotaciones cumplen funciones distintas y no deben confundirse: la etiqueta derivada del modelo constituye la variable objetivo del problema de clasificación, mientras que la expectativa declarada actúa únicamente como control de coherencia. La correspondencia entre ambas, evaluada de forma agregada por carga, permite detectar errores sistemáticos del instrumento, pero la expectativa nunca sustituye ni corrige la etiqueta medida.
+Sobre esta base se define el etiquetado. La etiqueta de cada unidad de observación se deriva exclusivamente de la comparación entre su intensidad operacional y el punto de inflexión calibrado, sin intervención de juicio manual; la unidad sobre la que se define esa intensidad, y no siempre la ventana individual, se precisa en el contrato de granularidad de la sección \ref{sec:granularidad}. Adicionalmente, cada carga del catálogo declara una expectativa cualitativa de régimen, proveniente de la literatura sobre la suite correspondiente. Es importante subrayar que ambas anotaciones cumplen funciones distintas y no deben confundirse: la etiqueta derivada del modelo constituye la variable objetivo del problema de clasificación, mientras que la expectativa declarada actúa únicamente como control de coherencia. La correspondencia entre ambas, evaluada de forma agregada por carga, permite detectar errores sistemáticos del instrumento, pero la expectativa nunca sustituye ni corrige la etiqueta medida.
 
 Como control adicional de estabilidad, cada campaña incluye repeticiones de una carga de referencia, sobre las cuales se calcula la dispersión relativa de las métricas de eficiencia. Una dispersión elevada indica que las condiciones de medición no son suficientemente estables como para sostener comparaciones finas entre corridas, y se registra como advertencia asociada a la campaña.
 
 \subsection{Caracterización de intensidad operacional y calibración Roofline en GPU}
 \label{sec:gpu-calibracion}
 
-A diferencia de CPU, en GPU \textbf{no existe una medición de FLOPs por ventana}. La telemetría muestreada durante la corrida en el dominio GPU proviene exclusivamente de NVIDIA Management Library (NVML), y por cada muestra produce únicamente potencia, utilización (de cómputo y de memoria), reloj del multiprocesador de streaming, temperatura y energía acumulada del dispositivo --- ninguna de estas señales cuantifica cuántas operaciones de punto flotante realizó el kernel ni cuántos bytes movió. La intensidad operacional de cada carga GPU se obtiene, en cambio, mediante un procedimiento distinto y separado, más cercano en espíritu a la calibración de los techos del modelo Roofline que a un muestreo continuo: una caracterización dinámica \textit{fuera de línea} del kernel, ejecutada con un depurador de instrucciones (NVIDIA Nsight Compute) \cite{Nsight2026} antes --- y de forma independiente --- de la campaña de adquisición de telemetría NVML en tiempo real. Nsight Compute expone contadores de hardware capaces de contabilizar, por cada lanzamiento de kernel, tanto el tráfico total hacia memoria del dispositivo como el número de instrucciones aritméticas de punto flotante efectivamente ejecutadas, discriminadas por tipo de operación (suma, multiplicación y multiplicación--suma fusionada) y por precisión (simple o doble); a partir de estos conteos, la intensidad operacional de la carga se obtiene como el cociente entre el total de operaciones de punto flotante --- contando cada multiplicación--suma fusionada como dos operaciones --- y el total de bytes transferidos, agregados sobre un número fijo de lanzamientos consecutivos del kernel.
+A diferencia de CPU, en GPU \textbf{no existe una medición de FLOPs por ventana}. La telemetría muestreada durante la corrida en el dominio GPU proviene exclusivamente de NVIDIA Management Library (NVML), y por cada muestra produce únicamente potencia, utilización (de cómputo y de memoria), reloj del multiprocesador de streaming, temperatura y energía acumulada del dispositivo, y ninguna de estas señales cuantifica cuántas operaciones de punto flotante realizó el kernel ni cuántos bytes movió. La intensidad operacional de cada carga GPU se obtiene, en cambio, mediante un procedimiento distinto y separado, más cercano a la calibración de los techos del modelo Roofline que a un muestreo continuo: una caracterización dinámica \textit{fuera de línea} del kernel, ejecutada con un perfilador de instrucciones (NVIDIA Nsight Compute) \cite{Nsight2026} antes, y de forma independiente, de la campaña de adquisición de telemetría NVML en tiempo real. Nsight Compute expone contadores de hardware capaces de contabilizar, por cada lanzamiento de kernel, tanto el tráfico total hacia memoria del dispositivo como el número de instrucciones aritméticas de punto flotante efectivamente ejecutadas, discriminadas por tipo de operación (suma, multiplicación y multiplicación--suma fusionada) y por precisión (simple o doble). A partir de estos conteos, y para una precisión aritmética dada, la intensidad operacional de la carga se calcula como
 
-El valor así obtenido es un único número por carga, no una serie por ventana: se declara como una propiedad fija del catálogo, análoga a la suma de verificación del binario, y el post-procesamiento lo copia sin variación a cada una de las muestras NVML de esa corrida. Esto es metodológicamente válido únicamente porque, igual que en CPU, la intensidad operacional de un kernel es una propiedad de su algoritmo y del tamaño del problema que resuelve, no del estado de frecuencia bajo el cual se ejecuta ni del instante de la corrida en que se observa --- por lo que no es necesario, ni válido dado el costo de intrusión del perfilado detallado sobre el tiempo de ejecución, repetir esta medición dentro de cada corrida de la campaña principal. Esta vía constituye, igual que en CPU, una medición directa de ambos términos de la ecuación \eqref{eq:intensidad}, aunque agregada por lanzamiento de kernel en vez de por ventana temporal, y calculada una única vez fuera de línea en vez de continuamente durante la ejecución.
+\begin{equation}
+I^{\text{GPU}} =
+\frac{\displaystyle\sum_{\ell=1}^{L}\bigl(N^{\mathrm{add}}_{\ell} + N^{\mathrm{mul}}_{\ell} + 2\,N^{\mathrm{fma}}_{\ell}\bigr)}
+     {\displaystyle\sum_{\ell=1}^{L} B_{\ell}},
+\label{eq:intensidad-gpu}
+\end{equation}
+
+donde $\ell$ recorre $L$ lanzamientos consecutivos del kernel; $N^{\mathrm{add}}_{\ell}$, $N^{\mathrm{mul}}_{\ell}$ y $N^{\mathrm{fma}}_{\ell}$ son los conteos de operaciones de suma, multiplicación y multiplicación--suma fusionada de punto flotante que el perfilador reporta para el lanzamiento $\ell$, y $B_{\ell}$ es el total de bytes transferidos hacia o desde la memoria del dispositivo en ese lanzamiento. Cada multiplicación--suma fusionada contribuye con dos operaciones, según la misma convención adoptada para CPU en la ecuación \eqref{eq:flops-medidos}.
+
+A diferencia de CPU, donde ambos términos de la intensidad operacional se leen en vivo durante cada corrida y por intervalo del controlador de memoria, en el acelerador esa lectura no está disponible. La intensidad se caracteriza entonces una sola vez, fuera de línea, y se declara como una propiedad fija del catálogo, análoga a la suma de verificación del binario; el post-procesamiento la copia sin variación a todas las muestras NVML de la corrida. Este tratamiento es admisible por dos motivos. El primero es que el número de operaciones de punto flotante y el tráfico hacia la memoria del dispositivo que ejecuta un kernel quedan fijados por su algoritmo, por el tamaño del problema y por la precisión aritmética, no por el estado de frecuencia bajo el cual corre ni por el instante en que se observa; agregados sobre un número suficiente de lanzamientos consecutivos, su cociente se estabiliza, y comprobar esa estabilidad es precisamente el objeto del criterio de convergencia que se describe a continuación. El segundo es que el costo de intrusión del perfilado detallado sobre el tiempo de ejecución hace inviable repetirlo dentro de cada corrida de la campaña principal. La ecuación \eqref{eq:intensidad-gpu} es, por tanto, una medición directa de ambos términos de la intensidad operacional, análoga a la ecuación \eqref{eq:intensidad} en CPU, pero agregada por lote de lanzamientos en lugar de por intervalo de observación y calculada una única vez fuera de línea.
+
+Que ese valor sea único por carga no lo vuelve, sin embargo, automáticamente admisible: un cociente calculado sobre un número insuficiente de lanzamientos puede no haberse estabilizado todavía, y aceptarlo equivaldría a asignar una etiqueta Roofline sin evidencia de que representa el comportamiento sostenido del kernel. Por ello la caracterización no produce una sola medición, sino una serie: el kernel se perfila con cantidades crecientes de trabajo y, para cada punto, se registran los lanzamientos solicitados frente a los efectivamente observados, los FLOPs discriminados por precisión y los bytes de memoria del dispositivo coherentes con ella. Sobre esa serie se aplica un criterio de convergencia \textbf{declarado antes de medir}, y no ajustado a la vista del resultado: la intensidad operacional se acepta únicamente si su cambio relativo entre los dos puntos de mayor trabajo permanece por debajo del uno por ciento, y si el número de lanzamientos observados corresponde al solicitado. Cuando la serie no satisface esa condición, la carga queda registrada como no convergente y no elegible para aportar verdad Roofline, en lugar de admitirse con el último valor disponible.
+
+El mismo procedimiento resuelve una segunda decisión que no puede tomarse por inspección del código: si el kernel es apto en absoluto para este modelo. La caracterización clasifica cada carga según la precisión efectivamente observada, distinguiendo las homogéneas en simple o doble precisión de aquellas con mezcla no trivial, y separa explícitamente las que no ejecutan operaciones de punto flotante en cantidad significativa, por ser de aritmética entera o por concentrar su trabajo en movimiento de datos. Estas últimas se marcan como no aptas para servir de verdad Roofline y se excluyen del conjunto de datos, con el motivo registrado, en lugar de recibir una intensidad operacional formalmente calculable pero carente de significado físico. Se conservan, junto con el veredicto, la salida cruda de la herramienta, los comandos ejecutados y las versiones del perfilador, del controlador y del entorno de ejecución, de modo que el juicio pueda auditarse sin repetir la medición.
 
 Esta discriminación por precisión, sin embargo, presupone que Nsight Compute se invoque solicitando los contadores de \textbf{ambas} precisiones simultáneamente para cada carga, y no únicamente los de la precisión que el catálogo declara para ella por diseño de kernel: una auditoría posterior (ARC-110) encontró que las herramientas de caracterización usadas en este trabajo inicialmente seleccionaban un único juego de contadores según esa declaración, de modo que una carga con operaciones reales en la precisión no solicitada las habría subestimado sin ninguna señal de que la mezcla existía. Corregido para solicitar siempre ambas precisiones y contrastar la declaración del catálogo contra lo observado, el método de un único techo Roofline por precisión --- el empleado en este trabajo --- solo es válido para cargas empíricamente homogéneas en una precisión; una carga con proporciones no triviales de ambas precisiones no admite compararse contra un único ridge sin antes decidir explícitamente cómo tratar esa mezcla (excluirla, tratarla como una categoría aparte, o extender el modelo a varios techos), decisión que este trabajo no adopta unilateralmente para ninguna carga de su catálogo.
 
@@ -163,31 +389,49 @@ La primera categoría comprende los parámetros que repiten el mismo patrón de 
 
 Cuando una carga no dispone de un parámetro de la primera categoría --- por ejemplo, porque su implementación no contempla una noción de repetición interna del mismo cómputo ---, la única vía disponible para extender su duración es un parámetro de la segunda categoría, con el costo de verificación que ello implica; y cuando, adicionalmente, el modelo de ejecución del dispositivo impone un límite estructural sobre dicho parámetro --- por ejemplo, un límite documentado sobre el número de unidades de ejecución concurrentes direccionables por un único lanzamiento de kernel ---, la duración máxima alcanzable para esa carga queda acotada por dicho límite de hardware, con independencia de cualquier criterio estadístico de suficiencia de muestreo. En tales casos, la imposibilidad de extender la corrida más allá del límite estructural del dispositivo se declara como una limitación del instrumento específica de esa carga, y no se fuerza una extensión que comprometería la validez de la caracterización ya obtenida.
 
-\subsection{Matriz experimental y control de sesgos}
+\subsection{Observabilidad efectiva y latencia de conmutación de reloj en GPU}
+\label{sec:observabilidad-gpu}
 
-La matriz experimental se define como el producto cartesiano entre las cargas del catálogo, los estados de frecuencia y las repeticiones. Los estados de frecuencia previstos se describen en la Tabla \ref{tab:frecuencias}: además del punto de operación nativo, que sirve como referencia y se obtiene sin intervenir el gobernador del sistema, se contemplan cinco niveles distribuidos uniformemente sobre el rango soportado por la plataforma. Los niveles fijos se expresan como fracciones del rango real detectado en tiempo de ejecución, y no como valores absolutos de frecuencia, con el fin de que la misma definición de campaña sea aplicable a plataformas con rangos distintos.
+Dos propiedades de la plataforma condicionan por completo el diseño de la campaña del acelerador y deben medirse antes de ejecutarla, no verificarse después: con qué frecuencia la interfaz de gestión del dispositivo actualiza realmente sus señales, y cuánto tarda el reloj en asentarse tras solicitar un cambio. Ninguna de las dos admite un valor tomado de la documentación del fabricante.
+
+\paragraph{Cadencia efectiva frente a cadencia solicitada.} El período configurado en el colector es la cadencia con que se invoca la interfaz, no la frecuencia con que esta publica un valor nuevo. Un barrido previo sobre la plataforma experimental, con distintos períodos de sondeo y varias repeticiones por punto, mostró que ambas magnitudes difieren de forma sustancial: un período grueso resultó frágil para las cargas cortas, que quedaban con muy pocas lecturas útiles a lo largo de toda su ejecución, mientras que un período fino no convirtió esas lecturas en observaciones independientes, sino que reveló escalones sostenidos de aproximadamente cien milisegundos durante los cuales la potencia y la utilización devolvían valores consecutivos idénticos. Ambas afirmaciones son simultáneamente ciertas y no se contradicen: sondear más fino reduce la incertidumbre sobre \emph{cuándo} ocurrió un cambio y evita perder cobertura en corridas breves, pero no añade información física entre dos actualizaciones del sensor.
+
+De esto se sigue una precaución que gobierna el resto del tratamiento de los datos del acelerador: el número de valores distintos observados en una corrida constituye una \textbf{cota inferior} del número de actualizaciones físicas, nunca una medida de ellas, puesto que dos actualizaciones consecutivas pueden devolver el mismo número. La cadencia de campaña se elige, en consecuencia, como el período más grueso que conserva los bordes observables y la cobertura de la carga más corta frente a un período fino de referencia, y la decisión se versiona junto con la versión del controlador sobre la que se tomó, sin extrapolarse a otro dispositivo.
+
+\paragraph{Latencia de conmutación bajo carga.} La segunda medición determina el tiempo transcurrido entre solicitar un nivel de reloj y verificar que el dispositivo se sostiene en él, bajo carga de cómputo real y no en reposo. El resultado no es un número único sino una \textbf{matriz dirigida} de pares de niveles, porque no hay razón para suponer que la latencia sea simétrica entre subir y bajar, ni constante a lo largo del rango, ni independiente de la distancia del salto; cada par se repite un mínimo de tres veces, y el nivel de origen se fija y confirma bajo carga antes de solicitar el destino. Se registra por separado el tiempo que tarda en retornar el comando de actuación, para no confundir el costo de invocarlo con la respuesta posterior del controlador.
+
+El destino se declara alcanzado únicamente cuando varias lecturas consecutivas permanecen dentro de una tolerancia declarada, con el dispositivo activo y sin condiciones de limitación que invaliden la interpretación, y no en la primera lectura que toca el valor objetivo, criterio que confundiría un sobreimpulso transitorio con la convergencia. La tolerancia no se toma de la ficha técnica: se fija por debajo de la mitad del salto al reloj soportado vecino y se documenta junto con el resultado. De la matriz se deriva una \textbf{cota conservadora} igual al máximo observado sobre todos los pares y repeticiones, nunca su promedio, dado que el propósito de la magnitud es acotar el peor caso que la política podrá encontrar. Si la primera lectura estable aparece en el límite de la resolución temporal del muestreo, el valor se declara explícitamente como cota superior observable y no como latencia física exacta; esa distinción no lo invalida, porque una cota superior sigue siendo segura para el uso que se le da.
+
+\paragraph{Consecuencias sobre el resto del diseño.} Esta cota no es un dato descriptivo. Determina, primero, qué observaciones del barrido pueden entrar en el análisis energético: toda fase cuya duración sea inferior a la cota se excluye del cálculo agregado por nivel, con su motivo registrado, porque su medición está contaminada por una transición que no llegó a completarse. Determina, segundo, el valor mínimo de permanencia que el agente de control podrá respetar entre dos decisiones consecutivas, que no puede fijarse por conveniencia ni heredarse de un valor por defecto. Y determina, tercero, si actuar sobre la frecuencia del acelerador es siquiera un mecanismo viable para la distribución real de duraciones de fase del catálogo: si la cota resulta comparable o superior a esas duraciones, la respuesta metodológicamente correcta es declarar que en ese dispositivo no se actúa, y reportarlo como un hallazgo sobre los límites del mecanismo y no como una carencia del sistema propuesto.
+
+\subsection{Matriz experimental y control de sesgos}
+\label{sec:matriz-sesgos}
+
+La matriz experimental se define como el producto cartesiano entre las cargas del catálogo, los estados de frecuencia y las repeticiones independientes. Los estados de frecuencia no forman una única rejilla. El cribado de cobertura (sección \ref{sec:cribado}) emplea una \textbf{rejilla reducida} de tres niveles por dispositivo: el nativo (\texttt{REF}) y dos niveles fijos, hacia la mitad y hacia el extremo inferior del rango soportado en CPU, y en la mitad inferior del rango en el acelerador; esta rejilla solo sirve para descartar candidatos y estimar cobertura, y no alimenta ningún análisis energético. La campaña definitiva, sobre las familias ya congeladas, barre la \textbf{rejilla fina} de la Tabla \ref{tab:frecuencias}, que es la que alimenta el conjunto de datos y la derivación de la política de frecuencia. El punto nativo (\texttt{REF}), común a ambas rejillas, se obtiene sin intervenir el gobernador del sistema y actúa como línea base de comparación.
 
 \begin{table}[H]
 \centering
-\caption{Estados de frecuencia de la matriz experimental.}
+\caption{Rejilla fina de frecuencia de la campaña definitiva.}
 \label{tab:frecuencias}
-\begin{tabular}{@{}lll@{}}
+\small
+\renewcommand{\arraystretch}{1.45}
+\begin{tabular}{@{}l l@{}}
 \toprule
-\textbf{Nivel} & \textbf{Definición} & \textbf{Propósito} \\
+\textbf{Dispositivo} & \textbf{Niveles de reloj (MHz; \texttt{REF} es el punto nativo)} \\
 \midrule
-REF & Gobernador nativo, sin control manual & Línea base de comparación \\
-F0 & Extremo superior del rango & Límite de rendimiento y consumo \\
-F1 & 75\% del rango & Punto intermedio alto \\
-F2 & 50\% del rango & Punto intermedio central \\
-F3 & 25\% del rango & Punto intermedio bajo \\
-F4 & Extremo inferior del rango & Límite inferior \\
+CPU & \texttt{REF}, 3200, 3100, 3000, 2900, 2800, 2600, 2400, 2200, 2000, 1400, 800 \\
+GPU & \texttt{REF}, 1410, 1350, 1290, 1230, 1170, 1110, 810, 510, 210 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
+La resolución de la rejilla fina no es uniforme, y la razón es metodológica. Una rejilla equiespaciada, como la de las campañas históricas de validación del instrumento (el nivel nativo y cinco niveles a pasos iguales del rango), tiene un salto superior que deja sin observar precisamente la región en la que una reducción pequeña de frecuencia puede conservar el presupuesto de rendimiento y reducir el consumo; un análisis sobre esa rejilla no puede concluir que no existe un óptimo interior, porque el experimento no midió esa zona. El mismo efecto aparece en el acelerador, donde el salto entre el reloj máximo y el siguiente nivel es demasiado grande para estudiar presupuestos pequeños de degradación. Por eso la rejilla fina concentra puntos en la región alta del rango y los espacia en la región baja, ya suficientemente caracterizada.
+
+Los niveles de la rejilla fina se declaran en unidades absolutas de reloj y se resuelven y verifican contra los relojes que el nodo reporta como realmente soportados en la sesión de campaña; no se aceptan por figurar en la definición de la campaña. Todo nivel solicitado que el nodo no soporte se sustituye por el soportado más próximo o se excluye, con el resultado registrado. La calibración Roofline, en consecuencia, se ejecuta por dispositivo, por precisión y por nivel de esa rejilla, conforme al criterio de la sección \ref{sec:marco-ridge}, y no una sola vez por dispositivo.
+
 Para reducir el sesgo experimental se adoptan cinco medidas. Primera, cada combinación se ejecuta en múltiples repeticiones independientes, entendidas como relanzamientos completos del binario y no como iteraciones internas, de modo que cada repetición parta de un estado de caché y de predictores equivalente. Segunda, el orden de ejecución de las combinaciones se aleatoriza a partir de una semilla registrada en el manifiesto, con el fin de evitar que una deriva temporal --- por ejemplo, térmica --- se confunda con el efecto de la carga o de la frecuencia; el registro de la semilla preserva la reproducibilidad del orden. Tercera, las condiciones de afinidad, número de hilos y asignación de núcleos se fijan explícitamente y de forma idéntica para todas las corridas, en lugar de heredarse del entorno. Cuarta, al concluir la campaña se verifica que el estado de frecuencia del sistema haya sido restaurado a su configuración original, y este mismo mecanismo de restauración se registra para ejecutarse también ante una terminación anómala.
 
-Quinta, la matriz de frecuencia fija exige deshabilitar, además de acotar el rango por núcleo, el mecanismo de aceleración dinámica del procesador (\textit{Turbo Boost}). Escribir un rango estrecho de frecuencia por núcleo no basta por sí solo para fijar el reloj físico bajo carga: mientras la aceleración dinámica permanece activa a nivel de plataforma, el gestor de energía del procesador puede seleccionar autónomamente un reloj superior al rango declarado, de modo que un nivel nominalmente fijo --- por ejemplo, F2 en la Tabla \ref{tab:frecuencias} --- no garantiza por sí solo que el núcleo haya operado efectivamente a ese reloj durante la carga. Por esta razón, la aceleración dinámica se deshabilita a nivel de plataforma antes de aplicar cualquier nivel fijo de la matriz, su desactivación efectiva se verifica por relectura antes de iniciar la medición, se comprueba que no haya cambiado de estado durante toda la ejecución de la carga, y se restaura a su configuración original al finalizar --- bajo el mismo principio de verificación por relectura y restauración garantizada, incluso ante terminación anómala, que ya rige la cuarta medida. La verificación de que el reloj efectivamente observado coincide con el nivel solicitado, dentro de una tolerancia declarada, se aplica sobre la lectura de cada núcleo delegado por separado (Tabla \ref{tab:contadores}) y no únicamente sobre un núcleo representativo. Esta verificación distingue dos niveles de exigencia, de acuerdo con lo que cada tipo de anomalía realmente indica. La integridad estructural de la traza --- ausencia de una lectura, un número de núcleos leídos distinto del delegado, o un núcleo representativo inconsistente entre lecturas consecutivas --- sigue rechazando la corrida completa: esa condición evidencia que el propio mecanismo de lectura falló, no que el reloj se haya desviado, y ninguna ventana individual puede compensar esa pérdida de trazabilidad. La desviación respecto a la tolerancia declarada, en cambio, se evalúa y anota por ventana individual, según la taxonomía de la Tabla \ref{tab:frecuencia-clasificacion}, en lugar de rechazar la corrida completa ante la primera lectura fuera de tolerancia. Esta distinción responde a un defecto identificado empíricamente en el criterio anterior: cuando los núcleos delegados se desvían por igual entre sí --- por ejemplo, ante una dilución del reloj estimado durante un tramo de inactividad sincronizada de todos los hilos, y no ante una falla de actuación genuina ---, ningún criterio basado en la dispersión entre núcleos detecta la anomalía, mientras que un criterio agregado que rechaza la corrida entera ante una sola lectura fuera de rango sí la penaliza, aun cuando el resto de sus ventanas cumplió el objetivo sin incidente. La anotación por ventana evita ambos extremos: ninguna desviación queda oculta, y ninguna corrida se pierde por completo a causa de una fracción ínfima de sus ventanas.
+Quinta, la matriz de frecuencia fija exige deshabilitar, además de acotar el rango por núcleo, el mecanismo de aceleración dinámica del procesador (\textit{Turbo Boost}). Escribir un rango estrecho de frecuencia por núcleo no basta por sí solo para fijar el reloj físico bajo carga: mientras la aceleración dinámica permanece activa a nivel de plataforma, el gestor de energía del procesador puede seleccionar autónomamente un reloj superior al rango declarado, de modo que un nivel nominalmente fijo de la Tabla \ref{tab:frecuencias} no garantiza por sí solo que el núcleo haya operado efectivamente a ese reloj durante la carga. Por esta razón, la aceleración dinámica se deshabilita a nivel de plataforma antes de aplicar cualquier nivel fijo de la matriz, su desactivación efectiva se verifica por relectura antes de iniciar la medición, se comprueba que no haya cambiado de estado durante toda la ejecución de la carga, y se restaura a su configuración original al finalizar --- bajo el mismo principio de verificación por relectura y restauración garantizada, incluso ante terminación anómala, que ya rige la cuarta medida. Una consecuencia directa es que el nivel fijo más alto de la rejilla es la frecuencia base del procesador, 3200~MHz: el reloj de 3600~MHz que figura en la Tabla \ref{tab:plataforma} es la frecuencia máxima de aceleración dinámica (\textit{Turbo Boost}), un estado oportunista que no constituye un punto operativo fijable, y solo se ejerce bajo el nivel \texttt{REF}, con el gobernador nativo y la aceleración dinámica activa. La verificación de que el reloj efectivamente observado coincide con el nivel solicitado, dentro de una tolerancia declarada, se aplica sobre la lectura de cada núcleo delegado por separado (Tabla \ref{tab:contadores}) y no únicamente sobre un núcleo representativo. Esta verificación distingue dos niveles de exigencia, de acuerdo con lo que cada tipo de anomalía realmente indica. La integridad estructural de la traza --- ausencia de una lectura, un número de núcleos leídos distinto del delegado, o un núcleo representativo inconsistente entre lecturas consecutivas --- sigue rechazando la corrida completa: esa condición evidencia que el propio mecanismo de lectura falló, no que el reloj se haya desviado, y ninguna ventana individual puede compensar esa pérdida de trazabilidad. La desviación respecto a la tolerancia declarada, en cambio, se evalúa y anota por ventana individual, según la taxonomía de la Tabla \ref{tab:frecuencia-clasificacion}, en lugar de rechazar la corrida completa ante la primera lectura fuera de tolerancia. Esta distinción responde a un defecto identificado empíricamente en el criterio anterior: cuando los núcleos delegados se desvían por igual entre sí --- por ejemplo, ante una dilución del reloj estimado durante un tramo de inactividad sincronizada de todos los hilos, y no ante una falla de actuación genuina ---, ningún criterio basado en la dispersión entre núcleos detecta la anomalía, mientras que un criterio agregado que rechaza la corrida entera ante una sola lectura fuera de rango sí la penaliza, aun cuando el resto de sus ventanas cumplió el objetivo sin incidente. La anotación por ventana evita ambos extremos: ninguna desviación queda oculta, y ninguna corrida se pierde por completo a causa de una fracción ínfima de sus ventanas.
 
 \begin{table}[H]
 \centering
@@ -209,7 +453,7 @@ Esta anotación se conserva como columna independiente de la calidad general de 
 
 \subsection{Post-procesamiento y control de calidad de los datos}
 
-Las muestras crudas se transforman en el conjunto de datos final mediante un procedimiento de diferenciación entre lecturas consecutivas, conforme a lo descrito en la sección \ref{sec:ventanas}. Cada fila resultante representa una ventana de ejecución e incorpora, además de las métricas derivadas, un conjunto de campos de trazabilidad que permiten reconstruir su procedencia: identificador de corrida, carga, nodo, estado de frecuencia solicitado y observado, referencias a los archivos de calibración empleados y suma de verificación del binario ejecutado.
+Las muestras crudas se transforman en la traza auditable de la campaña mediante un procedimiento de diferenciación entre lecturas consecutivas, conforme a lo descrito en la sección \ref{sec:ventanas}. Cada fila de esa traza representa una ventana de muestreo del instrumento e incorpora, además de las métricas derivadas, un conjunto de campos de trazabilidad que permiten reconstruir su procedencia: identificador de corrida, carga, nodo, estado de frecuencia solicitado y observado, referencias a los archivos de calibración empleados y suma de verificación del binario ejecutado.
 
 Un elemento central de este procedimiento es que ninguna observación se descarta silenciosamente. Cada ventana recibe una anotación de calidad que describe su condición, según la taxonomía de la Tabla \ref{tab:calidad}, y se conserva en el conjunto de datos con dicha anotación. Esta decisión responde a un criterio de transparencia: el filtrado posterior es una decisión del análisis, no del instrumento, y la proporción de ventanas en cada categoría constituye en sí misma un indicador de la calidad de la campaña.
 
@@ -225,6 +469,12 @@ En la primera etapa se aplica un criterio de estabilidad basado en el coeficient
 En la segunda etapa, reservada para las cargas donde el criterio de CV\% no logra identificar ningún punto que satisfaga la condición anterior --- un modo de falla conocido de este tipo de heurística de umbral fijo ---, se aplica como respaldo un método de detección de puntos de cambio (\textit{change point detection}) sobre la misma señal: en lugar de asumir que el estado estable es plano dentro de un umbral, el método busca recursivamente la partición de la serie que más reduce la suma de errores cuadráticos dentro de cada segmento resultante, en la línea de los métodos empleados para caracterizar estadísticamente el comportamiento de arranque de máquinas virtuales \cite{Barrett2017}. Cuando la serie presenta más de un punto de cambio --- por ejemplo, una fluctuación breve y espuria previa al inicio real de la carga sostenida ---, se descarta el criterio de aceptar sin más el primer punto detectado, y se selecciona en su lugar el primer segmento cuya media alcanza una fracción declarada de la meseta de mayor carga observada en toda la corrida, de modo que una fluctuación que no llega a sostenerse no se confunda con el fin genuino del arranque.
 
 Las dos etapas anteriores operan sobre una única señal por dispositivo y, por construcción, no pueden distinguir por sí solas una transición genuina de una fluctuación que coincide por casualidad con el criterio de aceptación. Por esta razón, el valor de calentamiento adoptado en el catálogo para cada carga de GPU se sometió, durante su calibración, a una verificación adicional aplicada por inspección directa de la traza cruda de potencia reportada por la interfaz de gestión del dispositivo: se confirmó que el intervalo propuesto por alguna de las dos etapas coincidiera con un salto identificable de potencia, del régimen de reposo al régimen de carga sostenida, y no únicamente con la señal primaria empleada para la detección. Esta verificación se aplicó, sin excepción, a las cargas de GPU recalibradas conforme a este criterio; no constituye una etapa adicional codificada dentro del procedimiento estadístico descrito arriba --- que sí se ejecuta de forma sistemática, sin intervención, sobre toda carga del catálogo --- sino un contraste puntual realizado durante la calibración, cuyo resultado se fijó como valor final una sola vez. Para tres cargas de GPU con unidades individuales de trabajo demasiado breves para que la cadencia de muestreo del dispositivo resolviera su actividad, ninguna transición de potencia resultó identificable a lo largo de la corrida, con independencia de cuánto se alargó su duración total conforme al criterio de la sección \ref{sec:dimensionamiento}; en esos casos se concluyó que la señal disponible no sostenía una medición confiable del intervalo de calentamiento, el valor se conservó en su configuración por defecto, y la imposibilidad de medirlo se documentó explícitamente como evidencia negativa en el catálogo, en lugar de forzar un valor no respaldado por la medición. Ninguna carga de CPU fue sometida a este contraste: la señal de potencia de paquete del procesador no se empleó con este propósito en el desarrollo de este trabajo, de modo que el intervalo de calentamiento de las cargas de CPU descansa únicamente en las dos etapas estadísticas descritas arriba.
+
+La propiedad señalada más arriba, según la cual el intervalo de calentamiento nunca condiciona la adquisición, permite además prescindir de una campaña de calibración separada. Puesto que la recolección captura siempre la traza completa desde el primer instante, una campaña de calibración y una campaña de datos que compartan manifiesto miden exactamente lo mismo, y ejecutarlas por separado duplicaría tiempo de cómputo sin necesidad técnica. El procedimiento adoptado pliega por tanto la calibración dentro de la propia campaña, en cuatro pasos: la campaña se ejecuta declarando explícitamente un intervalo de calentamiento nulo para todas sus cargas, de modo que ninguna ventana quede excluida y se conserve íntegro el transitorio; la calibración se calcula sobre los mismos datos que esa campaña ya produjo, con las repeticiones y la cobertura de niveles de frecuencia garantizadas por ser la matriz real y no una reserva aparte; el valor resultante se aplica al catálogo, con copia de respaldo y verificación de suma de comprobación, sin sustitución silenciosa; y finalmente se re-procesan los datos crudos ya adquiridos con el catálogo corregido, sin relanzar ningún kernel, localizando cada corrida por su identificador real y no por una heurística sobre el nombre de su directorio.
+
+Esta declaración de calentamiento nulo es un instrumento del primer paso y nunca debe figurar en el manifiesto que produce el conjunto de datos definitivo; el cuarto paso existe precisamente para devolver el criterio al valor calibrado. Para que esa distinción no pueda perderse en una reanudación, la declaración forma parte de la huella del protocolo experimental descrita en la sección \ref{sec:reproducibilidad}: dos manifiestos que difirieran únicamente en ese campo dejan de compartir huella y no pueden mezclar sus corridas bajo un mismo identificador.
+
+El cuarto paso arrastra una consecuencia que conviene hacer explícita, porque afecta la aceptación de corridas y no solo su procesamiento. El veredicto de aceptación de cada corrida se decide, durante la campaña en vivo, sobre el conjunto de ventanas provisional en el que nada ha sido excluido todavía, que es el único disponible en ese momento. Una corrida cuyo número de ventanas útiles apenas superaba el mínimo exigido puede quedar por debajo de él una vez descontado el calentamiento real, y seguiría figurando como aceptada si nadie reevaluara su veredicto. Por ello el re-procesamiento vuelve a aplicar los criterios de aceptación sobre los datos ya corregidos y sobrescribe el veredicto, sin eliminar ni desplazar ninguna corrida, registrando explícitamente cada cambio respecto al veredicto previo para que se revise antes de dar la campaña por cerrada.
 
 \begin{table}[H]
 \centering
@@ -246,6 +496,19 @@ Sin lectura de frecuencia & No se dispone de la frecuencia efectivamente observa
 \end{table}
 
 De forma complementaria, cada corrida completa se somete a una validación posterior que examina su integridad global: ausencia de pérdidas en la estructura de muestreo, correspondencia de la suma de verificación del binario, cumplimiento del criterio de éxito propio de la carga y unicidad del identificador de corrida. Una corrida que no supere esta validación se registra como rechazada, conservando sus artefactos para inspección, en lugar de eliminarse.
+
+\subsection{Contrato de granularidad del conjunto de entrenamiento}
+\label{sec:granularidad}
+
+El conjunto de ventanas descrito arriba es el artefacto crudo y auditable de la campaña, y se conserva como tal. No es, sin embargo, el conjunto que consume el entrenamiento del clasificador: la unidad de observación del modelo se declara por separado para cada dispositivo, porque en ambos casos la ventana de muestreo del instrumento y la unidad que posee una etiqueta con respaldo físico independiente no coinciden. Tratar cada ventana como un ejemplo produciría un conjunto de datos que aparenta un tamaño muy superior al de su contenido informativo real, y una estimación de desempeño correspondientemente optimista.
+
+\paragraph{CPU: el intervalo del controlador de memoria.} Los contadores de núcleo se leen con una resolución del orden del milisegundo, mientras que los contadores del controlador de memoria que aportan el denominador de la intensidad operacional entregan sus valores en intervalos prácticos un orden de magnitud más gruesos (sección \ref{sec:uncore}). Los bytes observados en uno de esos intervalos no pueden atribuirse físicamente a una sola ventana de núcleo, de modo que el procedimiento agrega los FLOPs de todas las ventanas cubiertas por un mismo intervalo, calcula la intensidad sobre ambos términos así alineados, y difunde el valor y su etiqueta a las ventanas cubiertas. Ese es el cálculo correcto de la verdad, pero implica que varias ventanas consecutivas comparten una única observación física de bytes y una única etiqueta.
+
+En consecuencia, la fila del conjunto de entrenamiento de CPU corresponde a \textbf{un intervalo del controlador de memoria}, y no a una ventana de núcleo. Las características de cada fila se recalculan sobre los deltas crudos agregados de todo el intervalo, y no promediando los cocientes ya calculados de las ventanas que lo componen: promediar directamente magnitudes como las instrucciones por ciclo o los fallos por millar de instrucciones ponderaría por igual ventanas con cantidades de trabajo muy distintas, introduciendo un sesgo que ningún filtrado posterior corrige. Cada intervalo declara además sus límites temporales explícitos, y se rechaza aquel que carezca de lecturas válidas del controlador de memoria, que no alcance la cobertura utilizable exigida, que cruce la frontera del calentamiento o que contenga ventanas con contadores o lecturas de frecuencia degradadas; el motivo del rechazo se registra y en ningún caso se imputa un valor ni se recurre a un sustituto derivado de los contadores de caché. La granularidad declarada de la clasificación en CPU pasa a ser, por tanto, la del intervalo del controlador de memoria, y así se documenta en los metadatos del modelo entrenado.
+
+\paragraph{GPU: la corrida completa.} En el acelerador la restricción es distinta y más severa. Las señales disponibles en línea se actualizan en escalones de aproximadamente cien milisegundos (sección \ref{sec:observabilidad-gpu}), de modo que muestras consecutivas no constituyen observaciones independientes; y la etiqueta procede de una intensidad operacional medida fuera de línea que es constante para todo el kernel, de modo que todas las muestras de una corrida comparten etiqueta por construcción. A esto se añade que las cargas del catálogo son binarios de terceros sin marcas de fase, por lo que no existe una frontera interna verificable contra la cual delimitar una unidad menor.
+
+La fila del conjunto de entrenamiento del acelerador corresponde por tanto a \textbf{una corrida completa}, entendida como la combinación de carga, nivel de frecuencia y repetición, y nunca a una muestra periódica de la interfaz de gestión. Sus características son agregados robustos calculados sobre las muestras válidas y posteriores al calentamiento de esa corrida: mediana, media recortada, dispersión, rango intercuartílico, extremos, número de valores distintos como cota inferior de la frescura de la señal, fracción de muestras válidas, duración cubierta y número de muestras. Las magnitudes que sostienen la verdad, es decir la intensidad operacional medida fuera de línea, el punto de inflexión empleado y la etiqueta misma, se conservan en la fila únicamente con fines de trazabilidad y quedan explícitamente prohibidas como características de entrada. Los microbenchmarks propios con fases programadas no son elegibles para entrenamiento bajo este contrato, puesto que su etiqueta constante de catálogo no describe las fases que fueron construidos para exhibir; permanecen como controles diagnósticos, con esa condición registrada en la propia fila.
 
 \subsection{Medición directa de FLOPs por ventana y su validación empírica}
 \label{sec:validacion-flops}
@@ -281,17 +544,29 @@ El encoding se determinó a partir de la definición oficial de Intel para esta 
 
 \paragraph{Resultados.} Para el kernel de cómputo denso, cuyo total de FLOPs se conoce exactamente por construcción ($2 \cdot \text{iteraciones} \cdot n^{3}$), la ecuación \eqref{eq:flops-medidos} reprodujo ese total con un error relativo de 0.29\% sin afinidad fijada y de 0.30\% bajo la afinidad real de campaña. Para el kernel intensivo en memoria, el contraste se hizo contra el total de FLOPs que el propio kernel reporta al finalizar, arrojando un error relativo de 7.48\%; este valor es mayor que el del primer kernel, pero es consistente con una causa identificada y ajena al contador: el tiempo que dicho kernel cronometra internamente cubre únicamente su ciclo de cómputo principal y excluye la fase final de verificación del resultado, la cual también ejecuta operaciones de punto flotante que el contador de hardware sí registra por abarcar el proceso completo. En ambos casos, los diez contadores abrieron simultáneamente sin evidencia de multiplexación (razón tiempo-contando sobre tiempo-habilitado igual a 1 en los diez), confirmando que esa combinación era sostenible bajo el estado del nodo observado en aquella verificación. Una prueba de humo posterior encontró que la activación del vigilante NMI del sistema operativo había reducido el presupuesto efectivo; la configuración de producción se ajustó entonces a nueve eventos retirando \texttt{L2\_LINES\_IN\_ALL}, sin eliminar ninguno de los cuatro sub-eventos que sostienen la medición de FLOPs (sección \ref{sec:resultados-interferencia-uncore}).
 
-\paragraph{Confirmación a escala de campaña.} Con la verificación anterior favorable, la medición directa se integró al harness de producción como única fuente de FLOPs por ventana --- sin conservar el prorrateo original como respaldo, una vez confirmado que no aportaba nada en la plataforma y el alcance de este trabajo (sección \ref{sec:intensidad}) ---, y se ejecutó una campaña real completa: siete kernels del catálogo, matriz declarada a seis estados de frecuencia (REF y F0-F4), tres repeticiones por combinación, 66 corridas aceptadas o rechazadas por los criterios de la sección \ref{sec:calentamiento} y siguientes. Al momento de esta campaña, el nodo aún no tenía concedido el permiso administrativo de escritura de frecuencia, de modo que los seis niveles se ejecutaron en la práctica sobre la frecuencia nativa del procesador; esto no compromete la validación de la medición de FLOPs, que ocurre por ventana con independencia del estado de frecuencia, pero significa que esta campaña específica no debe citarse como evidencia de que el control de frecuencia (DVFS) en sí mismo fue ejercitado. Sobre aproximadamente 1.29 millones de ventanas con delta válido en esa campaña, el 100\% obtuvo su valor de FLOPs mediante la ecuación \eqref{eq:flops-medidos}, y ninguna ventana resultó con los contadores de punto flotante degradados. Este resultado, a una escala varios órdenes de magnitud mayor que la verificación inicial de dos kernels, respalda que la disponibilidad y estabilidad del encoding no es un caso aislado favorable, sino una propiedad sostenida de la combinación plataforma-instrumento descrita en este capítulo.
+\paragraph{Confirmación a escala de campaña.} Con la verificación anterior favorable, la medición directa se integró al harness de producción como única fuente de FLOPs por ventana --- sin conservar el prorrateo original como respaldo, una vez confirmado que no aportaba nada en la plataforma y el alcance de este trabajo (sección \ref{sec:intensidad}) ---, y se ejecutó una campaña real completa: siete kernels del catálogo, matriz declarada a seis niveles de frecuencia (el nivel nativo y cinco niveles equiespaciados sobre el rango, la rejilla histórica descrita en la sección \ref{sec:matriz-sesgos}), tres repeticiones por combinación, 66 corridas aceptadas o rechazadas por los criterios de la sección \ref{sec:calentamiento} y siguientes. Esta campaña se orientó a validar la medición de FLOPs por ventana, que es independiente del estado de frecuencia, y no a ejercitar el control de frecuencia en sí. Sobre aproximadamente 1.29 millones de ventanas con delta válido en esa campaña, el 100\% obtuvo su valor de FLOPs mediante la ecuación \eqref{eq:flops-medidos}, y ninguna ventana resultó con los contadores de punto flotante degradados. Este resultado, a una escala varios órdenes de magnitud mayor que la verificación inicial de dos kernels, respalda que la disponibilidad y estabilidad del encoding no es un caso aislado favorable, sino una propiedad sostenida de la combinación plataforma-instrumento descrita en este capítulo.
 
-\paragraph{Alcance de esta validación.} Los resultados anteriores se verificaron específicamente para la microarquitectura Ice Lake-SP de la plataforma experimental (Tabla \ref{tab:plataforma}), gateados por familia y modelo de procesador en el mismo mecanismo que protege los demás eventos crudos de este instrumento (sección \ref{sec:multiplexacion}); no se extrapolan a otro hardware sin repetir este procedimiento. Tampoco se reclama que el error relativo observado (0.29--7.48\%) sea una cota universal: ambos valores dependen del kernel evaluado y, en el segundo caso, de una particularidad de cómo ese kernel específico delimita su propio tiempo de ejecución. Dado que este trabajo no reclama portabilidad más allá de la plataforma descrita, y que la medición directa estuvo disponible sin excepción en las 66 corridas de la campaña real, el instrumento no conserva ningún mecanismo de respaldo para un nodo hipotético donde este encoding no se haya validado: una ventana en esa situación queda con intensidad operacional indefinida, no con un valor estimado.
+\paragraph{Alcance de esta validación.} Los resultados anteriores se verificaron específicamente para la microarquitectura Ice Lake-SP de la plataforma experimental (Tabla \ref{tab:plataforma}), restringidos a ella por familia y modelo de procesador mediante el mismo mecanismo que protege los demás eventos crudos de este instrumento (sección \ref{sec:eventos-genericos-crudos}); no se extrapolan a otro hardware sin repetir este procedimiento. Tampoco se reclama que el error relativo observado (0.29--7.48\%) sea una cota universal: ambos valores dependen del kernel evaluado y, en el segundo caso, de una particularidad de cómo ese kernel específico delimita su propio tiempo de ejecución. Dado que este trabajo no reclama portabilidad más allá de la plataforma descrita, y que la medición directa estuvo disponible sin excepción en las 66 corridas de la campaña real, el instrumento no conserva ningún mecanismo de respaldo para un nodo hipotético donde este encoding no se haya validado: una ventana en esa situación queda con intensidad operacional indefinida, no con un valor estimado.
 
 \subsection{Reproducibilidad}
+\label{sec:reproducibilidad}
 
 Toda campaña queda definida por un manifiesto declarativo bajo control de versiones, que especifica las cargas, los estados de frecuencia, el número de repeticiones, el período de muestreo, la asignación de núcleos, la semilla de aleatorización y las referencias de calibración. Junto con los datos, cada campaña persiste el perfil de capacidades detectado en el nodo, los resultados de calibración y los metadatos de cada corrida. El instrumento de medición, el orquestador y las definiciones de campaña se mantienen en un repositorio público, de modo que la campaña sea reproducible a partir de los artefactos publicados.
 
 Dado que la duración total de la matriz completa excede lo que una única asignación del gestor de recursos puede sostener de forma continua, el protocolo contempla explícitamente la posibilidad de reanudar una campaña interrumpida sin comprometer su validez. Dos garantías sostienen esta reanudación. Primera, una huella del protocolo experimental --- que cubre, entre otros campos, las cargas declaradas, los estados de frecuencia, la semilla, la política de muestreo y la suma de verificación del propio instrumento --- se persiste junto con los primeros resultados y se contrasta contra la del manifiesto vigente en cada reanudación; una discrepancia detiene la campaña en lugar de mezclar en el mismo conjunto de datos corridas producidas bajo protocolos distintos. Segunda, ante una reanudación genuina --- reconocida por la presencia de corridas o de artefactos de calibración previos, incluso si la interrupción ocurrió antes de completar la primera combinación --- la calibración no se repite: se recupera del disco la ya obtenida en la sesión anterior, verificando su presencia y validez para cada estado de frecuencia declarado antes de continuar, en lugar de remedirla en silencio y desplazar con ello el punto de inflexión que clasifica las corridas ya aceptadas.
 
 Como verificación adicional de consistencia, toda vez que se modifica un parámetro de ejecución de una carga del catálogo --- por ejemplo, a raíz de un ajuste realizado conforme a lo descrito en la sección \ref{sec:dimensionamiento} --- se ejecuta una corrida completa de la campaña que incluya dicha carga, contrastando que la etiqueta derivada, la intensidad operacional y el punto de inflexión empleado resulten idénticos entre las distintas repeticiones independientes de esa misma carga. Esta comparación no sustituye la verificación de calidad por ventana descrita en la Tabla \ref{tab:calidad}, sino que actúa como una verificación de nivel superior: una discrepancia entre repeticiones nominalmente idénticas indicaría una fuente de no determinismo en el instrumento o en la propia carga, y no únicamente un artefacto puntual de una corrida concreta.
+
+\subsection{Selección de características y contrato de columnas}
+\label{sec:contrato-features}
+
+El conjunto de columnas que alimenta el clasificador no se fija por criterio de autor sobre el conjunto de datos real, sino mediante un análisis previo cuyo resultado se congela antes de entrenar. El procedimiento opera sobre las filas elegibles del conjunto de entrenamiento de cada dispositivo, por separado, dado que ambos difieren en fuente de verdad y en columnas de calidad.
+
+Se calculan primero las correlaciones lineal y de rangos entre todas las columnas candidatas, y se reportan los pares cuya correlación absoluta supera un umbral declarado. De cada par se conserva una sola columna, priorizando la medición física más directa sobre el indicador derivado; el criterio no es abstracto, sino que se aplica sobre casos concretos ya identificados, como la coexistencia de dos normalizaciones de la misma señal de fallos de caché por caminos distintos. Sobre el conjunto resultante se calcula además el factor de inflación de la varianza, que detecta la colinealidad entre tres o más columnas que un análisis por pares no revela. Las columnas ausentes, constantes o con valores no finitos se tratan explícitamente y no se arrastran en silencio.
+
+Una restricción es innegociable y se implementa como comprobación dura, no como recomendación: ninguna columna que participe en la construcción de la etiqueta puede figurar entre las características de entrada. La intensidad operacional, el punto de inflexión empleado, los FLOPs y los bytes que la componen y la expectativa cualitativa declarada en el catálogo forman una lista explícita de columnas prohibidas, y su presencia en el vector de entrada aborta el procedimiento en lugar de emitir una advertencia. El fundamento es el descrito en la sección \ref{sec:marco-validacion-anidada}: un modelo que reciba como entrada la magnitud de la que se derivó su objetivo puede reproducir la regla de etiquetado sin haber aprendido ningún patrón inferible a partir de las señales realmente disponibles en producción.
+
+El resultado del análisis es una propuesta, no una decisión automática. La selección final se revisa y se \textbf{congela} en un contrato versionado por dispositivo, que registra las columnas admitidas y el instante de congelación, y contra el cual se verifica el entrenamiento posterior. Los descartes y su motivo se documentan como parte del método, dado que constituyen evidencia de que la reducción de columnas obedeció a un criterio declarado y no a un ajuste posterior al resultado.
 
 \section{Fase 2: Desarrollo del modelo de aprendizaje automático}
 
