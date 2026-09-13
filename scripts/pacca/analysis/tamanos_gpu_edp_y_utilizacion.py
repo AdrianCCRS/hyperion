@@ -28,6 +28,7 @@ from statistics import mean, median
 
 ROOT = "/home/latorresn/hyperion-results/campaigns/pacca_dual_gpu_full_20260828"
 CPU_FIJO = "F0"          # se fija la CPU al maximo para aislar el eje de GPU
+GPU_FIJO_UTIL = "REF"    # parte B: nivel de GPU fijo, si no se mezclan relojes
 UTIL_PISO = 5.0          # % de utilizacion considerado "GPU realmente activa"
 
 NOMBRE = re.compile(r"^.*?__(?P<kref>.+?)__(?P<cpu>[^_]+)__gpu(?P<gpu>[^_]+)__rep(?P<rep>\d+)$")
@@ -113,16 +114,19 @@ def main():
 
     # ---------- B) utilizacion de GPU por tamano ----------
     print("=" * 78)
-    print("B) ¿LOS TAMANOS SON DEMASIADO PEQUENOS? Utilizacion de GPU en fase caliente")
+    print(f"B) UTILIZACION DE GPU EN FASE CALIENTE (nivel GPU fijo = {GPU_FIJO_UTIL})")
     print("=" * 78)
     print(f"{'familia':<10} {'N':>10} {'util % (med)':>13} {'SM MHz':>9} {'warm s':>9} {'n':>4}")
     print("-" * 78)
-    porTam = defaultdict(list)
+    porTam = defaultdict(list)      # todos los niveles: se usa en la parte A
+    porTamUtil = defaultdict(list)  # un solo nivel: se usa en la parte B
     for r in registros:
         porTam[(r["fam"], r["n"])].append(r)
+        if r["gpu"] == GPU_FIJO_UTIL:
+            porTamUtil[(r["fam"], r["n"])].append(r)
     sospechosos = []
-    for (fam, n) in sorted(porTam):
-        rs = porTam[(fam, n)]
+    for (fam, n) in sorted(porTamUtil):
+        rs = porTamUtil[(fam, n)]
         us = [r["util"] for r in rs if r["util"] is not None]
         cs = [r["clock"] for r in rs if r["clock"] is not None]
         ws = [r["warm_s"] for r in rs if r["warm_s"] is not None]
@@ -133,6 +137,23 @@ def main():
             sospechosos.append((fam, n, u))
         print(f"{fam:<10} {n:>10} {u:>13.1f} {mean(cs) if cs else 0:>9.0f} "
               f"{mean(ws) if ws else 0:>9.3f} {len(rs):>4}{marca}")
+
+    print()
+    print("B2) MISMA UTILIZACION, PERO AGRUPADA POR NIVEL DE GPU")
+    print("    (si sube al bajar el reloj, es artefacto de medida, no mas trabajo)")
+    porNivelUtil = defaultdict(list)
+    porNivelClock = defaultdict(list)
+    for r in registros:
+        if r["util"] is not None:
+            porNivelUtil[r["gpu"]].append(r["util"])
+        if r["clock"] is not None:
+            porNivelClock[r["gpu"]].append(r["clock"])
+    print(f"{'nivel':<8} {'util % (med)':>13} {'SM MHz real':>13} {'n':>6}")
+    print("-" * 44)
+    for lvl in sorted(porNivelUtil):
+        us = porNivelUtil[lvl]
+        cs = porNivelClock.get(lvl, [])
+        print(f"{lvl:<8} {median(us):>13.1f} {mean(cs) if cs else 0:>13.0f} {len(us):>6}")
 
     # ---------- A) ¿cambia el nivel optimo con el tamano? ----------
     print()
