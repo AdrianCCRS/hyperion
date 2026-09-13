@@ -1,0 +1,158 @@
+# Campana final de barrido de frecuencia -- GPU (Plan_Detallado §2.4).
+#
+# PRERREQUISITO DURO (Plan §2.4.1): este barrido NO es valido sin haber
+# medido antes T_transicion_gpu. Eso lo produce la etapa `transition` de la
+# cadena de cribado (job 7055). Por eso el wrapper se somete con
+# --dependency=afterok sobre el ultimo job del cribado.
+#
+# EDITABLE HASTA QUE EL JOB ARRANQUE. El wrapper (hyp_final_gpu.sbatch) lee
+# este archivo en tiempo de ejecucion y NO lo regenera: para sacar un kernel
+# basta borrar su linea `- kernel_ref: X`. No hace falta re-someter nada.
+#
+# ⚠️ COSTO: el motor corre el PRODUCTO CRUZADO frequency_levels x
+# gpu_frequency_levels. Tal como esta: 1 nivel CPU x 10 niveles GPU x 23
+# kernels x 3 reps = 690 corridas (~39 h al ritmo medido).
+#
+# DECISION 2026-09-13: la CPU se deja SOLO en REF. La campana GPU previa
+# (288 combos, ARC-170) ya incluyo un nivel de CPU al minimo y con eso
+# demostro que bajar el reloj de CPU si degrada el rendimiento; esa pregunta
+# quedo contestada y re-medirla aqui costaria ~39 h extra sin refinar la
+# tabla de politica de GPU. Ademas REF-solo es el control mas limpio: aisla
+# el efecto del reloj de GPU sin confundirlo con un cambio simultaneo de CPU.
+# Consecuencia a tener presente: la medida defensiva del daemon (Plan §4.1,
+# "forzar CPU al minimo mientras gpu_util_pct reporte actividad") tendra que
+# citar la campana previa en Fase 4, no datos de esta. Al citarla, verificar
+# que sea POSTERIOR al 2026-08-19 (antes de esa fecha los datos GPU corrieron
+# en modo spin por el bug del shim de blocking-sync).
+#
+# CONVENCION DE NIVELES: el indice F* es relativo al numero de niveles.
+# Aqui hay 9 niveles GPU fijos: F0 = 1.0 (maximo) ... F8 = 0.0 (minimo).
+# NO cruzar estos IDs con los de campanas previas (alli F4 era el minimo).
+campaign_id: pacca_gpu_final_20260913
+warmup_seconds_override: 0.0
+environment_tier: hpc_sc3
+seed: 20260913
+output_dir: /home/latorresn/hyperion-results/final/campaigns/gpu
+overwrite: false
+catalog_path: /home/latorresn/hyperion-results/screening/pacca_screen_20260909/config/catalog.screening.yaml
+calibration:
+- kernel_ref: stream_official
+- kernel_ref: ert_probe
+kernels:
+- kernel_ref: rodinia_gaussian
+- kernel_ref: rodinia_backprop
+- kernel_ref: rodinia_lavamd
+- kernel_ref: rodinia_heartwall
+- kernel_ref: rodinia_lud
+- kernel_ref: rodinia_myocyte
+- kernel_ref: rodinia_dwt2d
+- kernel_ref: gpu_rajaperf_stream_copy
+- kernel_ref: gpu_rajaperf_stream_triad
+- kernel_ref: gpu_rajaperf_reduce3_int
+- kernel_ref: gpu_rajaperf_indexlist_3loop
+- kernel_ref: gpu_rajaperf_jacobi_2d
+- kernel_ref: gpu_rajaperf_heat_3d
+- kernel_ref: gpu_dgemm_n4096
+- kernel_ref: gpu_phasic_p010
+- kernel_ref: gpu_phasic_p100
+- kernel_ref: gpu_phasic_p1000
+- kernel_ref: dual_gemm_gpu_N2048
+- kernel_ref: dual_fft_gpu_N4096
+- kernel_ref: dual_axpy_gpu_N10000000
+- kernel_ref: dual_stencil_gpu_N1024
+- kernel_ref: dual_cholesky_gpu_N2048
+- kernel_ref: dual_spmv_gpu_N1000000
+# CPU solo en REF (ver DECISION 2026-09-13 en la cabecera). Agregar aqui un
+# nivel fijo DUPLICA la campana: el motor corre el producto cruzado.
+frequency_levels:
+- id: REF
+  mode: native_governor
+gpu_frequency_levels:
+- id: REF
+  mode: native_governor
+- id: F0
+  mode: fixed
+  fraction: 1.0
+- id: F1
+  mode: fixed
+  fraction: 0.875
+- id: F2
+  mode: fixed
+  fraction: 0.75
+- id: F3
+  mode: fixed
+  fraction: 0.625
+- id: F4
+  mode: fixed
+  fraction: 0.5
+- id: F5
+  mode: fixed
+  fraction: 0.375
+- id: F6
+  mode: fixed
+  fraction: 0.25
+- id: F7
+  mode: fixed
+  fraction: 0.125
+- id: F8
+  mode: fixed
+  fraction: 0.0
+repetitions_per_combination: 3
+baseline_repetition_indices:
+- 1
+target_windows_per_repetition: 5
+interval_ns: 1000000
+gpu_interval_ns: 5000000
+running_ratio_min: 0.9
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+  grace_seconds: 0.15
+  tail_grace_seconds: 0.15
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+turbo:
+  require_disabled: true
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+# 690 corridas x ~39 MB/corrida (medido en el cribado) = ~27 GB.
+# Se declara 64 GiB de margen (habia 1.2 TB libres en /home).
+projected_campaign_bytes: 68719476736
+remaining_core_hours: 100000
+projected_core_hours: 400
+cores:
+  delegated_cpus:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+smt_policy: one_thread_per_physical_core
+cgroup_path: null
+perf_enabled: true
+rapl:
+  enabled: true
+uncore:
+  enabled: true
+gpu:
+  enabled: true
+  calibration:
+  - gpu_stream_bw
+  - gpu_ert_probe_fp32
+  - gpu_ert_probe_fp64
+timeouts_seconds:
+  ready: 15
+  run: 300
+  shutdown: 15
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 480000000000
