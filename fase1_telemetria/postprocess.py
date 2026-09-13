@@ -358,6 +358,20 @@ def _apply_uncore_intervals(
     interval_start_ns = run_start_ns
     # windows[0] is the first_row placeholder (no t_end); windows[i]
     # corresponds to cpu_rows[i] for i in 1..len(cpu_rows)-1.
+    #
+    # F1-GEN-001 (2026-09-13): antes esto rescaneaba TODO cpu_rows por cada
+    # uncore_row (O(n_uncore * n_cpu)); para un kernel de ~50s (~50k
+    # ventanas CPU a 1ms x ~5k intervalos uncore a 10ms) son ~250 millones
+    # de iteraciones en Python puro por sola repetición -- nunca se notó en
+    # campaña en vivo (queda oculto detras del tiempo de ejecucion real del
+    # kernel) pero convirtio a repostprocess_campaign en horas al
+    # reprocesar 297 corridas seguidas sin nada de por medio (job 7144,
+    # intento manual de re-cribado). cpu_rows y uncore_rows ya estan
+    # ordenados por timestamp (_split_by_repetition_and_tag), asi que un
+    # puntero que solo avanza (mismo patron que _match_energy_windows mas
+    # arriba en este archivo) da el mismo resultado en O(n_uncore + n_cpu).
+    n_cpu_rows = len(cpu_rows)
+    cpu_ptr = 1
     for interval_id, uncore_row in enumerate(uncore_rows, start=1):
         interval_end_ns = int(uncore_row["timestamp_ns"])
         cas_read = _to_int(uncore_row.get("uncore_cas_count_read_interval"))
@@ -368,10 +382,13 @@ def _apply_uncore_intervals(
             else None
         )
 
-        covered_indices = [
-            i for i in range(1, len(cpu_rows))
-            if interval_start_ns < int(cpu_rows[i]["timestamp_ns"]) <= interval_end_ns
-        ]
+        # cpu_ptr ya paso todo lo <= interval_start_ns (consumido por el
+        # intervalo anterior), asi que lo que sigue ya cumple ">
+        # interval_start_ns" sin volver a comprobarlo.
+        covered_indices = []
+        while cpu_ptr < n_cpu_rows and int(cpu_rows[cpu_ptr]["timestamp_ns"]) <= interval_end_ns:
+            covered_indices.append(cpu_ptr)
+            cpu_ptr += 1
 
         operational_intensity_uncore: float | None = None
         phase_label_uncore: str | None = None
