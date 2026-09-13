@@ -169,7 +169,21 @@ PY
 )
   workload="$TRANSITION_WORKLOAD"
   if [[ -z "$workload" ]]; then
-    workload="$KERNEL_ROOT/bin/gpu_phasic --phase-seconds 1 --total-seconds 20 --size-mib 2048 --seed 20260806"
+    # La carga por defecto era `gpu_phasic --phase-seconds 1`, que el propio
+    # catalogo declara `phase_label_hint: mixed`: alterna fases CPU/GPU cada
+    # segundo, o sea es fasica POR DISENO. El probe aborta con
+    # "workload_inactive (GPU never reached >=5% utilisation for 3
+    # consecutive reads)" cuando le toca arrancar en una fase de CPU, y
+    # ademas contradice el requisito explicito de esta etapa (ver --help:
+    # "Carga CUDA sostenida de >=12 s") y el del Plan §2.4.1, que pide medir
+    # la latencia de conmutacion "bajo carga sostenida". Fallo real: jobs
+    # 7055 y 7082 (2026-09-13).
+    # cublas_dgemm_bench es la carga sostenida del catalogo: medida al 100 %
+    # de utilizacion de GPU (percentil 90 y mediana, ver
+    # scripts/pacca/analysis/utilizacion_gpu_kernels_reales.py). El catalogo
+    # mide 300 iteraciones en 4.94 s, por debajo del minimo de 6 s de
+    # actividad que exige el probe, asi que se suben a 1000 (~16.5 s).
+    workload="$KERNEL_ROOT/bin/cublas_dgemm_bench --size 4096 --iterations 1000"
   fi
   cadence_dir="$(workflow_value transition_dir)/cadence"
   matrix_dir="$(workflow_value transition_dir)/matrix"
@@ -188,7 +202,7 @@ PY
       --from-clock REF --to-clock "$mid" --tolerance-mhz 7 \
       --probe-interval-ns "$interval" --dry-run-actuation \
       --warmup-ns 2000000000 --workload-min-active-ns 6000000000 \
-      --max-wait-ns 1000000000 --out-dir "$cadence_dir/q_${interval}"
+      --max-wait-ns 3000000000 --out-dir "$cadence_dir/q_${interval}"
   done
   "$PYTHON" -m fase1_telemetria.gpu_transition.cadence_sweep "$cadence_dir" \
     --out "$cadence_dir/cadence_sweep.json"
