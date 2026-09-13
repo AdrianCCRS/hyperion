@@ -180,10 +180,22 @@ PY
     # 7055 y 7082 (2026-09-13).
     # cublas_dgemm_bench es la carga sostenida del catalogo: medida al 100 %
     # de utilizacion de GPU (percentil 90 y mediana, ver
-    # scripts/pacca/analysis/utilizacion_gpu_kernels_reales.py). El catalogo
-    # mide 300 iteraciones en 4.94 s, por debajo del minimo de 6 s de
-    # actividad que exige el probe, asi que se suben a 1000 (~16.5 s).
-    workload="$KERNEL_ROOT/bin/cublas_dgemm_bench --size 4096 --iterations 1000"
+    # scripts/pacca/analysis/utilizacion_gpu_kernels_reales.py).
+    #
+    # Iteraciones: medido en paccaA100 (job 7090), 1000 iteraciones tardan
+    # 8.95 s, no las 16.5 s que sugeria extrapolar linealmente desde las
+    # 4.94 s / 300 iteraciones del catalogo. Ajustando los dos puntos hay
+    # ~3.2 s de sobrecarga fija y ~5.7 ms por iteracion, asi que para superar
+    # los >=12 s que exige esta etapa (ver --help) hacen falta ~1530; se usan
+    # 2000 (~14.7 s) para tener margen sobre el minimo de 6 s de actividad
+    # del probe y sobre ese umbral documentado.
+    #
+    # OJO: este binario necesita libcublas, que NO esta en el LD_LIBRARY_PATH
+    # que dejan los `module load` de los sbatch de etapa. Hay que anadir
+    # math_libs explicitamente (ver el export en los stage_*.sbatch). Sin eso
+    # falla con "error while loading shared libraries: libcublas.so.12"
+    # (exit 127), verificado en el job 7090.
+    workload="$KERNEL_ROOT/bin/cublas_dgemm_bench --size 4096 --iterations 2000"
   fi
   cadence_dir="$(workflow_value transition_dir)/cadence"
   matrix_dir="$(workflow_value transition_dir)/matrix"
