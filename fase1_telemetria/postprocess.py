@@ -785,7 +785,17 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
         row["operational_intensity"] = float("nan")
         row["phase_label_train"] = None
 
-        no_freq_reading = context.freq_khz_observed is None
+        # F1-GEN-002 (2026-09-13): usar la lectura POR VENTANA (ya resuelta
+        # arriba con el fallback de contexto incluido, ARC-135), nunca
+        # context.freq_khz_observed directo -- ese es solo el valor de
+        # contexto de toda la corrida, que campaign.py llena en la campana
+        # en vivo pero repostprocess_campaign.py nunca pasa (queda None por
+        # default). Comprobar el de contexto aqui marcaba no_freq_reading
+        # en CADA ventana de CADA corrida que pasara por repostprocess,
+        # sin importar si la columna real scaling_cur_freq_khz si tenia
+        # dato -- encontrado al investigar por que npb_bt/npb_mg quedaban
+        # con 0 ventanas "ok" tras corregir el warmup.
+        no_freq_reading = row.get("freq_khz_observed") is None
 
         row["quality_status"] = _resolve_quality_status({
             "pmu_degraded": pmu_degraded,
