@@ -35,6 +35,7 @@ de fase y alcance. Esta convención mantiene el formato propuesto
 | `F1-XDEV-003` | Usar cribado de frecuencia reducido solo para selección y rejilla fina en el dataset definitivo | Implementado (generador de manifiesto por lista congelada + resolución MHz→fracción + gate); manifiestos finales pendientes del resultado del cribado |
 | `F1-XDEV-004` | Análisis Pearson/Spearman/VIF y contrato versionado de features antes de entrenar | Implementado y validado con fixtures; **selección definitiva pendiente del dataset real** |
 | `F1-XDEV-005` | Orquestar el cribado hasta un informe de utilidad, con `ncu` obligatorio antes de GPU | Implementado; pendiente ejecución real en paccaA100 |
+| `F1-GPU-005` | Corregir 6 wrappers `gpu_rajaperf_*` que rechazaban corridas correctas por una etiqueta de tuning inexistente | Corregido y validado en pacca; catálogo actualizado |
 | `F2-XDEV-001` | Diagnosticar cobertura Roofline y calidad antes de seleccionar/balancear entrenamiento | Implementado (sin datos de campaña aún) |
 | `H` (gate) | Auditoría única de readiness pre-entrenamiento (PASS/FAIL/BLOCKED por gate) | Implementada y validada; a la espera de un dataset real para dictaminar |
 
@@ -1745,3 +1746,125 @@ Se cierra cuando: (a) §4.1 del plan quede reescrito con el supuesto corregido;
 números de ambas mediciones; y (c) la campaña final de GPU haya corrido con el
 eje de CPU en `REF` únicamente, dejando constancia en su manifiesto de por qué
 no incluye un nivel fijo.
+
+## F1-GPU-005 — Los 6 wrappers `gpu_rajaperf_*` rechazaban corridas correctas por un `grep` contra una etiqueta de tuning inexistente
+
+**Fecha de registro:** 2026-09-13
+**Estado:** corregido y validado directamente en pacca; catálogo (`fase1_telemetria/catalog/catalog.yaml`) actualizado y sincronizado
+**Kernels afectados:** `gpu_rajaperf_stream_copy`, `gpu_rajaperf_stream_triad`, `gpu_rajaperf_reduce3_int`, `gpu_rajaperf_indexlist_3loop`, `gpu_rajaperf_jacobi_2d`, `gpu_rajaperf_heat_3d` (los 6 kernels RAJAPerf-CUDA del catálogo GPU)
+
+### Problema
+
+En una sesión anterior se había detectado, sin diagnosticar, que los 6 kernels
+`gpu_rajaperf_*` tienen 0 corridas con `samples.csv` válido en las 198
+apariciones registradas en el historial completo del proyecto
+(`hyperion-results/campaigns/pacca_*`). La hipótesis abierta era que estos
+kernels no ejercitaban la GPU lo suficiente para producir telemetría útil.
+
+Esa hipótesis era incorrecta. La causa real se encontró al intentar correr la
+etapa `ncu` del cribado (job 7135, 2026-09-13): los 6 kernels fallaron con
+`profiling_error` y el proceso completo terminó con `ExitCode 2:0`. Reproducido
+cada uno directamente (sin `ncu` de por medio, con el shim de blocking-sync
+inyectado igual que lo haría `runner.py`), los 6 imprimen `RAJAPerf <kernel>
+checksum failed` y retornan `exit=0` — el fallo es 100 % reproducible,
+independiente de `ncu`, y afecta por igual a kernels triviales
+(`Stream_COPY`, una simple copia de arreglo) y complejos, lo cual ya era
+indicio de que no era un error numérico real de cada kernel sino algo
+estructural compartido por los 6.
+
+Cada `bin/gpu_rajaperf_*` es un script adaptador que ejecuta el binario crudo
+de RAJAPerf-CUDA v2025.12.1 y luego valida el resultado grepeando su propio
+`RAJAPerf-checksum.txt` en busca de la línea `^Base_CUDA-default[[:space:]]
++PASSED`. Inspeccionando el `RAJAPerf-checksum.txt` real que genera el
+binario, la variante siempre se reporta como `PASSED` — el checksum de
+RAJAPerf nunca falló — pero bajo la etiqueta `Base_CUDA-block_256` (la mayoría
+de kernels) o `Base_CUDA-blkatm_direct_256`/`Base_CUDA-blkatm_occgs_256`
+(`Basic_REDUCE3_INT`, que usa dos tunings propios de reducción con átomos).
+La cadena literal `Base_CUDA-default` que el wrapper buscaba nunca la genera
+RAJAPerf: no es una convención real de nombrado de esta versión de la
+suite. El wrapper llevaba desde su creación (2026-08-25, jobs 6517/6528)
+rechazando corridas cuyo cómputo siempre fue correcto.
+
+### Decisión
+
+Se corrigen los 6 wrappers en `~/hyperion-kernels/bin/` (no versionados en
+este repositorio; conservan copia `.bak_base_cuda_default` de respaldo). Para
+los 5 con tuning único se reemplaza el literal por `Base_CUDA-block_256`. Para
+`gpu_rajaperf_reduce3_int`, que reporta dos tunings distintos, el patrón se
+generaliza a `^Base_CUDA-[A-Za-z0-9_]+[[:space:]]+PASSED` en vez de fijar un
+segundo literal, para no repetir el mismo tipo de fragilidad si RAJAPerf
+cambia de nuevo el nombre de un tuning.
+
+Se actualiza `binary_checksum.pacca-a100` de los 6 kernels en
+`fase1_telemetria/catalog/catalog.yaml` a la suma SHA-256 real de cada wrapper
+corregido (CAT-10 valida ese checksum contra el archivo en disco en cada carga
+del catálogo; sin esta actualización el catálogo fallaría a cargar, que es el
+comportamiento correcto — nunca se ajustó CAT-10 para tolerar la discrepancia).
+
+Se revisó también el wrapper análogo de CPU (`bin/rajaperf_polybench_3mm_omp`,
+mismo patrón, etiqueta `Base_OpenMP-default`). En ese caso la etiqueta sí es
+la real: OpenMP en esta versión de RAJAPerf solo tiene un tuning por kernel
+(no requiere sufijo de tamaño de bloque como CUDA), así que no comparte el
+bug. Verificado que corre y pasa tal como está; no se modifica.
+
+### Evidencia de hardware
+
+Reproducción directa en `paccaA100` (job 7144, sesión interactiva vía
+`srun --jobid=7144`), con `LD_PRELOAD` del shim de blocking-sync inyectado:
+
+| Kernel | Antes del fix | Después del fix |
+|---|---|---|
+| `gpu_rajaperf_stream_copy` | `checksum failed`, exit=0 | `Verification = SUCCESSFUL`, exit=0 |
+| `gpu_rajaperf_stream_triad` | `checksum failed`, exit=0 | `Verification = SUCCESSFUL`, exit=0 |
+| `gpu_rajaperf_reduce3_int` | `checksum failed`, exit=0 | `Verification = SUCCESSFUL`, exit=0 |
+| `gpu_rajaperf_indexlist_3loop` | `checksum failed`, exit=0 | `Verification = SUCCESSFUL`, exit=0 |
+| `gpu_rajaperf_jacobi_2d` | `checksum failed`, exit=0 | `Verification = SUCCESSFUL`, exit=0 |
+| `gpu_rajaperf_heat_3d` | `checksum failed`, exit=0 | `Verification = SUCCESSFUL`, exit=0 |
+
+El catálogo actualizado carga sin excepción (`common.hpc.catalog.load_catalog`)
+con los 6 checksums nuevos, confirmando que los binarios en disco coinciden
+exactamente con lo declarado.
+
+### Consecuencia sobre el plan detallado
+
+Los 6 `gpu_rajaperf_*` están declarados en `gpu_final.yaml`, la campaña final
+de GPU. Sin este fix, la campaña habría gastado horas de nodo ejecutando 6
+kernels que nunca habrían producido una corrida `accepted` (el `success_check`
+del catálogo, `stdout_regex: "Verification = SUCCESSFUL"`, nunca habría
+encontrado esa cadena), sin ninguna señal de alerta hasta revisar los
+resultados al final. El hallazgo se originó, además, porque se pausó
+deliberadamente el arranque automático de la campaña final para terminar de
+diagnosticar por qué había fallado la etapa `ncu` del cribado — si se hubiera
+saltado directo a la campaña final sin ese cribado, este bug habría quedado
+enmascarado como "estos 6 kernels simplemente no producen datos", reforzando
+la hipótesis errónea original.
+
+### Limitaciones
+
+1. No se investigó por qué RAJAPerf-CUDA v2025.12.1 nombra la variante
+   `Base_CUDA-block_256` en vez de `Base_CUDA-default` — puede ser una
+   convención de esta versión específica, de esta configuración de build, o
+   de la GPU/arquitectura de compilación (A100, sm_80). Si el proyecto migra
+   a otra versión de RAJAPerf o a otro tipo de GPU, el nombre de tuning podría
+   volver a cambiar; el patrón generalizado de `reduce3_int` es más resistente
+   a esto que el literal fijo usado en los otros 5.
+2. No se corrió aún una corrida completa a través del harness de telemetría
+   (`telemetry_kernel_launcher`) con pines de CPU/GPU reales para estos 6
+   kernels — la verificación se hizo invocando el wrapper directamente. La
+   verificación end-to-end queda pendiente de la próxima ejecución real de
+   `screen-gpu` o de la campaña final.
+
+### Trabajo pendiente
+
+- Verificar con una corrida real del harness completo (no solo el wrapper) que
+  los 6 kernels producen `samples.csv`/`metadata.json` válidos.
+- Reejecutar la etapa `ncu` del cribado (bloqueada anteriormente por este
+  mismo bug en 5 de los 6 casos, más el bug de `libnvJitLink.so.12` en
+  `dual_cholesky_gpu`/`dual_spmv_gpu`) para completar la verdad Roofline de
+  estos kernels, pendiente en `F1-GPU-004`.
+
+### Criterio exacto de cierre
+
+Se cierra cuando una corrida real de la campaña final de GPU produzca
+`samples.csv` válido para los 6 `gpu_rajaperf_*`, confirmando que el fix
+sobrevive al harness completo y no solo a la invocación directa del wrapper.
