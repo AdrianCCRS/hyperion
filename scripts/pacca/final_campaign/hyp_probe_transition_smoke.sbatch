@@ -29,13 +29,15 @@ mkdir -p /home/latorresn/hyperion-results/analisis
 OUT=/home/latorresn/hyperion-results/analisis/probe_smoke_$SLURM_JOB_ID
 
 module load cmake/4.3.4 gnu12/12.4.0 devtools/nvidia/hpc_sdk/nvhpc/23.1 openblas/0.3.21 2>&1 || true
+# libcublas: los module load no lo dejan en el path (job 7090, exit 127).
+export LD_LIBRARY_PATH="/opt/ohpc/pub/devtools/nvidia/hpc_sdk/Linux_x86_64/23.1/math_libs/12.0/targets/x86_64-linux/lib:${LD_LIBRARY_PATH:-}"
 export LD_LIBRARY_PATH="/opt/ohpc/pub/libs/gnu12/openblas/0.3.21/lib:${LD_LIBRARY_PATH:-}"
 export PYTHONPATH="$HOME/hyperion:${PYTHONPATH:-}"
 export HYPERION_GPU_FREQ_WRITE_CAPABLE=1
 source "$HOME/hyperion-venv/bin/activate"
 
 PROBE="$HOME/hyperion/common/telemetry/build/gpu_clock_transition_probe"
-WORKLOAD="$HOME/hyperion-kernels/bin/cublas_dgemm_bench --size 4096 --iterations 1000"
+WORKLOAD="$HOME/hyperion-kernels/bin/cublas_dgemm_bench --size 4096 --iterations 2000"
 
 echo "nodo    : $(hostname)"
 echo "probe   : $PROBE"
