@@ -174,10 +174,18 @@ PY
   cadence_dir="$(workflow_value transition_dir)/cadence"
   matrix_dir="$(workflow_value transition_dir)/matrix"
   mkdir -p "$cadence_dir" "$matrix_dir"
+  # --tolerance-mhz DEBE ser < la mitad del salto entre relojes soportados
+  # vecinos, o el probe aborta con "tolerance_mhz (X) must be < half the
+  # neighbouring supported-clock gap". En paccaA100 (A100-PCIE-40GB) la
+  # rejilla de relojes SM va de 210 a 1410 MHz en pasos de 15, asi que el
+  # techo es 7.5 y el valor usable es 7. Con el 15 anterior la etapa no
+  # podia terminar en este hardware: fallaba en el primer sondeo (job 7055,
+  # 2026-09-13). Si se porta a otra GPU, recalcular contra su rejilla real,
+  # no reutilizar este 7 a ciegas.
   log "Etapa A: cadencia NVML 5/10/50/100 ms; mid=${mid}MHz"
   for interval in 5000000 10000000 50000000 100000000; do
     "$probe" --workload-cmd "$workload" --gpu "$GPU_INDEX" \
-      --from-clock REF --to-clock "$mid" --tolerance-mhz 15 \
+      --from-clock REF --to-clock "$mid" --tolerance-mhz 7 \
       --probe-interval-ns "$interval" --dry-run-actuation \
       --warmup-ns 2000000000 --workload-min-active-ns 6000000000 \
       --max-wait-ns 1000000000 --out-dir "$cadence_dir/q_${interval}"
@@ -193,7 +201,7 @@ PY
     local from="$1" to="$2" label="$3" repetition
     for repetition in 1 2 3; do
       "$probe" --workload-cmd "$workload" --gpu "$GPU_INDEX" \
-        --from-clock "$from" --to-clock "$to" --tolerance-mhz 15 \
+        --from-clock "$from" --to-clock "$to" --tolerance-mhz 7 \
         --stable-consecutive 3 --probe-interval-ns "$q" \
         --warmup-ns 2000000000 --workload-min-active-ns 6000000000 \
         --request-at-ns 5000000000 --max-wait-ns 3000000000 \
