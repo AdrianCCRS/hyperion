@@ -239,11 +239,19 @@ PY
   run_pair() {
     local from="$1" to="$2" label="$3" repetition
     for repetition in 1 2 3; do
+      # Margen de asentamiento entre replicas: el job 7093 vio r1 y r2
+      # correctas y r3 fallando con "workload_inactive", o sea que lanzar el
+      # siguiente probe inmediatamente despues de que el anterior restaure el
+      # reloj (-rgc tarda ~81-91 ms segun la latencia medida) deja a la GPU
+      # sin asentar y la carga nueva no llega al 5 % de utilizacion a tiempo.
+      # No es un fallo de medida: es una condicion de carrera entre
+      # invocaciones consecutivas del probe.
+      sleep 5
       "$probe" --workload-cmd "$workload" --gpu "$GPU_INDEX" \
         --from-clock "$from" --to-clock "$to" --tolerance-mhz 7 \
         --stable-consecutive 3 --probe-interval-ns "$q" \
         --warmup-ns 2000000000 --workload-min-active-ns 6000000000 \
-        --request-at-ns 5000000000 --max-wait-ns 3000000000 \
+        --request-at-ns 5000000000 --max-wait-ns 6000000000 \
         --replicate-id "$repetition" --label "$label" \
         --out-dir "$matrix_dir/$label/r$repetition"
     done
