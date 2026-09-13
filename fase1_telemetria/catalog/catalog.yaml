@@ -1199,7 +1199,11 @@ kernels:
     estimated_memory_bytes: 2147483648  # 2 GiB, aproximado por comparacion con gpu_stream_bw -- sin RSS medido
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
-      pacca-a100: "sha256:c40f0a46fe8e10a07b0f59b24192f09d1ba705c443bd98cd7f80888ccba1eb8e"
+      # 2026-09-13: wrapper corregido (F1-GPU-005) -- grepeaba la etiqueta
+      # de tuning "Base_CUDA-default", que RAJAPerf nunca genera (usa
+      # "Base_CUDA-block_256"). El checksum SIEMPRE fue correcto; el
+      # wrapper rechazaba corridas validas por un string mal escrito.
+      pacca-a100: "sha256:dd2b5666b1643a0ad3ccca43993062b5be37603b6ee37450448ee12b768e8925"
 
   - id: gpu_rajaperf_stream_triad
     suite: RAJAPerf-CUDA
@@ -1215,7 +1219,8 @@ kernels:
     estimated_memory_bytes: 2147483648
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
-      pacca-a100: "sha256:559c2541884c32a28fae61685e5105076484ea12bb48364914919eb891d28186"
+      # 2026-09-13: mismo fix que stream_copy, ver F1-GPU-005.
+      pacca-a100: "sha256:d1af860787b389ef62daef060ff19e9922fe36c7a027cea60036c27ac4cbfa32"
 
   - id: gpu_rajaperf_reduce3_int
     suite: RAJAPerf-CUDA
@@ -1231,7 +1236,11 @@ kernels:
     estimated_memory_bytes: 2147483648
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
-      pacca-a100: "sha256:d319ba1d4c7b278a915dc6b3e578fa3c50b59db909e5058da47c723fb15af46c"
+      # 2026-09-13 (F1-GPU-005): este kernel usa DOS tunings propios
+      # ("blkatm_direct_256"/"blkatm_occgs_256", no "block_256" como el
+      # resto) -- el wrapper ahora matchea cualquier tuning de Base_CUDA
+      # que reporte PASSED, en vez de un nombre literal fijo.
+      pacca-a100: "sha256:d55407efb7a1727833207c3490ed67d0064d0f4ccfb9c33c9e464c2fc6e800a4"
 
   - id: gpu_rajaperf_indexlist_3loop
     suite: RAJAPerf-CUDA
@@ -1247,7 +1256,8 @@ kernels:
     estimated_memory_bytes: 2147483648
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
-      pacca-a100: "sha256:a87fd6ae82d235e87803e8a2c4ec47c642802bb2150c04b8c6c4481cdcc7948c"
+      # 2026-09-13: mismo fix que stream_copy, ver F1-GPU-005.
+      pacca-a100: "sha256:d4705c8e3f8478dfba3eea1dc1e0c0f8b162e2069bc1997c4c9308d9f30809c7"
 
   - id: gpu_rajaperf_jacobi_2d
     suite: RAJAPerf-CUDA
@@ -1263,7 +1273,8 @@ kernels:
     estimated_memory_bytes: 2147483648
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
-      pacca-a100: "sha256:0de6ae7c3c98df550f457a4a0b84767149f345938eac9b2a70fddf5f983c3319"
+      # 2026-09-13: mismo fix que stream_copy, ver F1-GPU-005.
+      pacca-a100: "sha256:b46476ef4ce09057122394dde560d94cca37fd6cbbd0cc0153ad651db1daa38b"
 
   - id: gpu_rajaperf_heat_3d
     suite: RAJAPerf-CUDA
@@ -1279,7 +1290,8 @@ kernels:
     estimated_memory_bytes: 2147483648
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
-      pacca-a100: "sha256:c14771c18cfb8604611f7eda88f5520bc65b54b5b6481a977d442ca5468b1768"
+      # 2026-09-13: mismo fix que stream_copy, ver F1-GPU-005.
+      pacca-a100: "sha256:24fee9630c00c64d5d564c5ec7fa0a80f22206b8d80e0a8a7ffec0d46431f766"
 
   # --- 2026-08-26: 9 sobrevivientes del tamizaje CPU v2 --------------------
   # (screen_rajaperf_cpu_alpha_v2.sh, job 6575, 79 kernels de RAJAPerf a
