@@ -1578,3 +1578,170 @@ GPU; cribados CPU/GPU re-postprocesados con warmup medido; cobertura por
 familia; e informe de utilidad. El informe puede terminar en FAIL de cobertura:
 ese es un resultado válido que ordena compilar y caracterizar candidatos
 adicionales antes de construir la campaña fina.
+
+## F1-XDEV-006 — La frecuencia de CPU degrada la ejecución de cargas GPU (corrige a ARC-155/ARC-170)
+
+**Fecha de registro:** 2026-09-13
+**Estado:** medido y validado sobre dos campañas independientes ya ejecutadas; sin cómputo nuevo
+**Campañas analizadas:** `pacca_gpu_dvfs_20260820` (288 combinaciones) y `pacca_dual_gpu_full_20260828` (8801 corridas)
+**Scripts de reproducción:** `scripts/pacca/analysis/cpu_freq_durante_gpu_dvfs.py` y `scripts/pacca/analysis/cpu_freq_durante_gpu_fases.py`
+
+### Problema
+
+El proyecto arrastraba una conclusión registrada en ARC-155 (2026-08-19) y
+usada como base de la decisión de diseño de ARC-170 (2026-08-20): *"no hay
+overhead de lanzamiento medible sensible a la frecuencia de CPU"*, de donde se
+concluyó que fijar la CPU al mínimo durante combinaciones GPU no introducía un
+confusor. Esa conclusión es incorrecta, y la decisión que sostuvo (fijar la CPU
+al mínimo siempre durante la campaña GPU) quedó apoyada sobre ella.
+
+El error de ARC-155 no fue de ejecución sino de diseño experimental: midió un
+solo kernel, `rodinia_gaussian`, elegido explícitamente por ser *"el caso más
+sensible del catálogo a overhead de lanzamiento acumulado"* (unos 8190
+lanzamientos CUDA por corrida). La premisa de esa elección es falsa: el
+mecanismo de degradación no es el conteo de lanzamientos. Medido ahora sobre el
+catálogo completo, `rodinia_gaussian` resulta ser el kernel **menos** afectado
+de todos (+7,0 %), de modo que ARC-155 generalizó desde la sonda menos
+representativa disponible.
+
+### Decisión
+
+Se corrige el registro y se mantiene la decisión ya tomada el 2026-09-13 para
+la campaña final de GPU (`scripts/pacca/final_campaign/gpu_final.yaml`): el eje
+de CPU se declara **únicamente en `REF`**, sin nivel fijo al mínimo.
+
+La justificación cambia respecto a la que se había anotado. No es solo que la
+pregunta ya esté contestada y re-medirla cueste horas de cola: es que fijar la
+CPU al mínimo **contamina la medición del eje que sí interesa**. Con la CPU al
+mínimo, el tiempo total de una carga GPU crece en promedio un 63-66 %, de modo
+que el EDP atribuido a un nivel de reloj de GPU quedaría mezclado con una
+penalización de origen distinto.
+
+### Evidencia de hardware
+
+**Verificación previa obligatoria (estrategia de espera del host).** Antes de
+interpretar nada se descartó que el efecto viniera del modo de sincronización.
+`pacca_gpu_dvfs_20260820` corrió con el shim de blocking-sync **activo**: 0
+ocurrencias del aviso "ARC-70" en las 603 corridas con `stderr` (en modo spin
+ese aviso aparecía 33 veces por corrida, ver ARC-153/154). El host dormía
+bloqueado esperando a la GPU, no hacía *busy-wait*. La degradación no se
+explica por la estrategia de espera.
+
+**Medición 1: catálogo real, sin separación de fases.** Sobre
+`pacca_gpu_dvfs_20260820`, comparación pareada por (kernel, nivel GPU,
+repetición), variando solo el nivel de CPU entre `REF` y `F4` (mínimo), 134
+pares comparables de 275 corridas aceptadas:
+
+| Kernel | n | CPU mínima vs CPU nativa |
+|---|---:|---:|
+| `rodinia_lud` | 12 | +189,8 % |
+| `rodinia_lavamd` | 18 | +152,5 % |
+| `rodinia_backprop` | 14 | +96,2 % |
+| `rodinia_myocyte` | 18 | +68,3 % |
+| `rodinia_dwt2d` | 18 | +38,3 % |
+| `gpu_dgemm_n4096` | 18 | +15,6 % |
+| `rodinia_heartwall` | 18 | +9,1 % |
+| `rodinia_gaussian` | 18 | +7,0 % |
+| **Global** | **134** | **+66,1 %** |
+
+En 134 de 134 pares (100 %) la CPU al mínimo resultó más lenta. Agrupando por
+nivel de GPU, la media va de +57,3 % a +79,9 %, es decir el efecto se sostiene
+a lo largo de todo el barrido de reloj de GPU y no es un artefacto de un nivel
+particular.
+
+**Medición 2: separación de fases (contrato `cold_warm_v1`).** La campaña del
+selector `pacca_dual_gpu_full_20260828` sí instrumenta `dispatch_timing`
+(`setup_seconds`, `cold_total_seconds`, `warm_total_seconds`,
+`first_dispatch_seconds`), que la campaña de agosto no tenía. Comparación
+pareada CPU `F0` (3,2 GHz) contra `F6` (800 MHz), es decir la reducción de
+reloj 4x, sobre 1632 pares de kernels GPU:
+
+| Fase | Degradación media |
+|---|---:|
+| Total del benchmark | **+63,3 %** |
+| Caliente (ejecución en régimen) | **+93,8 %** |
+| Setup (lado host) | +36,2 % |
+
+La fase caliente se degrada casi el doble que el setup. Esto responde la
+pregunta clave: **la penalización no es solo preparación del lado host**, la
+ejecución en régimen también se degrada, y más.
+
+**Dependencia del tamaño del problema.** El barrido de tamaños del catálogo
+`dual_*` muestra que la degradación de la fase caliente escala con el problema:
+
+| Kernel | Fase caliente |
+|---|---:|
+| `dual_stencil_gpu_N64` | -6,9 % |
+| `dual_spmv_gpu_N10000` | -1,1 % |
+| `dual_fft_gpu_N64` | +3,8 % |
+| `dual_fft_gpu_N4096` | +169,6 % |
+| `dual_stencil_gpu_N4096` | +171,9 % |
+
+En problemas diminutos la frecuencia de CPU es irrelevante (o marginalmente
+favorable al reloj bajo); en problemas grandes la fase caliente se duplica o
+triplica. El patrón es consistente con un mecanismo de movimiento de datos
+host-device dirigido por CPU que escala con el tamaño, y es incompatible con la
+hipótesis de overhead fijo de lanzamiento sobre la que se construyó ARC-155.
+
+**Validación cruzada.** Dos campañas independientes, con catálogos distintos
+(kernels reales Rodinia/cuBLAS contra sintéticos `dual_*`), fechas distintas y
+metodologías distintas (sin y con separación de fases), coinciden en la
+magnitud del efecto total: +66,1 % y +63,3 %.
+
+### Consecuencia sobre el plan detallado
+
+El Plan detallado, §4.1, describe como medida defensiva del demonio: *"mientras
+`gpu_util_pct` reporte actividad, forzar el reloj de CPU al mínimo,
+independientemente de lo que diga `f_cpu` en ese instante; si la CPU está de
+verdad bloqueada esperando, bajar su reloj casi no afecta el consumo porque no
+hay conmutación que escale con la frecuencia"*.
+
+El supuesto explícito de esa medida ("la CPU está de verdad bloqueada
+esperando") queda refutado por los datos: aun con blocking-sync activo, la CPU
+realiza trabajo cuya velocidad determina el tiempo de la carga GPU. Aplicada
+tal como está redactada, la medida degradaría el tiempo de ejecución entre
++63 % y +66 % en promedio, y hasta +190 % en el peor kernel medido, empeorando
+el EDP en vez de mejorarlo.
+
+Esta sección debe reescribirse antes de la Fase 3. La redacción de reemplazo no
+se fija aquí porque exige decidir el criterio de sustitución (por ejemplo,
+condicionar el piso de frecuencia de CPU al tamaño de problema o a la
+utilización de memoria observada), y esa decisión no está soportada todavía por
+una medición dirigida.
+
+### Limitaciones
+
+1. La métrica de la medición 1 es `telemetry_elapsed_ns_mean`, tiempo total de
+   corrida. Por sí sola no distingue host de dispositivo. Esa separación la
+   aporta la medición 2, sobre un catálogo distinto (`dual_*` sintéticos), no
+   sobre los kernels reales de la medición 1.
+2. La medición 2 usa kernels sintéticos construidos para el estudio de
+   selección de dispositivo, cuyo balance de trabajo host/device puede no ser
+   representativo del catálogo final. La coincidencia del efecto total con la
+   medición 1 (+63 % contra +66 %) mitiga esta objeción pero no la elimina.
+3. No se ha medido el consumo energético asociado a esta degradación. La
+   conclusión es sobre tiempo; afirmar el signo del efecto sobre EDP exige
+   cruzar con la energía registrada en las mismas corridas, lo cual no se hizo
+   aquí.
+4. El mecanismo propuesto (movimiento de datos host-device) es una hipótesis
+   consistente con la dependencia del tamaño, no una causa medida
+   directamente. Confirmarla exigiría perfilar transferencias, por ejemplo con
+   `ncu` o `nsys`, lo que está fuera del alcance de esta anotación.
+
+### Trabajo pendiente
+
+- Reescribir §4.1 del plan detallado con la medida defensiva corregida.
+- Cruzar tiempo con energía sobre las mismas corridas para pronunciarse sobre
+  EDP y no solo sobre tiempo (limitación 3).
+- Al citar la campaña previa como evidencia del efecto de CPU al mínimo en el
+  capítulo de Fase 4, verificar que sea posterior al 2026-08-19: los datos GPU
+  anteriores a esa fecha corrieron en modo spin (ARC-153/154) y no son
+  comparables.
+
+### Criterio exacto de cierre
+
+Se cierra cuando: (a) §4.1 del plan quede reescrito con el supuesto corregido;
+(b) el capítulo de metodología del libro recoja la corrección a ARC-155 con los
+números de ambas mediciones; y (c) la campaña final de GPU haya corrido con el
+eje de CPU en `REF` únicamente, dejando constancia en su manifiesto de por qué
+no incluye un nivel fijo.

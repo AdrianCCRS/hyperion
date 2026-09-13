@@ -13,17 +13,26 @@
 # gpu_frequency_levels. Tal como esta: 1 nivel CPU x 10 niveles GPU x 23
 # kernels x 3 reps = 690 corridas (~39 h al ritmo medido).
 #
-# DECISION 2026-09-13: la CPU se deja SOLO en REF. La campana GPU previa
-# (288 combos, ARC-170) ya incluyo un nivel de CPU al minimo y con eso
-# demostro que bajar el reloj de CPU si degrada el rendimiento; esa pregunta
-# quedo contestada y re-medirla aqui costaria ~39 h extra sin refinar la
-# tabla de politica de GPU. Ademas REF-solo es el control mas limpio: aisla
-# el efecto del reloj de GPU sin confundirlo con un cambio simultaneo de CPU.
-# Consecuencia a tener presente: la medida defensiva del daemon (Plan §4.1,
-# "forzar CPU al minimo mientras gpu_util_pct reporte actividad") tendra que
-# citar la campana previa en Fase 4, no datos de esta. Al citarla, verificar
-# que sea POSTERIOR al 2026-08-19 (antes de esa fecha los datos GPU corrieron
-# en modo spin por el bug del shim de blocking-sync).
+# DECISION 2026-09-13: la CPU se deja SOLO en REF. Ver F1-XDEV-006 en
+# Seguimiento_Cambios_Plan_Director.md para la evidencia completa.
+#
+# Razon principal (medida, no supuesta): fijar la CPU al minimo NO es un
+# control neutro, CONTAMINA el eje que interesa. Sobre dos campanas
+# independientes ya ejecutadas, bajar el reloj de CPU alarga el tiempo total
+# de una carga GPU un 63-66 % en promedio (hasta +190 % en el peor kernel), y
+# la fase caliente (ejecucion en regimen, contrato cold_warm_v1) se degrada
+# +94 %, casi el doble que el setup del host. Con un nivel de CPU al minimo
+# en la matriz, el EDP atribuido a cada nivel de reloj de GPU quedaria
+# mezclado con esa penalizacion de origen distinto.
+#
+# Esto CORRIGE a ARC-155/ARC-170, que concluyeron lo contrario midiendo un
+# solo kernel (rodinia_gaussian), que resulta ser el MENOS afectado del
+# catalogo (+7 %). El mecanismo no es overhead de lanzamiento: la degradacion
+# escala con el tamano del problema.
+#
+# Consecuencia para Fase 4: la medida defensiva del daemon (Plan §4.1,
+# "forzar CPU al minimo mientras gpu_util_pct reporte actividad") queda
+# refutada tal como esta redactada y debe reescribirse antes de la Fase 3.
 #
 # CONVENCION DE NIVELES: el indice F* es relativo al numero de niveles.
 # Aqui hay 9 niveles GPU fijos: F0 = 1.0 (maximo) ... F8 = 0.0 (minimo).
