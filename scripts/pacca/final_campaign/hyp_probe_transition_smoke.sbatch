@@ -36,6 +36,15 @@ export PYTHONPATH="$HOME/hyperion:${PYTHONPATH:-}"
 export HYPERION_GPU_FREQ_WRITE_CAPABLE=1
 source "$HOME/hyperion-venv/bin/activate"
 
+# Limpiar candado de reloj heredado de una corrida caida (visto en 210 MHz
+# tras 7093/7100) y restaurarlo al salir.
+GPU_IDX="${CUDA_VISIBLE_DEVICES%%,*}"; GPU_IDX="${GPU_IDX:-0}"
+restore_gpu_clock() { sudo /usr/bin/nvidia-smi -i "$GPU_IDX" -rgc >/dev/null 2>&1 || true; }
+trap restore_gpu_clock EXIT
+echo "reloj antes de limpiar: $(nvidia-smi --query-gpu=clocks.sm --format=csv,noheader)"
+restore_gpu_clock
+echo "reloj tras limpiar    : $(nvidia-smi --query-gpu=clocks.sm --format=csv,noheader)"
+
 PROBE="$HOME/hyperion/common/telemetry/build/gpu_clock_transition_probe"
 WORKLOAD="$HOME/hyperion-kernels/bin/cublas_dgemm_bench --size 4096 --iterations 2000"
 
