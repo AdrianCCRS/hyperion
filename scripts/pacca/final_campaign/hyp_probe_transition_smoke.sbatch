@@ -46,7 +46,7 @@ restore_gpu_clock
 echo "reloj tras limpiar    : $(nvidia-smi --query-gpu=clocks.sm --format=csv,noheader)"
 
 PROBE="$HOME/hyperion/common/telemetry/build/gpu_clock_transition_probe"
-WORKLOAD="$HOME/hyperion-kernels/bin/cublas_dgemm_bench --size 4096 --iterations 2000"
+WORKLOAD="$HOME/hyperion-kernels/bin/cublas_dgemm_bench --size 4096 --iterations 6000"
 
 echo "nodo    : $(hostname)"
 echo "probe   : $PROBE"
@@ -58,8 +58,8 @@ echo
 "$PROBE" --workload-cmd "$WORKLOAD" --gpu "${CUDA_VISIBLE_DEVICES%%,*}" \
   --from-clock REF --to-clock 810 --tolerance-mhz 7 \
   --probe-interval-ns 5000000 \
-  --warmup-ns 2000000000 --workload-min-active-ns 6000000000 \
-  --max-wait-ns 3000000000 --out-dir "$OUT" || true
+  --warmup-ns 10000000000 --workload-min-active-ns 6000000000 \
+  --max-wait-ns 15000000000 --out-dir "$OUT" || true
 
 echo
 echo "=== RESULTADO ==="
