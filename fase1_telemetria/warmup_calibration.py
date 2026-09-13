@@ -264,6 +264,52 @@ class KernelWarmup:
     notes: list[str] = field(default_factory=list)
 
 
+SPAN_OUTLIER_FACTOR = 3.0  # ver _reject_span_outliers()
+
+
+def _reject_span_outliers(
+    analyzed: list[RunWarmup], *, factor: float = SPAN_OUTLIER_FACTOR
+) -> tuple[list[RunWarmup], list[str]]:
+    """F1-GEN-003 (2026-09-13): excluye del cómputo del máximo las corridas
+    cuyo `total_span_s` es un valor atípico frente a sus HERMANAS DEL MISMO
+    `freq_level_id` (nunca entre niveles distintos: el tiempo de pared sí
+    varía legítimamente con la frecuencia para un kernel de iteraciones
+    fijas -- comparar across niveles confundiría esa variación real con
+    ruido). Motivo: una sola corrida anómala (medida: cpu_rajaperf_polybench_
+    jacobi_1d F4 rep02, 43.86s contra ~6.2s de sus hermanas F4 rep01/03, ~7x)
+    empujó su punto de detección tardío hasta casi el final de su propia
+    duración, produciendo un warmup propuesto (51.7s) mayor que la duración
+    COMPLETA de las demás corridas del kernel -- el máximo puro las excluyó
+    a todas (I10: 0 ventanas 'ok'), contradiciendo el propio objetivo
+    documentado del módulo ("el máximo ROBUSTAMENTE detectado"). Nunca
+    descarta silenciosamente: quien llama recibe la lista de exclusiones
+    para dejarla en `notes`.
+    """
+    by_level: dict[str | None, list[RunWarmup]] = {}
+    for a in analyzed:
+        by_level.setdefault(a.freq_level_id, []).append(a)
+    excluded_ids: set[int] = set()
+    notes: list[str] = []
+    for level, group in by_level.items():
+        spans = [a.total_span_s for a in group if a.total_span_s is not None]
+        if len(spans) < 3:
+            continue  # no hay suficientes hermanas del mismo nivel para juzgar atipicidad
+        median_span = statistics.median(spans)
+        if median_span <= 0:
+            continue
+        for a in group:
+            if a.total_span_s is not None and a.total_span_s > factor * median_span:
+                excluded_ids.add(id(a))
+                notes.append(
+                    f"corrida {a.run_id!r} (nivel {level!r}) excluida del máximo: "
+                    f"total_span_s={a.total_span_s:.2f} > {factor:g}x la mediana "
+                    f"de su nivel ({median_span:.2f}s) -- outlier de duración, no "
+                    "variación de frecuencia legítima"
+                )
+    kept = [a for a in analyzed if id(a) not in excluded_ids]
+    return kept, notes
+
+
 def calibrate_kernel(
     runs: list[tuple[Path, str | None, str | None]],
     *,
@@ -277,9 +323,14 @@ def calibrate_kernel(
     """`runs`: lista de (windows_csv, run_id, freq_level_id) de una mini-campaña
     con `warmup_seconds: 0`. Adopta el MÁXIMO `proposed_warmup_s` entre corridas
     detectadas (criterio robusto: un único valor por kernel debe cubrir el peor
-    caso observado)."""
+    caso observado), después de excluir corridas cuya duración total es un
+    atípico estadístico frente a sus hermanas del mismo nivel de frecuencia
+    (_reject_span_outliers, F1-GEN-003) -- sin este filtro, una sola corrida
+    anómala puede producir un warmup mayor que la duración de todo el resto
+    del kernel."""
     analyzed = [analyze_run(p, run_id=rid, freq_level_id=lvl) for p, rid, lvl in runs]
-    detected = [a for a in analyzed if a.detected]
+    robust_pool, outlier_notes = _reject_span_outliers(analyzed)
+    detected = [a for a in robust_pool if a.detected]
     levels = sorted({a.freq_level_id for a in analyzed if a.freq_level_id})
     out = KernelWarmup(
         kernel_ref=kernel_ref, device=device, binary_checksum=binary_checksum,
@@ -289,6 +340,7 @@ def calibrate_kernel(
         per_run=[asdict(a) for a in analyzed], fallback_reason=fallback_reason,
         fallback_risk=fallback_risk,
     )
+    out.notes.extend(outlier_notes)
     if len(analyzed) < MIN_REPETITIONS:
         out.notes.append(f"solo {len(analyzed)} corridas (< {MIN_REPETITIONS}); "
                          "el criterio robusto exige al menos 3")
