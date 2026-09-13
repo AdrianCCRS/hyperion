@@ -208,11 +208,24 @@ PY
   # podia terminar en este hardware: fallaba en el primer sondeo (job 7055,
   # 2026-09-13). Si se porta a otra GPU, recalcular contra su rejilla real,
   # no reutilizar este 7 a ciegas.
+  #
+  # Este bucle tenia ademas --dry-run-actuation, que el propio probe
+  # documenta como "Skip -lgc/-rgc. Local smoke ONLY -- not a valid
+  # measurement". En modo dry-run el probe NO mueve el reloj pero SI corre el
+  # chequeo de estabilidad contra el destino (gpu_clock_transition_probe.cpp,
+  # lineas ~747 y ~813), asi que nunca converge, y su ultima linea es
+  # `return rep.result == "stable" ? 0 : 1`. Con set -e eso mataba la etapa
+  # siempre: el barrido de cadencia era inejecutable tal como estaba escrito
+  # (verificado en el job 7091: result=timeout con 1377 lecturas validas).
+  # Se quita la bandera para que la cadencia se mida sobre transiciones
+  # reales. Tolerar el fallo NO era opcion: cadence_sweep.json alimenta
+  # q_produccion_ns, la cadencia de muestreo de produccion, y se habria
+  # derivado de mediciones que el propio probe declara invalidas.
   log "Etapa A: cadencia NVML 5/10/50/100 ms; mid=${mid}MHz"
   for interval in 5000000 10000000 50000000 100000000; do
     "$probe" --workload-cmd "$workload" --gpu "$GPU_INDEX" \
       --from-clock REF --to-clock "$mid" --tolerance-mhz 7 \
-      --probe-interval-ns "$interval" --dry-run-actuation \
+      --probe-interval-ns "$interval" \
       --warmup-ns 2000000000 --workload-min-active-ns 6000000000 \
       --max-wait-ns 3000000000 --out-dir "$cadence_dir/q_${interval}"
   done
