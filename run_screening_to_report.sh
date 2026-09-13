@@ -195,7 +195,7 @@ PY
     # math_libs explicitamente (ver el export en los stage_*.sbatch). Sin eso
     # falla con "error while loading shared libraries: libcublas.so.12"
     # (exit 127), verificado en el job 7090.
-    workload="$KERNEL_ROOT/bin/cublas_dgemm_bench --size 4096 --iterations 2000"
+    workload="$KERNEL_ROOT/bin/cublas_dgemm_bench --size 4096 --iterations 6000"
   fi
   cadence_dir="$(workflow_value transition_dir)/cadence"
   matrix_dir="$(workflow_value transition_dir)/matrix"
@@ -226,8 +226,8 @@ PY
     "$probe" --workload-cmd "$workload" --gpu "$GPU_INDEX" \
       --from-clock REF --to-clock "$mid" --tolerance-mhz 7 \
       --probe-interval-ns "$interval" \
-      --warmup-ns 2000000000 --workload-min-active-ns 6000000000 \
-      --max-wait-ns 3000000000 --out-dir "$cadence_dir/q_${interval}"
+      --warmup-ns 10000000000 --workload-min-active-ns 6000000000 \
+      --max-wait-ns 15000000000 --out-dir "$cadence_dir/q_${interval}"
   done
   "$PYTHON" -m fase1_telemetria.gpu_transition.cadence_sweep "$cadence_dir" \
     --out "$cadence_dir/cadence_sweep.json"
@@ -250,8 +250,8 @@ PY
       "$probe" --workload-cmd "$workload" --gpu "$GPU_INDEX" \
         --from-clock "$from" --to-clock "$to" --tolerance-mhz 7 \
         --stable-consecutive 3 --probe-interval-ns "$q" \
-        --warmup-ns 2000000000 --workload-min-active-ns 6000000000 \
-        --request-at-ns 5000000000 --max-wait-ns 6000000000 \
+        --warmup-ns 10000000000 --workload-min-active-ns 6000000000 \
+        --request-at-ns 12000000000 --max-wait-ns 15000000000 \
         --replicate-id "$repetition" --label "$label" \
         --out-dir "$matrix_dir/$label/r$repetition"
     done
