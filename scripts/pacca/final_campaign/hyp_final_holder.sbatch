@@ -63,6 +63,11 @@ fail() { estado "FATAL: $*"; exit 2; }
 [[ -x "$LAUNCHER" ]]     || fail "falta el binario de telemetria: $LAUNCHER"
 
 module load cmake/4.3.4 gnu12/12.4.0 devtools/nvidia/hpc_sdk/nvhpc/23.1 openblas/0.3.21 2>&1 || true
+# libcublas (cublas_dgemm_bench, gpu_dgemm_*) y libnvJitLink (dual_cholesky_gpu,
+# dual_spmv_gpu -- job 7135/F1-GPU-005, ver Seguimiento_Cambios_Plan_Director.md):
+# ninguno de los dos queda en el path solo con los module load.
+export LD_LIBRARY_PATH="/opt/ohpc/pub/devtools/nvidia/hpc_sdk/Linux_x86_64/23.1/cuda/12.0/targets/x86_64-linux/lib:${LD_LIBRARY_PATH:-}"
+export LD_LIBRARY_PATH="/opt/ohpc/pub/devtools/nvidia/hpc_sdk/Linux_x86_64/23.1/math_libs/12.0/targets/x86_64-linux/lib:${LD_LIBRARY_PATH:-}"
 export LD_LIBRARY_PATH="/opt/ohpc/pub/libs/gnu12/openblas/0.3.21/lib:${LD_LIBRARY_PATH:-}"
 export PYTHONPATH="$HOME/hyperion:${PYTHONPATH:-}"
 export HYPERION_GPU_FREQ_WRITE_CAPABLE=1
