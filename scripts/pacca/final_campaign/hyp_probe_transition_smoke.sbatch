@@ -48,7 +48,7 @@ echo
 # con la tolerancia y el max-wait ya corregidos.
 "$PROBE" --workload-cmd "$WORKLOAD" --gpu "${CUDA_VISIBLE_DEVICES%%,*}" \
   --from-clock REF --to-clock 810 --tolerance-mhz 7 \
-  --probe-interval-ns 5000000 --dry-run-actuation \
+  --probe-interval-ns 5000000 \
   --warmup-ns 2000000000 --workload-min-active-ns 6000000000 \
   --max-wait-ns 3000000000 --out-dir "$OUT" || true
 
