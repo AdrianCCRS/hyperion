@@ -1136,13 +1136,16 @@ kernels:
     role: dataset
     device: gpu
     exec_path: bin/gpu_phasic
-    # F1-GPU-006: ver nota en gpu_phasic_p010 -- mismo fix.
-    exec_args: "--phase-seconds 0.100 --total-seconds 60 --size-mib 2048 --seed 20260806"
+    # F1-GPU-006: ver nota en gpu_phasic_p010. Ajuste adicional 2026-09-13:
+    # a 60s llego a 99/100 lanzamientos pedidos (le falto 1), lo que metio
+    # un salto de 2.04% justo en el punto mas alto de muestra -- margen
+    # insuficiente por muy poco. Subido a 75s.
+    exec_args: "--phase-seconds 0.100 --total-seconds 75 --size-mib 2048 --seed 20260806"
     phase_label_hint: mixed
     operational_intensity_flops_per_byte: 1000000.0
     gpu_precision: fp64
     size_variant: P100MS
-    expected_runtime_seconds: 65
+    expected_runtime_seconds: 80
     warmup_seconds: 0.5
     estimated_memory_bytes: 2415919104
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
@@ -2608,8 +2611,16 @@ kernels:
     config_id: fft_N4096
     phase_label_hint: intermedio
     size_variant: N4096
-    exec_args: "--size 4096 --iterations 26"
-    expected_runtime_seconds: 11
+    # F1-GPU-006 (2026-09-13): iterations 26->200. A 26 iteraciones, ncu con
+    # --launch-count 100 solo alcanzaba a observar 84 lanzamientos reales
+    # (50/50 si completo) -- el propio binario agota su presupuesto fijo de
+    # lanzamientos antes de llegar a 100, mismo tipo de problema que
+    # gpu_phasic pero por conteo de iteraciones en vez de tiempo de pared.
+    # Con 200 iteraciones hay margen de sobra, y de paso alarga la ventana
+    # medida (corto/ocioso, mismo diagnostico que el resto de la familia
+    # dual_*).
+    exec_args: "--size 4096 --iterations 200"
+    expected_runtime_seconds: 30
     warmup_seconds: 0.05
     estimated_memory_bytes: 697932185
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
