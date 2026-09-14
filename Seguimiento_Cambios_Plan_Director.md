@@ -2643,3 +2643,120 @@ Ninguno para esta entrada -- cerrado. Si en el futuro se quiere refinar
 
 Cerrado: decisión tomada (incluir stencil, no perseguir el resto),
 documentada con los cuatro resultados reales.
+
+## F1-CPU-008 — Kernel nuevo `lbm_cpu` (LBM D2Q9-BGK): compilado y verificado, pero el barrido de tamaño da resultado negativo (filo de cuchillo, no banda cerca del ridge)
+
+**Fecha de registro:** 2026-09-14
+**Estado:** cerrado. Kernel `lbm_cpu` queda en el catálogo (util como
+familia algorítmica distinta, documentada), pero NINGUNO de los 13 tamaños
+probados entra a `cpu_final.yaml` -- ninguno cae cerca del ridge.
+
+### Motivación
+
+El usuario pidió buscar en internet alternativas de benchmark usadas por
+el paper de Littman & Deakin (SC25 poster) para densificar la zona cerca
+del ridge, dado que 4 anclas (`npb_bt`, `npb_lu`,
+`dual_cholesky_cpu_N1024`, `dual_stencil_cpu_N512`) seguían pareciendo
+pocas. El paper cita LBM D2Q9 como ejemplo de benchmark "LLC cache or
+main memory bandwidth bound" -- justo el régimen intermedio buscado.
+
+### Procedencia de la fuente
+
+El repo que usa el paper como fuente de ese benchmark
+(`UoB-HPC/advanced-hpc-lbm`) es material de entrega de un curso de la
+Universidad de Bristol y **no tiene archivo LICENSE** (confirmado 404 en
+`/license` de la API de GitHub, 2026-09-14) -- no se vendorizó por falta
+de procedencia clara para una tesis. En su lugar se implementó
+`kernels/lbm/lbm_d2q9_cpu_bench.c`: método LBM D2Q9-BGK estándar
+(Bhatnagar-Gross-Krook, formulación de Kruger et al. 2017) desde cero,
+sin copiar ninguna base de código específica. Frontera periódica, datos
+sintéticos generados en el binario (mismo criterio que `dual_*`).
+Verificación por invariante analítico (masa total conservada bajo
+streaming periódico + colisión BGK), no por datos de referencia externos
+-- confirmado con error relativo ~1e-15 en pruebas locales y en
+paccaA100.
+
+Compilado en paccaA100 vía `srun --jobid=7144` (holder), con
+`module load gnu12/12.4.0` explícito (mismo patrón de todo el proyecto).
+Checksum del wrapper `bin/lbm_cpu`:
+`308fb92642d1a38095d15dbc165987a00438f491bc77540cfee5eb2cbf2ef8f3`.
+
+### Procedimiento
+
+Tres rondas de smoke test (REF, 3 repeticiones), acortando el rango cada
+vez: N128-N512 (6 tamaños, 18/18 aceptadas) → N208-N248 (4 tamaños,
+12/12 aceptadas) → N212-N220 (3 tamaños, 9/9 aceptadas).
+
+### Resultado
+
+| N | huella total (3 buffers) | log2(OI/ridge) | cerca del ridge |
+|---|---|---|---|
+| 128 | 3.5 MB | +3.86 | 0% |
+| 192 | 8.0 MB | +2.39 | 0.8% |
+| 208 | 9.3 MB | +2.67 | 0% |
+| 212 | 9.7 MB | +1.83 | 1.8% |
+| 216 | 10.1 MB | +2.75 | 0.8% |
+| 220 | 10.5 MB | **-3.07** | 0% |
+| 224 | 10.8 MB | -3.09 | 0% |
+| 240 | 12.4 MB | -3.10 | 0% |
+| 256 | 14.2 MB | -3.10 | 0% |
+| 320 | 22.1 MB | -3.25 | 0% |
+| 384 | 31.9 MB | -3.72 | 0% |
+| 512 | 56.6 MB | -4.21 | 0% |
+
+### Interpretación
+
+No hay banda cerca del ridge en ningún punto -- el kernel es
+**biestable**: por debajo de un umbral de huella (~10.1-10.5 MB total,
+~1.7 MB por hilo delegado, compatible con el tamaño de L2 por núcleo, no
+L3) se comporta como fuertemente compute-bound (log2 entre +1.8 y +3.9);
+por encima, colapsa de golpe a memory-bound (log2 ≈ -3.1, valor que
+**satura** y ya no cambia entre N=220 y N=512, un factor 5x en tamaño).
+No existe una pendiente intermedia que cruce log2=0.
+
+La causa física es coherente con el diseño del kernel: cada paso de
+colisión+streaming visita cada celda un número FIJO de veces (patrón de
+barrido, sin reutilización entre iteraciones más allá de un paso), igual
+que AXPY (BLAS-1). A diferencia de un kernel con bloqueo/tiling (GEMM),
+donde la fracción de datos que debe re-transferirse desde DRAM crece
+suavemente con el tamaño relativo al cache, aquí en cuanto la huella no
+cabe en L2 el barrido entero se vuelve un fallo de cache en cada pasada
+-- de ahí el salto abrupto en vez de una rampa. Es la misma familia de
+problema que ya cerró en negativo `axpy`/`spmv` en F1-CPU-007, con un
+mecanismo de fondo distinto (límite de capacidad de cache vs. intensidad
+aritmética intrínsecamente baja).
+
+### Decisión
+
+No se agrega ningún tamaño de `lbm_cpu` a `cpu_final.yaml`. El kernel
+queda en el catálogo (`fase1_telemetria/catalog/catalog.yaml`, 13
+entradas `lbm_cpu_N*`) documentado como intento negativo, por si en el
+futuro se reimplementa con bloqueo por bandas (streaming en tiles que
+quepan en L2, con más reutilización) -- fuera de alcance de este
+trabajo de pregrado (ver disciplina de alcance ya establecida).
+
+### Limitaciones
+
+- Solo REF, una repetición corta por ronda -- mismo nivel de evidencia
+  que el resto de los smoke tests de esta sesión.
+- No se probó una implementación con bloqueo/tiling explícito, que en
+  teoría podría dar una rampa más suave -- eso es una reescritura no
+  trivial del kernel, no un simple barrido de tamaño.
+- El umbral de cache observado (~10.1-10.5 MB de huella total para 6
+  hilos) es una medición indirecta, no una lectura directa de `lscpu`
+  para el tamaño de L2/L3 de los Gold 5315Y de paccaA100.
+
+### Trabajo pendiente
+
+Ninguno para esta entrada -- cerrado. Si se retoma en el futuro, el
+siguiente paso sería reimplementar `collide_stream` con bloqueo espacial
+(procesar la malla en franjas que quepan en L2, con más de un paso por
+franja antes de pasar a la siguiente) para intentar una transición
+gradual en vez de un salto de cache.
+
+### Criterio exacto de cierre
+
+Cerrado: 13 tamaños probados con evidencia real de campaña (smoke test,
+39/39 corridas aceptadas en total), decisión tomada de no incluir
+ninguno en la campaña final, documentado con los 12 resultados de OI
+medidos y la interpretación física del salto abrupto.
