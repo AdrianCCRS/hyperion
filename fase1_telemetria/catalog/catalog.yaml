@@ -4913,3 +4913,75 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     binary_checksum:
       pacca-a100: "sha256:308fb92642d1a38095d15dbc165987a00438f491bc77540cfee5eb2cbf2ef8f3"
+
+# F1-CPU-008 (continuacion): refinamiento del barrido -- N192 (log2=+2.39,
+# compute) y N256 (log2=-3.10, memory) mostraron un salto abrupto sin
+# cobertura cerca del ridge (log2=0). 4 tamanos intermedios para acotar el
+# cruce real.
+  - id: lbm_cpu_N208
+    suite: LBM-D2Q9
+    role: dataset
+    exec_path: bin/lbm_cpu
+    config_id: lbm_N208
+    phase_label_hint: intermedio
+    size_variant: N208
+    exec_args: "--size 208 --iterations 3900"
+    expected_runtime_seconds: 4
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 9345024
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:308fb92642d1a38095d15dbc165987a00438f491bc77540cfee5eb2cbf2ef8f3"
+
+  - id: lbm_cpu_N224
+    suite: LBM-D2Q9
+    role: dataset
+    exec_path: bin/lbm_cpu
+    config_id: lbm_N224
+    phase_label_hint: intermedio
+    size_variant: N224
+    exec_args: "--size 224 --iterations 3400"
+    expected_runtime_seconds: 4
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 10838016
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:308fb92642d1a38095d15dbc165987a00438f491bc77540cfee5eb2cbf2ef8f3"
+
+  - id: lbm_cpu_N240
+    suite: LBM-D2Q9
+    role: dataset
+    exec_path: bin/lbm_cpu
+    config_id: lbm_N240
+    phase_label_hint: intermedio
+    size_variant: N240
+    exec_args: "--size 240 --iterations 2900"
+    expected_runtime_seconds: 4
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 12441600
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:308fb92642d1a38095d15dbc165987a00438f491bc77540cfee5eb2cbf2ef8f3"
+
+  - id: lbm_cpu_N248
+    suite: LBM-D2Q9
+    role: dataset
+    exec_path: bin/lbm_cpu
+    config_id: lbm_N248
+    phase_label_hint: intermedio
+    size_variant: N248
+    exec_args: "--size 248 --iterations 2700"
+    expected_runtime_seconds: 4
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 13284864
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:308fb92642d1a38095d15dbc165987a00438f491bc77540cfee5eb2cbf2ef8f3"
