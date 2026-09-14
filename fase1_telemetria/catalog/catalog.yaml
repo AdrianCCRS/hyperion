@@ -5305,23 +5305,8 @@ kernels:
 # (lbm_cpu) ni pasadas completas explicitas (hpccg_cpu) -- hipotesis a
 # probar, no asumida. Reutiliza el binario fft_cpu ya compilado (mismo
 # checksum que dual_fft_cpu_N1024), sin necesidad de compilar nada nuevo.
-
-  - id: dual_fft_cpu_N512
-    suite: Dual-FFT
-    role: dataset
-    exec_path: bin/fft_cpu
-    config_id: fft_N512
-    phase_label_hint: intermedio
-    size_variant: N512
-    exec_args: "--size 512 --iterations 390"
-    expected_runtime_seconds: 4
-    warmup_seconds: 0.05
-    estimated_memory_bytes: 8388608
-    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
-    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
-    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
-    binary_checksum:
-      pacca-a100: "sha256:9060b740591b76df4f2d7e9b2507db6106f01df656b717de6ff10217e6b9c207"
+# dual_fft_cpu_N512 ya existia en el catalogo (barrido original) -- no se
+# duplica, se reutiliza en el smoke test junto con estos tamanos nuevos.
 
   - id: dual_fft_cpu_N576
     suite: Dual-FFT
