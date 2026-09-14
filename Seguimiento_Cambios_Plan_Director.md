@@ -2401,5 +2401,89 @@ YAML resultante parsea y la aritmética cuadra (`38*10*3=1140`).
 
 Se cierra cuando la campaña final CPU corra de punta a punta con este
 manifiesto y produzca el dataset que alimentará el entrenamiento real del
-clasificador (`leave_one_familia_out`, pendiente de construir -- ver
-discusión de F1 macro < 0.5 del intento anterior, sesión 2026-09-14).
+clasificador con `leave_one_familia_out` (⚠️ corrección 2026-09-14: esta
+función YA EXISTE en `fase2_clasificador/eval/protocol.py`, junto con
+`derive_kernel_family`/`assert_no_familia_leak`, XGBoost y serialización en
+`fase2_clasificador/training/train_phase.py` -- una sesión anterior dijo
+por error que faltaba construirla, citando el estado de la rama `fase-02`
+en vez de revisar `main`. Lo que sí falta, verificado leyendo el código:
+`class_weight` sin balancear en ningún modelo, solo F1 macro reportado
+(falta F1 por clase + matriz de confusión), y las "dos variantes" de
+features con/sin `operational_intensity` no automatizadas).
+
+---
+
+## F1-CPU-005 — Barrido de tamaño en NPB: probado en `npb_ft`, resultado negativo
+
+**Fecha de registro:** 2026-09-14
+**Estado:** cerrado, negativo. No se repite con `cg`/`mg`/`sp`.
+
+### Problema / hipótesis a probar
+
+Tras confirmar que achicar el tamaño de problema en `dual_*` sí acerca el
+OI al ridge (actualización de F1-XDEV-001, mismo día), se probó si el
+mismo mecanismo aplica a NPB -- dirigido a `npb_ft` por ser el único de
+los 6 NPB con evidencia previa (ARC-71, clase B vs C) de que su
+clasificación SÍ responde al tamaño.
+
+### Procedimiento
+
+Compilado en `paccaA100` (gfortran 12.4.0, módulo `gnu12` con `source`
+explícito del init de Lmod -- sin eso resuelve en silencio al gfortran de
+sistema 8.5.0, encontrado y corregido en el camino). Clases probadas en
+orden creciente:
+
+- **S** (64×64×64): `Time in seconds = 0.00` -- demasiado corto, mismo
+  modo de fallo que los RAJAPerf excluidos en F1-CPU-004 (0 ventanas
+  posibles a `target_windows_per_repetition=50`). Descartada sin someter
+  campaña.
+- **W** (128×128×32): `Time in seconds = 0.01` -- mismo problema.
+  Descartada sin someter campaña.
+- **A** (256×256×128): `0.32s` con 6 hilos pineados (`taskset`) -- único
+  tamaño intermedio disponible bajo la clase B ya catalogada. Sometida a
+  smoke test real (REF, 3 repeticiones): **3/3 aceptadas**.
+
+### Resultado
+
+`npb_ft` clase A: `log2(OI/ridge) = -3.65`, 0% compute, 0% cerca del
+ridge. **Clase B (ya en catálogo): `log2(OI/ridge) = -1.98`.** Achicar el
+tamaño alejó el kernel del ridge en vez de acercarlo -- el resultado
+opuesto al de `dual_*`.
+
+### Por qué no funcionó (interpretación, no solo el número)
+
+`dual_*` son microbenchmarks de un solo patrón (stencil/axpy/fft/spmv/
+cholesky) donde el tamaño controla directamente cuánto del working set
+cabe en caché. `npb_ft` hace FFT 3D con transposiciones y comunicación
+multi-fase entre pasadas -- a menor tamaño, el costo fijo de esas fases
+pesa proporcionalmente más frente al cómputo real, así que el kernel se
+vuelve MÁS memory-bound, no menos. El mecanismo que funcionó en `dual_*`
+no es generalizable a solvers multi-fase sin más evidencia.
+
+### Decisión
+
+No se repite el experimento con `npb_cg`/`npb_mg`/`npb_sp` -- eran los
+candidatos con MENOS evidencia previa a favor que `npb_ft` (que ya
+fracasó), y ARC-71 ya había mostrado que esos tres son los más estables
+frente a cambios de tamaño (B vs C, ≤1.1pp de diferencia). Se documenta el
+catálogo (`npb_ft_a`) y el binario compilado, pero no se usa en
+`cpu_final.yaml` -- el hallazgo es negativo, no hay ganancia que capturar.
+
+### Limitaciones
+
+- Muestra chica (72 filas usables, corrida de 0.32s) -- el resultado es
+  consistente en dirección pero no tiene la robustez estadística de una
+  campaña completa. No cambia la decisión: incluso con más muestras, la
+  dirección (más lejos del ridge, no más cerca) ya contradice la hipótesis
+  que se quería confirmar.
+- `warmup_seconds` de `npb_ft_a` no se calibró (se dejó el valor heredado
+  de clase B, 0.5s) -- no se justifica calibrar un kernel que ya se
+  descartó.
+
+### Trabajo pendiente
+
+Ninguno -- cerrado, negativo.
+
+### Criterio exacto de cierre
+
+Cerrado en esta misma entrada.
