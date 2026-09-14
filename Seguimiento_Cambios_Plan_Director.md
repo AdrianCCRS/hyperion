@@ -2564,3 +2564,82 @@ falta) es trabajo de la campaña final en sí, no de esta corrección.
 
 Cerrado: arreglo verificado con hardware real, re-incluido en el
 manifiesto que va a correr.
+
+---
+
+## F1-CPU-007 — Caza dirigida de un segundo punto cerca del ridge en `dual_*`: éxito en `stencil`, negativo en `axpy`/`spmv`/`fft`
+
+**Fecha de registro:** 2026-09-14
+**Estado:** cerrado. `dual_stencil_cpu_N512` incluido en `cpu_final.yaml`
+(41 kernels, 1230 corridas). No se persigue más tamaño intermedio en
+`axpy`/`spmv`/`fft` -- requeriría catálogo nuevo, mismo costo que el
+experimento NPB ya descartado.
+
+### Motivación
+
+Tras confirmar que `dual_cholesky_cpu_N1024` cae casi exacto sobre el
+ridge (87.6% cerca, actualización de F1-XDEV-001), se probó el mismo
+truco con las otras cuatro familias `dual_*` que solo tenían un punto
+"chico" (compute, sobrepasado de largo) y uno "grande" (memory): elegir el
+punto medio geométrico del tamaño de problema entre ambos y ver si cae
+cerca del ridge, igual que pasó con cholesky.
+
+### Procedimiento
+
+Smoke test (REF, 3 repeticiones, 4 kernels nuevos): `dual_stencil_cpu_
+N512` (entre N256 y N1024), `dual_axpy_cpu_N1000000` (entre N100000 y
+N3162278), `dual_fft_cpu_N384` (entre N128 y N1024), `dual_spmv_cpu_
+N316228` (media geométrica exacta de N100000/N1000000, ya existía en
+catálogo). **12/12 aceptadas.**
+
+### Resultado
+
+| kernel | log2(OI/ridge) | cerca del ridge |
+|---|---|---|
+| `dual_stencil_cpu_N512` | **+0.70** | **67.2%** -- éxito |
+| `dual_fft_cpu_N384` | +6.18 | 0% -- más adentro del lado compute que N128 (+5.87), no monótono con N |
+| `dual_axpy_cpu_N1000000` | -6.87 | 0% -- casi igual de memory que el extremo N3162278 (-7.32) |
+| `dual_spmv_cpu_N316228` | -5.50 | 0% -- también cerca del extremo memory pese a ser la media geométrica exacta |
+
+### Interpretación
+
+Solo `stencil` repitió el éxito de `cholesky`. En `axpy`/`spmv`, la media
+geométrica del TAMAÑO no corresponde a la media geométrica del OI -- la
+transición compute→memory es marcadamente no lineal y, por lo que se ve,
+está sesgada mucho más cerca del extremo compute (N100000) de lo que el
+punto medio geométrico del tamaño sugiere; haría falta un tamaño bastante
+más chico que N316228/N1000000 para acercarse, y esos tamaños finos no
+están en el catálogo (mismo problema de "hay que compilar/generar uno
+nuevo" que en F1-CPU-005). En `fft`, el resultado ni siquiera fue
+monótono con N -- probable efecto de eficiencia de radix de FFTW (N=384
+factoriza más favorablemente que valores vecinos), no un problema de
+"tamaño más grande/chico" en el sentido simple que aplica a stencil/axpy.
+
+### Decisión
+
+Se incluye `dual_stencil_cpu_N512` en `cpu_final.yaml`. No se persigue
+más precisión en `axpy`/`spmv`/`fft` -- el costo (generar tamaños nuevos
+vía `scripts/pacca/gen_dual_full_catalog.py`, o para `fft` explorar qué
+valores de N factorizan bien) no se justifica frente a lo ya ganado
+(`cholesky` + `stencil`, dos anclas nuevas reales cerca del ridge, además
+de `npb_bt`/`npb_lu`).
+
+### Limitaciones
+
+- Solo REF, una repetición corta -- mismo nivel de evidencia que los
+  demás smoke tests de esta sesión, no la robustez de una campaña
+  completa.
+- La hipótesis de "media geométrica del tamaño ≈ media geométrica del
+  OI" (que sí funcionó para stencil y cholesky) queda refutada como regla
+  general -- no generalizar a otras familias sin verificar primero.
+
+### Trabajo pendiente
+
+Ninguno para esta entrada -- cerrado. Si en el futuro se quiere refinar
+`axpy`/`spmv`, el próximo paso sería un tamaño entre N100000 y N316228
+(más cerca del extremo compute), generado con el script existente.
+
+### Criterio exacto de cierre
+
+Cerrado: decisión tomada (incluir stencil, no perseguir el resto),
+documentada con los cuatro resultados reales.

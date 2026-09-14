@@ -77,6 +77,7 @@ kernels:
 - kernel_ref: dual_axpy_cpu_N3162278
 - kernel_ref: dual_axpy_cpu_N10000000
 - kernel_ref: dual_stencil_cpu_N256
+- kernel_ref: dual_stencil_cpu_N512
 - kernel_ref: dual_stencil_cpu_N1024
 - kernel_ref: dual_stencil_cpu_N1536
 - kernel_ref: dual_cholesky_cpu_N256
@@ -136,14 +137,15 @@ temperature:
   require_package_sensor: true
   minimum_c: 0
   maximum_c: 90
-# 40 kernels x 10 niveles x 3 reps = 1200 corridas (actualizado 2026-09-14,
-# ver F1-CPU-004/F1-XDEV-001/F1-CPU-006 en el seguimiento: -4 kernels
-# excluidos, +10 tamanos dual_* nuevos, +2 rajaperf re-incluidos con
-# --repfact). Medido en el cribado: ~39 MB/corrida -> ~47 GB. Se declara
-# 100 GiB de margen (habia 1.2 TB libres).
+# 41 kernels x 10 niveles x 3 reps = 1230 corridas (actualizado 2026-09-14,
+# ver F1-CPU-004/F1-XDEV-001/F1-CPU-006/F1-CPU-007 en el seguimiento: -4
+# kernels excluidos, +11 tamanos dual_* nuevos (10 del primer barrido +
+# dual_stencil_cpu_N512, cazador de ridge dirigido), +2 rajaperf
+# re-incluidos con --repfact). Medido en el cribado: ~39 MB/corrida ->
+# ~48 GB. Se declara 100 GiB de margen (habia 1.2 TB libres).
 projected_campaign_bytes: 107374182400
 remaining_core_hours: 100000
-projected_core_hours: 640
+projected_core_hours: 655
 cores:
   delegated_cpus:
   - 0
