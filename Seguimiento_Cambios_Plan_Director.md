@@ -1868,3 +1868,266 @@ la hipótesis errónea original.
 Se cierra cuando una corrida real de la campaña final de GPU produzca
 `samples.csv` válido para los 6 `gpu_rajaperf_*`, confirmando que el fix
 sobrevive al harness completo y no solo a la invocación directa del wrapper.
+
+## F1-GEN-002 — `no_freq_reading` se calculaba contra el contexto de toda la corrida, no contra la lectura por ventana
+
+**Fecha de registro:** 2026-09-13
+**Estado:** corregido y verificado contra datos reales (`fase1_telemetria/postprocess.py`)
+**Kernels afectados:** cualquier corrida reprocesada vía `repostprocess_campaign.py` (afectó de forma confirmada a `npb_bt` y `npb_mg`, probablemente a más)
+
+### Problema
+
+`postprocess.py` (línea ~788) calculaba `no_freq_reading = context.freq_khz_observed is None`.
+`campaign.py` (ruta en vivo) sí llena `freq_khz_observed` al llamar a
+`run_postprocess()`, pero `repostprocess_campaign.py` (re-postproceso de
+`samples.csv` ya capturado, sin relanzar el kernel) nunca pasa ese parámetro,
+así que queda `None` por defecto — sin importar si la columna real
+`scaling_cur_freq_khz` del `samples.csv` sí tenía datos válidos por ventana.
+Esto marcaba ventanas como `no_freq_reading` (y por lo tanto las excluía de
+`target_windows_per_repetition`) de forma sistemática en todo reprocesamiento,
+independientemente de si la frecuencia real se había leído bien.
+
+### Decisión
+
+Usar la lectura POR VENTANA (`row.get("freq_khz_observed")`, ya llenada en la
+línea ~546 desde la columna real `scaling_cur_freq_khz` de `samples.csv`, per
+ARC-135) en vez de `context.freq_khz_observed`. La fila ya tiene el valor
+correcto independientemente de qué le pasen a `run_postprocess()`.
+
+### Evidencia
+
+Verificado en datos reales: las 1876 ventanas de `npb_mg` marcadas
+`no_freq_reading` pasaron a `ok` correctamente. Los 9 runs de `npb_mg` y los 9
+de `npb_bt` pasaron de `accepted=False` a `accepted=True` tras el fix.
+
+### Criterio exacto de cierre
+
+Cerrado: verificado contra corridas reales, sin regresión detectada.
+
+---
+
+## F1-GEN-003 — Un outlier de duración de 43.86s envenenaba el cálculo del warmup máximo de `cpu_rajaperf_polybench_jacobi_1d`
+
+**Fecha de registro:** 2026-09-13
+**Estado:** corregido y verificado contra datos reales (`fase1_telemetria/warmup_calibration.py`)
+**Kernels afectados:** `cpu_rajaperf_polybench_jacobi_1d` (confirmado); cualquier kernel con una repetición anómala de duración
+
+### Problema
+
+`calibrate_kernel()` adopta el MÁXIMO del warmup detectado entre repeticiones
+("criterio robusto para cubrir el peor caso observado"), sin excluir
+outliers. La repetición `F4__rep02` de `cpu_rajaperf_polybench_jacobi_1d`
+corrió 43.86s frente a ~6.2s de sus hermanas `F4` (rep01/rep03) — un outlier
+~7x. Su punto de estabilización, detectado tarde, propuso
+`warmup_seconds ≈ 51.7s` (43.1s × MARGIN 1.2), superando la duración
+COMPLETA de cualquier otra corrida del kernel. Resultado: I10 rechazaba las 9
+corridas con "0 ventanas ok".
+
+### Decisión
+
+`_reject_span_outliers()`: por cada `freq_level_id`, excluir del pool que
+alimenta el máximo cualquier corrida con `total_span_s > 3.0x` la mediana de
+duración de su propio nivel (nunca comparar entre niveles distintos, la
+duración escala legítimamente con la frecuencia). `n_runs_analyzed` y
+`per_run` conservan el conjunto completo para trazabilidad; solo el cómputo
+del máximo usa el pool filtrado.
+
+### Evidencia
+
+Verificado en `/tmp/jacobi_calib_test`: nuevo valor 0.1705s calculado a partir
+de 8/9 corridas, con nota explícita de exclusión del outlier
+(`total_span_s=43.53 > 3x la mediana de su nivel (5.87s)`).
+
+### Criterio exacto de cierre
+
+Cerrado: verificado contra datos reales.
+
+---
+
+## F1-GEN-004 — `parse_ncu_csv` tomaba la primera línea de banner como encabezado real
+
+**Fecha de registro:** 2026-09-13
+**Estado:** corregido y verificado contra CSV real capturado en paccaA100 (`fase1_telemetria/ncu_convergence.py`)
+**Kernels afectados:** todos los kernels GPU perfilados con `ncu --page raw` (impacto más amplio de esta sesión: pasó de 0/23 a 13/23 kernels con OI convergente)
+
+### Problema
+
+`parse_ncu_csv()` asumía `rows[0]` como encabezado y `rows[1:]` como datos.
+Pero la salida cruda de `ncu` (versión 2026.1.1.0, instalada en paccaA100)
+siempre antepone líneas de banner (`==PROF== Connected to process...`, el
+stdout propio del programa perfilado, `==PROF== Disconnected...`) antes de la
+tabla CSV real, y la tabla real tiene una fila de unidades inmediatamente
+después del encabezado. Resultado: `metric_names_present` siempre `[]`,
+`dram_bytes` siempre `0.0`, sin importar si el CSV real tenía datos válidos.
+
+### Decisión
+
+Buscar la fila cuyo conjunto de celdas normalizadas contenga `{"ID", "Kernel
+Name"}` como el encabezado real (en vez de asumir `rows[0]`), y saltar la
+fila de unidades que sigue inmediatamente (`rows[header_idx + 2:]`).
+
+### Evidencia
+
+Verificado directamente contra `gpu_dgemm_n4096__lc5.csv` capturado en
+paccaA100: antes del fix, `metric_names_present: []`, `dram_bytes: 0.0`;
+después, 7 métricas reales presentes, `launches_observed: 5`,
+`dram_bytes: 10085416320.0`, `flops: 83886080.0`, `precision: fp64`.
+
+### Criterio exacto de cierre
+
+Cerrado: verificado contra datos reales; efecto confirmado en la corrida
+completa de `ncu` sobre los 23 candidatos (13 convergieron tras el fix).
+
+---
+
+## F1-GPU-006 — Tamaños de screening GPU demasiado pequeños: ninguno sostenía uso real de GPU por 30s+
+
+**Fecha de registro:** 2026-09-13
+**Estado:** corregido en catálogo (`fase1_telemetria/catalog/catalog.yaml`); pendiente de re-medición con `ncu` para confirmar que la OI no se movió
+**Kernels afectados:** `gpu_phasic_p010/p100/p1000`, `gpu_rajaperf_stream_triad`, `gpu_rajaperf_jacobi_2d`, `gpu_rajaperf_heat_3d`, `dual_axpy_gpu_N10000000`, `dual_cholesky_gpu_N2048`, `dual_spmv_gpu_N1000000`
+
+### Problema
+
+El director de tesis advirtió sobre el riesgo de que los kernels GPU no
+ejercitaran el dispositivo lo suficiente. Verificado con datos reales de
+`samples.csv`: de 12 kernels elegibles medidos, ninguno alcanzó 30s de
+duración real (rango 2.3s-11.4s, todos por debajo incluso de su propio
+`expected_runtime_seconds` declarado), y 6 de 12 mostraron uso promedio de
+GPU por debajo del 25% (`gpu_util_pct`, muestreado por NVML cada ~47ms,
+resolución suficiente para descartar que fuera un artefacto de muestreo).
+
+Causa raíz para `gpu_phasic_*`: el harness corre por tiempo de pared fijo
+(`--total-seconds`), no por conteo de lanzamientos; el overhead de
+instrumentación de `ncu` competía por ese mismo presupuesto de tiempo,
+impidiendo alcanzar los 50 lanzamientos solicitados sin importar cuántas
+veces se reintentara.
+
+Causa raíz para `dual_axpy_gpu`/`dual_cholesky_gpu`/`dual_spmv_gpu`: el
+catálogo tenía 11-16 variantes de tamaño (N) preexistentes por familia, pero
+TODAS calibradas al mismo `expected_runtime_seconds` nominal (~11s) —
+`--iterations` se reduce proporcionalmente al subir N para mantener ese
+mismo objetivo nominal, así que escoger una fila de N mayor no habría
+ayudado: el problema no es el tamaño N, es que el número de iteraciones fue
+calibrado contra un supuesto de velocidad de GPU equivocado (mucho más lento
+que la A100 real).
+
+Causa raíz para `gpu_rajaperf_stream_triad/jacobi_2d/heat_3d`: `--sizefact
+100` fijo dentro del wrapper (elegido en su momento solo para escapar el
+overhead fijo de arranque de contexto CUDA, ~380ms), sin considerar el
+objetivo de sostener carga real.
+
+### Decisión
+
+- `gpu_phasic_*`: `--total-seconds` 20→60.
+- RAJAPerf (stream_triad/jacobi_2d/heat_3d): `--sizefact` 100→400 en los
+  wrappers (`bin/gpu_rajaperf_*`, no versionados en git, editados
+  directamente en pacca con respaldo `.bak_sizefact100_*`); checksum
+  recalculado y actualizado en el catálogo.
+- `dual_axpy_gpu`/`dual_cholesky_gpu`/`dual_spmv_gpu`: se mantiene el mismo
+  N (no se cambia de fila del catálogo) y se sube `--iterations`
+  directamente, calculado a partir del tiempo real medido por iteración
+  (0.0656s/iter, 0.0363s/iter, 0.01377s/iter respectivamente), apuntando a
+  ~30-35s. Al ser el mismo N por iteración, la intensidad operacional por
+  iteración no cambia — el catálogo ya documentaba estos valores de OI como
+  "representativos de la operación, no del tamaño".
+
+### Limitaciones
+
+- `rodinia_dwt2d` ya usa el dataset más grande disponible en el catálogo
+  (16384×16384) y aun así mide 2.3s/7% de uso — no hay margen de tamaño
+  disponible sin generar un dataset sintético nuevo. Queda sin resolver.
+- `rodinia_lavamd` solo tiene una variante de tamaño (`-boxes1d 70`) en el
+  catálogo. Queda sin resolver por ahora.
+- Los valores de `--sizefact`/`--iterations` nuevos son estimaciones
+  lineales a partir de una sola medición por kernel, no verificadas aún con
+  una segunda corrida real.
+
+### Trabajo pendiente
+
+- Re-ejecutar `ncu` sobre los 6 kernels tocados para confirmar que la OI
+  medida no cambió de forma significativa (era el riesgo explícito que
+  motivó esta entrada) y que la duración real se acerca al objetivo.
+- Investigar datasets/tamaños alternativos para `rodinia_dwt2d` y
+  `rodinia_lavamd`.
+
+### Criterio exacto de cierre
+
+Se cierra cuando una corrida real de `ncu` + `screen-gpu` confirme, para los
+6 kernels tocados, duración real ≥25s y uso de GPU promedio ≥30%, sin que la
+etiqueta Roofline (compute/memory-bound) haya cambiado respecto a la medida
+a tamaño pequeño.
+
+---
+
+## F1-GPU-007 — `dual_gemm_gpu` mide como memory-bound extremo (OI=0.0153); implausible para GEMM denso, excluido hasta investigar
+
+**Fecha de registro:** 2026-09-13
+**Estado:** excluido del manifiesto de candidatos GPU (`campaign_pacca_phase_coverage_gpu_screen.yaml`); causa raíz NO confirmada, solo indicios
+
+### Problema
+
+`dual_gemm_gpu_N2048` midió `OI=0.0153` FLOP/byte vía `ncu` — muy por debajo
+del ridge fp64 (3.36), es decir, memory-bound. Esto es físicamente
+implausible para una multiplicación de matrices densa (cómputo O(N³) vs
+memoria O(N²), debería ser de los kernels MÁS compute-bound del catálogo).
+
+Evidencia: el contador `sm__sass_thread_inst_executed_op_dfma_pred_on.sum`
+(instrucciones fused-multiply-add, el núcleo de cualquier GEMM real) da
+**0** para `dual_gemm_gpu`. Para comparar, `dual_cholesky_gpu` al mismo N
+(2048) muestra ~3.72e9 DFMA reales — confirma que el contador de `ncu`
+funciona correctamente cuando el kernel sí hace el cómputo. Los bytes DRAM
+medidos (~273MB/iteración) son razonables para el tamaño del problema; los
+FLOPs contados (4.2M/iteración) son ~4000x menores que los ~1.72e10
+esperados para una GEMM N=2048 completa.
+
+El binario (`libexec/dual/gemm_gpu`, fuente embebida
+`kernels/dual/gemm_gpu_dispatch.cu`, no versionada en el repo — solo existe
+compilada) llama a `cublasDgemm_v2` real (confirmado por símbolos del
+binario) y resuelve sus dependencias correctamente en el entorno de
+medición (se descartó biblioteca faltante: con el entorno de la campaña
+cargado, `ldd` no muestra "not found"; sí se encontró que resuelve
+`libcublas.so.13` desde una instalación de CUDA 13.1 en `/usr/local/cuda`,
+ajena al `nvhpc/23.1`/CUDA 12.0 que usa el resto del pipeline — divergencia
+de entorno real, pero no se confirmó que sea LA causa). También se descartó
+que fuera un artefacto del patrón de 12-13 procesos de vida corta que `ncu
+--target-processes all` ve antes de conectarse al proceso real: ese mismo
+patrón aparece en `dual_cholesky_gpu`/`dual_axpy_gpu`/`dual_spmv_gpu`/
+`dual_stencil_gpu`, que sí miden correctamente.
+
+Hipótesis más probable, sin confirmar: la llamada real a `cublasDgemm_v2`
+dentro del binario usa una dimensión K casi degenerada (o un parámetro
+alpha/beta incorrecto), moviendo los datos completos pero computando muy
+poco — no se pudo verificar sin el código fuente.
+
+### Decisión
+
+Excluir `dual_gemm_gpu_N2048` del manifiesto de candidatos GPU
+(`campaign_pacca_phase_coverage_gpu_screen.yaml`) hasta encontrar la causa
+raíz real. No usar su etiqueta actual (memory-bound) para entrenar el
+clasificador — es casi seguro que está mal.
+
+### Limitaciones
+
+- No hay código fuente disponible en el repositorio ni en pacca para este
+  binario — la investigación se hizo por ingeniería inversa (símbolos,
+  `ldd`, salida cruda de `ncu`), sin poder confirmar la causa exacta línea
+  por línea.
+- La instalación paralela de CUDA 13.1 en `/usr/local/cuda` no se investigó
+  a fondo — no se sabe si afecta a otros binarios del sistema compartido
+  (cuenta `pacca` es compartida con otro grupo de tesis).
+
+### Trabajo pendiente
+
+- Conseguir o reconstruir el código fuente de `gemm_gpu_dispatch.cu` para
+  confirmar la causa exacta.
+- Alternativa si no se puede diagnosticar: reemplazar `dual_gemm_gpu` con
+  otro kernel GEMM ya validado del catálogo (`gpu_dgemm_n4096`/
+  `cublas_dgemm_bench` ya miden correctamente) como representante de la
+  familia GEMM compute-bound, y descartar `dual_gemm_gpu` definitivamente.
+
+### Criterio exacto de cierre
+
+Se cierra cuando se confirme la causa raíz del conteo de FLOPs anómalo (o se
+decida formalmente reemplazar el kernel), y una nueva medición de `ncu`
+muestre una OI fisicamente consistente con GEMM denso (muy por encima del
+ridge fp64).

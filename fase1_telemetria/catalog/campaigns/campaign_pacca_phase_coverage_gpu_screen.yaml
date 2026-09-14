@@ -6,7 +6,8 @@
 #   - gpu_dgemm_n4096 como ancla compute/control, no candidato automático;
 #   - 3 controles gpu_phasic (requieren cruce offline de marcas; su etiqueta
 #     automática de catálogo es constante y NO sirve para entrenar);
-#   - 6 representantes dual_* en cuarentena, uno por familia.
+#   - 5 representantes dual_* en cuarentena (dual_gemm_gpu excluido,
+#     ver F1-GPU-007 abajo).
 #
 # Los cinco candidatos GPU propuestos en §2.1 del plan NO se incluyen todavía:
 # rodinia_kmeans, rodinia_srad, rodinia_nw, rodinia_b+tree y rodinia_cfd no
@@ -70,7 +71,19 @@ kernels:
   - kernel_ref: gpu_phasic_p1000
 
   # Cuarentena dual_*: un tamaño representativo por familia.
-  - kernel_ref: dual_gemm_gpu_N2048
+  #
+  # F1-GPU-007 (2026-09-13): dual_gemm_gpu_N2048 EXCLUIDO. El OI medido via
+  # ncu (0.0153 FLOP/byte) es fisicamente implausible para un GEMM denso
+  # real (deberia ser >>ridge, no <<ridge): el contador dfma_pred_on da 0
+  # (cero instrucciones fused-multiply-add), mientras que dual_cholesky_gpu
+  # con el mismo tamano de problema si muestra ~3.7e9 DFMA reales. Los bytes
+  # DRAM medidos son razonables mientras los FLOPs son ~4000x menores de lo
+  # esperado para N=2048 -- indica que la llamada real a cublasDgemm_v2
+  # dentro de gemm_gpu_dispatch.cu no esta haciendo el computo completo
+  # (posible bug de dimension K casi degenerada). No hay fuente disponible
+  # en el repo para confirmarlo linea por linea (solo el binario
+  # compilado). NO usar esta etiqueta para entrenar hasta resolverlo.
+  # - kernel_ref: dual_gemm_gpu_N2048
   - kernel_ref: dual_fft_gpu_N4096
   - kernel_ref: dual_axpy_gpu_N10000000
   - kernel_ref: dual_stencil_gpu_N1024
@@ -130,9 +143,14 @@ perf_enabled: true
 rapl:
   enabled: true
 
-# ARC-191: la matriz es 100 % GPU; uncore CPU no construye su verdad.
+# ARC-191 decia que la matriz es 100% GPU y uncore CPU no construye su
+# verdad -- pero screen-gpu se invoca con --reference-kernel-ref npb_mg
+# (E12 exige uncore habilitado si hay un kernel de referencia CPU). Sin
+# esto, stage_screen_gpu falla el preflight. Corregido 2026-09-13
+# (F1-GPU-007) tras encontrarlo divergente entre esta plantilla y las
+# copias materializadas en resultados (que ya se habian parchado a mano).
 uncore:
-  enabled: false
+  enabled: true
 
 gpu:
   enabled: true
