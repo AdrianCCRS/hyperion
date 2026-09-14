@@ -2991,3 +2991,105 @@ las tres rondas de esta entrada), resultado positivo identificado
 (N=472, 97.1% cerca del ridge), decisión tomada de incluirlo en
 `cpu_final.yaml`, verificado en el catálogo desplegado con REF+F8 y
 turbo desactivado.
+
+## F1-CPU-011 — Set final de 43 kernels de `cpu_final.yaml`: revisión de redundancia, se deja sin cambios
+
+**Fecha de registro:** 2026-09-14
+**Estado:** cerrado. `cpu_final.yaml` se mantiene en 43 kernels / 1290
+corridas (sin cambios respecto a F1-CPU-010) -- decisión explícita del
+usuario tras revisar candidatos a recorte.
+
+### Motivación
+
+Con las 6 anclas cerca del ridge ya cerradas (F1-CPU-007/009/010), el
+usuario preguntó si había redundancia en el set de 43 kernels que
+valiera la pena recortar antes de lanzar la campaña final.
+
+### Candidatos identificados
+
+- **`dual_axpy_cpu_N100000/N3162278/N10000000` (3 tamaños).** Evidencia
+  directa de F1-CPU-007: el punto "intermedio" (`N1000000`, no incluido
+  en la campaña final) dio log2(OI/ridge)=-6.87, casi igual al extremo
+  grande `N3162278` (-7.32) -- indicio fuerte de que los tres tamaños
+  caen en la misma zona de OI (memory-bound extremo), sin aportar
+  diversidad de intensidad operacional entre sí.
+- **`phasic_p010/p100/p1000` (3 kernels).** Mismo tamaño (512 MiB),
+  varían solo `--phase-seconds` (0.010/0.100/1.000s) -- no son tamaños
+  de un algoritmo, sino la misma carga cambiando la velocidad de
+  alternancia de fase. Se señaló la duda de si siguen aportando algo al
+  clasificador principal o son remanente de la línea de caza de fases
+  intra-kernel, cerrada en negativo (ver nota de memoria "NO reabrir").
+- Descartados como candidatos: `dual_stencil` (4 tamaños) y
+  `dual_cholesky` (3 tamaños) cubren tramos distintos de la curva
+  compute→memory, no solo extremos; STREAM `mul/triad/add` son 3 de los
+  4 kernels canónicos del benchmark real, con OI distinta entre sí
+  aunque todos memory-bound; `dual_spmv` solo tiene 2 tamaños.
+
+### Análisis de costo (por qué no es una decisión de tiempo)
+
+Se calculó el ahorro real de wall-clock/core-horas de recortar los
+candidatos, para separar el argumento de "tiempo" del argumento de
+"calidad de dataset":
+
+| Recorte | corridas quitadas | wall-clock | core-horas (×32 nucleos reservados) |
+|---|---|---|---|
+| 1 kernel axpy (11s/corrida) | 30 | ~5.5 min | ~2.9 |
+| 3 kernels phasic (24s/corrida c/u) | 90 | ~36 min | ~19 |
+| **total** | **120** | **~42 min** | **~22 (~3% de 687 proyectadas)** |
+
+Conclusión: el ahorro de tiempo es insignificante frente al presupuesto
+total (~687 core-horas, ~11-17h de wall-clock estimadas) -- cualquier
+recorte aquí sería una decisión de **balance/calidad del dataset**
+(evitar sobre-representar una zona de OI con puntos casi duplicados en
+espacio de features), nunca de velocidad de ejecución.
+
+### Decisión
+
+El usuario decidió NO recortar nada: "dejamos asi". `cpu_final.yaml`
+se mantiene en **43 kernels / 1290 corridas** tal como quedó tras
+F1-CPU-010. El análisis de redundancia queda documentado por si se
+retoma en el futuro (p. ej. si el desbalance de clases resulta ser un
+problema real durante el entrenamiento del clasificador, ver
+`fase2_clasificador/training/train_phase.py`), pero no bloquea el
+lanzamiento de la campaña.
+
+### Set final de 43 kernels (referencia)
+
+**NPB (6):** `npb_bt`, `npb_mg`, `npb_cg`, `npb_sp`, `npb_ft`, `npb_lu`
+
+**RAJAPerf-OpenMP (9):** `cpu_rajaperf_stream_mul`,
+`cpu_rajaperf_stream_triad`, `cpu_rajaperf_stream_add`,
+`cpu_rajaperf_lcals_first_sum`, `cpu_rajaperf_lcals_tridiag_elim`,
+`cpu_rajaperf_polybench_jacobi_1d`, `cpu_rajaperf_polybench_fdtd_2d`,
+`cpu_rajaperf_basic_daxpy`, `cpu_rajaperf_basic_init3`
+
+**Standalone reales (10):** `dgemm_n2048`, `rodinia_lavamd_omp`,
+`rajaperf_polybench_3mm_omp`, `cpu_lulesh`, `cpu_hpcg`, `cpu_gap_pr`,
+`cpu_cholmod`, `phasic_p010`, `phasic_p100`, `phasic_p1000`
+
+**`dual_*` selector CPU/GPU original (16):** `dual_gemm_cpu_N2048`,
+`dual_fft_cpu_N128`, `dual_fft_cpu_N1024`, `dual_fft_cpu_N4096`,
+`dual_axpy_cpu_N100000`, `dual_axpy_cpu_N3162278`,
+`dual_axpy_cpu_N10000000`, `dual_stencil_cpu_N256`,
+`dual_stencil_cpu_N512`, `dual_stencil_cpu_N1024`,
+`dual_stencil_cpu_N1536`, `dual_cholesky_cpu_N256`,
+`dual_cholesky_cpu_N1024`, `dual_cholesky_cpu_N2048`,
+`dual_spmv_cpu_N100000`, `dual_spmv_cpu_N1000000`
+
+**Anclas nuevas de esta sesión (2):** `hpccg_cpu_N46`,
+`dual_fft_cpu_N472`
+
+**Excluidos del set (documentados, no en la lista):** `cpu_gap_bfs`,
+`ptrchase` (F1-CPU-004). **Probados y descartados:** `lbm_cpu`
+(F1-CPU-008, 13 tamaños, ninguno entra).
+
+**Anclas cerca del ridge (6 de 43):** `npb_bt`, `npb_lu`,
+`dual_cholesky_cpu_N1024` (87.6%), `dual_stencil_cpu_N512` (67.2%),
+`hpccg_cpu_N46` (66.3%), `dual_fft_cpu_N472` (97.1%).
+
+### Criterio exacto de cierre
+
+Cerrado: candidatos identificados con evidencia (axpy) o duda explícita
+(phasic), costo de recorte calculado y mostrado, decisión tomada por el
+usuario de no modificar el manifiesto. `cpu_final.yaml` queda
+congelado en 43 kernels / 1290 corridas, listo para lanzar.
