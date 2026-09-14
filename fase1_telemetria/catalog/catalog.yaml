@@ -195,6 +195,34 @@ kernels:
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
 
+  # F1-CPU-005 (2026-09-14): npb_ft clase A -- exploracion de si un tamano
+  # de problema mas chico acerca el OI al ridge en NPB (misma logica que
+  # F1-XDEV-001 actualizacion para dual_*), dirigido a npb_ft por ser el
+  # unico NPB con evidencia previa (ARC-71, clase B vs C) de que su
+  # clasificacion SI cambia con el tamano. Clases S y W probadas primero y
+  # descartadas: tiempo de ejecucion ~0.00-0.01s, demasiado corto para
+  # target_windows_per_repetition=50 (mismo fallo que los rajaperf
+  # excluidos en F1-CPU-004/manifiesto). Clase A da ~0.32s con 6 hilos
+  # pineados (taskset), unico tamano intermedio disponible bajo B.
+  # Compilado en paccaA100 (no en pacca03 -- CPUs distintas, -march=native
+  # ataria el binario al micro equivocado), gfortran 12.4.0 via module
+  # gnu12 con Lmod fuente explicito (source .../lmod/init/bash, "module
+  # load" sin eso resuelve al gfortran de sistema 8.5.0 en silencio).
+  - id: npb_ft_a
+    suite: NPB-OMP
+    role: dataset
+    exec_path: bin/ft.A.x
+    phase_label_hint: intermedio
+    size_variant: A
+    expected_runtime_seconds: 5 # medido: 0.32s con 6 hilos pineados; margen amplio, sin calibrar warmup todavia
+    warmup_seconds: 0.5 # sin calibrar -- mismo valor de partida que npb_ft clase B, a confirmar con warmup_calibration.py
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:7bf90cf1c522820a7437b1c05d3b74e5b21048577f94fe446be2311e0fc80ca9"
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+
   - id: npb_lu
     suite: NPB-OMP
     role: dataset
