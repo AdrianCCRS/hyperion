@@ -53,6 +53,15 @@ calibration:
 # aceptadas, 0 rechazadas. lbm_cpu (LBM D2Q9-BGK, tambien nuevo esta
 # sesion) se probo con 13 tamanos y NO entra -- salto de cache abrupto sin
 # banda cerca del ridge en ningun tamano, ver F1-CPU-008.
+#
+# dual_fft_cpu_N472 (F1-CPU-010, 2026-09-14): retoma FFT (F1-CPU-007 la
+# dejo negativa por muestreo no monotono/eficiencia de radix). Con tamanos
+# 5-smooth y tres rondas de acortamiento se localizo el cruce real entre
+# N448 y N480 -- N472 da 97.1% cerca del ridge (log2=-0.37), la MEJOR
+# ancla nueva de la sesion, mejor que dual_cholesky_cpu_N1024 (87.6%).
+# Reutiliza el binario fft_cpu ya compilado (mismo checksum que el resto
+# de dual_fft_cpu_N*). Verificado con smoke test real en REF y F8 (turbo
+# desactivado): 6/6 aceptadas, 0 rechazadas.
 kernels:
 - kernel_ref: npb_bt
 - kernel_ref: npb_mg
@@ -96,6 +105,7 @@ kernels:
 - kernel_ref: dual_spmv_cpu_N100000
 - kernel_ref: dual_spmv_cpu_N1000000
 - kernel_ref: hpccg_cpu_N46
+- kernel_ref: dual_fft_cpu_N472
 frequency_levels:
 - id: REF
   mode: native_governor
@@ -148,17 +158,18 @@ temperature:
   require_package_sensor: true
   minimum_c: 0
   maximum_c: 90
-# 42 kernels x 10 niveles x 3 reps = 1260 corridas (actualizado 2026-09-14,
-# ver F1-CPU-004/F1-XDEV-001/F1-CPU-006/F1-CPU-007/F1-CPU-009 en el
-# seguimiento: -4 kernels excluidos, +11 tamanos dual_* nuevos (10 del
-# primer barrido + dual_stencil_cpu_N512, cazador de ridge dirigido), +2
-# rajaperf re-incluidos con --repfact, +1 hpccg_cpu_N46 (tercera ancla
-# nueva cerca del ridge, familia CG propia). Medido en el cribado:
-# ~39 MB/corrida -> ~49 GB. Se declara 100 GiB de margen (habia 1.2 TB
+# 43 kernels x 10 niveles x 3 reps = 1290 corridas (actualizado 2026-09-14,
+# ver F1-CPU-004/F1-XDEV-001/F1-CPU-006/F1-CPU-007/F1-CPU-009/F1-CPU-010
+# en el seguimiento: -4 kernels excluidos, +11 tamanos dual_* nuevos (10
+# del primer barrido + dual_stencil_cpu_N512, cazador de ridge dirigido),
+# +2 rajaperf re-incluidos con --repfact, +1 hpccg_cpu_N46 (tercera ancla
+# nueva, familia CG propia), +1 dual_fft_cpu_N472 (cuarta ancla nueva,
+# 97.1% cerca del ridge -- la mejor de la sesion). Medido en el cribado:
+# ~39 MB/corrida -> ~50 GB. Se declara 100 GiB de margen (habia 1.2 TB
 # libres).
 projected_campaign_bytes: 107374182400
 remaining_core_hours: 100000
-projected_core_hours: 671
+projected_core_hours: 687
 cores:
   delegated_cpus:
   - 0

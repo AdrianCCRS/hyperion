@@ -2875,3 +2875,119 @@ identificado (N=46, 66.3% cerca del ridge), decisión tomada de
 incluirlo en `cpu_final.yaml`, documentado con los 14 resultados de OI
 medidos y la interpretación de por qué CG (con reutilización de
 matriz) se comporta distinto a LBM (sin reutilización).
+
+## F1-CPU-010 — Segundo intento en `dual_fft`: éxito, `dual_fft_cpu_N472` con 97.1% cerca del ridge, la mejor ancla nueva de la sesión
+
+**Fecha de registro:** 2026-09-14
+**Estado:** cerrado. `dual_fft_cpu_N472` se agrega a `cpu_final.yaml` (43
+kernels, 1290 corridas). Cuarta ancla nueva cerca del ridge de la sesión.
+
+### Motivación
+
+Tras el éxito de `hpccg_cpu_N46` (F1-CPU-009), el usuario pidió un
+último intento antes de cerrar el hilo: "intentemos ya por ultimo con
+esos que recomiendas, y ya si no da, seguimos asi". Se decidió retomar
+`dual_fft` (dejada negativa en F1-CPU-007 por un muestreo no monótono:
+N=384 daba OI MÁS compute que N=128, atribuido a eficiencia de radix de
+FFTW) en vez de escribir un kernel nuevo tipo "hot" (heat diffusion vía
+CG, redundante en mecanismo con `hpccg_cpu` ya probado) -- FFT no
+necesita compilar nada nuevo (el binario `fft_cpu` ya existe) y tiene
+una estructura de reutilización genuinamente distinta (múltiples pasadas
+internas O(log N) de FFTW sobre el mismo buffer), ni un solo paso
+(`lbm_cpu`) ni pasadas explícitas completas (`hpccg_cpu`).
+
+Esta vez se usaron tamaños "5-smooth" (factorizan en 2/3/5, eficientes
+para el planificador de FFTW) en vez de un punto medio geométrico
+arbitrario, para eliminar el ruido de radix que arruinó el intento
+anterior.
+
+### Procedimiento
+
+Tres rondas de smoke test (REF, 3 repeticiones, turbo desactivado):
+N512-N1024 (7 tamaños, reutilizando `dual_fft_cpu_N512`/`N768` ya
+existentes en el catálogo -- un intento inicial con un `N512` duplicado
+falló por `CAT-08: id de catálogo duplicado`, corregido reutilizando la
+entrada existente) → N400-N480 (4 tamaños nuevos, 12/12 aceptadas) →
+N456-N472 (3 tamaños nuevos, 9/9 aceptadas).
+
+### Resultado
+
+| N | huella total (2 buffers) | log2(OI/ridge) | cerca del ridge |
+|---|---|---|---|
+| 384 (F1-CPU-007) | 4.7 MB | +6.18 | 0% |
+| 400 | 5.1 MB | +5.76 | 1.5% |
+| 432 | 6.0 MB | +4.82 | 1.3% |
+| 448 | 6.4 MB | +4.78 | 0% |
+| 456 | 6.7 MB | +6.20 | 0% |
+| 464 | 6.9 MB | +5.58 | 0% |
+| **472** | **7.1 MB** | **-0.37** | **97.1% -- éxito** |
+| 480 | 7.4 MB | -2.39 | 0% |
+| 512 | 8.4 MB | -2.60 | 0% |
+| 576 | 10.6 MB | -2.20 | 0% |
+| 640 | 13.1 MB | -2.52 | 0% |
+| 720 | 15.8 MB | -2.34 | 0% |
+| 768 | 18.9 MB | -2.86 | 0% |
+| 800 | 19.5 MB | -2.29 | 0% |
+| 896 | 24.5 MB | -2.89 | 0% |
+| 1024 | 33.6 MB | -4.23 | 0% |
+
+Verificado en el catálogo DESPLEGADO (el que usa `cpu_final.yaml`) con
+REF + F8, turbo desactivado: 6/6 aceptadas, 0 rechazadas. Aviso `CAL-07`
+no bloqueante (traza de calibración F8 completa dentro de
+grace/tail_grace, ya no bloquea desde ARC-167).
+
+### Interpretación
+
+Igual que `lbm_cpu`, el cruce es abrupto en términos de N (ancho de solo
+~24-32 unidades de malla), pero a diferencia de `lbm_cpu` (plateau plano
+sin banda cerca del ridge en ningún punto) y de forma aún más marcada
+que `hpccg_cpu`, aquí el punto de cruce cae CASI exacto sobre el ridge
+(log2=-0.37, 97.1% de las corridas dentro de |log2|<1) -- la mejor
+fracción de las cuatro anclas nuevas de la sesión, mejor incluso que
+`dual_cholesky_cpu_N1024` (87.6%).
+
+El lado memoria (N≥480) se mantiene relativamente plano alrededor de
+log2≈-2.2 a -2.9 (con un descenso adicional en N=1024, -4.23) -- no tan
+plano como `lbm_cpu` pero tampoco tan gradual como `hpccg_cpu`; FFT
+parece ocupar un punto intermedio entre ambos mecanismos de
+reutilización.
+
+Que dos de tres intentos "genuinamente nuevos" de esta sesión
+(`hpccg_cpu`, `dual_fft` retomado) hayan tenido éxito, frente a uno
+negativo (`lbm_cpu`), confirma que no había manera de predecir el
+resultado sin medir -- exactamente el motivo por el que el usuario pidió
+no asumir y experimentar en ambos casos.
+
+### Decisión
+
+Se agrega `dual_fft_cpu_N472` a `cpu_final.yaml`. Cuarta ancla nueva de
+la sesión (junto a `dual_cholesky_cpu_N1024`, `dual_stencil_cpu_N512`,
+`hpccg_cpu_N46`), la de mejor fracción cerca del ridge. Con esto se
+cierra el hilo de búsqueda de anclas de esta sesión -- seis anclas reales
+en total (`npb_bt`, `npb_lu`, y las cuatro nuevas), acuerdo explícito con
+el usuario de parar aquí salvo que él pida continuar.
+
+### Limitaciones
+
+- Solo REF (más la verificación puntual en F8), una repetición corta por
+  ronda -- mismo nivel de evidencia que el resto de los smoke tests de
+  la sesión; la campaña final confirmará con los 10 niveles completos.
+- El ancho del cruce (~24-32 unidades de N) es sensible a la
+  granularidad del barrido -- no se puede descartar que exista un N
+  intermedio no probado con una fracción aún mejor, pero 97.1% ya está
+  cerca del techo práctico (100% no es alcanzable por ruido de sistema
+  normal, ver la propia `dual_cholesky_cpu_N1024` en 87.6%).
+
+### Trabajo pendiente
+
+Ninguno para esta entrada -- cerrado. La campaña final confirmará si el
+97.1% se sostiene con los 10 niveles de frecuencia completos.
+
+### Criterio exacto de cierre
+
+Cerrado: 16 tamaños de `dual_fft` probados en total entre F1-CPU-007 y
+esta entrada (evidencia real de campaña, 48/48 corridas aceptadas en
+las tres rondas de esta entrada), resultado positivo identificado
+(N=472, 97.1% cerca del ridge), decisión tomada de incluirlo en
+`cpu_final.yaml`, verificado en el catálogo desplegado con REF+F8 y
+turbo desactivado.
