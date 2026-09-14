@@ -4985,3 +4985,59 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     binary_checksum:
       pacca-a100: "sha256:308fb92642d1a38095d15dbc165987a00438f491bc77540cfee5eb2cbf2ef8f3"
+
+# F1-CPU-008 (continuacion 2): N208 (log2=+2.67) -> N224 (log2=-3.09) sigue
+# siendo un salto abrupto; N224/N240/N248 SATURAN en el mismo log2 (~-3.10)
+# -- indicio de un limite de cache duro (posible L2 por nucleo, ~1.5-1.8MB
+# de huella total / 6 hilos delegados), no una zona amplia "LLC-bound".
+# Ultimo acorte para confirmar si hay banda estable cerca del ridge.
+  - id: lbm_cpu_N212
+    suite: LBM-D2Q9
+    role: dataset
+    exec_path: bin/lbm_cpu
+    config_id: lbm_N212
+    phase_label_hint: intermedio
+    size_variant: N212
+    exec_args: "--size 212 --iterations 3800"
+    expected_runtime_seconds: 4
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 9707904
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:308fb92642d1a38095d15dbc165987a00438f491bc77540cfee5eb2cbf2ef8f3"
+
+  - id: lbm_cpu_N216
+    suite: LBM-D2Q9
+    role: dataset
+    exec_path: bin/lbm_cpu
+    config_id: lbm_N216
+    phase_label_hint: intermedio
+    size_variant: N216
+    exec_args: "--size 216 --iterations 3600"
+    expected_runtime_seconds: 4
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 10077696
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:308fb92642d1a38095d15dbc165987a00438f491bc77540cfee5eb2cbf2ef8f3"
+
+  - id: lbm_cpu_N220
+    suite: LBM-D2Q9
+    role: dataset
+    exec_path: bin/lbm_cpu
+    config_id: lbm_N220
+    phase_label_hint: intermedio
+    size_variant: N220
+    exec_args: "--size 220 --iterations 3500"
+    expected_runtime_seconds: 4
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 10454400
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:308fb92642d1a38095d15dbc165987a00438f491bc77540cfee5eb2cbf2ef8f3"
