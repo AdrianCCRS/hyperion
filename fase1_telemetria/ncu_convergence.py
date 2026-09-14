@@ -188,8 +188,32 @@ def parse_ncu_csv(text: str) -> dict:
         if {"Metric Name", "Metric Value"} <= normalized:
             return _parse_long_ncu_csv(rows, index)
 
-    header = [h.strip().strip('"') for h in rows[0]]
-    data = rows[1:]
+    # F1-GEN-004 (2026-09-13): `ncu --page raw` antepone lineas de banner
+    # ("==PROF== Connected to process ...") y la salida propia del programa
+    # perfilado (stdout del kernel: "Verification = SUCCESSFUL", etc.) antes
+    # de la tabla CSV real -- asumir rows[0] como encabezado tomaba esa
+    # primera linea de banner, dejando TODAS las columnas sin reconocer
+    # (metric_names_present siempre vacio, dram_bytes siempre 0.0) para
+    # cualquier corrida real de esta version de ncu (2026.1.1.0). Se busca
+    # la fila de encabezado real por su contenido (columnas "ID"/"Kernel
+    # Name", siempre presentes en el formato ancho), igual que el bloque de
+    # arriba ya hace para el formato largo.
+    header_idx = None
+    for index, row in enumerate(rows):
+        normalized = {cell.strip().strip('"') for cell in row}
+        if {"ID", "Kernel Name"} <= normalized:
+            header_idx = index
+            break
+    if header_idx is None:
+        return _empty_parse()
+
+    header = [h.strip().strip('"') for h in rows[header_idx]]
+    # La fila inmediatamente despues del encabezado es SIEMPRE la de
+    # unidades ("byte", "nsecond", ... con las columnas no numericas en
+    # blanco), nunca una corrida real -- se descarta explicitamente en vez
+    # de dejar que el filtro de "fila vacia" de abajo la cuele como si
+    # fuera un lanzamiento mas.
+    data = rows[header_idx + 2:]
 
     def col_idx(pred) -> list[int]:
         return [i for i, h in enumerate(header) if pred(h.lower())]
