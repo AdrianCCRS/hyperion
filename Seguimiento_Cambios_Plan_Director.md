@@ -2760,3 +2760,118 @@ Cerrado: 13 tamaños probados con evidencia real de campaña (smoke test,
 39/39 corridas aceptadas en total), decisión tomada de no incluir
 ninguno en la campaña final, documentado con los 12 resultados de OI
 medidos y la interpretación física del salto abrupto.
+
+## F1-CPU-009 — Kernel nuevo `hpccg_cpu` (CG sobre Laplaciano 3D): éxito real, `hpccg_cpu_N46` con 66.3% cerca del ridge
+
+**Fecha de registro:** 2026-09-14
+**Estado:** cerrado. `hpccg_cpu_N46` se agrega a `cpu_final.yaml` (42
+kernels, 1260 corridas). Tercera ancla nueva cerca del ridge de la
+sesión, junto a `dual_cholesky_cpu_N1024` (87.6%) y `dual_stencil_cpu_
+N512` (67.2%).
+
+### Motivación
+
+Tras el resultado negativo de `lbm_cpu` (F1-CPU-008), el usuario pidió
+explícitamente no asumir que el resto de benchmarks del paper Littman/
+Deakin fallarían igual -- "experimenta, aseguremos, no supongamos". Se
+implementó `kernels/hpccg/hpccg_cg_cpu_bench.c`: CG estándar sobre un
+Laplaciano discreto 3D de 7 puntos (malla NxNxN), CSR explícito,
+diagonal 6.1 (dominancia diagonal estricta -> SPD garantizado). No
+vendorizado de Mantevo/HPCCG -- implementación propia, mismo criterio
+que `lbm_cpu`. Verificación por decrecimiento monótono del residuo
+(propiedad garantizada de CG sobre SPD), confirmada localmente y en
+paccaA100 (residuo final << ||b|| en todos los tamaños probados).
+
+Hipótesis explícita a probar (no asumida): a diferencia de LBM (un paso
+por despacho, sin reutilización), CG hace `CG_STEPS=20` pasadas por
+despacho sobre la MISMA matriz -- si la matriz cabe en cache, esa
+reutilización podría dar una transición más gradual que el salto de
+cache abrupto de `lbm_cpu`.
+
+Compilado en paccaA100 vía `srun --jobid=7144`, checksum del wrapper
+`bin/hpccg_cpu`: `837339bd72c5477c52bc28e01b28ead9dda06eaa4f879d1c193973be1db2f383`.
+
+### Procedimiento
+
+Tres rondas de smoke test (REF, 3 repeticiones), acortando el rango:
+N16-N128 (11 tamaños, 33/33 aceptadas) → N42-N46 (3 tamaños, 9/9
+aceptadas, advertencia `CAL-10/D04: cv_pct=15.17%` en la calibración de
+referencia, por encima del umbral 5% -- no bloqueante, aceptado igual,
+ver Limitaciones).
+
+### Resultado
+
+| N | huella total (aprox.) | log2(OI/ridge) | cerca del ridge |
+|---|---|---|---|
+| 16 | 0.6 MB | +4.72 | 0.1% |
+| 24 | 2.1 MB | +5.67 | 0.2% |
+| 32 | 4.9 MB | +5.14 | 0% |
+| 40 | 9.6 MB | +5.48 | 0% |
+| 42 | 11.1 MB | +3.94 | 0% |
+| 44 | 12.8 MB | +2.04 | 0.3% |
+| **46** | **14.6 MB** | **-0.27** | **66.3% -- éxito** |
+| 48 | 16.6 MB | -2.81 | 0% |
+| 56 | 26.4 MB | -5.04 | 0% |
+| 64 | 39.4 MB | -5.49 | 0% |
+| 80 | 77.0 MB | -5.81 | 0% |
+| 96 | 133.1 MB | -6.19 | 0% |
+| 112 | 211.3 MB | -6.40 | 0% |
+| 128 | 315.5 MB | -6.49 | 0% |
+
+### Interpretación
+
+A diferencia de `lbm_cpu` (plateau plano en el lado memoria, sin
+gradiente), aquí el lado memoria SÍ decae de forma gradual y monótona
+conforme N crece (-2.81 en N48 hasta -6.49 en N128, asíntota que no
+termina de aplanarse ni en N=128) -- consistente con la hipótesis de
+reutilización de matriz: cuanto más grande la matriz relativa al
+cache, más se acerca el comportamiento a "sin reutilización" (similar
+a SpMV puro), y el arrastre es progresivo, no un colapso de golpe.
+
+El cruce compute→memory sigue siendo abrupto en términos de N (de
++2.04 en N44 a -0.27 en N46, salto de solo 2 unidades de malla), pero
+a diferencia de `lbm_cpu`, el punto de cruce mismo SÍ cae casi exacto
+sobre el ridge (log2=-0.27, no un vacío entre dos valores lejanos) --
+la ventana de "cerca del ridge" (|log2|<1, criterio del proyecto) tiene
+ancho suficiente en el espacio de N para que un solo tamaño entero
+(N=46) capture una fracción alta y estable de corridas.
+
+### Decisión
+
+Se agrega `hpccg_cpu_N46` a `cpu_final.yaml`. Tercera familia
+algorítmica nueva de la sesión con ancla real cerca del ridge (CG con
+matriz dispersa estructurada, distinta de GEMM/Cholesky denso y de
+stencil Jacobi simple). No se agrega ningún otro tamaño de `hpccg_cpu`
+-- ya hay una ancla de calidad comparable a `dual_stencil_cpu_N512`.
+
+### Limitaciones
+
+- Solo REF, una repetición corta por ronda -- mismo nivel de evidencia
+  que el resto de los smoke tests de la sesión.
+- La ronda N42-N46 disparó `CAL-10/D04` (dispersión de la calibración
+  de referencia 15.17% > umbral 5%) -- indicio de ruido del sistema
+  (nodo compartido) en ese momento puntual. No bloqueó la aceptación
+  de las 9 corridas y el resultado (66.3% cerca del ridge, muy por
+  encima del ruido esperable) es robusto a esa dispersión, pero
+  conviene confirmar en la campaña final con las 3 repeticiones
+  completas y los 10 niveles de frecuencia, no solo REF.
+- CG_STEPS=20 es fijo (no ajustado a tolerancia de convergencia) --
+  correcto para reproducibilidad de FLOPs por despacho, pero significa
+  que el punto de cruce (N=46) es específico de ese conteo de pasadas;
+  cambiar CG_STEPS movería el punto (más pasadas = más reutilización
+  de matriz = el cruce se movería hacia N más grandes).
+
+### Trabajo pendiente
+
+Ninguno para esta entrada -- cerrado. La campaña final confirmará si
+el 66.3% se sostiene con calibración estable y los 10 niveles de
+frecuencia.
+
+### Criterio exacto de cierre
+
+Cerrado: 14 tamaños probados con evidencia real de campaña (smoke
+test, 42/42 corridas aceptadas en total), resultado positivo
+identificado (N=46, 66.3% cerca del ridge), decisión tomada de
+incluirlo en `cpu_final.yaml`, documentado con los 14 resultados de OI
+medidos y la interpretación de por qué CG (con reutilización de
+matriz) se comporta distinto a LBM (sin reutilización).

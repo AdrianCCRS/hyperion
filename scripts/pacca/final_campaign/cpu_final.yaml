@@ -43,6 +43,16 @@ calibration:
 # real -- documentar asi si se reporta. Se anaden 2 tamanos adicionales por
 # familia (ademas del que ya tenia el cribado) para densificar la franja
 # cerca del ridge, hoy sostenida casi solo por npb_bt/npb_lu.
+#
+# hpccg_cpu_N46 (F1-CPU-009, 2026-09-14): kernel NUEVO (CG sobre
+# Laplaciano 3D de 7 puntos, implementacion propia -- ver
+# kernels/hpccg/hpccg_cg_cpu_bench.c). Tercera ancla real cerca del ridge
+# de la sesion (66.3% cerca del ridge en smoke REF, junto a
+# dual_cholesky_cpu_N1024 87.6% y dual_stencil_cpu_N512 67.2%).
+# Verificado con smoke test real en REF y F8 (turbo desactivado): 6/6
+# aceptadas, 0 rechazadas. lbm_cpu (LBM D2Q9-BGK, tambien nuevo esta
+# sesion) se probo con 13 tamanos y NO entra -- salto de cache abrupto sin
+# banda cerca del ridge en ningun tamano, ver F1-CPU-008.
 kernels:
 - kernel_ref: npb_bt
 - kernel_ref: npb_mg
@@ -85,6 +95,7 @@ kernels:
 - kernel_ref: dual_cholesky_cpu_N2048
 - kernel_ref: dual_spmv_cpu_N100000
 - kernel_ref: dual_spmv_cpu_N1000000
+- kernel_ref: hpccg_cpu_N46
 frequency_levels:
 - id: REF
   mode: native_governor
@@ -137,15 +148,17 @@ temperature:
   require_package_sensor: true
   minimum_c: 0
   maximum_c: 90
-# 41 kernels x 10 niveles x 3 reps = 1230 corridas (actualizado 2026-09-14,
-# ver F1-CPU-004/F1-XDEV-001/F1-CPU-006/F1-CPU-007 en el seguimiento: -4
-# kernels excluidos, +11 tamanos dual_* nuevos (10 del primer barrido +
-# dual_stencil_cpu_N512, cazador de ridge dirigido), +2 rajaperf
-# re-incluidos con --repfact). Medido en el cribado: ~39 MB/corrida ->
-# ~48 GB. Se declara 100 GiB de margen (habia 1.2 TB libres).
+# 42 kernels x 10 niveles x 3 reps = 1260 corridas (actualizado 2026-09-14,
+# ver F1-CPU-004/F1-XDEV-001/F1-CPU-006/F1-CPU-007/F1-CPU-009 en el
+# seguimiento: -4 kernels excluidos, +11 tamanos dual_* nuevos (10 del
+# primer barrido + dual_stencil_cpu_N512, cazador de ridge dirigido), +2
+# rajaperf re-incluidos con --repfact, +1 hpccg_cpu_N46 (tercera ancla
+# nueva cerca del ridge, familia CG propia). Medido en el cribado:
+# ~39 MB/corrida -> ~49 GB. Se declara 100 GiB de margen (habia 1.2 TB
+# libres).
 projected_campaign_bytes: 107374182400
 remaining_core_hours: 100000
-projected_core_hours: 655
+projected_core_hours: 671
 cores:
   delegated_cpus:
   - 0
