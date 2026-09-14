@@ -2487,3 +2487,80 @@ Ninguno -- cerrado, negativo.
 ### Criterio exacto de cierre
 
 Cerrado en esta misma entrada.
+
+---
+
+## F1-CPU-006 — `--repfact` resuelve `cpu_rajaperf_lcals_tridiag_elim`/`basic_init3`, re-incluidos en la campaña final
+
+**Fecha de registro:** 2026-09-14
+**Estado:** cerrado, positivo. Verificado con smoke test real (REF+F8, 12/12
+aceptadas). Re-incluidos en `cpu_final.yaml` (40 kernels, 1200 corridas).
+
+### Problema
+
+F1-CPU-004/actualización de F1-XDEV-005 había dejado estos dos kernels
+fuera de la campaña final: con su warmup real calibrado (2.3-3.6s), su
+duración base (medida F4≈2.9s/2.2s en la rejilla del cribado) es más corta
+que su propio transitorio -- 0 ventanas `ok` garantizado (`I10`) sin
+importar la frecuencia. Quedó registrado como "diferido", pendiente de un
+tamaño de problema mayor.
+
+### Solución
+
+El wrapper (`bin/cpu_rajaperf_*`, script bash que invoca el binario real de
+RAJAPerf con `--memory-touched 125829120` fijo) ya reenviaba argumentos
+extra al binario real (`"$@"`) -- no hizo falta recompilar nada. RAJAPerf
+expone `--repfact <F>` (multiplicador de repeticiones) como opción
+**distinta** de `--size`/`--memory-touched` (tamaño de problema): confirmado
+leyendo el CSV de salida de RAJAPerf que `BytesTouched/rep` se mantiene
+igual con `--repfact 30` que sin él -- el tamaño/OI que ya pasó el tamizaje
+v2 (alpha<0.226) queda intacto, solo se repite más veces el mismo trabajo.
+
+Medido directamente (no estimado): `--repfact 2` en `lcals_tridiag_elim` da
+4.16s a velocidad nativa (turbo); `--repfact 3` en `basic_init3` da 3.71s.
+A la frecuencia más lenta de la rejilla (~4x más lenta) eso proyecta
+~17-18s y ~16s respectivamente -- margen amplio sobre el warmup real.
+
+Aplicado en dos catálogos: el del repo (`fase1_telemetria/catalog/
+catalog.yaml`, vía commit) y el desplegado en pacca que usa realmente
+`cpu_final.yaml` (`screening/pacca_screen_20260909/config/
+catalog.screening.yaml`, editado directo con backup `.bak_f1cpu006` porque
+NO está versionado en git y ya traía `warmup_seconds` calibrados de una
+sesión anterior que no se querían perder). Solo se tocaron `exec_args` y
+`expected_runtime_seconds` en la copia desplegada, nada más.
+
+### Verificado con hardware real
+
+Smoke test (`pacca_cpu_smoke_rajaperf_fix_20260914`, REF + F8, 3 reps c/u):
+**12/12 aceptadas, 0 rechazadas, matriz completa.** F8 es la frecuencia más
+restrictiva de la rejilla (peor caso), y pasó limpio.
+
+### Decisión
+
+Re-incluidos en `cpu_final.yaml`: **40 kernels × 10 niveles × 3 reps =
+1200 corridas** (antes 1140). `projected_core_hours`/`projected_campaign_
+bytes` reescalados proporcionalmente.
+
+### Limitaciones
+
+- `warmup_seconds` en ambos catálogos sigue siendo el valor calibrado con
+  la corrida CORTA (2.3197/3.5689) -- no se recalibró con la corrida larga
+  (`--repfact` aplicado). Es razonable esperar que el warmup real (tiempo
+  hasta que el IPC se estabiliza) no dependa de cuántas repeticiones se
+  hagan después, solo del arranque -- pero no está confirmado con
+  `warmup_calibration.py` sobre la corrida larga, queda como supuesto
+  hasta que la campaña final produzca datos para verificarlo.
+- El repositorio y la copia desplegada en pacca del catálogo pueden
+  divergir con el tiempo si alguna sesión futura edita una sin la otra --
+  anotado aquí explícitamente para que quien retome esto lo sepa (la copia
+  desplegada acumula calibraciones reales de campaña que el repo no tiene).
+
+### Trabajo pendiente
+
+Ninguno para esta entrada -- cerrado. La recalibración de warmup (si hace
+falta) es trabajo de la campaña final en sí, no de esta corrección.
+
+### Criterio exacto de cierre
+
+Cerrado: arreglo verificado con hardware real, re-incluido en el
+manifiesto que va a correr.

@@ -25,12 +25,15 @@ calibration:
 # (log2(OI/ridge) ~ -26.7), fuera de dominio del modelo Roofline FLOPs/bytes,
 # ningun barrido de tamano/frecuencia los va a mover. Ver Seguimiento.
 #
-# cpu_rajaperf_lcals_tridiag_elim/basic_init3 excluidos -- duracion real tan
-# corta que, con su warmup correcto (2.3-3.6s medido), da 0 ventanas 'ok'
-# (I10) sin importar el nivel de frecuencia; no tiene sentido correr 30
-# repeticiones cada uno en la campana final sabiendo que van a rechazarse
-# todas. Kernel demasiado pequeno para este protocolo, arreglo (tamano mayor)
-# diferido -- no bloquea esta campana.
+# cpu_rajaperf_lcals_tridiag_elim/basic_init3 (F1-CPU-006, 2026-09-14):
+# RE-INCLUIDOS. Estaban excluidos porque su duracion base era mas corta que
+# su propio warmup real (2.3-3.6s, F1-XDEV-005) -- 0 ventanas 'ok'
+# garantizado. Arreglado con `exec_args: "--repfact <F>"` en el catalogo:
+# multiplica las repeticiones de RAJAPerf sin tocar --memory-touched (el
+# tamano/OI que ya paso el tamizaje v2, alpha<0.226) -- confirmado leyendo
+# el CSV de salida de RAJAPerf, BytesTouched/rep no cambia con repfact.
+# Verificado con smoke test real en REF y F8 (la frecuencia mas lenta):
+# 12/12 aceptadas, 0 rechazadas.
 #
 # dual_* (F1-XDEV-001, actualizacion 2026-09-14): cuarentena levantada tras
 # inspeccionar fuente -- gemm/cholesky/fft/stencil/axpy limpios (llaman
@@ -54,9 +57,11 @@ kernels:
 - kernel_ref: cpu_rajaperf_stream_triad
 - kernel_ref: cpu_rajaperf_stream_add
 - kernel_ref: cpu_rajaperf_lcals_first_sum
+- kernel_ref: cpu_rajaperf_lcals_tridiag_elim
 - kernel_ref: cpu_rajaperf_polybench_jacobi_1d
 - kernel_ref: cpu_rajaperf_polybench_fdtd_2d
 - kernel_ref: cpu_rajaperf_basic_daxpy
+- kernel_ref: cpu_rajaperf_basic_init3
 - kernel_ref: cpu_lulesh
 - kernel_ref: cpu_hpcg
 - kernel_ref: cpu_gap_pr
@@ -131,13 +136,14 @@ temperature:
   require_package_sensor: true
   minimum_c: 0
   maximum_c: 90
-# 38 kernels x 10 niveles x 3 reps = 1140 corridas (actualizado 2026-09-14,
-# ver F1-CPU-004/F1-XDEV-001 en el seguimiento: -4 kernels excluidos,
-# +10 tamanos dual_* nuevos). Medido en el cribado: ~39 MB/corrida -> ~44 GB.
-# Se declara 96 GiB de margen (habia 1.2 TB libres).
-projected_campaign_bytes: 103079215104
+# 40 kernels x 10 niveles x 3 reps = 1200 corridas (actualizado 2026-09-14,
+# ver F1-CPU-004/F1-XDEV-001/F1-CPU-006 en el seguimiento: -4 kernels
+# excluidos, +10 tamanos dual_* nuevos, +2 rajaperf re-incluidos con
+# --repfact). Medido en el cribado: ~39 MB/corrida -> ~47 GB. Se declara
+# 100 GiB de margen (habia 1.2 TB libres).
+projected_campaign_bytes: 107374182400
 remaining_core_hours: 100000
-projected_core_hours: 600
+projected_core_hours: 640
 cores:
   delegated_cpus:
   - 0
