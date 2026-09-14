@@ -5527,18 +5527,33 @@ kernels:
   # ncu reconoce para contar FLOPs. Kernel CUDA propio (tiled, memoria
   # compartida, SIN cuBLAS) -- mismo patron que dual_stencil_gpu/
   # dual_cholesky_gpu, que SI miden bien.
-  - id: gpu_gemm_native_n1024
+  # F1-GPU-006 (recordatorio): kernels GPU necesitan ~30-35s de duracion
+  # real para sostener uso de GPU medible -- N=1024 daba solo ~10s
+  # (medido: 0.0567s/iter), demasiado corto. N=4096 medido real:
+  # 0.0975s/iter -> iterations=330 para ~32.2s.
+  # OI real medido via ncu a N=4096: 4.05 FLOP/byte, casi exacto sobre el
+  # ridge fp64 (~3.4-3.7) -- NO compute-bound profundo. TILE=16 sin
+  # bloqueo por registros da poca reutilizacion; a N=1024 (huella de
+  # 25MB) cabia entera en L2 (40MB en A100) y por eso media OI=105
+  # (artefacto de cache-residencia, no representativo). A N=4096 (huella
+  # de 402MB, no cabe en L2) el trafico real a DRAM revela la intensidad
+  # operacional verdadera de este bloqueo simple. Se acepta como septima
+  # ancla real cerca del ridge (decision del usuario, 2026-09-14) en vez
+  # de invertir en bloqueo por registros para recuperar un GEMM
+  # profundamente compute-bound -- ver F1-GPU-009.
+  - id: gpu_gemm_native_n4096
     suite: GEMM-native
     role: dataset
     device: gpu
     exec_path: bin/gemm_native_gpu
-    exec_args: "--size 1024 --iterations 176"
-    phase_label_hint: compute_bound
+    exec_args: "--size 4096 --iterations 330"
+    phase_label_hint: intermedio
+    operational_intensity_flops_per_byte: 4.05
     gpu_precision: fp64
-    size_variant: N1024
-    expected_runtime_seconds: 10
+    size_variant: N4096
+    expected_runtime_seconds: 33
     warmup_seconds: 1.0
-    estimated_memory_bytes: 25165824
+    estimated_memory_bytes: 402653184
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
       pacca-a100: "sha256:4eba6acf1f08749da8b109661aedc41f1b7ee825f7cb35c71d7a053b4c500de0"

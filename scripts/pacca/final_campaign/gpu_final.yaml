@@ -10,8 +10,22 @@
 # basta borrar su linea `- kernel_ref: X`. No hace falta re-someter nada.
 #
 # ⚠️ COSTO: el motor corre el PRODUCTO CRUZADO frequency_levels x
-# gpu_frequency_levels. Tal como esta: 1 nivel CPU x 10 niveles GPU x 23
-# kernels x 3 reps = 690 corridas (~39 h al ritmo medido).
+# gpu_frequency_levels. Tal como esta: 1 nivel CPU x 10 niveles GPU x 14
+# kernels x 3 reps = 420 corridas.
+#
+# F1-GPU-008/F1-GPU-009 (2026-09-14): -9 kernels sin evidencia real de
+# Roofline valida -- rodinia_backprop/rodinia_myocyte (precision FP32/
+# FP64 mixta, sin ridge unico asignable), gpu_rajaperf_stream_copy/
+# reduce3_int/indexlist_3loop (cero FLOPs de punto flotante, FLOPs/byte
+# no describe su trabajo), gpu_dgemm_n4096/dual_gemm_gpu_N2048 (OI
+# implausible via ncu, DFMA=0 pese a codigo fuente correcto -- brecha de
+# instrumentacion de ncu con binarios cuBLAS, no un bug), gpu_phasic_p010/
+# p100/p1000 (0 filas de entrenamiento SIEMPRE por diseno, F1-GPU-003 --
+# GPU-especifico, a diferencia de CPU). +1 gpu_gemm_native_n4096 (GEMM
+# CUDA propio sin cuBLAS, reemplaza a los dos GEMM excluidos -- OI real
+# 4.05 FLOP/byte, cerca del ridge, septima ancla nueva de la sesion, NO
+# el GEMM profundamente compute-bound que se buscaba originalmente).
+# Ver Seguimiento_Cambios_Plan_Director.md.
 #
 # DECISION 2026-09-13: la CPU se deja SOLO en REF. Ver F1-XDEV-006 en
 # Seguimiento_Cambios_Plan_Director.md para la evidencia completa.
@@ -49,23 +63,14 @@ calibration:
 - kernel_ref: ert_probe
 kernels:
 - kernel_ref: rodinia_gaussian
-- kernel_ref: rodinia_backprop
 - kernel_ref: rodinia_lavamd
 - kernel_ref: rodinia_heartwall
 - kernel_ref: rodinia_lud
-- kernel_ref: rodinia_myocyte
 - kernel_ref: rodinia_dwt2d
-- kernel_ref: gpu_rajaperf_stream_copy
 - kernel_ref: gpu_rajaperf_stream_triad
-- kernel_ref: gpu_rajaperf_reduce3_int
-- kernel_ref: gpu_rajaperf_indexlist_3loop
 - kernel_ref: gpu_rajaperf_jacobi_2d
 - kernel_ref: gpu_rajaperf_heat_3d
-- kernel_ref: gpu_dgemm_n4096
-- kernel_ref: gpu_phasic_p010
-- kernel_ref: gpu_phasic_p100
-- kernel_ref: gpu_phasic_p1000
-- kernel_ref: dual_gemm_gpu_N2048
+- kernel_ref: gpu_gemm_native_n4096
 - kernel_ref: dual_fft_gpu_N4096
 - kernel_ref: dual_axpy_gpu_N10000000
 - kernel_ref: dual_stencil_gpu_N1024
@@ -129,11 +134,11 @@ temperature:
   require_package_sensor: true
   minimum_c: 0
   maximum_c: 90
-# 690 corridas x ~39 MB/corrida (medido en el cribado) = ~27 GB.
+# 420 corridas x ~39 MB/corrida (medido en el cribado) = ~16.4 GB.
 # Se declara 64 GiB de margen (habia 1.2 TB libres en /home).
 projected_campaign_bytes: 68719476736
 remaining_core_hours: 100000
-projected_core_hours: 400
+projected_core_hours: 244
 cores:
   delegated_cpus:
   - 0

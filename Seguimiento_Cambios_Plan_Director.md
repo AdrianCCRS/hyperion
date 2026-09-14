@@ -3093,3 +3093,211 @@ Cerrado: candidatos identificados con evidencia (axpy) o duda explícita
 (phasic), costo de recorte calculado y mostrado, decisión tomada por el
 usuario de no modificar el manifiesto. `cpu_final.yaml` queda
 congelado en 43 kernels / 1290 corridas, listo para lanzar.
+
+## F1-GPU-008 — Cinco kernels de `gpu_final.yaml` sin evidencia de cribado: dos por precisión mixta, tres por FLOPs de punto flotante cero
+
+**Fecha de registro:** 2026-09-14
+**Estado:** cerrado. Los 5 se excluyen de `gpu_final.yaml` -- razón
+metodológica genuina en todos los casos, no un hueco de cobertura.
+
+### Motivación
+
+Al replicar en GPU el mismo proceso de auditoría de cobertura que se
+hizo con CPU esta sesión, se encontró que `rodinia_backprop`,
+`rodinia_myocyte`, `gpu_rajaperf_stream_copy`, `gpu_rajaperf_reduce3_int`
+y `gpu_rajaperf_indexlist_3loop` -- los 5 listados en `gpu_final.yaml`
+-- tienen **cero** carpetas de corrida en el cribado GPU real
+(`pacca_screen_20260909_gpu_screen`, 323 corridas). El manifiesto
+`gpu_eligible.yaml` (el que realmente se sometió) los excluye desde el
+principio; `gpu_candidates.yaml` (la lista completa antes del filtro de
+`ncu`) sí los incluye.
+
+### Investigación
+
+El campo `workflow_notes.ncu_gate` de `gpu_eligible.yaml` confirma que
+la exclusión viene de la etapa `ncu` (F1-GPU-004), no de un fallo de la
+campaña de cribado en sí. Revisando los reportes JSON individuales
+(`ncu/<kernel>.json`):
+
+- **`rodinia_backprop`/`rodinia_myocyte`**: `status:
+  not_suitable_for_roofline_truth`, `reason: "precisión FP32/FP64
+  mixta: no se asigna automáticamente un único ridge Roofline"`.
+  Confirmado en los contadores crudos: ambos muestran actividad
+  simultánea en `fadd_pred_on`/`fmul_pred_on` (fp32) Y
+  `dadd_pred_on`/`dfma_pred_on`/`dmul_pred_on` (fp64) -- no hay un
+  ridge único que asignarles bajo el modelo Roofline de una sola
+  precisión que usa el proyecto.
+- **`gpu_rajaperf_stream_copy`/`reduce3_int`/`indexlist_3loop`**:
+  `status: not_suitable_for_roofline_truth`, `reason: "sin FLOPs de
+  punto flotante útiles: FLOPs/byte no describe trabajo"`. Son kernels
+  puramente enteros/de movimiento de datos (una copia de arreglo, una
+  reducción entera, una compactación de índices) -- FLOPs/byte no tiene
+  sentido para ellos, sin importar si el wrapper que los ejecuta
+  funciona o no.
+
+**Corrección de un supuesto propio equivocado durante la
+investigación**: se pensó inicialmente que la causa de los 3
+`gpu_rajaperf_*` era exclusivamente el bug de wrapper ya documentado en
+F1-GPU-005 (`Base_CUDA-default` vs `Base_CUDA-block_256`), y se
+reperfiló con `ncu` tras confirmar que el fix seguía vigente. El
+reperfilado de `stream_copy` y `reduce3_int` (exitoso) confirmó el
+MISMO resultado ("sin FLOPs") que ya tenían sus reportes previos al
+fix -- es decir, el fix de F1-GPU-005 era necesario para los otros 3
+`gpu_rajaperf_*` (`stream_triad`/`jacobi_2d`/`heat_3d`, que sí tienen
+FLOPs reales) pero nunca iba a cambiar el destino de estos 3
+específicos. `indexlist_3loop` no se pudo reperfilar (ver incidente
+abajo), pero su reporte previo al fix YA mostraba la misma razón
+("sin FLOPs"), consistente con sus dos kernels hermanos.
+
+### Incidente: `ncu` se colgó dos veces reperfilando `gpu_rajaperf_indexlist_3loop`
+
+Dos intentos independientes de reperfilar este kernel quedaron
+congelados indefinidamente (0:00 de tiempo de CPU, sin proceso de
+cómputo activo en `nvidia-smi`, más de 20 minutos en ambos casos,
+superando el timeout interno de 1200s del script -- que no se
+propagó correctamente al árbol de procesos que crea
+`TreeLauncherSubreaper` de `ncu`). Se terminaron ambos procesos
+huérfanos manualmente (con autorización explícita del usuario en cada
+caso, dentro del job propio 7144, no de otro usuario de la cuenta
+compartida). No se investigó la causa raíz del cuelgue -- podría ser
+un problema específico de cómo este binario interactúa con el modo
+`--target-processes all` de `ncu`, o un problema de recursos del nodo
+compartido en ese momento. Como su reporte previo al fix ya daba la
+respuesta correcta (mismo motivo que sus hermanos), no se insistió en
+un tercer intento.
+
+### Decisión
+
+Se excluyen los 5 de `gpu_final.yaml`. Documentado como límite de
+alcance del modelo (mismo criterio que F1-CPU-004 en CPU), no como
+hueco de cobertura a llenar.
+
+### Limitaciones
+
+- No se investigó la causa del cuelgue de `ncu` con
+  `gpu_rajaperf_indexlist_3loop` -- si se necesita reperfilar este
+  kernel en el futuro por otra razón, puede volver a colgarse.
+- La aceptación del resultado de `indexlist_3loop` se apoya en su
+  reporte pre-fix (no confirmado con una corrida fresca) más la fuerte
+  consistencia con sus dos kernels hermanos, que sí se confirmaron en
+  fresco -- evidencia indirecta, no directa.
+
+### Criterio exacto de cierre
+
+Cerrado: 5 kernels investigados con evidencia real (reportes `ncu`
+existentes + 2 reperfilados en fresco), razón metodológica confirmada
+para cada uno, decisión tomada de excluirlos de `gpu_final.yaml`.
+
+## F1-GPU-009 — Reemplazo del GEMM GPU: ambos representantes existentes medían OI implausible; kernel propio (CUDA, sin cuBLAS) da OI plausible pero cerca del ridge, no compute-bound profundo
+
+**Fecha de registro:** 2026-09-14
+**Estado:** cerrado. `gpu_gemm_native_n4096` reemplaza a
+`dual_gemm_gpu_N2048` y `gpu_dgemm_n4096` en `gpu_final.yaml`. Séptima
+ancla real cerca del ridge de la sesión (sexta si se cuenta solo GPU).
+
+### Motivación
+
+`dual_gemm_gpu_N2048` (F1-GPU-007) ya estaba excluido por OI implausible
+(0.0153 FLOP/byte, DFMA=0). Revisando `gpu_dgemm_n4096` con el mismo
+criterio se encontró el MISMO síntoma: OI=0.0083 FLOP/byte medido vs.
+68.0 declarado en catálogo (desfase ~8175x), DFMA=0 en los tres puntos
+de `ncu`. Esto corrige una afirmación de F1-GPU-007, que proponía
+`gpu_dgemm_n4096` como reemplazo asumiendo que "ya mide correctamente"
+sin haber comparado el OI medido contra el declarado.
+
+### Investigación
+
+Se leyó el código fuente de `dual_gemm_gpu_dispatch.cu`
+(`kernels/dual/gemm_gpu_dispatch.cu`, disponible en el repo -- contra
+lo que decía F1-GPU-007, que no la encontró en su momento). La llamada
+a `cublasDgemm` usa parámetros correctos: M=N=K=n, `alpha=1`,
+`beta=0`, matrices A/B con datos aleatorios reales, sin degeneración
+de ninguna dimensión. Esto descarta la hipótesis de F1-GPU-007 sobre
+una K casi degenerada.
+
+`gpu_dgemm_n4096` (`bin/cublas_dgemm_bench`) enlaza correctamente
+contra `libcublas.so.12` (la misma versión que usa el resto del
+pipeline, `nvhpc/23.1`/CUDA 12.0) -- descarta también la hipótesis de
+divergencia de entorno/versión de CUDA que quedó abierta para
+`dual_gemm_gpu`.
+
+Con el código fuente confirmado correcto en ambos casos, la conclusión
+es que el kernel interno y propietario que `cuBLAS` despacha para
+DGEMM en esta combinación de GPU/driver/cuBLAS no emite las
+instrucciones SASS que el método de conteo de FLOPs de `ncu`
+reconoce (`sm__sass_thread_inst_executed_op_dfma_pred_on.sum` y
+similares) -- es una brecha de instrumentación, no un bug de código.
+Los demás kernels `dual_*_gpu` (stencil, cholesky, spmv, axpy, fft) sí
+miden OI plausible con `ncu`, y todos son CUDA escrito a mano, ninguno
+usa cuBLAS -- patrón consistente con esta hipótesis.
+
+### Solución: `gemm_native_gpu`
+
+Kernel CUDA propio (`kernels/gemm_native/gemm_native_gpu_bench.cu`):
+GEMM tiled con memoria compartida (bloque 16x16), sin cuBLAS,
+verificación por muestreo contra el cálculo esperado en CPU. Compilado
+y verificado en paccaA100 (`Verification SUCCESSFUL`).
+
+Primera medición a N=1024: **OI=105.14 FLOP/byte** (`ncu`, convergió,
+cambio relativo 0.0001) -- muy por encima del ridge fp64 (~3.4-3.7),
+con DFMA real y masivo (a diferencia de los dos binarios basados en
+cuBLAS). Pero el usuario señaló que N=1024 es un tamaño trivial para
+la GPU y no sostiene duración real -- recordando F1-GPU-006 (kernels
+GPU necesitan ~30-35s de duración real). Medido en paccaA100: N=1024
+da 0.0567s/iter (~10s con 176 iter, insuficiente); N=4096 da 0.0975s/iter
+(iterations=330 para ~32.2s, dentro del objetivo).
+
+**Sorpresa real al reperfilar a N=4096**: OI cae a **4.05 FLOP/byte**
+-- casi exacto sobre el ridge, NO compute-bound profundo como a N=1024.
+Explicación física: el kernel usa un tile de memoria compartida chico
+(TILE=16) sin bloqueo por registros, con poca reutilización de datos
+entre bloques. A N=1024 la huella completa (3 buffers x 1024² x 8 =
+25MB) cabe entera en la L2 del A100 (40MB) -- el tráfico real a DRAM es
+mínimo y el OI medido queda artificialmente alto (mismo artefacto de
+cache-residencia que ya se documentó repetidamente en el lado CPU esta
+sesión, F1-CPU-008/009/010). A N=4096 (huella de 402MB, no cabe en L2)
+el tráfico real a DRAM revela la intensidad operacional verdadera de
+este bloqueo simple, que resulta ser baja.
+
+### Decisión
+
+Se acepta `gpu_gemm_native_n4096` con `phase_label_hint: intermedio`
+(no `compute_bound`) como séptima ancla real cerca del ridge de la
+sesión, en vez de invertir en bloqueo por registros (cada hilo computa
+varios elementos de C, técnica estándar para subir la intensidad
+aritmética) para recuperar un GEMM genuinamente compute-bound --
+decisión explícita del usuario. Reemplaza a `dual_gemm_gpu_N2048` y
+`gpu_dgemm_n4096` en `gpu_final.yaml`.
+
+**Consecuencia que queda documentada**: el catálogo GPU se queda SIN
+ningún representante de GEMM denso profundamente compute-bound. No es
+un hueco a llenar de inmediato -- fue una decisión consciente de
+alcance, no un olvido.
+
+### Limitaciones
+
+- No se investigó si un `TILE` más grande (32/64) o bloqueo por
+  registros movería el OI de forma significativa -- se optó por
+  aceptar el resultado en vez de iterar sobre el diseño del kernel.
+- La causa exacta de por qué `ncu` no captura las instrucciones de
+  `cuBLAS` (¿instrucciones tensor-core no marcadas como tal?, ¿un
+  opcode SASS distinto en esta versión de driver/cuBLAS?) sigue sin
+  confirmarse -- se descartaron las hipótesis de código y de entorno,
+  pero no se identificó la causa positiva.
+- Solo se verificó con `ncu` (3 puntos de convergencia), no con una
+  corrida real de campaña con los 9 niveles de frecuencia de GPU.
+
+### Trabajo pendiente
+
+Ninguno para esta entrada -- cerrado. Si en el futuro se quiere un GEMM
+denso compute-bound real para el catálogo GPU, el punto de partida
+sería agregar bloqueo por registros a `gemm_native_gpu` (mismo binario,
+nuevo `TILE`/blocking) en vez de escribir uno nuevo desde cero.
+
+### Criterio exacto de cierre
+
+Cerrado: causa raíz de ambos GEMM anteriores investigada con evidencia
+real (código fuente revisado, versión de biblioteca confirmada),
+kernel propio escrito, compilado, verificado numéricamente y medido
+con `ncu` en dos tamaños, resultado final (near-ridge, no
+compute-bound) aceptado explícitamente por el usuario.
