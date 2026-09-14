@@ -1401,14 +1401,25 @@ kernels:
     binary_checksum:
       pacca-a100: "sha256:fae8e302d98204d6869fb27aa45132e4e667d1b399a118748cab27df1b117e1d"
 
+  # F1-CPU-006 (2026-09-14): --repfact 2 agregado -- corrida original
+  # (repfact=1 implicito) duraba menos que su propio warmup real medido
+  # (2.3-3.6s, F1-XDEV-005), 0 ventanas 'ok' garantizado. El wrapper
+  # reenvia argumentos extra al binario real de RAJAPerf ("$@"), asi que
+  # esto NO cambia --memory-touched (el tamano/OI que ya paso el tamizaje
+  # v2 con alpha=0.125) -- confirmado leyendo el CSV de salida de RAJAPerf,
+  # BytesTouched/rep se mantiene en 125829120 igual que con repfact=1.
+  # Medido con repfact=2: 4.16s a velocidad nativa (turbo) -> ~17-18s
+  # estimado a la frecuencia mas lenta de la rejilla, margen amplio sobre
+  # el warmup real.
   - id: cpu_rajaperf_lcals_tridiag_elim
     suite: RAJAPerf-OpenMP
     role: dataset
     exec_path: bin/cpu_rajaperf_lcals_tridiag_elim
+    exec_args: "--repfact 2"
     phase_label_hint: memory_bound  # tamizaje v2: alpha=0.125, r2=0.980
     size_variant: memtouched_10xLLC
-    expected_runtime_seconds: 6  # medido F4=2.93s, margen ~2x
-    warmup_seconds: 0.5
+    expected_runtime_seconds: 20  # medido: 4.16s nativo con repfact=2 -> ~17-18s estimado a la frecuencia mas lenta
+    warmup_seconds: 3.6  # F1-XDEV-005: warmup real medido con la corrida corta, 2.3-3.6s -- sin recalibrar todavia con la corrida larga
     estimated_memory_bytes: 157286400
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -1462,14 +1473,20 @@ kernels:
     binary_checksum:
       pacca-a100: "sha256:721280dad7639eeed6ba9673a500bb17944fcd712b30a658b999717cf288811a"
 
+  # F1-CPU-006 (2026-09-14): --repfact 3 agregado, mismo motivo y metodo
+  # que cpu_rajaperf_lcals_tridiag_elim (ver comentario ahi). Este kernel
+  # necesito un factor mayor (3, no 2) porque su warmup real es mas corto
+  # relativo a su duracion base -- medido con repfact=3: 3.71s nativo ->
+  # ~16s estimado a la frecuencia mas lenta.
   - id: cpu_rajaperf_basic_init3
     suite: RAJAPerf-OpenMP
     role: dataset
     exec_path: bin/cpu_rajaperf_basic_init3
+    exec_args: "--repfact 3"
     phase_label_hint: memory_bound  # tamizaje v2: alpha=0.178, r2=0.963
     size_variant: memtouched_10xLLC
-    expected_runtime_seconds: 5  # medido F4=2.18s, margen ~2x
-    warmup_seconds: 0.5
+    expected_runtime_seconds: 18  # medido: 3.71s nativo con repfact=3 -> ~16s estimado a la frecuencia mas lenta
+    warmup_seconds: 2.3  # F1-XDEV-005: warmup real medido con la corrida corta, 2.3-3.6s -- sin recalibrar todavia con la corrida larga
     estimated_memory_bytes: 157286400
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
