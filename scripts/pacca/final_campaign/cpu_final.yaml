@@ -21,6 +21,25 @@ catalog_path: /home/latorresn/hyperion-results/screening/pacca_screen_20260909/c
 calibration:
 - kernel_ref: stream_official
 - kernel_ref: ert_probe
+# F1-CPU-004 (2026-09-14): cpu_gap_bfs/ptrchase excluidos -- latency-bound
+# (log2(OI/ridge) ~ -26.7), fuera de dominio del modelo Roofline FLOPs/bytes,
+# ningun barrido de tamano/frecuencia los va a mover. Ver Seguimiento.
+#
+# cpu_rajaperf_lcals_tridiag_elim/basic_init3 excluidos -- duracion real tan
+# corta que, con su warmup correcto (2.3-3.6s medido), da 0 ventanas 'ok'
+# (I10) sin importar el nivel de frecuencia; no tiene sentido correr 30
+# repeticiones cada uno en la campana final sabiendo que van a rechazarse
+# todas. Kernel demasiado pequeno para este protocolo, arreglo (tamano mayor)
+# diferido -- no bloquea esta campana.
+#
+# dual_* (F1-XDEV-001, actualizacion 2026-09-14): cuarentena levantada tras
+# inspeccionar fuente -- gemm/cholesky/fft/stencil/axpy limpios (llaman
+# OpenBLAS/LAPACK/FFTW reales o implementan el algoritmo directo, sin
+# atajos). dual_spmv habilitado CON RESERVA: su "matriz dispersa" es una
+# banda fija sintetica (7 no-ceros/fila, i+-3 mod N), no acceso irregular
+# real -- documentar asi si se reporta. Se anaden 2 tamanos adicionales por
+# familia (ademas del que ya tenia el cribado) para densificar la franja
+# cerca del ridge, hoy sostenida casi solo por npb_bt/npb_lu.
 kernels:
 - kernel_ref: npb_bt
 - kernel_ref: npb_mg
@@ -35,25 +54,31 @@ kernels:
 - kernel_ref: cpu_rajaperf_stream_triad
 - kernel_ref: cpu_rajaperf_stream_add
 - kernel_ref: cpu_rajaperf_lcals_first_sum
-- kernel_ref: cpu_rajaperf_lcals_tridiag_elim
 - kernel_ref: cpu_rajaperf_polybench_jacobi_1d
 - kernel_ref: cpu_rajaperf_polybench_fdtd_2d
 - kernel_ref: cpu_rajaperf_basic_daxpy
-- kernel_ref: cpu_rajaperf_basic_init3
 - kernel_ref: cpu_lulesh
 - kernel_ref: cpu_hpcg
-- kernel_ref: cpu_gap_bfs
 - kernel_ref: cpu_gap_pr
 - kernel_ref: cpu_cholmod
-- kernel_ref: ptrchase
 - kernel_ref: phasic_p010
 - kernel_ref: phasic_p100
 - kernel_ref: phasic_p1000
 - kernel_ref: dual_gemm_cpu_N2048
+- kernel_ref: dual_fft_cpu_N128
+- kernel_ref: dual_fft_cpu_N1024
 - kernel_ref: dual_fft_cpu_N4096
+- kernel_ref: dual_axpy_cpu_N100000
+- kernel_ref: dual_axpy_cpu_N3162278
 - kernel_ref: dual_axpy_cpu_N10000000
+- kernel_ref: dual_stencil_cpu_N256
 - kernel_ref: dual_stencil_cpu_N1024
+- kernel_ref: dual_stencil_cpu_N1536
+- kernel_ref: dual_cholesky_cpu_N256
+- kernel_ref: dual_cholesky_cpu_N1024
 - kernel_ref: dual_cholesky_cpu_N2048
+- kernel_ref: dual_spmv_cpu_N100000
+- kernel_ref: dual_spmv_cpu_N1000000
 frequency_levels:
 - id: REF
   mode: native_governor
@@ -106,11 +131,13 @@ temperature:
   require_package_sensor: true
   minimum_c: 0
   maximum_c: 90
-# 32 kernels x 10 niveles x 3 reps = 960 corridas. Medido en el cribado:
-# ~39 MB/corrida -> ~37 GB. Se declara 64 GiB de margen (habia 1.2 TB libres).
-projected_campaign_bytes: 68719476736
+# 38 kernels x 10 niveles x 3 reps = 1140 corridas (actualizado 2026-09-14,
+# ver F1-CPU-004/F1-XDEV-001 en el seguimiento: -4 kernels excluidos,
+# +10 tamanos dual_* nuevos). Medido en el cribado: ~39 MB/corrida -> ~44 GB.
+# Se declara 96 GiB de margen (habia 1.2 TB libres).
+projected_campaign_bytes: 103079215104
 remaining_core_hours: 100000
-projected_core_hours: 500
+projected_core_hours: 600
 cores:
   delegated_cpus:
   - 0

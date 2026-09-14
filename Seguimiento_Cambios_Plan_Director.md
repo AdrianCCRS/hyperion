@@ -2131,3 +2131,275 @@ Se cierra cuando se confirme la causa raíz del conteo de FLOPs anómalo (o se
 decida formalmente reemplazar el kernel), y una nueva medición de `ncu`
 muestre una OI fisicamente consistente con GEMM denso (muy por encima del
 ridge fp64).
+
+---
+
+## F1-CPU-004 — `cpu_gap_bfs`/`ptrchase` excluidos del clasificador compute/memory: fuera de dominio del modelo Roofline clásico (latency-bound, no bandwidth-bound)
+
+**Fecha de registro:** 2026-09-14
+**Estado:** cerrado; excluidos del entrenamiento del clasificador. Documentado
+como límite de alcance del modelo, no como bug ni como cobertura pendiente.
+
+### Problema
+
+Al correr `fase2_clasificador/run_phase_coverage.py --device cpu` sobre el
+cribado CPU (`pacca_screen_20260909`, 498,796 filas usables/516,865, 25
+familias), el diagnóstico mostró una dispersión enorme en
+`log2(operational_intensity_uncore_real / i_ridge_used)`: de -26.7 hasta
++4.57 entre familias, con la franja cercana al ridge (|log2| <= 1, la región
+que define la frontera de decisión del clasificador) sostenida casi en
+solitario por `npb_bt` (47.2% de sus filas) y `npb_lu` (47.0%) -- 9 de 25
+familias no aportan ni una sola fila compute_bound en ningún nivel de
+frecuencia.
+
+Dentro de ese grupo memory_only, `cpu_gap_bfs` (BFS sobre grafo, familia
+`gap_bfs`) y `ptrchase` (recorrido de lista enlazada, puntero-persecución)
+son un caso aparte: su mediana de `log2(OI/ridge)` es -26.70 y -26.71
+respectivamente, es decir su intensidad operacional medida está ~10^8 veces
+por debajo del ridge. Ningún barrido de tamaño de problema los va a acercar
+-- el cuello de botella de ambos no es ancho de banda de memoria (lo que el
+modelo Roofline FLOPs/bytes sí captura), es **latencia de acceso irregular**
+(cada acceso depende del resultado del anterior, sin *prefetching* efectivo
+posible): un régimen que el Roofline clásico no modela, sin importar cuántos
+datos se muevan.
+
+### Decisión
+
+Excluir `cpu_gap_bfs` y `ptrchase` del conjunto de entrenamiento del
+clasificador compute/memory-bound. No es un hueco de cobertura a llenar con
+más corridas: es un límite de alcance del modelo Roofline FLOPs/bytes, que
+por diseño solo separa "limitado por cómputo" vs "limitado por ancho de
+banda de memoria" y no tiene una tercera clase para "limitado por latencia
+de acceso irregular". La extensión que sí cubre ese régimen es el **Cache-Aware
+Roofline Model (CARM, Ilic et al. 2014)**, fuera del alcance de este
+proyecto de pregrado (ver [[feedback-undergrad-scope-discipline]] en
+memoria de sesión).
+
+Esta decisión queda respaldada por literatura reciente sobre el mismo
+problema (clasificación ML compute/memory-bound vía Roofline): el póster
+SC25 "*Classifying Performance Bounds Using Machine Learning*" (Littman y
+Deakin, University of Bristol)
+(https://sc25.supercomputing.org/proceedings/posters/poster_files/post215s2-file3.pdf)
+reporta la misma asimetría estructural -- pocos ejemplos *floating-point
+bound* en su muestra -- y la explica como un reflejo real de que la mayoría
+del software HPC está limitado por *throughput* de datos, no como un defecto
+de su conjunto de datos. Nuestro hallazgo (28% compute / 72% memory global,
+9/25 familias sin ningún ejemplo compute_bound) es consistente con esa
+observación: el desbalance es una propiedad del dominio (HPC real), no
+necesariamente un artefacto de la campaña de cribado.
+
+### Limitaciones
+
+- La exclusión es binaria (todo o nada por kernel); no se evaluó si alguna
+  variante de tamaño/entrada de `gap_bfs`/`ptrchase` podría, en el extremo,
+  acercarse al ridge -- se descartó esa vía por la magnitud de la desviación
+  (-26.7 en log2 no es un caso límite, es ~4 órdenes de magnitud más extremo
+  que el siguiente kernel más memory-bound del catálogo, `gap_pr` en -10.63).
+- El resto de familias memory_only del cribado (`dual_axpy`, `dual_fft`,
+  `dual_spmv`, `dual_stencil`, `npb_cg`, `npb_mg`, `gap_pr`) NO se excluyen
+  por esta misma entrada -- su desviación del ridge es mucho menor
+  (-3.7 a -10.6) y sí son candidatos razonables para un barrido de tamaño de
+  problema o de precisión (fp32/fp64), evaluado aparte.
+
+### Trabajo pendiente
+
+- Ninguno para esta entrada específica (excluidos, cerrado).
+- Sigue abierto, en otra entrada futura: barrido de tamaño de problema
+  dirigido a `dual_stencil`/`dual_spmv`/`dual_fft` y barrido de precisión
+  fp32/fp64 sobre el resto del catálogo, para densificar la franja cercana
+  al ridge más allá de `npb_bt`/`npb_lu`. Diseño acordado, ejecución
+  pendiente de que `paccaA100` se libere del cribado GPU en curso.
+
+### Criterio exacto de cierre
+
+Cerrado en esta misma entrada: decisión tomada y documentada, sin trabajo de
+cómputo pendiente. Se reabriría solo si el proyecto decide en el futuro
+extender el clasificador con un régimen adicional de latencia (CARM u otro),
+fuera del alcance actual.
+
+---
+
+## F1-XDEV-001 (actualización) — Cuarentena `dual_*` verificada e inspeccionada: 5/6 familias habilitadas, fuente fusionado a `main`
+
+**Fecha de registro:** 2026-09-14
+**Estado:** cuarentena de §2.1.1 punto 3 resuelta para
+`dual_gemm`/`dual_cholesky`/`dual_fft`/`dual_stencil`/`dual_axpy`;
+`dual_spmv` habilitado con una reserva documentada. Fuente fusionado a
+`main`. Ejecución del barrido de tamaños ampliado sigue pendiente (bloqueada
+por el cribado GPU en curso sobre `paccaA100`).
+
+### Contexto
+
+F1-XDEV-001 dejó la familia `dual_*` en cuarentena porque se construyó para
+el trabajo de "selector de dispositivo" (`classifier/selector/`, pivote
+2026-08-27), explícitamente fuera de alcance según
+`Plan_Detallado_Realineacion_Hyperion.md` §7.2. El propio plan (§2.1.1 punto
+3) fijó el criterio real para levantar la cuarentena: confirmar que la
+telemetría de `dual_*` pasa por el pipeline de etiquetado Roofline real
+(`uncore_imc`), no por una métrica ad hoc del selector -- y que su origen no
+la descalifica automáticamente.
+
+Esta entrada verifica ese criterio, motivada por el análisis de cobertura
+del plano Roofline de CPU (ver `F1-CPU-004`): las familias `dual_stencil`,
+`dual_axpy`, `dual_fft`, `dual_spmv` (junto con otras) resultaron
+`memory_only` en el cribado, y ya existen en `catalog.yaml` barridos
+log-espaciados completos de tamaño para las seis familias `dual_*` (13-16
+puntos cada una, `N64` a `N16384`/`N31622777` según la operación) sin usar
+en el manifiesto de cribado actual, que solo toma un tamaño por familia.
+
+### Verificación 1 -- pipeline de etiquetado
+
+Confirmado sin ambigüedad: el cribado `pacca_screen_20260909` ya midió
+`dual_stencil_cpu_N1024`, `dual_axpy_cpu_N10000000`, etc. con el mismo
+`run_campaign.py`/`postprocess.py` basado en `uncore_imc` que el resto del
+catálogo -- no se reutilizó ninguna métrica del selector. Los valores de
+`operational_intensity_uncore_real`/`i_ridge_used` en
+`family_class_frequency_summary.csv` son mediciones reales de esta campaña.
+Este punto queda satisfecho para las seis familias.
+
+### Verificación 2 -- procedencia y optimización del código fuente
+
+El fuente (`kernels/dual/*.c`/`*.cu`, generado y compilado según
+`scripts/pacca/gen_dual_full_catalog.py`/`build_dual_kernels.sh`) nunca se
+había fusionado a `main` -- solo el catálogo (232 entradas, `68a387b`) y los
+binarios compilados en pacca. Se inspeccionó línea por línea cada una de las
+seis implementaciones CPU (traídas ahora de `origin/fase-02`, HEAD real
+`0ba20df`, la versión que coincide con los checksums ya declarados en
+`catalog.yaml`):
+
+| Familia | Implementación | Veredicto |
+|---|---|---|
+| `dual_gemm_cpu` | Reutiliza literalmente `kernels/dgemm/dgemm_bench.c` (mismo fuente que `dgemm_n2048`, ya en el catálogo original de 23 kernels) | Limpio -- no es código nuevo |
+| `dual_cholesky_cpu` | `LAPACKE_dpotrf` real vía OpenBLAS, matriz SPD por `A = BᵀB + NI` | Limpio, LAPACK estándar |
+| `dual_fft_cpu` | FFTW real (`fftw_plan_dft_2d`, `FFTW_ESTIMATE` para determinismo); FLOPs reportados por fórmula analítica estándar (no afecta la OI real, que sale de contadores `uncore`/`perf`, no del stdout del kernel) | Limpio |
+| `dual_stencil_cpu` | Jacobi 2D de 5 puntos, OpenMP, doble buffer, fp64 | Limpio, mismo calibre que un stencil de Rodinia |
+| `dual_axpy_cpu` | `cblas_daxpy` real, BLAS-1 puro | Limpio |
+| `dual_spmv_cpu` | Matriz "dispersa" con **banda fija sintética** (7 no-ceros/fila, columnas `i±3 mod N`) -- el propio comentario del código lo describe como "misma conectividad que un stencil 1D de 7 puntos, generada sintéticamente" | Usable, pero **no representa acceso irregular real**; es un stencil con una capa de indirección, no un sustituto de un SpMV irregular genuino (ver el hueco de patrón irregular ya identificado en `Plan_Detallado_Realineacion_Hyperion.md` §2.1.1 punto 4, candidatos `rodinia_kmeans`/`nw`/`particlefilter`) |
+
+Ninguna de las seis reutiliza una métrica ad hoc del selector ni toma
+atajos de implementación -- todas llaman a rutinas numéricas reales
+(OpenBLAS/LAPACK/FFTW) o implementan el algoritmo directamente.
+
+### Decisión
+
+1. **Cuarentena levantada** para `dual_gemm`/`dual_cholesky`/`dual_fft`/
+   `dual_stencil`/`dual_axpy`: elegibles para ampliar el manifiesto de
+   cribado con más puntos de tamaño (ya compilados, ya con checksum en
+   `catalog.yaml`, sin trabajo de compilación nuevo).
+2. `dual_spmv` **elegible con reserva documentada**: si se usa, el capítulo
+   correspondiente debe aclarar que su "irregularidad" es sintética de banda
+   fija, no un patrón de acceso disperso real.
+3. **Fuente fusionado a `main`** en este mismo cambio: `kernels/dual/*.c`,
+   `kernels/dual/*.cu`, `kernels/dual/dispatch_timing.h`,
+   `scripts/pacca/gen_dual_full_catalog.py`,
+   `scripts/pacca/build_dual_kernels.sh`,
+   `scripts/pacca/screen_dual_frontier.sh` -- cierra el hueco de
+   reproducibilidad/procedencia (antes solo existían en `origin/fase-02`,
+   una rama fuera de alcance). Efecto colateral útil: el fuente de
+   `gemm_gpu_dispatch.cu` que `F1-GPU-007` necesitaba para diagnosticar el
+   conteo de FLOPs anómalo (`sm__sass_thread_inst_executed_op_dfma_pred_on.sum=0`)
+   ahora también está disponible en `main`.
+
+### Limitaciones
+
+- No se verificó que los binarios YA COMPILADOS en pacca correspondan
+  bit-a-bit a este fuente (solo se comparó que los checksums existentes en
+  `catalog.yaml` provienen del mismo commit `0ba20df` de `fase-02` del que
+  se trajo el fuente) -- si algún binario en `~/hyperion-kernels/bin` en
+  pacca quedó de una compilación más vieja, el checksum del catálogo lo
+  detectaría en el preflight (C02), no esta entrada.
+- No se inspeccionaron los `.cu` de GPU con el mismo detalle línea por línea
+  (la cuarentena que motivó esta entrada es específicamente CPU, vía
+  `F1-CPU-004`); `F1-GPU-007` es la entrada correcta para retomar el lado
+  GPU ahora que su fuente ya está disponible.
+
+### Trabajo pendiente
+
+- Ampliar `cpu_screen.yaml` (o un manifiesto de seguimiento nuevo) con 3-4
+  tamaños intermedios adicionales para `dual_stencil`/`dual_spmv`/
+  `dual_fft`/`dual_axpy`, dirigido a densificar la franja cercana al ridge
+  identificada en `F1-CPU-004`. Bloqueado por `paccaA100` ocupado con el
+  cribado GPU.
+- Retomar `F1-GPU-007` con el fuente de `gemm_gpu_dispatch.cu` ya
+  disponible en `main`.
+
+### Criterio exacto de cierre
+
+Esta actualización se cierra con la fusión del fuente y la tabla de
+veredictos por familia. El punto pendiente (ampliar el manifiesto y correr
+el barrido) se rastrea aparte, no bloquea cerrar esta entrada.
+
+---
+
+## F1-XDEV-005 (actualización) — `cpu_final.yaml` actualizado antes de su primer intento real: excluidos F1-CPU-004, ampliados `dual_*`
+
+**Fecha de registro:** 2026-09-14
+**Estado:** manifiesto actualizado, sin ejecutar todavía. La campaña final
+(`job 7144`, `hyp_final_holder`) intentó `final_cpu`/`final_gpu` una vez
+(2026-09-13 14:46, ambos fallaron en segundos, antes de medir nada real) y
+quedó viva a la espera; desde entonces la asignación se usa para el cribado
+GPU en curso (adjuntada manualmente, no un job aparte, para no perder el
+puesto en la cola FIFO). Este cambio llega a tiempo: ningún dato real de la
+campaña final se descarta ni se invalida.
+
+### Problema
+
+`scripts/pacca/final_campaign/cpu_final.yaml` (comprometido 2026-09-13,
+antes de esta sesión) tenía la misma lista de 32 kernels del manifiesto de
+cribado -- un solo tamaño por familia `dual_*`, incluía `cpu_gap_bfs`/
+`ptrchase` (excluidos en `F1-CPU-004`) y los dos RAJAPerf demasiado cortos
+para producir ventanas `ok` (`cpu_rajaperf_lcals_tridiag_elim`/
+`basic_init3`). De reintentarse tal cual, la campaña final (960 corridas,
+~500 horas-núcleo proyectadas) habría heredado exactamente los mismos
+huecos de cobertura diagnosticados en `F1-CPU-004`/`F1-XDEV-001`, gastando
+cómputo real en configuraciones ya sabidas inviables.
+
+### Decisión
+
+Editar `cpu_final.yaml` directamente (el propio archivo documenta que es
+editable hasta que el job arranque, sin necesidad de re-someter):
+
+1. **Quitar** `cpu_gap_bfs`, `ptrchase` (`F1-CPU-004`, latency-bound, fuera
+   de dominio del modelo).
+2. **Quitar** `cpu_rajaperf_lcals_tridiag_elim`, `cpu_rajaperf_basic_init3`
+   (con su warmup real de 2.3-3.6s dan 0 ventanas `ok` en cualquier nivel de
+   frecuencia -- correr 30 repeticiones cada uno en la campaña final de
+   nada serviría). El arreglo real (tamaño de problema mayor) sigue
+   diferido, no bloquea esta campaña.
+3. **Ampliar `dual_*`** con la cuarentena ya levantada (`F1-XDEV-001`
+   actualización anterior): +2 tamaños nuevos cada una para
+   `dual_fft`/`dual_axpy`/`dual_stencil`/`dual_cholesky` (además del que ya
+   tenía el cribado), y `dual_spmv` agregado por primera vez a esta campaña
+   (2 tamaños, no tenía ninguno) -- con la reserva ya documentada de que su
+   "dispersión" es banda fija sintética. `dual_gemm` se deja con su único
+   tamaño (ya es ancla compute-bound confiada, sin urgencia de ampliarlo
+   ahora).
+
+Resultado: **38 kernels x 10 niveles x 3 repeticiones = 1140 corridas**
+(antes 960). `projected_campaign_bytes`/`projected_core_hours` escalados
+proporcionalmente (96 GiB de margen, ~600 horas-núcleo). Verificado que el
+YAML resultante parsea y la aritmética cuadra (`38*10*3=1140`).
+
+### Limitaciones
+
+- Los tamaños `dual_*` añadidos se eligieron por criterio de cobertura
+  (uno pequeño para cruzar el límite de caché, uno intermedio), no por una
+  búsqueda exhaustiva del punto óptimo -- si el barrido real muestra que
+  ninguno se acerca más al ridge que el tamaño ya usado en el cribado, hay
+  margen en el catálogo (`N64` a `N16384`/`N31622777`) para iterar.
+- No se tocó `gpu_final.yaml` en este cambio -- el lado GPU sigue
+  pendiente del propio cribado en curso bajo `job 7144`.
+
+### Trabajo pendiente
+
+- Reintentar `final_cpu` bajo `job 7144` (o el que corresponda cuando el
+  cribado GPU cierre) con el manifiesto ya actualizado.
+- Actualizar `gpu_final.yaml` con los hallazgos equivalentes del lado GPU
+  una vez cierre su propio cribado.
+
+### Criterio exacto de cierre
+
+Se cierra cuando la campaña final CPU corra de punta a punta con este
+manifiesto y produzca el dataset que alimentará el entrenamiento real del
+clasificador (`leave_one_familia_out`, pendiente de construir -- ver
+discusión de F1 macro < 0.5 del intento anterior, sesión 2026-09-14).
