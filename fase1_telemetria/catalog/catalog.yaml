@@ -5041,3 +5041,200 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     binary_checksum:
       pacca-a100: "sha256:308fb92642d1a38095d15dbc165987a00438f491bc77540cfee5eb2cbf2ef8f3"
+
+# F1-CPU-009 (2026-09-14): familia CG sobre Laplaciano 3D (hpccg_cpu),
+# NUEVA (no dual_*, no lbm_cpu). Implementacion propia -- no vendorizada
+# de Mantevo/HPCCG. Barrido exploratorio de 11 tamanos en REF para probar
+# (sin asumir) si la reutilizacion de la matriz entre las CG_STEPS=20
+# pasadas por despacho da una transicion mas gradual que el salto de
+# cache abrupto documentado en F1-CPU-008 para lbm_cpu. Tiempos medidos
+# reales en paccaA100 (N=32/48/64/96/128) muestran escalado
+# super-cubico (exponente ~3.3-3.8, no 3 piso) -- indicio de degradacion
+# progresiva de cache, no necesariamente un salto unico.
+
+  - id: hpccg_cpu_N16
+    suite: HPCCG-CG
+    role: dataset
+    exec_path: bin/hpccg_cpu
+    config_id: hpccg_N16
+    phase_label_hint: intermedio
+    size_variant: N16
+    exec_args: "--size 16 --iterations 12000"
+    expected_runtime_seconds: 4
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 616038
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:837339bd72c5477c52bc28e01b28ead9dda06eaa4f879d1c193973be1db2f383"
+
+  - id: hpccg_cpu_N24
+    suite: HPCCG-CG
+    role: dataset
+    exec_path: bin/hpccg_cpu
+    config_id: hpccg_N24
+    phase_label_hint: intermedio
+    size_variant: N24
+    exec_args: "--size 24 --iterations 7700"
+    expected_runtime_seconds: 4
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 2079850
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:837339bd72c5477c52bc28e01b28ead9dda06eaa4f879d1c193973be1db2f383"
+
+  - id: hpccg_cpu_N32
+    suite: HPCCG-CG
+    role: dataset
+    exec_path: bin/hpccg_cpu
+    config_id: hpccg_N32
+    phase_label_hint: intermedio
+    size_variant: N32
+    exec_args: "--size 32 --iterations 2500"
+    expected_runtime_seconds: 4
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 4928451
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:837339bd72c5477c52bc28e01b28ead9dda06eaa4f879d1c193973be1db2f383"
+
+  - id: hpccg_cpu_N40
+    suite: HPCCG-CG
+    role: dataset
+    exec_path: bin/hpccg_cpu
+    config_id: hpccg_N40
+    phase_label_hint: intermedio
+    size_variant: N40
+    exec_args: "--size 40 --iterations 1250"
+    expected_runtime_seconds: 4
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 9625600
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:837339bd72c5477c52bc28e01b28ead9dda06eaa4f879d1c193973be1db2f383"
+
+  - id: hpccg_cpu_N48
+    suite: HPCCG-CG
+    role: dataset
+    exec_path: bin/hpccg_cpu
+    config_id: hpccg_N48
+    phase_label_hint: intermedio
+    size_variant: N48
+    exec_args: "--size 48 --iterations 700"
+    expected_runtime_seconds: 4
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 16633037
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:837339bd72c5477c52bc28e01b28ead9dda06eaa4f879d1c193973be1db2f383"
+
+  - id: hpccg_cpu_N56
+    suite: HPCCG-CG
+    role: dataset
+    exec_path: bin/hpccg_cpu
+    config_id: hpccg_N56
+    phase_label_hint: intermedio
+    size_variant: N56
+    exec_args: "--size 56 --iterations 350"
+    expected_runtime_seconds: 4
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 26412646
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:837339bd72c5477c52bc28e01b28ead9dda06eaa4f879d1c193973be1db2f383"
+
+  - id: hpccg_cpu_N64
+    suite: HPCCG-CG
+    role: dataset
+    exec_path: bin/hpccg_cpu
+    config_id: hpccg_N64
+    phase_label_hint: intermedio
+    size_variant: N64
+    exec_args: "--size 64 --iterations 190"
+    expected_runtime_seconds: 4
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 39434650
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:837339bd72c5477c52bc28e01b28ead9dda06eaa4f879d1c193973be1db2f383"
+
+  - id: hpccg_cpu_N80
+    suite: HPCCG-CG
+    role: dataset
+    exec_path: bin/hpccg_cpu
+    config_id: hpccg_N80
+    phase_label_hint: intermedio
+    size_variant: N80
+    exec_args: "--size 80 --iterations 90"
+    expected_runtime_seconds: 4
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 77004800
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:837339bd72c5477c52bc28e01b28ead9dda06eaa4f879d1c193973be1db2f383"
+
+  - id: hpccg_cpu_N96
+    suite: HPCCG-CG
+    role: dataset
+    exec_path: bin/hpccg_cpu
+    config_id: hpccg_N96
+    phase_label_hint: intermedio
+    size_variant: N96
+    exec_args: "--size 96 --iterations 50"
+    expected_runtime_seconds: 4
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 133072486
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:837339bd72c5477c52bc28e01b28ead9dda06eaa4f879d1c193973be1db2f383"
+
+  - id: hpccg_cpu_N112
+    suite: HPCCG-CG
+    role: dataset
+    exec_path: bin/hpccg_cpu
+    config_id: hpccg_N112
+    phase_label_hint: intermedio
+    size_variant: N112
+    exec_args: "--size 112 --iterations 30"
+    expected_runtime_seconds: 4
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 211301171
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:837339bd72c5477c52bc28e01b28ead9dda06eaa4f879d1c193973be1db2f383"
+
+  - id: hpccg_cpu_N128
+    suite: HPCCG-CG
+    role: dataset
+    exec_path: bin/hpccg_cpu
+    config_id: hpccg_N128
+    phase_label_hint: intermedio
+    size_variant: N128
+    exec_args: "--size 128 --iterations 20"
+    expected_runtime_seconds: 4
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 315516867
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:837339bd72c5477c52bc28e01b28ead9dda06eaa4f879d1c193973be1db2f383"
