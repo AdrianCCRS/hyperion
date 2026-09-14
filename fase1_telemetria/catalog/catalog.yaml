@@ -4827,7 +4827,7 @@ kernels:
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     binary_checksum:
-      pacca-a100: "sha256:748b26f35995ea159d01eb808142f7263ba8f3d2ecccb929568a270bb8389b81"
+      pacca-a100: "sha256:308fb92642d1a38095d15dbc165987a00438f491bc77540cfee5eb2cbf2ef8f3"
 
   - id: lbm_cpu_N192
     suite: LBM-D2Q9
@@ -4844,7 +4844,7 @@ kernels:
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     binary_checksum:
-      pacca-a100: "sha256:748b26f35995ea159d01eb808142f7263ba8f3d2ecccb929568a270bb8389b81"
+      pacca-a100: "sha256:308fb92642d1a38095d15dbc165987a00438f491bc77540cfee5eb2cbf2ef8f3"
 
   - id: lbm_cpu_N256
     suite: LBM-D2Q9
@@ -4861,7 +4861,7 @@ kernels:
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     binary_checksum:
-      pacca-a100: "sha256:748b26f35995ea159d01eb808142f7263ba8f3d2ecccb929568a270bb8389b81"
+      pacca-a100: "sha256:308fb92642d1a38095d15dbc165987a00438f491bc77540cfee5eb2cbf2ef8f3"
 
   - id: lbm_cpu_N320
     suite: LBM-D2Q9
@@ -4878,7 +4878,7 @@ kernels:
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     binary_checksum:
-      pacca-a100: "sha256:748b26f35995ea159d01eb808142f7263ba8f3d2ecccb929568a270bb8389b81"
+      pacca-a100: "sha256:308fb92642d1a38095d15dbc165987a00438f491bc77540cfee5eb2cbf2ef8f3"
 
   - id: lbm_cpu_N384
     suite: LBM-D2Q9
@@ -4895,7 +4895,7 @@ kernels:
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     binary_checksum:
-      pacca-a100: "sha256:748b26f35995ea159d01eb808142f7263ba8f3d2ecccb929568a270bb8389b81"
+      pacca-a100: "sha256:308fb92642d1a38095d15dbc165987a00438f491bc77540cfee5eb2cbf2ef8f3"
 
   - id: lbm_cpu_N512
     suite: LBM-D2Q9
@@ -4912,4 +4912,4 @@ kernels:
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     binary_checksum:
-      pacca-a100: "sha256:748b26f35995ea159d01eb808142f7263ba8f3d2ecccb929568a270bb8389b81"
+      pacca-a100: "sha256:308fb92642d1a38095d15dbc165987a00438f491bc77540cfee5eb2cbf2ef8f3"
