@@ -5541,6 +5541,10 @@ kernels:
   # ancla real cerca del ridge (decision del usuario, 2026-09-14) en vez
   # de invertir en bloqueo por registros para recuperar un GEMM
   # profundamente compute-bound -- ver F1-GPU-009.
+  # F1-GPU-010 (2026-09-14): SUSTITUIDO en gpu_final.yaml por
+  # gpu_rajaperf_gemm (suite RAJAPerf, no codigo propio). Se deja esta
+  # entrada en el catalogo como codigo disponible/documentado, pero
+  # fuera de la campana final.
   - id: gpu_gemm_native_n4096
     suite: GEMM-native
     role: dataset
@@ -5559,3 +5563,33 @@ kernels:
       pacca-a100: "sha256:4eba6acf1f08749da8b109661aedc41f1b7ee825f7cb35c71d7a053b4c500de0"
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+
+  # F1-GPU-010 (2026-09-14): reemplazo de gemm_native_gpu por un GEMM de
+  # suite que SI mide bien con ncu. Polybench_GEMM es CUDA generado por
+  # RAJA desde su propio codigo fuente C++ (lambda -> kernel CUDA real),
+  # a diferencia de dual_gemm_gpu_N2048/gpu_dgemm_n4096 (cuBLAS,
+  # instrucciones SASS invisibles para ncu -- ver F1-GPU-009). Verificado
+  # con --dryrun y ejecucion real: DFMA/DMUL reales (no cero).
+  # --sizefact 250 elegido por tiempo de pared medido (F1-GPU-006, piso
+  # ~30-35s): sizefact200 -> 25.2s, sizefact250 -> 34.3s, sizefact400 ->
+  # 63.6s. OI real medido via ncu: 2.81 FLOP/byte, fp64, converged,
+  # roofline_label_eligible=true -- cerca del ridge (~3.4-3.7) del lado
+  # memory-bound (simetrico a gemm_native_gpu, que quedaba cerca del
+  # ridge del lado compute-bound). Wrapper bin/gpu_rajaperf_gemm invoca
+  # unicamente Polybench_GEMM/Base_CUDA sobre el binario
+  # raja-perf-cuda-v2025.12.1 ya usado por los demas gpu_rajaperf_*.
+  - id: gpu_rajaperf_gemm
+    suite: RAJAPerf-CUDA
+    role: dataset
+    device: gpu
+    exec_path: bin/gpu_rajaperf_gemm
+    phase_label_hint: intermedio
+    operational_intensity_flops_per_byte: 2.81
+    gpu_precision: fp64
+    size_variant: sizefact250
+    expected_runtime_seconds: 34
+    warmup_seconds: 0.5
+    estimated_memory_bytes: 536870912
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:372be7b1d465f5be71139fa736ad1668892b31782ff47f007f73fb9db8bbed9e"

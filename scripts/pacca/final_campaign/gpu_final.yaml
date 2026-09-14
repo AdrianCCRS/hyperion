@@ -21,10 +21,18 @@
 # implausible via ncu, DFMA=0 pese a codigo fuente correcto -- brecha de
 # instrumentacion de ncu con binarios cuBLAS, no un bug), gpu_phasic_p010/
 # p100/p1000 (0 filas de entrenamiento SIEMPRE por diseno, F1-GPU-003 --
-# GPU-especifico, a diferencia de CPU). +1 gpu_gemm_native_n4096 (GEMM
-# CUDA propio sin cuBLAS, reemplaza a los dos GEMM excluidos -- OI real
-# 4.05 FLOP/byte, cerca del ridge, septima ancla nueva de la sesion, NO
-# el GEMM profundamente compute-bound que se buscaba originalmente).
+# GPU-especifico, a diferencia de CPU).
+#
+# F1-GPU-010 (2026-09-14): gpu_gemm_native_n4096 (CUDA propio, agregado
+# en F1-GPU-009 como reemplazo temporal de los GEMM cuBLAS) fue
+# SUSTITUIDO por gpu_rajaperf_gemm (Polybench_GEMM/Base_CUDA de
+# RAJAPerf-CUDA, sizefact250): mismo problema resuelto -- CUDA propio de
+# RAJA (no cuBLAS), visible para ncu -- pero de una suite de terceros en
+# vez de codigo escrito a mano. OI real medido 2.81 FLOP/byte, fp64,
+# converged, cerca del ridge (~3.4-3.7) del lado memory-bound. La
+# campana queda otra vez en 13 kernels de suite + 0 excepciones de
+# codigo propio. gemm_native_gpu se deja en el catalogo (kernels/
+# gemm_native/) como codigo disponible pero fuera de la campana final.
 # Ver Seguimiento_Cambios_Plan_Director.md.
 #
 # DECISION 2026-09-13: la CPU se deja SOLO en REF. Ver F1-XDEV-006 en
@@ -70,7 +78,7 @@ kernels:
 - kernel_ref: gpu_rajaperf_stream_triad
 - kernel_ref: gpu_rajaperf_jacobi_2d
 - kernel_ref: gpu_rajaperf_heat_3d
-- kernel_ref: gpu_gemm_native_n4096
+- kernel_ref: gpu_rajaperf_gemm
 - kernel_ref: dual_fft_gpu_N4096
 - kernel_ref: dual_axpy_gpu_N10000000
 - kernel_ref: dual_stencil_gpu_N1024

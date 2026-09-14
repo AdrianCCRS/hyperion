@@ -3301,3 +3301,103 @@ real (código fuente revisado, versión de biblioteca confirmada),
 kernel propio escrito, compilado, verificado numéricamente y medido
 con `ncu` en dos tamaños, resultado final (near-ridge, no
 compute-bound) aceptado explícitamente por el usuario.
+
+## F1-GPU-010 — `gpu_gemm_native_n4096` (código propio) sustituido por `gpu_rajaperf_gemm` (suite RAJAPerf): mismo problema resuelto sin escribir CUDA a mano
+
+**Fecha de registro:** 2026-09-14
+**Estado:** cerrado. `gpu_rajaperf_gemm` reemplaza a `gpu_gemm_native_n4096`
+en `gpu_final.yaml`. La campaña final vuelve a estar compuesta
+enteramente por kernels de suites de terceros, sin excepciones de
+código propio.
+
+### Motivación
+
+El usuario planteó que un kernel GEMM escrito a mano (la solución de
+F1-GPU-009) implica un riesgo experimental y de cuestionamiento por
+parte de evaluadores externos que un kernel de una suite reconocida no
+tiene, y pidió resolver el problema original (GEMM de suite con OI
+implausible vía `ncu`) sin código propio salvo que fuera estrictamente
+necesario.
+
+### Investigación
+
+El punto de partida de F1-GPU-009 seguía siendo válido: el problema de
+`dual_gemm_gpu_N2048`/`gpu_dgemm_n4096` no es un bug de código, sino que
+`ncu` no puede contar instrucciones SASS dentro del kernel propietario
+que despacha cuBLAS. Cualquier GEMM de suite que sea un envoltorio de
+cuBLAS/cuDNN/CUTLASS tendría el mismo problema. La pregunta correcta
+era entonces: ¿alguna suite ya integrada en el proyecto implementa GEMM
+con su propio código CUDA (no una biblioteca BLAS de proveedor)?
+
+Rodinia no incluye GEMM denso (su análogo más cercano es `rodinia_lud`,
+descomposición LU, ya usado). RAJAPerf (`raja-perf-cuda-v2025.12.1`,
+ya integrado para `gpu_rajaperf_stream_triad`/`jacobi_2d`/`heat_3d`)
+incluye el grupo Polybench, que sí tiene `Polybench_GEMM`: se confirmó
+con `--print-kernels` que el binario CUDA ya compilado en pacca lo
+tiene disponible, y con `-v Base_CUDA --dryrun` que soporta la variante
+CUDA. RAJA genera el kernel CUDA real a partir de su propio código C++
+(lambda → kernel CUDA), no llama a cuBLAS -- por diseño, sus
+instrucciones SASS sí son visibles para `ncu`.
+
+Se midió tiempo de pared real (sin instrumentar) para elegir un tamaño
+que cumpliera el piso de ~30-35s de F1-GPU-006: `--sizefact 200` → 25.2s,
+`--sizefact 250` → 34.3s, `--sizefact 400` → 63.6s. Se eligió 250. El
+wrapper reproducible `bin/gpu_rajaperf_gemm` (mismo patrón que los demás
+`gpu_rajaperf_*`, checksum-verificado) invoca únicamente
+`Polybench_GEMM`/`Base_CUDA` con ese tamaño y valida el checksum nativo
+de RAJAPerf (`RAJAPerf-checksum.txt`, `Base_CUDA-block_256 PASSED`).
+
+Perfilado con `ncu` (mismo pipeline `run_screening_to_report.sh --stage
+ncu --ncu-kernel gpu_rajaperf_gemm`, tres puntos de convergencia
+lc5/lc20/lc50): convergió (cambio relativo 0.0005), con instrucciones
+DFMA/DMUL reales y distintas de cero (37.9 billones de DFMA sumados),
+a diferencia de los dos GEMM cuBLAS. OI final medido: **2.81 FLOP/byte,
+fp64**, `roofline_label_eligible: true`. Contra el ridge fp64 (~3.4-3.7),
+queda cerca del ridge del lado memory-bound -- simétrico a
+`gemm_native_gpu` (OI=4.05, cerca del ridge del lado compute-bound).
+
+Nota operativa: el perfilado con `ncu` de este kernel tardó
+considerablemente más que el de kernels previos (~35 min totales,
+contra <10 min para kernels ligeros como `rodinia_dwt2d_s2048`) porque
+la carga base sin instrumentar ya es ~100x más pesada (34s vs <1s);
+no fue un colgamiento (a diferencia de los incidentes de F1-GPU-008),
+el proceso mantuvo uso de CPU activo (~98%) durante todo el perfilado.
+
+### Decisión
+
+Se reemplazó `gpu_gemm_native_n4096` por `gpu_rajaperf_gemm` en
+`gpu_final.yaml` (decisión del usuario, 2026-09-14, entre mantener solo
+el de suite o dejar ambos como anclas simétricas cerca del ridge -- se
+optó por la opción de menor riesgo experimental). La campaña queda de
+nuevo en 14 kernels/420 corridas (reemplazo 1 a 1, sin cambio de
+conteo). `gemm_native_gpu` se deja documentado en el catálogo
+(`fase1_telemetria/catalog/catalog.yaml`, entrada `gpu_gemm_native_n4096`)
+y su código fuente (`kernels/gemm_native/gemm_native_gpu_bench.cu`) se
+mantiene en el repo, pero fuera de la campaña final.
+
+### Limitaciones
+
+- Igual que `gemm_native_gpu`, este resultado es near-ridge, no
+  profundamente compute-bound -- no resuelve la brecha de cobertura en
+  el extremo compute-bound profundo identificada antes de esta entrada
+  (`rodinia_lavamd` sigue siendo la única ancla realmente profunda).
+- No se investigó si otras variantes de RAJAPerf (`Polybench_2MM`,
+  `Polybench_3MM`) o un `--sizefact` distinto cambiarían el OI medido de
+  forma significativa.
+- Solo se verificó con `ncu` (tres puntos de convergencia), no con una
+  corrida real de campaña con los 9 niveles de frecuencia de GPU.
+
+### Trabajo pendiente
+
+Ninguno para esta entrada -- cerrado.
+
+### Criterio exacto de cierre
+
+Cerrado: se identificó y verificó (vía `--print-kernels`/`--dryrun`/
+ejecución real) un kernel GEMM de una suite de terceros ya integrada en
+el proyecto que resuelve el mismo problema de instrumentación que
+motivó `gemm_native_gpu`, sin escribir código CUDA nuevo; wrapper
+reproducible desplegado y checksum-verificado; medido con `ncu` hasta
+convergencia; `gpu_final.yaml` y `catalog.yaml` actualizados;
+decisión de reemplazo (vs. mantener ambos) tomada explícitamente por
+el usuario.
