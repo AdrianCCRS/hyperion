@@ -5238,3 +5238,58 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     binary_checksum:
       pacca-a100: "sha256:837339bd72c5477c52bc28e01b28ead9dda06eaa4f879d1c193973be1db2f383"
+
+# F1-CPU-009 (continuacion): N40 (log2=+5.48) -> N48 (log2=-2.81) salto
+# abrupto, pero el lado memoria SI decae gradualmente despues (-2.81 hasta
+# -6.49 en N128), a diferencia del plateau plano de lbm_cpu. Acotar el
+# cruce mismo antes de concluir si hay banda cerca del ridge.
+  - id: hpccg_cpu_N42
+    suite: HPCCG-CG
+    role: dataset
+    exec_path: bin/hpccg_cpu
+    config_id: hpccg_N42
+    phase_label_hint: intermedio
+    size_variant: N42
+    exec_args: "--size 42 --iterations 1050"
+    expected_runtime_seconds: 4
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 11143163
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:837339bd72c5477c52bc28e01b28ead9dda06eaa4f879d1c193973be1db2f383"
+
+  - id: hpccg_cpu_N44
+    suite: HPCCG-CG
+    role: dataset
+    exec_path: bin/hpccg_cpu
+    config_id: hpccg_N44
+    phase_label_hint: intermedio
+    size_variant: N44
+    exec_args: "--size 44 --iterations 900"
+    expected_runtime_seconds: 4
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 12811674
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:837339bd72c5477c52bc28e01b28ead9dda06eaa4f879d1c193973be1db2f383"
+
+  - id: hpccg_cpu_N46
+    suite: HPCCG-CG
+    role: dataset
+    exec_path: bin/hpccg_cpu
+    config_id: hpccg_N46
+    phase_label_hint: intermedio
+    size_variant: N46
+    exec_args: "--size 46 --iterations 800"
+    expected_runtime_seconds: 4
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 14642182
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:837339bd72c5477c52bc28e01b28ead9dda06eaa4f879d1c193973be1db2f383"
