@@ -3401,3 +3401,140 @@ reproducible desplegado y checksum-verificado; medido con `ncu` hasta
 convergencia; `gpu_final.yaml` y `catalog.yaml` actualizados;
 decisión de reemplazo (vs. mantener ambos) tomada explícitamente por
 el usuario.
+
+## F1-GPU-011 — Barrido de memoria real en GPU: tamaños nuevos a ~50% de VRAM del A100 para las 5 familias `dual_*`, 3 entran a la campaña final
+
+**Fecha de registro:** 2026-09-14
+**Estado:** cerrado. `gpu_final.yaml` pasa de 14 a **17 kernels / 510
+corridas**. `dual_axpy_gpu_N1280000000`, `dual_spmv_gpu_N200000000` y
+`dual_stencil_gpu_N36864` se agregan JUNTO A (no en reemplazo de) sus
+variantes pequeñas ya usadas. `dual_fft_gpu_N25600` y
+`dual_cholesky_gpu_N32768` quedan documentados pero fuera de la
+campaña.
+
+### Motivación
+
+El director de tesis del usuario pidió explícitamente tener muestras
+que ocupen una porción significativa de la memoria de la GPU (A100,
+40GB de VRAM) en los casos donde aplique, mismo principio que ya se
+usó en CPU para poblar zonas cercanas al ridge con un barrido de
+tamaños (F1-CPU-010, `dual_fft_cpu_N472`).
+
+### Investigación
+
+Se encontró que, salvo `gemm_native_gpu`, `rodinia_dwt2d` y
+parcialmente `rodinia_lavamd` (ya investigados), **ninguna de las 5
+familias `dual_*` de GPU tenía evidencia real de que su OI cambiara
+con el tamaño**: el catálogo declara un único OI "representativo" fijo
+por familia y lo copia a todas las variantes de N, incluyendo tamaños
+grandes nunca perfilados con `ncu` ("heredados"). Todos los kernels
+`dual_*` usados en la campaña ocupaban menos del 2% de la VRAM del
+A100 antes de esta entrada (excepción: `rodinia_dwt2d`, 30%).
+
+Se derivó la ley de escalamiento real de memoria de cada familia a
+partir de los datos ya existentes en catálogo (`estimated_memory_bytes`
+vs. N), y se calcularon tamaños candidato apuntando a ~50% de VRAM.
+Las estimaciones por fórmula resultaron sistemáticamente por encima de
+lo real (ej. FFT: se estimó 21.1GB a N=22528, la medición real con
+`nvidia-smi` dio 15.92GB) -- se verificó cada tamaño con ejecución real
+(`Verification = SUCCESSFUL`) y memoria medida en vivo (`nvidia-smi
+--query-gpu=memory.used` en un loop durante la corrida), no solo por
+fórmula, antes de comprometer tiempo de `ncu`:
+
+| Familia | N final | Memoria real | % VRAM | Tiempo real sin instrumentar |
+|---|---|---|---|---|
+| `dual_fft_gpu` | 25600 | 20.43GB | 49.9% | 28.1s |
+| `dual_cholesky_gpu` | 32768 | 8.64GB | 21.1% | 57.1s |
+| `dual_axpy_gpu` | 1280000000 | 19.5GB | 48.8% | 48.4s |
+| `dual_spmv_gpu` | 200000000 | 19.8GB | 49.5% | 52.3s |
+| `dual_stencil_gpu` | 36864 | 20.66GB | 51.7% | 57.8s |
+
+Nota sobre Cholesky: se probó primero N=49152 (18.9GB, 46% VRAM), pero
+tardó 3 minutos solo para 3 iteraciones sin instrumentar -- proyectando
+el mismo overhead de `ncu` visto en `gpu_rajaperf_gemm` (~60x), el
+perfilado habría tomado 3-5+ horas en el nodo compartido. El usuario
+eligió explícitamente N=32768 (21% VRAM, perfilado ~1h) sobre N=49152
+(46% VRAM, perfilado de horas) para no comprometer el nodo compartido
+tanto tiempo.
+
+Se perfilaron los 5 con `ncu` (mismo pipeline, tres puntos de
+convergencia lc5/lc20/lc50). Dos intentos fallaron antes del exitoso:
+(1) el catálogo requiere un campo `operational_intensity_flops_per_byte`
+placeholder incluso para kernels nuevos sin medir aún (validación
+CAT-10), se había omitido; (2) el primer parche para agregar ese
+placeholder corrompió el YAML por un escape mal anidado en un comando
+remoto (indentación rota, `binary_checksum:` perdió su nivel) --
+se resolvió restaurando desde backup y reconstruyendo el fragmento
+limpio localmente antes de subirlo, en vez de parchear in-place en el
+cluster.
+
+**Resultados reales:**
+
+| Kernel | OI real | OI anterior | Estado formal | Interpretación |
+|---|---|---|---|---|
+| `dual_fft_gpu_N25600` | 1.71 (estable) | 2.499 | Excluido: precisión mixta | Hallazgo nuevo, no visto en N4096/N16384 |
+| `dual_cholesky_gpu_N32768` | 0.217 (subiendo aún) | 9.887 (heredado) | No converge (1.55%>1%) | Cache-residencia confirmada, caída ~45x |
+| `dual_axpy_gpu_N1280000000` | 0.0858 | 0.125 | Converged, elegible | Memory-bound, esperado |
+| `dual_spmv_gpu_N200000000` | 0.266 (estable) | 0.274 | No converge (técnico, launches insuficientes) | Casi idéntico, consistente |
+| `dual_stencil_gpu_N36864` | 0.2577 (estable) | 0.495 | No converge (técnico, launches insuficientes) | Cache-residencia confirmada, caída a la mitad |
+
+Ninguno resultó ser una ancla nueva cerca del ridge fp64 (~3.4-3.7
+FLOP/byte) -- todos se confirman o se alejan más hacia memory-bound a
+esta escala. Este es el resultado real, no un fallo del barrido: a la
+escala de memoria que realmente usa una GPU grande, el catálogo es
+consistentemente memory-bound, que es el dato correcto para el
+clasificador (no todo barrido de tamaño tiene que revelar una ancla
+nueva para ser útil).
+
+**Hallazgo colateral -- `dual_fft_gpu_N25600`, precisión mixta:** a
+N=16384 esta familia es fp64 puro; a N=25600 `ncu` detecta
+instrucciones fp32 Y fp64 mezcladas, algo no visto en ningún tamaño
+anterior. No afecta a `dual_fft_gpu_N4096` (ya en la campaña, fp64
+puro). Causa raíz no investigada (posible cambio de estrategia interna
+del kernel a partir de cierto tamaño, ej. tabla de twiddle factors en
+fp32) -- queda como hallazgo documentado, no resuelto.
+
+### Decisión
+
+Se agregan `dual_axpy_gpu_N1280000000`, `dual_spmv_gpu_N200000000` y
+`dual_stencil_gpu_N36864` a `gpu_final.yaml` JUNTO A sus variantes
+pequeñas (no las reemplazan): aunque ambas escalas caen en la misma
+región memory-bound del espacio Roofline, dan puntos reales a
+magnitud de memoria realista de GPU, cumpliendo el pedido del
+director sin sacrificar la cobertura a escala pequeña ya validada.
+`dual_cholesky_gpu_N32768` y `dual_fft_gpu_N25600` quedan documentados
+en el catálogo pero fuera de la campaña (no convergen / precisión
+mixta sin investigar). La campaña final queda en **17 kernels, 510
+corridas** (antes: 14/420).
+
+### Limitaciones
+
+- `dual_cholesky_gpu_N32768` y las 2 entradas "not_converged por
+  launches insuficientes" (`dual_spmv_gpu_N200000000`,
+  `dual_stencil_gpu_N36864`) no cumplen el criterio formal de
+  convergencia del pipeline, aunque su OI es visualmente muy estable
+  entre los tres puntos medidos -- se aceptan con esta nota
+  metodológica, mismo criterio ya usado en `dual_fft_gpu_N16384`
+  (F1-GPU-011 previo).
+- No se investigó la causa raíz de la precisión mixta en
+  `dual_fft_gpu_N25600`.
+- No se investigó si un N intermedio entre 32768 y 49152 permitiría a
+  Cholesky converger con un tiempo de perfilado más razonable.
+- Solo se verificó con `ncu`, no con una corrida real de campaña con
+  los 9 niveles de frecuencia de GPU.
+
+### Trabajo pendiente
+
+Ninguno para esta entrada -- cerrado. Si se quiere investigar la causa
+de la precisión mixta en FFT o intentar converger Cholesky a mayor
+escala, sería una entrada nueva.
+
+### Criterio exacto de cierre
+
+Cerrado: ley de escalamiento de memoria derivada de datos reales del
+catálogo, 5 tamaños candidato verificados con ejecución real y memoria
+medida en vivo (no solo estimada), perfilados con `ncu` hasta
+convergencia o hasta obtener una medición estable con nota
+metodológica, 3 de 5 incorporados a `gpu_final.yaml` con decisión
+explícita del usuario, 2 documentados como excluidos con motivo
+verificable; `gpu_final.yaml` y `catalog.yaml` actualizados.

@@ -10,8 +10,8 @@
 # basta borrar su linea `- kernel_ref: X`. No hace falta re-someter nada.
 #
 # ⚠️ COSTO: el motor corre el PRODUCTO CRUZADO frequency_levels x
-# gpu_frequency_levels. Tal como esta: 1 nivel CPU x 10 niveles GPU x 14
-# kernels x 3 reps = 420 corridas.
+# gpu_frequency_levels. Tal como esta: 1 nivel CPU x 10 niveles GPU x 17
+# kernels x 3 reps = 510 corridas.
 #
 # F1-GPU-008/F1-GPU-009 (2026-09-14): -9 kernels sin evidencia real de
 # Roofline valida -- rodinia_backprop/rodinia_myocyte (precision FP32/
@@ -33,6 +33,18 @@
 # campana queda otra vez en 13 kernels de suite + 0 excepciones de
 # codigo propio. gemm_native_gpu se deja en el catalogo (kernels/
 # gemm_native/) como codigo disponible pero fuera de la campana final.
+#
+# F1-GPU-011 (2026-09-14): +3 kernels -- barrido de memoria GPU a
+# tamanos nuevos (~50% de VRAM del A100, pedido explicito del director
+# de tesis: usar una fraccion significativa de la memoria de la GPU en
+# los casos que aplique). dual_axpy_gpu_N1280000000 (OI=0.0858,
+# converged), dual_spmv_gpu_N200000000 (OI=0.266, estable), y
+# dual_stencil_gpu_N36864 (OI=0.2577, estable) se agregan JUNTO A sus
+# variantes pequenas ya usadas (no las reemplazan): ambas escalas son
+# memory-bound, pero dan puntos reales a escala de memoria realista de
+# GPU, no solo a escala de juguete. dual_cholesky_gpu_N32768 (no
+# converge del todo, ~0.217) y dual_fft_gpu_N25600 (precision mixta
+# inesperada a este tamano) quedan fuera de la campana por ahora.
 # Ver Seguimiento_Cambios_Plan_Director.md.
 #
 # DECISION 2026-09-13: la CPU se deja SOLO en REF. Ver F1-XDEV-006 en
@@ -81,9 +93,12 @@ kernels:
 - kernel_ref: gpu_rajaperf_gemm
 - kernel_ref: dual_fft_gpu_N4096
 - kernel_ref: dual_axpy_gpu_N10000000
+- kernel_ref: dual_axpy_gpu_N1280000000
 - kernel_ref: dual_stencil_gpu_N1024
+- kernel_ref: dual_stencil_gpu_N36864
 - kernel_ref: dual_cholesky_gpu_N2048
 - kernel_ref: dual_spmv_gpu_N1000000
+- kernel_ref: dual_spmv_gpu_N200000000
 # CPU solo en REF (ver DECISION 2026-09-13 en la cabecera). Agregar aqui un
 # nivel fijo DUPLICA la campana: el motor corre el producto cruzado.
 frequency_levels:
@@ -142,11 +157,11 @@ temperature:
   require_package_sensor: true
   minimum_c: 0
   maximum_c: 90
-# 420 corridas x ~39 MB/corrida (medido en el cribado) = ~16.4 GB.
+# 510 corridas x ~39 MB/corrida (medido en el cribado) = ~19.9 GB.
 # Se declara 64 GiB de margen (habia 1.2 TB libres en /home).
 projected_campaign_bytes: 68719476736
 remaining_core_hours: 100000
-projected_core_hours: 244
+projected_core_hours: 296
 cores:
   delegated_cpus:
   - 0

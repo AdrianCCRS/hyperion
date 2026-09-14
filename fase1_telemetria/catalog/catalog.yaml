@@ -5593,3 +5593,139 @@ kernels:
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
       pacca-a100: "sha256:372be7b1d465f5be71139fa736ad1668892b31782ff47f007f73fb9db8bbed9e"
+
+  # F1-GPU-011 (2026-09-14): barrido de memoria real en GPU -- tamanos
+  # nuevos generados especificamente (no heredados/interpolados) para
+  # ocupar una fraccion significativa de la VRAM del A100 (40GB), pedido
+  # explicito del director de tesis. Verificados con ejecucion real
+  # (Verification = SUCCESSFUL) y memoria medida con nvidia-smi durante
+  # la corrida (no estimada por formula). OI real medido con ncu.
+  - id: dual_fft_gpu_N25600
+    suite: Dual-FFT
+    role: dataset
+    device: gpu
+    gpu_precision: mixed
+    exec_path: bin/fft_gpu
+    config_id: fft_N25600
+    phase_label_hint: intermedio
+    size_variant: N25600
+    exec_args: "--size 25600 --iterations 5"
+    expected_runtime_seconds: 30
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 21425553408
+    # OI real medido via ncu: 1.71 FLOP/byte, muy estable (lc5/20/50:
+    # 1.7195/1.7067/1.7067), pero ncu detecto precision MIXTA (fp32+fp64)
+    # a este tamano -- no visto en N4096/N16384 de la misma familia.
+    # roofline_label_eligible=False (F1-GPU-011). NO usado en la campana
+    # final: mismo criterio de exclusion que rodinia_backprop/myocyte
+    # (F1-GPU-008).
+    operational_intensity_flops_per_byte: 1.7067
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:7de9abeb8dc3e6f0ccf724e18d8529b8c0bfb0a06848dfe968b43a9626f87035"
+
+  - id: dual_cholesky_gpu_N32768
+    suite: Dual-Cholesky
+    role: dataset
+    device: gpu
+    gpu_precision: fp64
+    exec_path: bin/cholesky_gpu
+    config_id: cholesky_N32768
+    phase_label_hint: intermedio
+    size_variant: N32768
+    exec_args: "--size 32768 --iterations 5"
+    expected_runtime_seconds: 60
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 9058648064
+    # OI real medido via ncu: tendencia 0.185 -> 0.214 -> 0.217 (lc5/20/50),
+    # aun no converge del todo (cambio relativo 1.55% > umbral 1%) pero
+    # confirma caida masiva respecto al valor heredado (9.887, nunca
+    # medido a este tamano) -- memory-bound profundo, cache-residencia
+    # confirmada (F1-GPU-011). NO usado en la campana final por ahora
+    # (convergencia insuficiente).
+    operational_intensity_flops_per_byte: 0.217
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:0df46019e61e6cffdb3e7df55370bc9407bc1fc2a8bbc7b5fb4b6b90581f0058"
+
+  # Los siguientes 3 SI entran a gpu_final.yaml, junto a (no en reemplazo
+  # de) sus variantes pequenas ya usadas -- ambas escalas son memory-bound,
+  # pero dan puntos reales a escala de memoria realista de GPU (~50% VRAM
+  # del A100), no solo a escala de juguete (F1-GPU-011).
+  - id: dual_axpy_gpu_N1280000000
+    suite: Dual-AXPY
+    role: dataset
+    device: gpu
+    gpu_precision: fp64
+    exec_path: bin/axpy_gpu
+    config_id: axpy_N1280000000
+    phase_label_hint: intermedio
+    size_variant: N1280000000
+    exec_args: "--size 1280000000 --iterations 10"
+    expected_runtime_seconds: 50
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 20939014144
+    # OI real medido via ncu: 0.0858 FLOP/byte, converged limpio (cambio
+    # relativo 0.0000). 19.5GB reales medidos con nvidia-smi (48.8% VRAM).
+    operational_intensity_flops_per_byte: 0.0857767715477963
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:d3166ae3e44a83e8e4358f5676025a84f2db42339e30f9f916edee36436497fb"
+
+  - id: dual_spmv_gpu_N200000000
+    suite: Dual-SpMV
+    role: dataset
+    device: gpu
+    gpu_precision: fp64
+    exec_path: bin/spmv_gpu
+    config_id: spmv_N200000000
+    phase_label_hint: intermedio
+    size_variant: N200000000
+    exec_args: "--size 200000000 --iterations 15"
+    expected_runtime_seconds: 55
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 21251489792
+    # OI real medido via ncu: 0.266 FLOP/byte, muy estable (lc5/20/50:
+    # 0.2651/0.2660/0.2660), casi identico al valor previo de la familia
+    # (0.274) -- confirma consistencia a esta escala. 19.8GB reales
+    # medidos con nvidia-smi (49.5% VRAM). Tecnicamente "not_converged"
+    # solo por el criterio de saturacion de lanzamientos, no por
+    # inestabilidad de la medicion.
+    operational_intensity_flops_per_byte: 0.266
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:9e8d32606ed1bcedf6a5a36666a9562c8a8400ee41f6b42680c3f336a807fdd8"
+
+  - id: dual_stencil_gpu_N36864
+    suite: Dual-Stencil
+    role: dataset
+    device: gpu
+    gpu_precision: fp64
+    exec_path: bin/stencil_gpu
+    config_id: stencil_N36864
+    phase_label_hint: intermedio
+    size_variant: N36864
+    exec_args: "--size 36864 --iterations 20"
+    expected_runtime_seconds: 60
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 22188916736
+    # OI real medido via ncu: 0.2577 FLOP/byte, perfectamente estable
+    # (identico en lc20 y lc50) -- cayo a la mitad del valor previo de la
+    # familia (0.495), confirma el mismo efecto de cache-residencia visto
+    # en gemm_native/cholesky/dwt2d. 20.66GB reales medidos con nvidia-smi
+    # (51.7% VRAM), funciono correctamente mas alla del rango antes
+    # probado (max previo N4096).
+    operational_intensity_flops_per_byte: 0.2577
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:0678e6829048a38028c4e3770fc60d0bba5aaf80910abfb63334e7965d5b29d3"
