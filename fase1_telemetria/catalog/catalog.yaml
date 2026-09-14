@@ -5293,3 +5293,117 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     binary_checksum:
       pacca-a100: "sha256:837339bd72c5477c52bc28e01b28ead9dda06eaa4f879d1c193973be1db2f383"
+
+# F1-CPU-010 (2026-09-14): retomando dual_fft (F1-CPU-007 la dejo negativa
+# por un muestreo no monotono -- N=384 daba MAS compute que N=128, atribuido
+# a eficiencia de radix de FFTW). Esta vez, tamanos "5-smooth" (factorizan
+# en 2/3/5, buenos para FFTW) que acotan el mismo rango de huella total
+# (8-25MB) donde cayeron los cruces de lbm_cpu (F1-CPU-008, negativo) y
+# hpccg_cpu (F1-CPU-009, positivo, N46). FFT tiene una estructura de
+# reutilizacion genuinamente distinta a ambos: multiples pasadas internas
+# (O(log N) por FFTW) sobre el mismo buffer por despacho, ni un solo paso
+# (lbm_cpu) ni pasadas completas explicitas (hpccg_cpu) -- hipotesis a
+# probar, no asumida. Reutiliza el binario fft_cpu ya compilado (mismo
+# checksum que dual_fft_cpu_N1024), sin necesidad de compilar nada nuevo.
+
+  - id: dual_fft_cpu_N512
+    suite: Dual-FFT
+    role: dataset
+    exec_path: bin/fft_cpu
+    config_id: fft_N512
+    phase_label_hint: intermedio
+    size_variant: N512
+    exec_args: "--size 512 --iterations 390"
+    expected_runtime_seconds: 4
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 8388608
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:9060b740591b76df4f2d7e9b2507db6106f01df656b717de6ff10217e6b9c207"
+
+  - id: dual_fft_cpu_N576
+    suite: Dual-FFT
+    role: dataset
+    exec_path: bin/fft_cpu
+    config_id: fft_N576
+    phase_label_hint: intermedio
+    size_variant: N576
+    exec_args: "--size 576 --iterations 270"
+    expected_runtime_seconds: 4
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 10616832
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:9060b740591b76df4f2d7e9b2507db6106f01df656b717de6ff10217e6b9c207"
+
+  - id: dual_fft_cpu_N640
+    suite: Dual-FFT
+    role: dataset
+    exec_path: bin/fft_cpu
+    config_id: fft_N640
+    phase_label_hint: intermedio
+    size_variant: N640
+    exec_args: "--size 640 --iterations 200"
+    expected_runtime_seconds: 4
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 13107200
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:9060b740591b76df4f2d7e9b2507db6106f01df656b717de6ff10217e6b9c207"
+
+  - id: dual_fft_cpu_N720
+    suite: Dual-FFT
+    role: dataset
+    exec_path: bin/fft_cpu
+    config_id: fft_N720
+    phase_label_hint: intermedio
+    size_variant: N720
+    exec_args: "--size 720 --iterations 140"
+    expected_runtime_seconds: 4
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 16588800
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:9060b740591b76df4f2d7e9b2507db6106f01df656b717de6ff10217e6b9c207"
+
+  - id: dual_fft_cpu_N800
+    suite: Dual-FFT
+    role: dataset
+    exec_path: bin/fft_cpu
+    config_id: fft_N800
+    phase_label_hint: intermedio
+    size_variant: N800
+    exec_args: "--size 800 --iterations 100"
+    expected_runtime_seconds: 4
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 20480000
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:9060b740591b76df4f2d7e9b2507db6106f01df656b717de6ff10217e6b9c207"
+
+  - id: dual_fft_cpu_N896
+    suite: Dual-FFT
+    role: dataset
+    exec_path: bin/fft_cpu
+    config_id: fft_N896
+    phase_label_hint: intermedio
+    size_variant: N896
+    exec_args: "--size 896 --iterations 75"
+    expected_runtime_seconds: 4
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 25690112
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
+    runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
+    binary_checksum:
+      pacca-a100: "sha256:9060b740591b76df4f2d7e9b2507db6106f01df656b717de6ff10217e6b9c207"
