@@ -3630,36 +3630,95 @@ afirmación no verificada, no retractada ni confirmada -- el resultado
 medido (OI 2.81→2.50→1.95) sigue siendo válido, solo la explicación
 mecanicista de por qué es especulación sin verificar.
 
+### Reprocesamiento y auditoría (segunda parte, mismo día)
+
+Con el parser corregido, se reprocesaron desde sus CSV ya existentes
+(`--from-csv`, sin gastar `ncu` de nuevo) `gpu_dgemm_n4096` y
+`dual_gemm_gpu_N2048`: ambos ahora se marcan correctamente
+`not_suitable_for_roofline_truth` por Tensor Core. Confirma la
+corrección.
+
+Se auditaron los 37 kernels GPU con reporte `ncu` ya generado: **17
+mostraron `tensor_instructions_observed > 0`** al reprocesar. Un umbral
+binario `> 0` (igual al del guardrail original) habría excluido de
+golpe a `rodinia_lud`, `rodinia_gaussian`, `rodinia_dwt2d`,
+`gpu_rajaperf_heat_3d`, `dual_stencil_gpu_*` y los tres `gpu_phasic_*`
+-- kernels escritos a mano o sintéticos, sin ninguna dependencia
+cuBLAS/cuSOLVER de por medio, donde un uso real de Tensor Core es
+implausible. Se calculó la fracción `tensor / (tensor + escalar)`
+(sumando ambos across los 3 puntos lc5/lc20/lc50, mismo criterio en
+numerador y denominador) para los 17: apareció un hueco limpio en la
+distribución real entre ~3.3% (máximo del grupo "ruido de medición",
+`dual_cholesky_gpu_N2048`) y ~20.8% (mínimo del grupo "Tensor Core
+real", `dual_cholesky_gpu_N16384`). Se corrigió el guardrail de
+`> 0` absoluto a `tensor_fraction > TENSOR_MIN_FRACTION` (constante
+nueva, 0.10, decisión del usuario, cae a mitad del hueco observado).
+
+**Autocorrección importante:** el primer cálculo de esta fracción (antes
+de implementar el fix en el pipeline) comparó el tensor sumado en los 3
+puntos contra el escalar de un solo punto (denominadores no
+comparables), lo que infló `dual_cholesky_gpu_N2048` a un 20.0%
+aparente -- con esa cifra equivocada se le pidió al usuario decidir si
+sacarlo de `gpu_final.yaml`, y el usuario aceptó sacarlo. Al recalcular
+con el mismo criterio de suma en ambos lados (el que efectivamente
+quedó implementado en `build_kernel_report`/`main()`), la fracción real
+de `dual_cholesky_gpu_N2048` es **3.3%**, bajo el umbral -- NO se
+excluye, NO se cambia `gpu_final.yaml`. La decisión del usuario de
+sacarlo se revirtió antes de tocar el archivo (el error se detectó
+antes de aplicar el cambio, así que no hubo que deshacer nada en
+`gpu_final.yaml`). Sí es real que Cholesky se contamina con Tensor
+Core a partir de tamaños grandes (`N16384`: 20.8%, `N32768`: 34.2%),
+pero esos tamaños ya estaban fuera de la campaña por no converger
+(F1-GPU-011) -- la contaminación tensor es una segunda razón
+independiente, no cambia esa decisión.
+
+### Corrección aplicada (parte 2 -- umbral de fracción)
+
+`fase1_telemetria/ncu_convergence.py`: nueva constante
+`TENSOR_MIN_FRACTION = 0.10`. `build_kernel_report()` gana un parámetro
+`total_scalar_instructions`, calcula `tensor_fraction =
+tensor_instructions_observed / (tensor_instructions_observed +
+total_scalar_instructions)` y solo excluye si supera el umbral (antes:
+cualquier valor `> 0`). `main()` calcula `total_scalar_instructions`
+sumando las mismas claves `_FP32_KEYS`/`_FP64_KEYS`/`_INT_KEYS` across
+todos los puntos, con el mismo criterio de suma que ya usaba para
+`tensor_instructions_observed`. Dos pruebas de regresión nuevas:
+`test_tensor_bajo_umbral_no_excluye_ruido_de_medicion` (4% no excluye,
+caso tipo `rodinia_gaussian`) y `test_tensor_sobre_umbral_excluye_como_cholesky_real`
+(20% sí excluye, caso tipo `dual_cholesky_gpu_N16384`).
+
 ### Limitaciones
 
-- No se re-perfiló `gpu_dgemm_n4096` con el fix aplicado (requeriría
-  reprocesar el CSV ya existente con `--from-csv`, sin gastar `ncu` de
-  nuevo) -- pendiente.
-- No se auditó si algún OTRO kernel del catálogo GPU, además de los dos
-  GEMM cuBLAS, secretamente enruta por Tensor Cores y quedó mal
-  etiquetado por este mismo bug.
+- El umbral 10% es una decisión razonada sobre el hueco observado en
+  ESTOS 17 kernels, no una constante física -- si aparecen más
+  kernels con fracciones intermedias (entre 4% y 20%) en el futuro,
+  habría que revisar si el hueco sigue siendo limpio.
 - No se investigó `CUBLAS_PEDANTIC_MATH` ni CUTLASS SIMT (candidatos de
   la nota externa para recuperar un GEMM optimizado sin Tensor Cores).
 - No se investigó la causa raíz de la caída de OI en 2MM/3MM por
   kernel individual.
+- No se reprocesaron con el fix los 20 kernels restantes (de 37) que
+  no mostraron `tensor_instructions_observed > 0` en la auditoría --
+  se asume que su resultado no cambia (no tenían tensor que
+  reclasificar), pero no se verificó cada uno explícitamente.
 
 ### Trabajo pendiente
 
-1. Reprocesar `gpu_dgemm_n4096`/`dual_gemm_gpu_N2048` desde sus CSV ya
-   existentes con el parser corregido, confirmar que ahora el guardrail
-   de Tensor Core se dispara correctamente.
-2. Evaluar `CUBLAS_PEDANTIC_MATH`/CUTLASS SIMT como vía para un GEMM
+1. Evaluar `CUBLAS_PEDANTIC_MATH`/CUTLASS SIMT como vía para un GEMM
    optimizado real sin Tensor Cores (prioridad 1 de la nota externa).
-3. Considerar una auditoría rápida de `tensor_instructions_observed` en
-   los reportes `ncu` ya generados este mes, para descartar
-   contaminación silenciosa en otros kernels.
+2. Si se agregan kernels nuevos al catálogo GPU en el futuro, incluir
+   `tensor_instructions_observed`/`tensor_fraction` en la revisión
+   estándar, no solo OI y convergencia.
 
-### Criterio exacto de cierre (del bug del parser)
+### Criterio exacto de cierre
 
-Cerrado: causa raíz confirmada contra CSV crudo real (no solo teoría),
-bug identificado con precisión de línea de código, corrección mínima y
-simétrica con la lógica ya existente para el formato largo, prueba de
-regresión agregada y pasando, pre-existencia de otras 6 fallas de test
-verificada y descartada como no relacionada. El candidato de reemplazo
-GEMM (parte 2 de la nota externa) queda abierto, no cerrado en esta
-entrada.
+Cerrado: dos bugs reales del parser identificados y corregidos con
+precisión de línea de código (falta de `tensor_cols` en el formato
+ancho; umbral binario `>0` sin piso de ruido), ambos confirmados contra
+CSV crudo real y contra una auditoría de 37 kernels ya perfilados, no
+solo teoría. Pruebas de regresión agregadas y pasando (5 nuevas en
+total). Un error propio de cálculo (denominadores no comparables) se
+detectó y corrigió ANTES de aplicarlo a `gpu_final.yaml` -- documentado
+explícitamente en vez de omitido. El candidato de reemplazo GEMM (parte
+2 de la nota externa, `CUBLAS_PEDANTIC_MATH`/CUTLASS) queda abierto, no
+cerrado en esta entrada.

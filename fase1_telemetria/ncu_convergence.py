@@ -37,6 +37,15 @@ from pathlib import Path
 REL_TOL_DEFAULT = 0.01           # 1% -- criterio declarado antes del resultado
 OBSERVED_MATCH_TOL = 0.02        # launches observados vs. solicitados
 MIXED_PRECISION_MIN_FRACTION = 0.001  # 0.1%; por debajo se trata como ruido
+# F1-GPU-012 (2026-09-14): tras arreglar el parser de formato ancho (nunca
+# acumulaba tensor_inst), un umbral ">0" marcaba como "Tensor Core" a
+# kernels escritos a mano sin ninguna biblioteca de por medio (rodinia_lud,
+# 0.31%; rodinia_gaussian, 4.4%) -- ruido de medicion incidental, no uso
+# real. Auditoria de 17 kernels con tensor>0 mostro un hueco limpio en la
+# distribucion real: maximo del grupo "ruido" 4.4%, minimo del grupo "real"
+# (cuBLAS/cuSOLVER: GEMM, Cholesky) 20.0%. Umbral fijado a mitad de ese
+# hueco, decision del usuario.
+TENSOR_MIN_FRACTION = 0.10
 
 # Métricas de `ncu` que buscamos (por subcadena, tolerante a versión).
 # FLOPs: instrucciones de punto flotante ejecutadas por operación.
@@ -346,6 +355,7 @@ def build_kernel_report(kernel_ref: str, points: list[NcuPoint], *,
                         catalog_declared_operational_intensity: float | None = None,
                         catalog_declared_precision: str | None = None,
                         tensor_instructions_observed: float = 0.0,
+                        total_scalar_instructions: float = 0.0,
                         rel_tol: float = REL_TOL_DEFAULT) -> KernelConvergence:
     rep = KernelConvergence(
         kernel_ref=kernel_ref, exec_path=exec_path, binary_checksum=binary_checksum,
@@ -360,11 +370,14 @@ def build_kernel_report(kernel_ref: str, points: list[NcuPoint], *,
     rep.precision = ("mixed" if len(precisions) > 1
                      else (next(iter(precisions)) if precisions else None))
 
-    if tensor_instructions_observed > 0:
+    tensor_total = tensor_instructions_observed + total_scalar_instructions
+    tensor_fraction = (tensor_instructions_observed / tensor_total) if tensor_total > 0 else 0.0
+    if tensor_fraction > TENSOR_MIN_FRACTION:
         rep.status = "not_suitable_for_roofline_truth"
-        rep.reason = ("se observaron instrucciones Tensor Core, pero este contrato solo "
-                      "convierte ADD/MUL/FMA escalares/vectoriales a FLOPs; se requiere "
-                      "un método explícito para contabilizar Tensor Core")
+        rep.reason = (f"instrucciones Tensor Core representan {tensor_fraction:.1%} del trabajo "
+                      f"(umbral {TENSOR_MIN_FRACTION:.0%}), pero este contrato solo convierte "
+                      "ADD/MUL/FMA escalares/vectoriales a FLOPs; se requiere un método "
+                      "explícito para contabilizar Tensor Core")
         return rep
     if rep.precision in ("integer_no_flops", "no_flops") or precisions <= {"integer_no_flops", "no_flops"}:
         rep.status = "not_suitable_for_roofline_truth"
@@ -531,12 +544,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ncu no disponible localmente -- runbook para paccaA100 en {rb}")
         return 3
 
+    _scalar_op_markers = _FP32_KEYS + _FP64_KEYS + _INT_KEYS
     rep = build_kernel_report(
         a.kernel, points, exec_path=a.exec_path, binary_checksum=a.binary_checksum,
         kernel_args=(a.exec_template.split() if a.exec_template else []),
         tensor_instructions_observed=sum(
             float(p.raw_metric_sums.get("sm__inst_executed_pipe_tensor.sum", 0.0))
             for p in points
+        ),
+        total_scalar_instructions=sum(
+            float(v) for p in points for k, v in p.raw_metric_sums.items()
+            if any(marker in k.lower() for marker in _scalar_op_markers)
         ),
         rel_tol=a.rel_tol, **({} if a.from_csv else versions),
     )

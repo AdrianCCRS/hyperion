@@ -114,6 +114,31 @@ def test_formato_ancho_real_detecta_tensor_cores():
     assert "Tensor" in rep.reason
 
 
+def test_tensor_bajo_umbral_no_excluye_ruido_de_medicion():
+    """F1-GPU-012: un umbral ">0" excluia kernels escritos a mano sin
+    ninguna biblioteca de por medio (rodinia_lud midio 0.31% tensor,
+    rodinia_gaussian 4.4%) -- ruido de medicion incidental, no Tensor
+    Core real. Con TENSOR_MIN_FRACTION=0.10, una fraccion baja (ej. 4%,
+    como rodinia_gaussian) NO debe excluir el kernel."""
+    rep = nc.build_kernel_report("rodinia_lud", [
+        nc.NcuPoint(50, 50, 2000.0, 500000, 0.004, "fp64",
+                    raw_metric_sums={"sm__inst_executed_pipe_tensor.sum": 40.0}),
+    ], tensor_instructions_observed=40.0, total_scalar_instructions=1000.0)
+    assert rep.status != "not_suitable_for_roofline_truth"
+
+
+def test_tensor_sobre_umbral_excluye_como_cholesky_real():
+    """F1-GPU-012: dual_cholesky_gpu_N2048 midio 20.0% tensor real
+    (cuBLAS/cuSOLVER internamente) -- por encima del umbral del 10%,
+    debe excluirse igual que los GEMM cuBLAS."""
+    rep = nc.build_kernel_report("dual_cholesky_gpu_N2048", [
+        nc.NcuPoint(50, 50, 2000.0, 500000, 0.004, "fp64",
+                    raw_metric_sums={"sm__inst_executed_pipe_tensor.sum": 200.0}),
+    ], tensor_instructions_observed=200.0, total_scalar_instructions=800.0)
+    assert rep.status == "not_suitable_for_roofline_truth"
+    assert "Tensor" in rep.reason
+
+
 def test_convergencia_cuando_la_oi_se_estabiliza():
     pts = [
         nc.NcuPoint(10, 10, 1000, 1000, 1.0, "fp32"),
