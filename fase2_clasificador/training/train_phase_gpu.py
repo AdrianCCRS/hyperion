@@ -1,0 +1,320 @@
+"""Entrena y evalúa el clasificador de fase GPU (compute_bound/memory_bound).
+
+Espejo de ``train_phase.py`` (CPU), adaptado a la granularidad GPU: una fila
+de ``training_gpu_phases.csv`` es una CORRIDA completa (kernel_ref x
+gpu_freq_level_id x repetición), ya agregada con estadísticos robustos sobre
+las muestras NVML de esa corrida (F1-GPU-003) -- nunca una muestra NVML
+aislada. No hace falta submuestrear por corrida como en CPU: cada corrida ya
+aporta exactamente una fila.
+
+FUGA DE ETIQUETA -- igual de importante que en CPU. `phase_label_train` se
+deriva de `operational_intensity` (medida offline con `ncu`) contra
+`i_ridge_used` (calibración Roofline por precisión/frecuencia). Esas dos
+columnas, más `phase_label_hint`/`roofline_calibration_ref`, están
+PROHIBIDAS como features.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+from fase2_clasificador.eval import protocol  # noqa: E402
+from fase1_telemetria.gpu_phases import GPU_PHASE_DATASET_FILENAME  # noqa: E402
+
+# Defaults: la campaña final GPU (18 kernels, F1-GPU-011/012/013) sobre el
+# catálogo fusionado -- overridable por CLI (--campaign-dir/--campaign-id).
+DEFAULT_CAMPAIGN_DIR = Path.home() / "hyperion-results/final/campaigns/gpu"
+DEFAULT_CAMPAIGN_ID = "pacca_gpu_final_20260913"
+
+# Contrato congelado con evidencia real (F1-XDEV-004, ejecutado sobre la
+# campaña final GPU de 540 corridas -- ver
+# hyperion-results/final/campaigns/gpu/_feature_contract/feature_contract_gpu.json
+# en pacca). El plan (§2.5) proponía 5 señales por mediana (incluyendo
+# gpu_temperature_c); el análisis de correlación real descartó temperatura:
+# sus 8 variantes agregadas quedan con |rho|>0.85 contra gpu_power_mw en
+# TODOS los pares -- no aporta información independiente en este catálogo
+# (fases demasiado cortas para que la temperatura se desacople de la
+# potencia instantánea). Las otras 4 sobreviven con VIF razonable (2.5-6.5).
+_SIGNALS = ("gpu_util_pct", "gpu_mem_util_pct", "gpu_power_mw", "gpu_sm_clock_mhz")
+FEATURES = [f"{sig}_median" for sig in _SIGNALS]
+LABEL = "phase_label_train"
+TRAINING_INPUT_FILENAME = GPU_PHASE_DATASET_FILENAME
+TRAINING_GRANULARITY = "gpu_run"
+
+# Columnas prohibidas: la etiqueta se deriva de ellas, o identifican la
+# corrida/calibración sin ser una medición física reutilizable como feature.
+FORBIDDEN = {
+    "operational_intensity", "i_ridge_used", "phase_label_hint",
+    "roofline_calibration_ref",
+}
+
+READ_COLS = [
+    *FEATURES, LABEL, "kernel_ref", "kernel_family", "gpu_freq_level_id",
+    "training_eligible", "phase_quality_status", "gpu_frequency_quality_status",
+]
+
+
+def load(
+    campaign_dir: Path = DEFAULT_CAMPAIGN_DIR,
+    kernels: list[str] | None = None,
+    levels: list[str] | None = None,
+) -> pd.DataFrame:
+    """Carga todas las ``training_gpu_phases.csv`` bajo ``campaign_dir``.
+
+    A diferencia de CPU (que reconstruye la ruta por combinación
+    kernel×nivel×repetición porque cada corrida es una carpeta con miles de
+    ventanas de 1 ms a submuestrear), aquí cada corrida ya es UNA fila
+    agregada -- se listan directamente todos los CSV existentes con
+    ``rglob``, sin necesitar la lista completa de niveles/repeticiones de
+    antemano ni arriesgar construir una ruta que no coincida con el sufijo
+    real del directorio (p. ej. ``__baseline``).
+    """
+    campaign_dir = Path(campaign_dir)
+    paths = sorted(campaign_dir.rglob(TRAINING_INPUT_FILENAME))
+    if not paths:
+        raise FileNotFoundError(
+            f"ningún {TRAINING_INPUT_FILENAME} encontrado bajo {campaign_dir} -- "
+            "reprocesa Fase 1 (postprocess.py) sobre la campaña GPU real"
+        )
+    frames = []
+    for path in paths:
+        frame = pd.read_csv(path, usecols=lambda c: c in READ_COLS, low_memory=False)
+        missing = set(READ_COLS) - set(frame.columns)
+        if missing:
+            raise ValueError(
+                f"{path} no tiene el esquema F1-GPU-003; faltan {sorted(missing)}. "
+                "Reprocesa la corrida con la versión que genera training_gpu_phases.csv."
+            )
+        frames.append(frame)
+    df = pd.concat(frames, ignore_index=True)
+
+    df = df[
+        (df["training_eligible"] == True)  # noqa: E712 -- bool real de pandas, no numpy
+        & df[LABEL].notna() & (df[LABEL] != "")
+    ]
+    if kernels:
+        df = df[df["kernel_ref"].isin(kernels)]
+    if levels:
+        df = df[df["gpu_freq_level_id"].isin(levels)]
+    for col in FEATURES:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df.dropna(subset=FEATURES + [LABEL])
+
+
+def build_models(seed: int):
+    from sklearn.dummy import DummyClassifier
+    from sklearn.ensemble import ExtraTreesClassifier, RandomForestClassifier
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.tree import DecisionTreeClassifier
+    from xgboost import XGBClassifier
+
+    return {
+        "mayoritaria": DummyClassifier(strategy="most_frequent"),
+        "arbol_prof1": DecisionTreeClassifier(max_depth=1, random_state=seed),
+        "regresion_log": make_pipeline(
+            StandardScaler(), LogisticRegression(max_iter=1000, random_state=seed)),
+        "arbol_prof6": DecisionTreeClassifier(max_depth=6, random_state=seed),
+        "random_forest": RandomForestClassifier(
+            n_estimators=100, max_depth=12, n_jobs=-1, random_state=seed),
+        "extra_trees": ExtraTreesClassifier(
+            n_estimators=100, max_depth=12, n_jobs=-1, random_state=seed),
+        "xgboost": XGBClassifier(
+            n_estimators=100, max_depth=6, n_jobs=-1, random_state=seed,
+            eval_metric="logloss",
+        ),
+    }
+
+
+def measure_latency(model, sample: np.ndarray, repeats: int = 200) -> tuple[float, float, float]:
+    """Latencia de inferencia de UNA fase, en microsegundos (p50, p95, p99).
+
+    El loop de GPU decide al inicio de cada fase (§4.1 del plan), no sobre un
+    lote -- mismo criterio de medición fila-a-fila que ``train_phase.py``.
+    """
+    one = sample[:1]
+    timings = []
+    for _ in range(repeats):
+        start = time.perf_counter()
+        model.predict(one)
+        timings.append((time.perf_counter() - start) * 1e6)
+    return (
+        float(np.percentile(timings, 50)),
+        float(np.percentile(timings, 95)),
+        float(np.percentile(timings, 99)),
+    )
+
+
+def select_best_model(
+    results: dict[str, dict[str, float]],
+    latencies: dict[str, tuple[float, float, float]],
+    latency_weight: float,
+) -> str:
+    """Idéntico criterio que en CPU (ver train_phase.py::select_best_model):
+    Score = (1 - F1_macro_medio) + latency_weight * (p99_us / p99_us_max)."""
+    candidates = [name for name in results if name != "mayoritaria"]
+    max_p99 = max(latencies[name][2] for name in candidates) or 1.0
+    def score(name: str) -> float:
+        f1_term = 1.0 - results[name]["mean"]
+        latency_term = latencies[name][2] / max_p99
+        return f1_term + latency_weight * latency_term
+    return min(candidates, key=score)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Entrena y evalúa el clasificador de fase GPU compute_bound/"
+                    "memory_bound (Objetivo 2), con validación agrupada por "
+                    "familia algorítmica y selección del modelo a serializar "
+                    "por error de clasificación + latencia de inferencia."
+    )
+    parser.add_argument("--seed", type=int, default=20260806)
+    parser.add_argument(
+        "--campaign-dir", type=Path, default=DEFAULT_CAMPAIGN_DIR,
+        help=(f"Directorio de la campaña con {TRAINING_INPUT_FILENAME} de origen "
+              f"(default: {DEFAULT_CAMPAIGN_DIR})."),
+    )
+    parser.add_argument(
+        "--levels", default=None,
+        help="Lista separada por coma de gpu_freq_level_id a incluir (p.ej. "
+             "'REF,F0,F1'). Por defecto, todos los presentes en el dataset.",
+    )
+    parser.add_argument(
+        "--kernels", default=None,
+        help="Lista separada por coma para restringir el subconjunto de "
+             "kernels. Por defecto, todos los presentes en el dataset.",
+    )
+    parser.add_argument(
+        "--latency-weight", type=float, default=0.2,
+        help="Peso de la latencia p99 normalizada frente al error de "
+             "clasificación al elegir el modelo a serializar (0 = solo F1, "
+             "1 = pesar F1 y latencia por igual). Ver select_best_model().",
+    )
+    parser.add_argument(
+        "--output-dir", type=Path, default=None,
+        help="Si se da, serializa el modelo elegido (joblib) + metadata.json "
+             "en este directorio. Si se omite, solo imprime la comparación "
+             "sin guardar nada (modo exploración).",
+    )
+    args = parser.parse_args()
+    kernels = args.kernels.split(",") if args.kernels else None
+    levels = args.levels.split(",") if args.levels else None
+
+    from sklearn.base import clone
+    from sklearn.metrics import f1_score
+
+    leaking = set(FEATURES) & FORBIDDEN
+    if leaking:
+        raise SystemExit(f"features con fuga de etiqueta: {sorted(leaking)}")
+
+    df = load(campaign_dir=args.campaign_dir, kernels=kernels, levels=levels)
+    # kernel_family ya viene calculada por gpu_phases.py con la misma
+    # protocol.derive_kernel_family que usa CPU (no se recalcula aquí).
+    familias = sorted(df["kernel_family"].unique())
+    print(f"matriz: {len(df):,} corridas | {df['kernel_ref'].nunique()} kernels | {len(familias)} familias algorítmicas")
+    print(f"features ({len(FEATURES)}): {', '.join(FEATURES)}")
+    print(f"distribución de fase: {dict(df[LABEL].value_counts())}\n")
+
+    if len(familias) < 2:
+        raise SystemExit(
+            f"hacen falta al menos 2 familias algorítmicas para leave-one-familia-out, hay {len(familias)}"
+        )
+
+    X = df[FEATURES].to_numpy(dtype=np.float32)
+    y = (df[LABEL] == "memory_bound").to_numpy()
+
+    results: dict[str, dict[str, float]] = {}
+    latencies: dict[str, tuple[float, float, float]] = {}
+
+    for name, prototype in build_models(args.seed).items():
+        per_fold: dict[str, float] = {}
+        for idx_train, idx_test, familia in protocol.leave_one_kernel_out(df, kernel_col="kernel_family"):
+            model = clone(prototype)
+            model.fit(X[idx_train], y[idx_train])
+            pred = model.predict(X[idx_test])
+            per_fold[familia] = f1_score(y[idx_test], pred, average="macro", zero_division=0)
+            if familia == familias[0]:
+                latencies[name] = measure_latency(model, X[idx_test])
+        results[name] = protocol.fold_summary(per_fold)
+        results[name]["_per_fold"] = per_fold  # type: ignore[assignment]
+
+    print(f"{'modelo':<16}{'F1 macro':>10}{'sd':>8}{'peor':>8}{'familia peor':>28}"
+          f"{'p50 us':>9}{'p95 us':>9}{'p99 us':>9}")
+    print("-" * 97)
+    for name, summary in sorted(results.items(), key=lambda kv: -kv[1]["mean"]):
+        p50, p95, p99 = latencies.get(name, (float("nan"), float("nan"), float("nan")))
+        print(f"{name:<16}{summary['mean']:>10.3f}{summary['std']:>8.3f}"
+              f"{summary['min']:>8.3f}{summary['worst_kernel']:>28}"
+              f"{p50:>9.1f}{p95:>9.1f}{p99:>9.1f}")
+
+    print("\n\nF1 macro por pliegue (familia excluida del entrenamiento):")
+    fold_keys = sorted(next(iter(results.values()))["_per_fold"])  # type: ignore[index]
+    print(f"{'modelo':<16}" + "".join(k[:11].rjust(12) for k in fold_keys))
+    print("-" * (16 + 12 * len(fold_keys)))
+    for name, summary in sorted(results.items(), key=lambda kv: -kv[1]["mean"]):
+        row = summary["_per_fold"]  # type: ignore[index]
+        print(f"{name:<16}" + "".join(f"{row[k]:>12.3f}" for k in fold_keys))
+
+    best_name = select_best_model(results, latencies, args.latency_weight)
+    print(
+        f"\n\nModelo elegido para serializar: {best_name!r} "
+        f"(F1 macro medio={results[best_name]['mean']:.3f}, "
+        f"p99={latencies[best_name][2]:.1f}us, latency_weight={args.latency_weight}) "
+        "-- ver select_best_model() para el criterio exacto."
+    )
+
+    if args.output_dir is not None:
+        import joblib
+        from sklearn.base import clone as _clone
+
+        final_model = _clone(build_models(args.seed)[best_name])
+        final_model.fit(X, y)
+
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        model_path = args.output_dir / f"{best_name}_gpu.joblib"
+        joblib.dump(final_model, model_path)
+
+        metadata = {
+            "device": "gpu",
+            "model_name": best_name,
+            "trained_at_utc": datetime.now(timezone.utc).isoformat(),
+            "seed": args.seed,
+            "features": FEATURES,
+            "label": LABEL,
+            "training_granularity": TRAINING_GRANULARITY,
+            "training_input_filename": TRAINING_INPUT_FILENAME,
+            "feature_aggregation": {sig: "median_of_nvml_samples_in_run" for sig in _SIGNALS},
+            "campaign_dir": str(args.campaign_dir),
+            "n_runs": int(len(df)),
+            "n_kernels": int(df["kernel_ref"].nunique()),
+            "n_familias": len(familias),
+            "familias": familias,
+            "latency_weight": args.latency_weight,
+            "cv_f1_macro_mean": results[best_name]["mean"],
+            "cv_f1_macro_std": results[best_name]["std"],
+            "cv_f1_macro_worst_familia": results[best_name]["worst_kernel"],
+            "latency_us_p50_p95_p99": list(latencies[best_name]),
+            "all_models_compared": {
+                name: {"f1_macro_mean": r["mean"], "latency_us_p99": latencies[name][2]}
+                for name, r in results.items()
+            },
+        }
+        metadata_path = args.output_dir / f"{best_name}_gpu.metadata.json"
+        metadata_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False))
+        print(f"\nModelo serializado en {model_path}")
+        print(f"Metadata en {metadata_path}")
+
+
+if __name__ == "__main__":
+    main()
