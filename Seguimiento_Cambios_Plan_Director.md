@@ -3835,3 +3835,131 @@ DFMA=N³, `tensor_instructions_observed=0` en las tres mediciones de
 convergencia) -- no solo un número de OI aislado. Instanciación de
 CUTLASS copiada de un test ya validado por el propio proyecto CUTLASS,
 no inventada. `gpu_final.yaml` y `catalog.yaml` actualizados.
+
+## F2-XDEV-002 — Primer clasificador de fase GPU real: `train_phase_gpu.py`, contrato de features con evidencia (temperatura descartada), F1 macro=0.576
+
+**Fecha de registro:** 2026-09-15
+**Estado:** cerrado. Primer modelo GPU entrenado y serializado
+(`fase2_clasificador/models/arbol_prof1_gpu.joblib`) sobre datos reales
+de la campaña final GPU.
+
+### Motivación
+
+Mientras la campaña final CPU corría sin supervisión, se adelantó el
+trabajo de Fase 2 que no depende de ella: el entrenador GPU no existía
+todavía en `fase2_clasificador/` (solo el de CPU, `train_phase.py`) --
+hueco explícito documentado en el propio `README.md` del módulo. La
+campaña final GPU (18 kernels, F1-GPU-011/012/013) ya había terminado,
+con datos reales disponibles y ociosos.
+
+### Investigación y construcción
+
+**Datos ya listos, sin trabajo adicional de postproceso:** cada
+directorio de corrida de la campaña GPU ya tenía `training_gpu_phases.csv`
+(F1-GPU-003, ya implementado desde antes) -- una fila por corrida
+completa (`kernel_ref x gpu_freq_level_id x repetición`), agregada con
+estadísticos robustos (mediana/media recortada/std/IQR/min/max/nº
+distintos/fracción válida) sobre las muestras NVML de esa corrida.
+Verificado con datos reales (540 archivos, `training_eligible=True` en
+525 de ellos): el hueco que el `README.md` señalaba ("las muestras
+NVML no son fases independientes") ya estaba resuelto por diseño desde
+F1-GPU-003 -- no hacía falta construir agregación nueva.
+
+**`fase2_clasificador/training/train_phase_gpu.py` (nuevo):** espejo de
+`train_phase.py` (CPU) adaptado a la granularidad de una fila-por-corrida
+(no hace falta submuestrear por corrida como en CPU, cada corrida ya es
+exactamente una fila). Carga por `rglob` de todos los
+`training_gpu_phases.csv` bajo el directorio de campaña, en vez de
+reconstruir rutas combinatoriamente kernel×nivel×repetición (evita el
+problema de que algunos directorios tienen sufijo `__baseline` y otros
+no). Mismos modelos comparados, mismo guardarrail `FORBIDDEN`, mismo
+criterio de selección F1+latencia, misma serialización `joblib`+
+`metadata.json` que CPU.
+
+**Contrato de features corregido con evidencia real, no con la
+propuesta del plan sin verificar (§2.5 exige exactamente este paso
+antes de fijar columnas).** Se corrió `run_feature_contract.py --device
+gpu` sobre las 540 filas reales (525 elegibles) combinadas de la
+campaña: el plan proponía 5 señales por mediana (`gpu_util_pct`,
+`gpu_mem_util_pct`, `gpu_power_mw`, `gpu_sm_clock_mhz`,
+`gpu_temperature_c`). El análisis real mostró que **las 8 variantes
+agregadas de `gpu_temperature_c` correlacionan `|ρ|>0.85` con
+`gpu_power_mw` en TODOS los pares** -- en fases de esta duración, la
+temperatura no se desacopla de la potencia instantánea, así que no
+aporta información independiente. Contrato congelado con las 4 señales
+restantes (`gpu_util_pct_median`, `gpu_mem_util_pct_median`,
+`gpu_power_mw_median`, `gpu_sm_clock_mhz_median`), VIF razonable
+(2.5-6.5) entre ellas. Reporte completo en
+`hyperion-results/final/campaigns/gpu/_feature_contract/` en pacca.
+
+### Resultado del entrenamiento (honesto, no inflado)
+
+525 corridas elegibles, 18 kernels, 13 familias algorítmicas
+(`derive_kernel_family` ya cubre casi todos los `kernel_ref` de la
+campaña GPU; `gpu_cutlass_simt_dgemm_n4096` y `gpu_gemm_native_n4096`
+quedan como familia propia -- ningún patrón de `_FAMILY_PATTERNS` los
+agrupa con `dgemm`, no bloqueante pero documentado como mejora futura).
+Distribución de clase: 387 memory_bound / 138 compute_bound.
+
+**Modelo elegido: árbol de profundidad 1. F1 macro=0.576 (línea base
+mayoritaria: 0.563) -- apenas por encima de no hacer nada.** Varias
+familias (`dual_cholesky`, `rodinia_gaussian`, `rodinia_heartwall`,
+`rodinia_lavamd`) dan F1=0.0 al dejarlas fuera del entrenamiento: el
+modelo no generaliza a ellas con solo 4 señales NVML agregadas. Esto es
+consistente con lo que el plan anticipa como resultado científicamente
+válido a reportar sin ocultar (§5.2) -- no se intentó maquillar
+eligiendo otra métrica o descartando familias difíciles.
+
+**Hallazgo colateral real, no un bug:** Random Forest y Extra Trees
+miden p99 de ~26,000-27,000 microsegundos (26-27 **milisegundos**) por
+predicción de una sola fila -- comportamiento ya documentado de
+scikit-learn (overhead de coordinación de threads con `n_jobs=-1` en
+predicción de una sola muestra, no amortizado como en un lote). El
+criterio de selección F1+latencia los descarta correctamente pese a
+tener F1 competitivo con el árbol simple.
+
+### Limitaciones
+
+- F1 macro=0.576 es un resultado débil -- el clasificador GPU, con las
+  features disponibles hoy, generaliza poco mejor que la línea base
+  mayoritaria. No se investigó si features adicionales (duración de
+  fase, fracción de muestras válidas, agregados de dispersión que
+  `feature_contract.py` sí proponía en su lista completa de 16
+  columnas) mejorarían el resultado -- se priorizó parsimonia y
+  fidelidad al espíritu del plan (features físicas simples,
+  disponibles en producción) sobre exprimir F1.
+- `select_best_model()` con `latency_weight=0.2` (default, sin ajustar)
+  -- misma limitación ya documentada para CPU.
+- No se comparó contra una variante con más familias/kernels que las
+  18 de esta campaña -- es el primer y único modelo GPU entrenado hasta
+  ahora, no hay punto de comparación histórico como en CPU (9 kernels
+  de `attempt03`).
+- `gpu_cutlass_simt_dgemm_n4096`/`gpu_gemm_native_n4096` no se agrupan
+  con la familia `dgemm` en `_FAMILY_PATTERNS` -- quedan como familia
+  propia de un solo miembro cada una, técnicamente correcto pero
+  subóptimo (podría refinarse el patrón para reconocerlos como
+  variantes del mismo algoritmo).
+
+### Trabajo pendiente
+
+1. Correr `run_pretraining_readiness.py --gpu-dataset ...` apuntando a
+   la campaña real para confirmar si esto cierra los gates GPU
+   pendientes.
+2. Evaluar si agregar features de dispersión (std/iqr) o duración de
+   fase mejora F1 macro, reportando la comparación explícitamente en
+   vez de solo el mejor resultado.
+3. Refinar `_FAMILY_PATTERNS` para agrupar `gpu_cutlass_simt_dgemm_*`/
+   `gpu_gemm_native_*` con la familia `dgemm`.
+4. Repetir este mismo proceso para CPU en cuanto la campaña final CPU
+   termine (F1-XDEV-002 warmup + contrato de features + entrenamiento
+   sobre el catálogo completo de 43 kernels, no solo los 9 históricos).
+
+### Criterio exacto de cierre
+
+Cerrado: entrenador GPU construido siguiendo exactamente el mismo
+patrón validado de CPU, contrato de features fijado con evidencia real
+(no con la propuesta sin verificar del plan), modelo entrenado y
+serializado sobre datos de una campaña real completa (no un fixture
+sintético), resultado reportado con sus limitaciones explícitas
+(F1 débil, hallazgo de latencia de sklearn) en vez de presentado como
+éxito. Primer artefacto de modelo GPU versionado en el repo.
