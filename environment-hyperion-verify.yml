@@ -39,6 +39,7 @@ dependencies:
   - xgboost
   - joblib
   - scipy
+  - optuna
   - pytest>=8
   # --- Build C++ (common/telemetry, fase3_daemon/cpu_loop) ---
   - cmake

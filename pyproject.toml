@@ -22,6 +22,7 @@ dependencies = [
     "xgboost",
     "joblib",
     "scipy",
+    "optuna",
 ]
 
 [project.optional-dependencies]

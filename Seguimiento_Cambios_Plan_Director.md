@@ -4098,3 +4098,82 @@ desplegado) con backup, campaña completa reprocesada, 46 corridas
 reclasificadas correctamente en vez de ocultadas, modelo reentrenado
 con los datos limpios y el resultado (incluida la pérdida de
 `rodinia_lavamd`/`rodinia_dwt2d`) reportado sin maquillar.
+
+## F2-XDEV-003 — Búsqueda de hiperparámetros (Optuna/TPE) añadida: no existía ninguna, contradiciendo §3.3 punto 1 del plan
+
+**Fecha de registro:** 2026-09-15
+**Estado:** cerrado (módulo construido, probado, e integrado en ambos
+entrenadores; reentrenamiento real del modelo GPU en curso al momento de
+este registro).
+
+### Motivación
+
+El usuario preguntó directamente si el entrenamiento usaba ajuste de
+hiperparámetros/Optuna. Verificación honesta contra el código real (no
+asumida): `build_models()` en `train_phase.py`/`train_phase_gpu.py` tenía
+TODOS los hiperparámetros fijos a mano (`max_depth=12`, `n_estimators=100`,
+etc.), sin ningún `GridSearchCV`, `RandomizedSearchCV` ni Optuna en
+ninguna parte del repositorio -- confirmado con `grep` y con `pip show
+optuna` (no instalado). Esto contradice directamente el plan, §3.3 punto 1:
+*"Validación anidada: partición externa leave-one-familia-out para estimar
+generalización, con búsqueda de hiperparámetros (grid o Bayesiana) en un
+split interno."* El modelo GPU documentado en el capítulo de resultados
+(F1 macro=0.617) se había entrenado con la primera configuración razonable,
+no con una búsqueda.
+
+### Diseño
+
+Se instaló Optuna (TPE/Bayesiana, sobre grid search puro: los espacios de
+`random_forest`/`extra_trees`/`xgboost` combinan enteros y reales en varias
+dimensiones, una grilla con la misma resolución sería cara) y se construyó:
+
+1. **`fase2_clasificador/eval/hyperparam_search.py`**: `search_best_params()`
+   maximiza el F1 macro medio de un split agrupado INTERNO (mismo criterio
+   de agrupación por familia que `protocol.py`, nunca por fila ni por
+   `kernel_ref` individual) sobre el `df` que recibe -- que debe ser ya el
+   conjunto de entrenamiento de un pliegue EXTERNO, nunca el dataset
+   completo, para que la familia de prueba del pliegue externo nunca
+   participe en la búsqueda (anidación real, no una búsqueda compartida
+   entre comparación y selección). `n_groups()` cuenta cuántos pliegues
+   produciría un `fold_fn` dado sobre un `df`, sin fabricar un split si hay
+   menos de 2 familias -- lanza `ValueError` explícito en ese caso.
+2. **`fase2_clasificador/training/model_specs.py`**: separa los 7 modelos
+   del plan (§3.2) en dos grupos -- `build_fixed_models()` (`mayoritaria` y
+   `arbol_prof1`, líneas base deliberadamente NO optimizadas: la primera es
+   "no hacer nada", la segunda es el punto de comparación interpretable del
+   plan) y `tunable_specs()` (regresión logística, árbol de profundidad
+   variable, Random Forest, Extra Trees, XGBoost -- cada uno con un
+   constructor y un espacio de búsqueda). `build_models()` se conserva
+   como configuración fija de respaldo (usada cuando un pliegue no tiene
+   familias suficientes para un split interno, o con `--n-trials 0`).
+3. **`main()` de ambos entrenadores, reestructurado**: el bucle externo
+   ahora itera primero por pliegue (leave-one-familia-out/leave-one-kernel-out
+   sobre `kernel_family`), y dentro de cada pliegue busca hiperparámetros
+   por separado para cada modelo sintonizable usando SOLO los datos de
+   entrenamiento de ese pliegue -- nunca los del pliegue de prueba. El
+   modelo final que se serializa reentrena la búsqueda una vez más sobre el
+   dataset COMPLETO (ya no queda ninguna familia por proteger) para elegir
+   los hiperparámetros de producción. Metadata nueva por modelo:
+   `hyperparameter_search.best_params_final_model` y
+   `best_params_por_pliegue_externo` (para auditar si los hiperparámetros
+   elegidos son estables entre pliegues o oscilan).
+
+### Verificación
+
+90/90 tests pasan (80 previos + 10 nuevos: `test_hyperparam_search.py`,
+`test_model_specs.py`), incluidos casos de: `ValueError` explícito con <2
+familias (no se fabrica un split), `n_groups()` cuenta familias reales y no
+`kernel_ref` únicos, y una búsqueda sobre un problema sintéticamente
+separable converge a F1>0.9. Suite completa: ~29s (antes ~15s, el aumento
+es el costo real de ejercitar la búsqueda en el test de integración de
+`main()`, con `--n-trials 3` para mantenerlo rápido).
+
+### Pendiente al momento de este registro
+
+Reentrenar el modelo GPU real con `--n-trials 30` sobre el dataset
+combinado de 522 corridas (`/tmp/combined_training_gpu_phases.csv`) está en
+curso; el resultado (F1 macro con hiperparámetros buscados vs. los
+0.617 fijos anteriores, y si los hiperparámetros elegidos son estables
+entre las 11 familias) se registra en una entrada de seguimiento aparte una
+vez complete. No se ha ejecutado ninguna búsqueda para CPU todavía -- la
+campaña final CPU sigue sin confirmarse terminada.

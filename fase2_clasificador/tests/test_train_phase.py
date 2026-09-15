@@ -191,6 +191,7 @@ def test_main_serializa_modelo_y_metadata_reales(fake_campaign, monkeypatch, tmp
         "--per-run-sample", "200",
         "--seed", "0",
         "--output-dir", str(output_dir),
+        "--n-trials", "3",  # rápido: solo exercita la ruta de búsqueda, no busca a fondo
     ]
     monkeypatch.setattr(sys, "argv", argv)
     train_phase.main()

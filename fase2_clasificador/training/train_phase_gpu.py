@@ -112,43 +112,17 @@ def load(
 
 
 def build_models(seed: int, scale_pos_weight: float = 1.0):
-    """``class_weight="balanced"`` en todo modelo que lo soporta -- el
-    dataset real (525 corridas: 387 memory_bound / 138 compute_bound, 74%/26%)
-    está desbalanceado, y sin esto los modelos optimizan implícitamente por
-    la clase mayoritaria. La línea base ``mayoritaria`` se deja SIN balancear
-    a propósito: representa "no hacer nada", el balanceo no le corresponde.
-    XGBoost no tiene ``class_weight``; usa ``scale_pos_weight`` (razón
-    negativos/positivos), calculada por el caller sobre el split real de
-    entrenamiento, no un valor fijo -- ver ``main()``.
+    """Configuración de hiperparámetros FIJA de los 7 modelos candidatos
+    (§3.2 del plan) -- delega en ``model_specs.build_models`` (compartido
+    con ``train_phase.py``/CPU). Se conserva esta función/firma en este
+    archivo porque es el respaldo explícito cuando un pliegue no tiene
+    familias suficientes para un split interno de búsqueda de
+    hiperparámetros (ver ``main()``/``hyperparam_search.py``), y porque los
+    tests existentes la invocan directamente.
     """
-    from sklearn.dummy import DummyClassifier
-    from sklearn.ensemble import ExtraTreesClassifier, RandomForestClassifier
-    from sklearn.linear_model import LogisticRegression
-    from sklearn.pipeline import make_pipeline
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.tree import DecisionTreeClassifier
-    from xgboost import XGBClassifier
+    from fase2_clasificador.training import model_specs
 
-    return {
-        "mayoritaria": DummyClassifier(strategy="most_frequent"),
-        "arbol_prof1": DecisionTreeClassifier(
-            max_depth=1, class_weight="balanced", random_state=seed),
-        "regresion_log": make_pipeline(
-            StandardScaler(),
-            LogisticRegression(max_iter=1000, class_weight="balanced", random_state=seed)),
-        "arbol_prof6": DecisionTreeClassifier(
-            max_depth=6, class_weight="balanced", random_state=seed),
-        "random_forest": RandomForestClassifier(
-            n_estimators=100, max_depth=12, class_weight="balanced",
-            n_jobs=-1, random_state=seed),
-        "extra_trees": ExtraTreesClassifier(
-            n_estimators=100, max_depth=12, class_weight="balanced",
-            n_jobs=-1, random_state=seed),
-        "xgboost": XGBClassifier(
-            n_estimators=100, max_depth=6, n_jobs=-1, random_state=seed,
-            eval_metric="logloss", scale_pos_weight=scale_pos_weight,
-        ),
-    }
+    return model_specs.build_models(seed, scale_pos_weight=scale_pos_weight)
 
 
 def measure_latency(model, sample: np.ndarray, repeats: int = 200) -> tuple[float, float, float]:
@@ -221,12 +195,23 @@ def main() -> None:
              "en este directorio. Si se omite, solo imprime la comparación "
              "sin guardar nada (modo exploración).",
     )
+    parser.add_argument(
+        "--n-trials", type=int, default=15,
+        help="Intentos de Optuna (TPE) por modelo sintonizable y por pliegue "
+             "externo, para la búsqueda anidada de hiperparámetros (plan "
+             "§3.3 punto 1). 0 desactiva la búsqueda: usa la configuración "
+             "fija de build_models() en todos los pliegues -- útil para "
+             "iterar rápido, nunca el modo por defecto.",
+    )
     args = parser.parse_args()
     kernels = args.kernels.split(",") if args.kernels else None
     levels = args.levels.split(",") if args.levels else None
 
     from sklearn.base import clone
     from sklearn.metrics import confusion_matrix, f1_score
+
+    from fase2_clasificador.eval import hyperparam_search
+    from fase2_clasificador.training import model_specs
 
     leaking = set(FEATURES) & FORBIDDEN
     if leaking:
@@ -258,34 +243,81 @@ def main() -> None:
     n_neg = int(len(y) - n_pos)
     scale_pos_weight = (n_neg / n_pos) if n_pos > 0 else 1.0
 
+    fixed_models = model_specs.build_fixed_models(args.seed)
+    tunable = model_specs.tunable_specs(args.seed, scale_pos_weight)
+    KERNEL_COL = "kernel_family"
+    FOLD_FN = protocol.leave_one_kernel_out  # kernel_family ya es la familia
+
     results: dict[str, dict[str, float]] = {}
     latencies: dict[str, tuple[float, float, float]] = {}
     per_class_f1: dict[str, dict[str, float]] = {}  # modelo -> {compute_bound, memory_bound} (media entre pliegues)
     confusions: dict[str, np.ndarray] = {}  # modelo -> matriz de confusión acumulada [[TN,FP],[FN,TP]] (True=memory_bound)
+    per_fold_by_model: dict[str, dict[str, float]] = {name: {} for name in {**fixed_models, **tunable}}
+    per_fold_compute_by_model: dict[str, list[float]] = {name: [] for name in per_fold_by_model}
+    per_fold_memory_by_model: dict[str, list[float]] = {name: [] for name in per_fold_by_model}
+    cm_by_model: dict[str, np.ndarray] = {name: np.zeros((2, 2), dtype=np.int64) for name in per_fold_by_model}
+    best_params_por_pliegue: dict[str, dict[str, dict]] = {name: {} for name in tunable}
+    n_search_omitida = 0
 
-    for name, prototype in build_models(args.seed, scale_pos_weight=scale_pos_weight).items():
-        per_fold: dict[str, float] = {}
-        per_fold_compute: list[float] = []
-        per_fold_memory: list[float] = []
-        cm_total = np.zeros((2, 2), dtype=np.int64)
-        for idx_train, idx_test, familia in protocol.leave_one_kernel_out(df, kernel_col="kernel_family"):
+    for idx_train, idx_test, familia in FOLD_FN(df, kernel_col=KERNEL_COL):
+        df_train_outer = df.iloc[idx_train]
+
+        for name, prototype in fixed_models.items():
             model = clone(prototype)
             model.fit(X[idx_train], y[idx_train])
             pred = model.predict(X[idx_test])
-            per_fold[familia] = f1_score(y[idx_test], pred, average="macro", zero_division=0)
+            per_fold_by_model[name][familia] = f1_score(y[idx_test], pred, average="macro", zero_division=0)
             f1_per_class = f1_score(y[idx_test], pred, average=None, labels=[False, True], zero_division=0)
-            per_fold_compute.append(float(f1_per_class[0]))
-            per_fold_memory.append(float(f1_per_class[1]))
-            cm_total += confusion_matrix(y[idx_test], pred, labels=[False, True])
+            per_fold_compute_by_model[name].append(float(f1_per_class[0]))
+            per_fold_memory_by_model[name].append(float(f1_per_class[1]))
+            cm_by_model[name] += confusion_matrix(y[idx_test], pred, labels=[False, True])
             if familia == familias[0]:
                 latencies[name] = measure_latency(model, X[idx_test])
-        results[name] = protocol.fold_summary(per_fold)
-        results[name]["_per_fold"] = per_fold  # type: ignore[assignment]
+
+        for name, (build_fn, space_fn) in tunable.items():
+            can_search = (
+                args.n_trials > 0
+                and hyperparam_search.n_groups(df_train_outer, kernel_col=KERNEL_COL, fold_fn=FOLD_FN)
+                >= hyperparam_search.MIN_FAMILIAS_PARA_BUSQUEDA
+            )
+            if can_search:
+                best_params, _ = hyperparam_search.search_best_params(
+                    build_fn, space_fn, df_train_outer, X[idx_train], y[idx_train],
+                    kernel_col=KERNEL_COL, seed=args.seed, n_trials=args.n_trials,
+                    fold_fn=FOLD_FN,
+                )
+            else:
+                n_search_omitida += 1
+                best_params = dict(model_specs.FALLBACK_PARAMS.get(name, {}))
+            best_params_por_pliegue[name][familia] = best_params
+            model = build_fn(**best_params)
+            model.fit(X[idx_train], y[idx_train])
+            pred = model.predict(X[idx_test])
+            per_fold_by_model[name][familia] = f1_score(y[idx_test], pred, average="macro", zero_division=0)
+            f1_per_class = f1_score(y[idx_test], pred, average=None, labels=[False, True], zero_division=0)
+            per_fold_compute_by_model[name].append(float(f1_per_class[0]))
+            per_fold_memory_by_model[name].append(float(f1_per_class[1]))
+            cm_by_model[name] += confusion_matrix(y[idx_test], pred, labels=[False, True])
+            if familia == familias[0]:
+                latencies[name] = measure_latency(model, X[idx_test])
+
+    if n_search_omitida:
+        print(
+            f"[aviso] búsqueda de hiperparámetros omitida en {n_search_omitida} "
+            "combinaciones modelo/pliegue por falta de familias para un split "
+            "interno (o --n-trials=0) -- se usó la configuración fija de "
+            "build_models() en esos casos, ver best_params_por_pliegue en la "
+            "metadata.\n"
+        )
+
+    for name in per_fold_by_model:
+        results[name] = protocol.fold_summary(per_fold_by_model[name])
+        results[name]["_per_fold"] = per_fold_by_model[name]  # type: ignore[assignment]
         per_class_f1[name] = {
-            "compute_bound": float(np.mean(per_fold_compute)),
-            "memory_bound": float(np.mean(per_fold_memory)),
+            "compute_bound": float(np.mean(per_fold_compute_by_model[name])),
+            "memory_bound": float(np.mean(per_fold_memory_by_model[name])),
         }
-        confusions[name] = cm_total
+        confusions[name] = cm_by_model[name]
 
     print(f"{'modelo':<16}{'F1 macro':>10}{'sd':>8}{'peor':>8}{'familia peor':>28}"
           f"{'F1 comp':>9}{'F1 mem':>9}{'p50 us':>9}{'p95 us':>9}{'p99 us':>9}")
@@ -325,7 +357,27 @@ def main() -> None:
         import joblib
         from sklearn.base import clone as _clone
 
-        final_model = _clone(build_models(args.seed, scale_pos_weight=scale_pos_weight)[best_name])
+        # El modelo a desplegar se reentrena sobre TODO el dataset (ya no
+        # queda ninguna familia fuera para estimar generalización -- eso ya
+        # lo hizo el leave-one-familia-out de arriba). Si es un modelo
+        # sintonizable, sus hiperparámetros finales se buscan una vez más
+        # aquí, ahora con las 11 familias completas como split interno (más
+        # señal que cualquier pliegue externo individual) -- nunca se
+        # reutiliza el hiperparámetro de un solo pliegue para el modelo de
+        # producción.
+        final_best_params: dict = {}
+        if best_name in tunable:
+            build_fn, space_fn = tunable[best_name]
+            if hyperparam_search.n_groups(df, kernel_col=KERNEL_COL, fold_fn=FOLD_FN) >= hyperparam_search.MIN_FAMILIAS_PARA_BUSQUEDA and args.n_trials > 0:
+                final_best_params, _ = hyperparam_search.search_best_params(
+                    build_fn, space_fn, df, X, y, kernel_col=KERNEL_COL,
+                    seed=args.seed, n_trials=args.n_trials, fold_fn=FOLD_FN,
+                )
+            else:
+                final_best_params = dict(model_specs.FALLBACK_PARAMS.get(best_name, {}))
+            final_model = build_fn(**final_best_params)
+        else:
+            final_model = _clone(fixed_models[best_name])
         final_model.fit(X, y)
 
         args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -354,6 +406,12 @@ def main() -> None:
                 f"{scale_pos_weight:.4f} (razon global neg/pos, no por pliegue)"
             ),
             "latency_weight": args.latency_weight,
+            "hyperparameter_search": {
+                "method": "optuna_tpe" if best_name in tunable else "n/a (linea base fija)",
+                "n_trials": args.n_trials,
+                "best_params_final_model": final_best_params,
+                "best_params_por_pliegue_externo": best_params_por_pliegue.get(best_name, {}),
+            },
             "cv_f1_macro_mean": results[best_name]["mean"],
             "cv_f1_macro_std": results[best_name]["std"],
             "cv_f1_macro_worst_familia": results[best_name]["worst_kernel"],
