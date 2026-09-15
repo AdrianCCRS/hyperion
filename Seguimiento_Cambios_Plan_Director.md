@@ -3963,3 +3963,138 @@ serializado sobre datos de una campaña real completa (no un fixture
 sintético), resultado reportado con sus limitaciones explícitas
 (F1 débil, hallazgo de latencia de sklearn) en vez de presentado como
 éxito. Primer artefacto de modelo GPU versionado en el repo.
+
+## F1-XDEV-002 (cierre para GPU) — Calibración real de warmup ejecutada: 46 corridas cambian de veredicto, 2 kernels quedan sin datos de entrenamiento
+
+**Fecha de registro:** 2026-09-15
+**Estado:** cerrado para GPU (los 18 kernels de `gpu_final.yaml`
+calibrados con evidencia real). CPU queda pendiente para cuando su
+campaña final termine.
+
+### Motivación
+
+El usuario preguntó directamente si el warmup se había medido antes de
+entrenar el clasificador GPU. Verificación honesta: `gpu_final.yaml`
+declara `warmup_seconds_override: 0.0` (línea 86) -- **intencional**,
+es el primer paso del procedimiento documentado de F1-XDEV-002 (correr
+la campaña real sin excluir el transitorio, para poder medirlo
+después), pero los pasos 2-4 (calibrar, aplicar, reprocesar) nunca se
+habían ejecutado. Confirmado directamente contra los datos: las 540
+filas de `training_gpu_phases.csv` tenían
+`n_nvml_samples_warmup_excluded = 0` en el 100% de los casos -- el
+modelo entrenado hasta ese momento tenía el transitorio de arranque
+mezclado en cada agregado (mediana de potencia/utilización/reloj
+calculada incluyendo las primeras muestras post-arranque, no solo el
+estado estable).
+
+### Ejecución (en `pacca03`, nodo libre -- sin tocar `paccaA100` mientras
+corría la campaña final CPU, pedido explícito del usuario)
+
+1. `warmup_calibration.py --device gpu` sobre los 18 kernels de
+   `gpu_final.yaml`, usando `windows.csv` de la campaña real ya
+   ejecutada (28-30 corridas analizadas por kernel, método
+   `cv_threshold` -- el principal, no un método de respaldo). Los 18
+   dieron `status=measured`, ninguno cayó a `insufficient_signal`.
+2. **Los valores reales resultaron mayores que los declarados en 17 de
+   18 casos** (ej. `dual_stencil_gpu_N1024`: 0.05s declarado → 4.33s
+   real; `dual_cholesky_gpu_N2048`: 0.05s → 4.35s; `rodinia_dwt2d`:
+   1.0s → 6.41s) -- confirma que el transitorio real es
+   sistemáticamente más largo de lo que se había puesto a mano en
+   distintos momentos de la sesión.
+3. `--apply` sobre el catálogo desplegado en pacca (con backup
+   automático `.bak`) y sobre `fase1_telemetria/catalog/catalog.yaml`
+   local (edición directa, verificada contra `yaml.safe_load`, 280
+   entradas intactas).
+4. `repostprocess_campaign.py` sobre la campaña real con el catálogo
+   ya corregido (`ignore_manifest_override` por defecto -- ignora el
+   `warmup_seconds_override: 0.0` del manifiesto a propósito, usa el
+   `warmup_seconds` ya calibrado del catálogo). **Hueco de diseño
+   encontrado y sorteado, no corregido de raíz:** el cargador de
+   manifiestos (`manifest_module.load`) rechaza con `I07` cualquier
+   manifiesto cuyo `output_dir` ya exista y `overwrite: false` --
+   correcto para lanzar una campaña nueva, pero bloquea reprocesar una
+   ya completada (el caso de uso explícito de este script, que nunca
+   relanza kernels). Se sorteó con una copia temporal del manifiesto
+   con `overwrite: true` solo para esta invocación
+   (`gpu_final_repostprocess_tmp.yaml`, no versionada). Pendiente:
+   `repostprocess_campaign.py` debería tener su propio mecanismo para
+   esto en vez de depender de una copia manual del manifiesto.
+
+### Resultado -- 46 corridas cambian de veredicto, no se ocultó
+
+Al excluir correctamente el warmup real (más largo), **46 de 540
+corridas (8.5%) pasan de `accepted=true` a `accepted=false`**
+(`I10: ventanas gpu_telemetry insuficientes, <5 vs.
+target_windows_per_repetition=5`) -- todas de `rodinia_lud`,
+`rodinia_lavamd` y `rodinia_dwt2d`, los 3 kernels con el warmup
+calibrado más largo (6.4-6.8s) relativos a su duración total de
+corrida. **Estas corridas estaban siendo aceptadas por error antes de
+esta corrección**: el código contaba muestras del transitorio de
+arranque como si fueran ventanas de estado estable válidas, porque
+nada se estaba excluyendo.
+
+Efecto sobre el dataset de entrenamiento: de 525 a **334 corridas
+elegibles**, de 18 a **16 kernels**, de 13 a **11 familias algorítmicas**
+-- `rodinia_lavamd` (la ancla compute-bound más profunda del catálogo,
+log2(OI/ridge)=+7.52) y `rodinia_dwt2d` quedan **sin ninguna corrida
+utilizable** para entrenamiento: ninguna de sus repeticiones/niveles
+alcanza las 5 ventanas de estado estable reales una vez excluido el
+transitorio correcto.
+
+### Reentrenamiento (F2-XDEV-002, actualización)
+
+| | Sin balanceo, warmup sin corregir | Con balanceo, warmup sin corregir | Con balanceo, warmup corregido |
+|---|---|---|---|
+| Corridas | 525 | 525 | **334** |
+| Familias | 13 | 13 | **11** |
+| F1 macro | 0.576 | 0.594 | **0.617** |
+| F1 compute_bound | *(no se medía)* | 0.148 | **0.197** |
+| F1 memory_bound | *(no se medía)* | 0.579 | 0.583 |
+
+Las tres correcciones (balanceo de clase, F1 por clase/matriz de
+confusión, warmup real) se suman en la dirección correcta -- F1 macro
+sube de 0.576 a 0.617, F1 compute_bound casi se duplica (0.148→0.197)
+-- pero el modelo sigue siendo débil en términos absolutos, y ahora con
+menos datos y sin su ancla compute-bound más fuerte.
+
+### Limitaciones
+
+- `rodinia_lavamd`/`rodinia_dwt2d` quedan efectivamente fuera del
+  catálogo de entrenamiento GPU tal como está dimensionado hoy -- no
+  se investigó si aumentar su duración de corrida (mismo criterio de
+  F1-GPU-006 aplicado a otros kernels) recuperaría suficientes
+  ventanas de estado estable. Sería el paso natural si se quiere
+  recuperar la representación compute-bound profunda.
+- `T_transición_gpu` (§2.4.1 del plan, medido en job 7055,
+  ~170ms conservador) NO está wireado como filtro explícito en
+  `gpu_phases.py` (`excluded_transition_not_settled` no existe como
+  estado) -- verificado que no cambia nada en el dataset actual (todas
+  las corridas duran 25-34s, muy por encima de 170ms), pero sigue
+  siendo una pieza real del plan sin construir.
+- No se calibró warmup para CPU todavía -- la campaña final CPU sigue
+  corriendo.
+- El mecanismo de "copia temporal del manifiesto con overwrite:true"
+  para poder reprocesar es un sorteo, no una solución -- documentado
+  como pendiente en la sección de ejecución arriba.
+
+### Trabajo pendiente
+
+1. Evaluar si agrandar `rodinia_lavamd`/`rodinia_dwt2d` (más
+   iteraciones/tamaño, mismo criterio F1-GPU-006) recuperaría
+   ventanas de estado estable suficientes.
+2. Implementar el filtro `T_transición_gpu` en `gpu_phases.py` por
+   completitud metodológica, aunque hoy no cambie el resultado.
+3. Repetir este mismo proceso de calibración de warmup para CPU en
+   cuanto su campaña final termine.
+4. Darle a `repostprocess_campaign.py` su propio mecanismo para
+   reprocesar una campaña existente sin depender de una copia manual
+   del manifiesto con `overwrite: true`.
+
+### Criterio exacto de cierre
+
+Cerrado para GPU: calibración ejecutada con evidencia real (no
+teórica) sobre los 18 kernels, aplicada al catálogo (local y
+desplegado) con backup, campaña completa reprocesada, 46 corridas
+reclasificadas correctamente en vez de ocultadas, modelo reentrenado
+con los datos limpios y el resultado (incluida la pérdida de
+`rodinia_lavamd`/`rodinia_dwt2d`) reportado sin maquillar.

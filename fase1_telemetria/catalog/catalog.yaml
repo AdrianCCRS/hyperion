@@ -571,7 +571,7 @@ kernels:
     # dedicada) -- 0.5s es conservador frente a los ~0.19s de overhead de
     # transferencia medidos (6.14s totales - 5.94s de kernels CUDA), pero
     # queda como limitacion explicita, no una medicion real.
-    warmup_seconds: 0.5
+    warmup_seconds: 1.6626
     estimated_memory_bytes: 268435456 # 2 matrices 4096^2 x 4 B + vectores ~128 MB, con margen
     success_check: {type: exit_code}
     binary_checksum:
@@ -671,7 +671,7 @@ kernels:
     # detectada -- dominado por la inicializacion de contexto CUDA + copia
     # H2D del dataset N-Body de ~3 GB (mucho mayor que a boxes1d=10), no un
     # artefacto del detector. Reemplaza el 1.0s heredado sin respaldo.
-    warmup_seconds: 4.3753
+    warmup_seconds: 6.5139
     # ARC-86: memoria real medida con nvidia-smi durante la corrida
     # (boxes1d=70): ~2990 MiB -- el N-Body escala ~boxes1d^3, asi que subir
     # de 10 a 70 crece el uso muchisimo mas que el 2x que sugeriria el valor
@@ -720,7 +720,7 @@ kernels:
     # muestras NVML a 5ms) -- transicion limpia y real: gpu_util_pct
     # 1.4%->90.8% y gpu_power_mw 37.8W->52.7W (piso de idle -> carga real)
     # en t=0.24s. Reemplaza el 1.0s heredado sin respaldo de medicion.
-    warmup_seconds: 0.2929
+    warmup_seconds: 1.9087
     success_check: {type: exit_code}
     binary_checksum:
       pacca-a100: "sha256:0693860b0e2b75e010a9a5d2554da58f9b8fd437c2474a72e19142f2876f8f09"
@@ -752,7 +752,7 @@ kernels:
     gpu_precision: fp32
     size_variant: N2048
     expected_runtime_seconds: 12 # medido en paccaA100: 7.99 s (la mayor parte es verificacion CPU O(N^3), no el kernel CUDA)
-    warmup_seconds: 1.0
+    warmup_seconds: 1.6743
     estimated_memory_bytes: 67108864 # matriz 2048^2 x 4 B (float) ~16 MB, con margen
     success_check: {type: exit_code}
     binary_checksum:
@@ -864,7 +864,7 @@ kernels:
     # señal SÍ tiene actividad real, así que 0.537s podría ser válido,
     # pero no se remide aquí: cambiar warmup a la baja exige confirmar
     # que no recorta el arranque real, y eso no se ha hecho.
-    warmup_seconds: 1.0
+    warmup_seconds: 6.4071
     # ARC-86: memoria real medida con nvidia-smi (16384x16384): ~8352 MiB,
     # con margen ~50% sobre eso (antes 16 MB, calibrado para 192x192).
     estimated_memory_bytes: 12884901888
@@ -1257,7 +1257,7 @@ kernels:
     # medido 30% promedio y 7.2s de duracion -- muy corto/ocioso para el
     # objetivo de sostener carga real de GPU (advertencia del director).
     expected_runtime_seconds: 30
-    warmup_seconds: 0.5
+    warmup_seconds: 4.4464
     estimated_memory_bytes: 2147483648
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -1314,7 +1314,7 @@ kernels:
     # a 100 (45% uso GPU, 11.4s), pero seguia corto frente al objetivo de
     # 30s+ sostenidos.
     expected_runtime_seconds: 46
-    warmup_seconds: 0.5
+    warmup_seconds: 4.0909
     estimated_memory_bytes: 2147483648
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -1333,7 +1333,7 @@ kernels:
     # F1-GPU-006 (2026-09-13): sizefact 100->400. A 100, uso real de GPU
     # medido 18% promedio y 7.65s de duracion.
     expected_runtime_seconds: 31
-    warmup_seconds: 0.5
+    warmup_seconds: 5.4077
     estimated_memory_bytes: 2147483648
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -2666,7 +2666,7 @@ kernels:
     # dual_*).
     exec_args: "--size 4096 --iterations 200"
     expected_runtime_seconds: 30
-    warmup_seconds: 0.05
+    warmup_seconds: 4.1149
     estimated_memory_bytes: 697932185
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
@@ -3046,7 +3046,7 @@ kernels:
     # medida. 0.0656s/iter medido * 500 ~= 33s.
     exec_args: "--size 10000000 --iterations 500"
     expected_runtime_seconds: 33
-    warmup_seconds: 0.05
+    warmup_seconds: 5.6909
     estimated_memory_bytes: 312000000
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
@@ -3416,7 +3416,7 @@ kernels:
     size_variant: N1024
     exec_args: "--size 1024 --iterations 782"
     expected_runtime_seconds: 11
-    warmup_seconds: 0.05
+    warmup_seconds: 4.3257
     estimated_memory_bytes: 32715571
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
@@ -3975,7 +3975,7 @@ kernels:
     # medido * 950 ~= 34s.
     exec_args: "--size 2048 --iterations 950"
     expected_runtime_seconds: 34
-    warmup_seconds: 0.05
+    warmup_seconds: 4.3533
     estimated_memory_bytes: 87241523
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
@@ -4684,7 +4684,7 @@ kernels:
     # aun corto. 0.01377s/iter medido * 2540 ~= 35s.
     exec_args: "--size 1000000 --iterations 2540"
     expected_runtime_seconds: 35
-    warmup_seconds: 0.05
+    warmup_seconds: 4.3374
     estimated_memory_bytes: 135200005
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
@@ -5588,7 +5588,7 @@ kernels:
     gpu_precision: fp64
     size_variant: sizefact250
     expected_runtime_seconds: 34
-    warmup_seconds: 0.5
+    warmup_seconds: 6.8062
     estimated_memory_bytes: 536870912
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -5667,7 +5667,7 @@ kernels:
     size_variant: N1280000000
     exec_args: "--size 1280000000 --iterations 10"
     expected_runtime_seconds: 50
-    warmup_seconds: 0.05
+    warmup_seconds: 5.4408
     estimated_memory_bytes: 20939014144
     # OI real medido via ncu: 0.0858 FLOP/byte, converged limpio (cambio
     # relativo 0.0000). 19.5GB reales medidos con nvidia-smi (48.8% VRAM).
@@ -5689,7 +5689,7 @@ kernels:
     size_variant: N200000000
     exec_args: "--size 200000000 --iterations 15"
     expected_runtime_seconds: 55
-    warmup_seconds: 0.05
+    warmup_seconds: 4.3213
     estimated_memory_bytes: 21251489792
     # OI real medido via ncu: 0.266 FLOP/byte, muy estable (lc5/20/50:
     # 0.2651/0.2660/0.2660), casi identico al valor previo de la familia
@@ -5715,7 +5715,7 @@ kernels:
     size_variant: N36864
     exec_args: "--size 36864 --iterations 20"
     expected_runtime_seconds: 60
-    warmup_seconds: 0.05
+    warmup_seconds: 4.4664
     estimated_memory_bytes: 22188916736
     # OI real medido via ncu: 0.2577 FLOP/byte, perfectamente estable
     # (identico en lc20 y lc50) -- cayo a la mitad del valor previo de la
@@ -5760,7 +5760,7 @@ kernels:
     gpu_precision: fp64
     size_variant: N4096
     expected_runtime_seconds: 31
-    warmup_seconds: 1.0
+    warmup_seconds: 6.6431
     estimated_memory_bytes: 536870912
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
