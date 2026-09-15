@@ -61,7 +61,7 @@ cd "$build_dir"
 cd - > /dev/null
 
 actual_binary_sha256="$(sha256sum "$build_dir/rodinia_kmeans" | awk '{print $1}')"
-expected_binary_sha256="PENDIENTE_VERIFICAR_EN_PACCA"
+expected_binary_sha256="d1e877643e640e72a727139adee1cb8f1febe18a6a4d6a7defc87f31c04a9383"
 if [[ "$actual_binary_sha256" != "$expected_binary_sha256" ]]; then
   echo "Binario no reproducible: $actual_binary_sha256 (esperado $expected_binary_sha256)" >&2
   exit 1

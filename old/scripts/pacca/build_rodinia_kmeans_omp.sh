@@ -44,7 +44,7 @@ cc="${4:-/opt/ohpc/pub/compiler/gcc/12.4.0/bin/gcc}"
   -lm -o "$build_dir/rodinia_kmeans_omp"
 
 actual_binary_sha256="$(sha256sum "$build_dir/rodinia_kmeans_omp" | awk '{print $1}')"
-expected_binary_sha256="PENDIENTE_VERIFICAR_EN_PACCA"
+expected_binary_sha256="61eca256e92dac78358804d4b5640e8407db438e3609b395c1702fa49f9c4c4e"
 if [[ "$actual_binary_sha256" != "$expected_binary_sha256" ]]; then
   echo "Binario no reproducible: $actual_binary_sha256 (esperado $expected_binary_sha256)" >&2
   exit 1

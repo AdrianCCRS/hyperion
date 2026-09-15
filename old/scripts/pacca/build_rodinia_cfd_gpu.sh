@@ -45,7 +45,7 @@ trap cleanup EXIT
   -o "$build_dir/rodinia_cfd"
 
 actual_binary_sha256="$(sha256sum "$build_dir/rodinia_cfd" | awk '{print $1}')"
-expected_binary_sha256="PENDIENTE_VERIFICAR_EN_PACCA"
+expected_binary_sha256="61fe59875d605b3624cf20b43d8cb7f2c758bec849e3b29450afa1361a3a3568"
 if [[ "$actual_binary_sha256" != "$expected_binary_sha256" ]]; then
   echo "Binario no reproducible: $actual_binary_sha256 (esperado $expected_binary_sha256)" >&2
   exit 1

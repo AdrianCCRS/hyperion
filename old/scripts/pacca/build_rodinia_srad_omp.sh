@@ -38,7 +38,7 @@ trap cleanup EXIT
   -lm -o "$build_dir/rodinia_srad_omp"
 
 actual_binary_sha256="$(sha256sum "$build_dir/rodinia_srad_omp" | awk '{print $1}')"
-expected_binary_sha256="PENDIENTE_VERIFICAR_EN_PACCA"
+expected_binary_sha256="1d4bc31497befa18859336e64d00b7ee6f26727a78ef3b265c5aa84711aee0b3"
 if [[ "$actual_binary_sha256" != "$expected_binary_sha256" ]]; then
   echo "Binario no reproducible: $actual_binary_sha256 (esperado $expected_binary_sha256)" >&2
   exit 1
