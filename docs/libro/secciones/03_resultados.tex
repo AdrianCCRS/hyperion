@@ -290,11 +290,11 @@ La Figura \ref{fig:gpu-matriz-correlacion} muestra la matriz de correlación de 
     \label{fig:gpu-matriz-correlacion}
 \end{figure}
 
-\subsection{Balanceo de clases y tres etapas de refinamiento}
+\subsection{Balanceo de clases y validación}
 
-El conjunto de entrenamiento final (334 corridas, 16 kernels, 11 familias algorítmicas) está desbalanceado: 73 corridas \textit{compute\_bound} frente a 261 \textit{memory\_bound} (21.9\%/78.1\%). Sin corrección, este desbalance sesga cualquier clasificador hacia la clase mayoritaria. Se aplicó \texttt{class\_weight="balanced"} de \textit{scikit-learn} a todos los modelos salvo el clasificador de referencia (que predice siempre la clase mayoritaria, por diseño sin balanceo) y XGBoost, que no admite ese mecanismo y en su lugar recibe \texttt{scale\_pos\_weight} calculado una sola vez sobre la razón global de corridas negativas a positivas del conjunto completo (0.2797) --- una simplificación documentada: el valor correcto sería recalcularlo dentro de cada pliegue de validación cruzada, no una sola vez sobre el conjunto completo, para evitar cualquier fuga de la distribución de clases del pliegue de prueba hacia el ajuste del modelo.
+El conjunto de entrenamiento final (334 corridas, 16 kernels, 11 familias algorítmicas) está desbalanceado: 73 corridas \textit{compute\_bound} frente a 261 \textit{memory\_bound} (21.9\%/78.1\%). Se aplicó \texttt{class\_weight="balanced"} de \textit{scikit-learn} a todos los modelos salvo el clasificador de referencia (mayoritaria, sin balanceo por diseño) y XGBoost, que en su lugar recibe \texttt{scale\_pos\_weight} calculado una sola vez sobre la razón global negativa/positiva del conjunto completo (0.2797) --- simplificación documentada: el valor correcto se recalcularía por pliegue, no una sola vez.
 
-La validación se realiza mediante \textit{leave-one-familia-out}: en cada pliegue, todas las corridas de una familia algorítmica completa (por ejemplo, todas las variantes de \textit{dual\_spmv\_gpu}) se retienen como prueba y el resto se usa para entrenar, evitando que el modelo se beneficie de haber visto otra corrida de la misma familia --- a distinto nivel de frecuencia o repetición --- durante su ajuste. Este criterio, más estricto que una validación cruzada aleatoria estándar, es la razón directa por la que el modelo final generaliza peor de lo que un F1 promedio simple sugeriría: la Tabla \ref{tab:gpu-clasificador-tres-etapas} documenta la evolución del resultado a través de las tres correcciones metodológicas aplicadas sucesivamente durante este trabajo.
+La validación es \textit{leave-one-familia-out}: cada pliegue retiene como prueba todas las corridas de una familia algorítmica completa, nunca solo una repetición o nivel de frecuencia suyo. La Tabla \ref{tab:gpu-clasificador-tres-etapas} documenta la evolución del resultado a través de las tres correcciones aplicadas sucesivamente: balanceo de clase, F1 por clase/matriz de confusión, y warmup calibrado.
 
 \begin{table}[H]
 \centering
@@ -315,21 +315,44 @@ F1 \textit{memory\_bound} & (no se medía) & 0.579 & 0.583 \\
 \end{tabular}
 \end{table}
 
-Las tres correcciones se suman en la dirección correcta: el F1 macro sube de 0.576 a 0.617, y el F1 de la clase \textit{compute\_bound} casi se duplica (0.148 a 0.197). El modelo finalmente serializado es un árbol de decisión de profundidad 1 (\texttt{arbol\_prof1}), seleccionado entre siete candidatos comparados (árbol de profundidad 1, árbol de profundidad 6, regresión logística, \textit{random forest}, \textit{extra trees}, XGBoost y el clasificador de referencia de clase mayoritaria) mediante una puntuación compuesta que combina calidad de clasificación y costo de inferencia: $\text{Score} = (1 - \overline{F1}_{\text{macro}}) + 0.2 \times (p_{99}/\max(p_{99}))$, penalizando un modelo más lento en proporción a su latencia relativa al más lento del conjunto comparado. La Figura \ref{fig:gpu-pareto-calidad-latencia} sitúa a los siete modelos comparados en el plano calidad--latencia, mostrando por qué esta elección no es solo la de mayor F1 macro nominal.
+Las tres correcciones se suman en la dirección correcta: el F1 macro sube de 0.576 a 0.617, y el F1 de \textit{compute\_bound} casi se duplica (0.148 a 0.197).
+
+\subsection{Selección de modelo y búsqueda de hiperparámetros}
+\label{sec:resultados-gpu-hiperparam}
+
+\subsubsection*{Resultados}
+
+Se compararon siete modelos bajo el mismo protocolo \textit{leave-one-familia-out}: dos árboles fijos (profundidad 1 y 6), el clasificador de referencia (mayoritaria), y cuatro modelos con hiperparámetros ajustables (regresión logística, \textit{random forest}, \textit{extra trees}, XGBoost) afinados con Optuna (muestreador TPE, 30 intentos por modelo) anidado dentro de cada pliegue externo --- la búsqueda de un pliegue nunca ve la familia retenida para prueba, y el modelo final se reoptimiza una última vez sobre las 11 familias completas antes de servirlo. La Figura \ref{fig:gpu-hiperparam-f1} compara los siete por F1 macro.
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.75\textwidth]
+    \includegraphics[width=0.72\textwidth]
+        {figuras/fig_gpu_hiperparam_f1_por_modelo_20260915.png}
+    \caption[F1 macro de los siete modelos comparados]{F1 macro (\textit{leave-one-familia-out}) de los siete modelos comparados para el clasificador diagnóstico GPU. Fuente: elaboración propia.}
+    \label{fig:gpu-hiperparam-f1}
+\end{figure}
+
+El modelo serializado es el árbol de profundidad 1 (\texttt{arbol\_prof1}): mejor F1 macro del conjunto (0.617) y menor latencia de inferencia (p99 $=118$~\textmu s), seleccionado mediante una puntuación compuesta $\text{Score} = (1 - \overline{F1}_{\text{macro}}) + 0.2 \times (p_{99}/\max(p_{99}))$ que penaliza la latencia relativa al modelo más lento del conjunto comparado.
+
+\subsubsection*{Discusión}
+
+Ningún modelo con hiperparámetros ajustables superó a la línea base fija, pese a una búsqueda real de 30 intentos por modelo. \textit{Random forest} y \textit{extra trees} obtienen el mejor F1 macro del grupo optimizado (0.470 y 0.463) a un costo de inferencia p99 de $\sim$29~ms y $\sim$88~ms --- 250--750$\times$ mayor que el árbol elegido --- consistente con evaluar cientos de árboles internos por predicción frente a una sola comparación de umbral. La Figura \ref{fig:gpu-pareto-calidad-latencia} sitúa a los siete modelos en el plano calidad--latencia.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.72\textwidth]
         {figuras/fig_gpu_pareto_calidad_latencia_20260915.png}
-    \caption[Frente de calidad frente a latencia de inferencia]{F1 macro (\textit{leave-one-familia-out}) frente a latencia de inferencia p99 por fila (escala logarítmica), para los siete modelos comparados. El modelo serializado (\texttt{arbol\_prof1}) se marca con una estrella. Fuente: elaboración propia.}
+    \caption[Frente de calidad frente a latencia de inferencia]{F1 macro frente a latencia de inferencia p99 por fila (escala logarítmica), para los siete modelos comparados. El modelo serializado se marca con una estrella. Fuente: elaboración propia.}
     \label{fig:gpu-pareto-calidad-latencia}
 \end{figure}
 
-Los cinco modelos con hiperparámetros ajustables (todos salvo \texttt{mayoritaria} y \texttt{arbol\_prof1}, dejados fijos a propósito como puntos de comparación) se afinaron con una búsqueda Bayesiana (Optuna, muestreador TPE, 30 intentos por modelo) anidada dentro de cada pliegue externo de \textit{leave-one-familia-out}: la búsqueda de hiperparámetros de un pliegue corre únicamente sobre las familias de entrenamiento de ese pliegue, nunca sobre la familia retenida para prueba, y el modelo final se reoptimiza una última vez sobre las 11 familias completas antes de servirlo. El resultado es honesto y no trivial: \textbf{ningún modelo optimizado superó al árbol de profundidad 1}, pese a la búsqueda real. \textit{Random forest} y \textit{extra trees} alcanzan el mejor F1 macro del grupo optimizado (0.470 y 0.463 respectivamente, todavía por debajo del árbol seleccionado) a un costo de inferencia p99 de $\sim$29~ms y $\sim$88~ms por fila --- 250--750$\times$ mayor que los 118~\textmu s del árbol de profundidad 1 --- consistente con el costo de evaluar cientos de árboles internos por predicción frente a una sola comparación de umbral. XGBoost (F1=0.392) y la regresión logística (F1=0.360, la más baja del grupo optimizado) tampoco cierran la brecha. La lectura metodológica es consistente con el tamaño del dataset: con 11 familias y una búsqueda anidada que a su vez subdivide el conjunto de entrenamiento de cada pliegue externo, cada evaluación interna de un candidato de hiperparámetros ve muy pocas familias --- exactamente el régimen en el que un modelo de alta varianza (bosques, \textit{gradient boosting}) tiende a sobreajustar el ruido de la partición en lugar de encontrar una configuración que generalice, mientras que la simplicidad forzada del árbol de profundidad 1 actúa como una regularización mucho más fuerte que cualquier hiperparámetro que la búsqueda pueda encontrarle a un modelo más flexible.
+La lectura más consistente con el tamaño del conjunto de datos: con 11 familias y una búsqueda anidada que subdivide aún más el entrenamiento de cada pliegue externo, cada evaluación interna de un candidato ve muy pocas familias --- el régimen exacto en el que un modelo de alta varianza (bosques, \textit{gradient boosting}) sobreajusta la partición en vez de generalizar, mientras que la simplicidad forzada de un árbol de profundidad 1 actúa como una regularización más fuerte que cualquier hiperparámetro que la búsqueda pueda encontrarle a un modelo más flexible.
 
 \subsection{Matriz de confusión y limitaciones del resultado}
 
-La Figura \ref{fig:gpu-matriz-confusion} muestra la matriz de confusión acumulada sobre los 11 pliegues de validación \textit{leave-one-familia-out} del modelo final. De las 73 corridas reales \textit{compute\_bound}, el modelo predice correctamente 33 (45.2\%) y confunde 40 (54.8\%) como \textit{memory\_bound}; de las 261 corridas reales \textit{memory\_bound}, predice correctamente 234 (89.7\%) y confunde 27 (10.3\%) como \textit{compute\_bound}.
+\subsubsection*{Resultados}
+
+La Figura \ref{fig:gpu-matriz-confusion} muestra la matriz de confusión acumulada sobre los 11 pliegues \textit{leave-one-familia-out} del modelo final. De 73 corridas reales \textit{compute\_bound}, el modelo predice correctamente 33 (45.2\%); de 261 \textit{memory\_bound}, predice correctamente 234 (89.7\%).
 
 \begin{figure}[H]
     \centering
@@ -339,6 +362,38 @@ La Figura \ref{fig:gpu-matriz-confusion} muestra la matriz de confusión acumula
     \label{fig:gpu-matriz-confusion}
 \end{figure}
 
-La debilidad de la clase \textit{compute\_bound} (F1$=$0.197, muy por debajo del F1$=$0.583 de \textit{memory\_bound}) tiene una explicación teórica directa, más allá del desbalance de clase ya corregido: con solo 73 corridas \textit{compute\_bound} distribuidas entre apenas 5 kernels distintos --- frente a 261 corridas \textit{memory\_bound} sobre 11 kernels --- y bajo un criterio de validación que retiene familias enteras fuera del entrenamiento en cada pliegue, el modelo dispone en la práctica de muy pocos ejemplos independientes de la clase minoritaria sobre los cuales generalizar; perder precisamente la ancla \textit{compute\_bound} más profunda del catálogo (\textit{rodinia\_lavamd}, sin ninguna corrida utilizable tras la calibración de warmup, sección \ref{sec:resultados-gpu-dataset-final}) agrava directamente esta escasez, dejando al modelo sin ningún ejemplo de la región más alejada del ridge en el lado \textit{compute-bound} del espacio de \textit{features}.
+El F1 por clase reportado en la Tabla \ref{tab:gpu-clasificador-tres-etapas} (\textit{compute\_bound}$=0.197$) es el promedio simple sobre los 11 pliegues, distinto del que se obtiene calculando precision/recall directamente sobre la matriz acumulada (precision$=0.550$, recall$=0.452$, F1$\approx0.496$). No es un error de cómputo: solo 5 de los 16 kernels utilizables son \textit{compute\_bound}, así que en la mayoría de los pliegues la familia excluida no aporta ningún ejemplo de esa clase y su F1 se registra como 0 por ausencia de soporte, arrastrando el promedio por pliegue por debajo de la cifra agregada. Se reportan ambas cifras para no sugerir, con una sola, una precisión distinta de la que el modelo realmente exhibe.
 
-El resultado del clasificador diagnóstico debe leerse, en consecuencia, con honestidad sobre sus límites: un F1 macro de 0.617 supera al clasificador de referencia (0.553) pero permanece débil en términos absolutos, y la pérdida de las dos anclas \textit{compute\_bound} más profundas del catálogo (\textit{rodinia\_lavamd} y \textit{rodinia\_dwt2d}) reduce, no solo teóricamente sino de forma medible, la capacidad del conjunto de datos actual para sostener una clasificación robusta de esa clase. No se investigó todavía si alargar la duración de corrida de estos dos kernels --- mismo criterio ya aplicado exitosamente a otros kernels del catálogo (sección \ref{sec:resultados-gpu-gemm-evolucion}) para acomodar un perfilado más costoso --- recuperaría suficientes ventanas de estado estable tras excluir su warmup real, ya calibrado en 6.4--6.5~s; sería el paso natural para intentar recuperar la representación \textit{compute\_bound} profunda perdida en esta corrección. De forma similar, la latencia de conmutación de reloj de GPU medida en este trabajo ($t_{\text{actuación}}\approx170$~ms, cota conservadora) no está implementada todavía como un filtro explícito en el post-procesamiento de fase de GPU, aunque se confirmó que no altera el resultado actual: todas las corridas del catálogo final duran entre 25 y 34~s, muy por encima de ese transitorio.
+\subsubsection*{Discusión}
+
+La debilidad de \textit{compute\_bound} tiene una explicación directa más allá del desbalance ya corregido: solo 73 corridas de esa clase, repartidas entre 5 kernels (frente a 261 corridas / 11 kernels de \textit{memory\_bound}), y un criterio de validación que retiene familias completas fuera del entrenamiento en cada pliegue dejan al modelo con muy pocos ejemplos independientes sobre los cuales generalizar. Perder la ancla \textit{compute\_bound} más profunda del catálogo (\textit{rodinia\_lavamd}, sin corridas utilizables tras la calibración de warmup) agrava directamente esa escasez; \textit{rodinia\_dwt2d} se pierde en la misma corrección pero es \textit{memory-bound} (Tabla \ref{tab:gpu-catalogo-final-18}), así que su ausencia no afecta a la clase minoritaria.
+
+Un F1 macro de 0.617 supera al clasificador de referencia (0.553) pero permanece débil en términos absolutos. No se investigó todavía si alargar la duración de corrida de \textit{rodinia\_lavamd}/\textit{rodinia\_dwt2d} --- mismo criterio ya aplicado a otros kernels (sección \ref{sec:resultados-gpu-gemm-evolucion}) --- recuperaría ventanas de estado estable suficientes tras su warmup real (6.4--6.5~s); sería el paso natural para recuperar la representación \textit{compute\_bound} profunda perdida con \textit{rodinia\_lavamd}.
+
+\section{Ampliación del catálogo con kernels de patrón de acceso irregular}
+\label{sec:resultados-kernels-irregulares}
+
+\subsubsection*{Resultados}
+
+El plan de trabajo exige, junto a los kernels de acceso regular (\textit{dual\_*}) ya documentados, kernels de patrón de acceso irregular de la suite Rodinia. Se compilaron 9 binarios nuevos (4 CPU, 5 GPU: \textit{kmeans}, \textit{srad}, \textit{nw}, \textit{particlefilter} en CPU; los mismos cuatro más \textit{b+tree} y \textit{cfd} en GPU) con scripts de \textit{build} reproducibles que fijan el commit de origen y el hash de cada archivo fuente, siguiendo el mismo patrón ya empleado para \textit{rodinia\_lavamd} (\texttt{old/scripts/pacca/build\_rodinia\_lavamd\_omp.sh}). Los cuatro binarios CPU (\texttt{gcc}) resultaron además reproducibles a nivel de binario --- mismo hash \texttt{sha256} en dos compilaciones independientes desde la misma fuente ---; los cinco binarios GPU (\texttt{nvcc}) no lo son (metadatos de depuración con rutas temporales aleatorias, aunque el código ejecutable es idéntico), así que su reproducibilidad se fija únicamente a nivel de fuente. Los 4 kernels CPU se calibraron al piso de duración de corrida de la campaña (criterio F1-CPU-006, $\sim$25--30~s de ventana de estado estable); la Tabla \ref{tab:kernels-irregulares-cpu} resume sus parámetros finales.
+
+\begin{table}[H]
+\centering
+\caption{Parámetros finales calibrados de los 4 kernels CPU de patrón de acceso irregular.}
+\label{tab:kernels-irregulares-cpu}
+\small
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{3.2cm}>{\raggedright\arraybackslash}p{7.0cm}r@{}}
+\toprule
+\textbf{Kernel} & \textbf{Parámetros finales} & \textbf{Tiempo} \\
+\midrule
+\textit{kmeans\_omp} & 1\,000\,000 puntos $\times$ 32 \textit{features}, 6 hilos & 31.4~s \\
+\textit{srad\_omp} & 6144$\times$6144, 100 iteraciones, 6 hilos & 27.5~s \\
+\textit{nw\_omp} & $N=122\,000$, \textit{penalty}=10, 6 hilos & 25.2~s \\
+\textit{particlefilter\_omp} & 212\,000 partículas, 128$\times$128$\times$10, 6 hilos & 28.3~s \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection*{Discusión}
+
+La compilación de \textit{nw} (Needleman--Wunsch) expuso un desbordamiento real de enteros de 32 bits en el código fuente original de Rodinia (2010): \texttt{malloc(max\_rows*max\_cols*sizeof(int))} con dimensiones declaradas \texttt{int} desborda para $N\gtrsim46\,000$, produciendo un tamaño de asignación corrupto y un fallo de segmento en tiempo de ejecución --- confirmado que no es un límite físico de memoria del nodo (240~GB libres). Se corrigió retipando las dos variables de dimensión a \texttt{long} (con los \texttt{malloc} correspondientes convertidos a \texttt{size\_t}), sin ningún otro cambio al algoritmo; verificado que el parche no introduce ninguna regresión de rendimiento frente al binario sin parchear ($N=46\,000$: 3.72~s original frente a 3.68~s parcheado).
