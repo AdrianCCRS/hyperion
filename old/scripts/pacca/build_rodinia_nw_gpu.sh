@@ -44,12 +44,13 @@ trap cleanup EXIT
   "$patches_dir/needle_gpu_patched.cu" \
   -o "$build_dir/rodinia_nw"
 
+# ARC-186: nvcc no produce binarios reproducibles byte a byte (metadatos de
+# depuracion con rutas temporales aleatorias), aunque el codigo ejecutable
+# es identico -- confirmado empiricamente aqui (dos builds desde la misma
+# fuente/flags dieron sha256 distintos). Se fija hash de FUENTE (arriba),
+# no de binario; el sha256 del binario se imprime solo como referencia.
 actual_binary_sha256="$(sha256sum "$build_dir/rodinia_nw" | awk '{print $1}')"
-expected_binary_sha256="55b3701348ff2a6bd3b3eef93c9606a250117d565fa96987e6146559657cabcf"
-if [[ "$actual_binary_sha256" != "$expected_binary_sha256" ]]; then
-  echo "Binario no reproducible: $actual_binary_sha256 (esperado $expected_binary_sha256)" >&2
-  exit 1
-fi
+echo "Binario compilado (nvcc, no reproducible byte a byte): $actual_binary_sha256"
 
 mkdir -p "$output_dir"
 install -m 0755 "$build_dir/rodinia_nw" "$output_dir/rodinia_nw"
