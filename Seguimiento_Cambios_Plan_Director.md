@@ -4177,3 +4177,86 @@ curso; el resultado (F1 macro con hiperparámetros buscados vs. los
 entre las 11 familias) se registra en una entrada de seguimiento aparte una
 vez complete. No se ha ejecutado ninguna búsqueda para CPU todavía -- la
 campaña final CPU sigue sin confirmarse terminada.
+
+## F2-XDEV-004 — Resultado real de la búsqueda de hiperparámetros GPU: ningún modelo optimizado supera al árbol de profundidad 1
+
+**Fecha de registro:** 2026-09-15
+**Estado:** cerrado. Ejecutado en `pacca03` (job `sbatch` 7245, nodo libre,
+sin tocar `paccaA100`), sobre las 540 corridas reales de la campaña final
+(no una copia local) -- `--n-trials 30`.
+
+### Incidente operativo previo
+
+El primer intento se lanzó con `srun` encadenado dentro de una sesión SSH
+anidada desde la máquina local del usuario, en `run_in_background` -- el
+usuario detectó correctamente el problema ("manda eso en pacca, por qué en
+mi PC") antes de que se materializara, y además señaló que iba a suspender
+su equipo. Al matar el proceso local para reubicarlo, el job de `srun` en
+pacca murió con él (confirmado por notificación `failed`, exit 144) --
+`srun` depende de que el proceso que lo lanzó siga vivo, a diferencia de
+`sbatch`. Relanzado correctamente como `sbatch` (script con
+`--nodelist=pacca03`, sin `--time`), que sí sobrevive a la desconexión del
+cliente -- terminó sin problema, confirmando que el `sbatch` es el
+mecanismo correcto para trabajo que debe sobrevivir a que el usuario cierre
+su sesión, no solo para campañas largas de Fase 1.
+
+### Resultado
+
+| Modelo | F1 macro (antes, sin búsqueda) | F1 macro (con búsqueda Optuna real) |
+|---|---|---|
+| `arbol_prof1` (línea base fija, nunca se optimiza) | 0.617 | **0.617 (sin cambio)** |
+| `mayoritaria` (línea base fija) | 0.553 | 0.553 (sin cambio) |
+| `random_forest` | 0.420 | 0.470 |
+| `extra_trees` | 0.403 | 0.463 |
+| `arbol_prof6` | 0.444 | 0.404 |
+| `xgboost` | 0.377 | 0.392 |
+| `regresion_log` | 0.430 | 0.360 |
+
+El modelo elegido para servir **no cambió**: sigue siendo `arbol_prof1`
+(F1 macro=0.617), porque es una línea base deliberadamente fija (nunca se
+le buscan hiperparámetros, por diseño -- ver `model_specs.py`). De los 5
+modelos que sí se optimizaron, el resultado es mixto pero la conclusión es
+clara: **ninguno superó al árbol simple**, incluso con una búsqueda real de
+30 intentos de Optuna por modelo, anidada correctamente (la familia de
+prueba de cada pliegue externo nunca participa en la búsqueda de
+hiperparámetros de ese pliegue). Dos de los cinco (`random_forest`,
+`extra_trees`) mejoraron con la búsqueda; dos empeoraron
+(`arbol_prof6`, `regresion_log`) frente a su configuración fija anterior;
+uno mejoró marginalmente (`xgboost`).
+
+### Interpretación
+
+No es un resultado negativo del módulo de búsqueda -- es información real
+sobre el dataset: con 11 familias algorítmicas y una búsqueda ANIDADA (el
+conjunto de entrenamiento de cada pliegue externo se subdivide otra vez
+para la búsqueda interna), cada evaluación de un candidato de
+hiperparámetros ve muy pocas familias. Los modelos de alta varianza
+(bosques, XGBoost) tienen margen para sobreajustar el ruido de esa
+partición pequeña en vez de encontrar una configuración que generalice,
+mientras que la simplicidad forzada de un árbol de profundidad 1 actúa
+como una regularización más fuerte que cualquier hiperparámetro que la
+búsqueda pueda encontrarle a un modelo más flexible. Reportado en el libro
+sin maquillar (mismo criterio que el resto de esta reconstrucción):
+`docs/libro/secciones/03_resultados.tex`, párrafo nuevo tras la Figura
+`fig_gpu_pareto_calidad_latencia_20260915.png` (regenerada con los números
+reales), sección §3.9.2.
+
+### Artefactos actualizados
+
+- `fase2_clasificador/models/arbol_prof1_gpu.joblib` y
+  `.metadata.json` (local, fetched vía `base64` sobre la cadena SSH --
+  `scp` directo no funciona con el `ProxyJump` configurado para `pacca`).
+  Metadata ahora incluye `hyperparameter_search` con
+  `best_params_final_model`/`best_params_por_pliegue_externo` (vacíos para
+  `arbol_prof1`, correcto: es la línea base fija).
+- `docs/libro/figuras/fig_gpu_pareto_calidad_latencia_20260915.png`
+  regenerada con los 7 valores reales post-búsqueda.
+- Libro recompilado limpio: 134 páginas, cero overfull/underfull, cero
+  referencias indefinidas.
+
+### Pendiente
+
+- Ejecutar el mismo proceso para CPU en cuanto la campaña final cierre.
+- Los 10 kernels de patrón irregular de §2.1.1 y el wireado de
+  `T_transición_gpu` siguen pendientes (ver mensaje de seguimiento directo
+  al usuario).

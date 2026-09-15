@@ -96,3 +96,249 @@ Inspeccionado el bucle interno de ese microbenchmark con el mismo reporte de Adv
 Esa misma bandera de ancho vectorial explícito se evaluó también sobre el microbenchmark de ancho de banda, y se descartó para él tras encontrar una regresión real: el ancho de banda medido bajó y se volvió considerablemente más variable entre corridas (49.3--69.2~GB/s, frente a 58.8--59.5~GB/s estable sin la bandera) --- consistente con la misma reducción de frecuencia bajo ancho vectorial máximo, sin ningún beneficio de cómputo para un microbenchmark limitado por ancho de banda de memoria y no por ejecución vectorial. La corrección se aplicó, en consecuencia, de forma selectiva: ancho vectorial máximo únicamente en el microbenchmark de densidad aritmética, nunca en el de ancho de banda. El mismo defecto de compilación --- ausencia de solicitud explícita del conjunto de instrucciones nativo --- se encontró también en la cadena de construcción de los seis kernels de conjunto de datos de la suite NAS Parallel Benchmarks; corregido igualmente, pero sin la bandera de ancho vectorial máximo, dado que esa suite combina kernels de régimen memory-bound y compute-bound bajo una única configuración de compilación compartida, con el mismo riesgo de regresión ya observado para el microbenchmark de ancho de banda.
 
 El desplazamiento resultante del punto de inflexión es sustancial: de aproximadamente 1.22~FLOP/byte con el defecto, a un valor final en el rango 7.0--9.3~FLOP/byte una vez corregido --- una diferencia de magnitud suficiente para invertir la clasificación de toda ventana cuya intensidad caiga entre ambos valores, exactamente el rango donde se concentra buena parte de las cargas de conjunto de datos de este catálogo (sección \ref{sec:resultados-interferencia-uncore}). Por invariancia del propio modelo Roofline, este desplazamiento no sesga la intensidad operacional observada de ninguna ventana --- esa magnitud es una propiedad del algoritmo y es invariante al ancho vectorial con el que se ejecuta, medida directamente por el contador de hardware descrito en la sección \ref{sec:validacion-flops} con independencia de cuántos elementos procese cada instrucción ---; afecta exclusivamente la posición del techo contra el cual esa intensidad se compara. La primera campaña de CPU se calibró bajo el punto de inflexión defectuoso y quedó descartada por este motivo y por la ausencia de \textit{uncore}; la campaña limpia de reemplazo ya emplea ambos mecanismos corregidos, aunque su eje de frecuencia queda limitado por el hallazgo de turbo descrito en la sección \ref{sec:resultados-cpu-dvfs}.
+
+\section{Evolución del catálogo GPU: del DGEMM de referencia a un reemplazo verificable}
+\label{sec:resultados-gpu-gemm-evolucion}
+
+La campaña final de GPU (sección \ref{sec:resultados-gpu-dataset-final}) no se construyó sobre el catálogo GPU originalmente propuesto: dos de sus kernels de multiplicación densa de matrices (\textit{dual\_gemm\_gpu} y su sucesor \textit{gpu\_dgemm\_n4096}, ambos envoltorios de cuBLAS) resultaron, tras una auditoría dirigida, inutilizables para el modelo Roofline por una razón física real y no por un defecto de instrumentación --- pero establecerlo así exigió cinco intentos sucesivos, dos de los cuales corrigieron una conclusión anterior de esta misma investigación. La Tabla \ref{tab:gpu-gemm-saga} resume la cronología completa; el resto de esta sección documenta la evidencia detrás de cada fila.
+
+El primer indicio apareció al perfilar \textit{dual\_gemm\_gpu\_N2048} con Nsight Compute: una intensidad operacional medida de 0.0153~FLOP/byte, muy por debajo del ridge de doble precisión, es decir, \textit{memory-bound} extremo --- físicamente implausible para una multiplicación de matrices densa, cuyo cómputo escala como $O(N^3)$ frente a una memoria que escala como $O(N^2)$, y que debería figurar entre los kernels más \textit{compute-bound} de cualquier catálogo. El contador de instrucciones fused-multiply-add (\texttt{sm\_\_sass\_\allowbreak thread\_inst\_\allowbreak executed\_op\_\allowbreak dfma\_pred\_on.sum}) confirmó la anomalía de forma directa: 0 instrucciones DFMA contadas, frente a $\sim$3.72$\times10^9$ para \textit{dual\_cholesky\_gpu} al mismo $N=2048$ perfilado con el mismo método. Se descartaron explícitamente dos causas más simples antes de excluir el kernel: una biblioteca de tiempo de ejecución ausente (no se encontró ninguna, aunque sí una divergencia real de versión de CUDA en el binario respecto al resto del \textit{pipeline}, sin confirmarse como causa) y un artefacto del patrón de procesos de vida corta con el que Nsight Compute conecta al proceso real (el mismo patrón aparece en \textit{dual\_cholesky\_gpu}/\textit{dual\_axpy\_gpu}/\textit{dual\_spmv\_gpu}/\textit{dual\_stencil\_gpu}, que sí miden correctamente). El kernel se excluyó del catálogo sin una causa raíz confirmada.
+
+Al revisar con el mismo criterio a \textit{gpu\_dgemm\_n4096}, propuesto en ese momento como reemplazo por asumirse correctamente instrumentado, se encontró el mismo síntoma: intensidad operacional medida de 0.0083~FLOP/byte frente a 68.0~FLOP/byte declarado en catálogo --- un desfase de $\sim$8175$\times$ --- y de nuevo DFMA=0 en los tres puntos de convergencia de Nsight Compute. Se leyó el código fuente del despachador (\texttt{kernels/dual/gemm\_gpu\_dispatch.cu}), confirmando parámetros correctos de la llamada a \texttt{cublasDgemm} (\texttt{alpha=1}, \texttt{beta=0}, sin dimensión degenerada) y enlace contra la misma versión de \texttt{libcublas} que el resto del instrumento --- descartando así, con evidencia directa y no por suposición, las dos hipótesis abiertas para el primer kernel. La conclusión en ese momento fue que el despacho interno y propietario que cuBLAS selecciona para esta combinación de GPU/controlador no emite instrucciones SASS reconocidas por el método de conteo de Nsight Compute: una brecha de instrumentación, no un defecto de código. Se sustituyó por un kernel de multiplicación de matrices propio (CUDA sin cuBLAS), que confirmó una intensidad operacional plausible pero cercana al ridge ($\sim$4.05~FLOP/byte a $N=4096$, no profundamente \textit{compute-bound}), y luego por \textit{Polybench\_GEMM} de la suite RAJAPerf (2.81~FLOP/byte, cerca del ridge pero no profundamente \textit{compute-bound}), adoptado para evitar mantener código CUDA propio en el catálogo final por el riesgo experimental que representa frente a evaluadores externos.
+
+Una revisión externa del catálogo, realizada por el usuario junto con otra sesión de análisis sin acceso al clúster, cuestionó la conclusión de ``brecha de instrumentación'' citando un comentario ya existente en \texttt{catalog.yaml} (identificador interno \texttt{ARC-76}) que documentaba, desde antes de esta investigación, que el binario \texttt{cublas\_dgemm\_bench} enruta a un kernel de unidades Tensor Core (\texttt{cutlass\_80\_tensorop\_d884gemm}) sin que se le solicite explícitamente. Verificado directamente contra el CSV crudo de Nsight Compute ya generado para \textit{gpu\_dgemm\_n4096}, la columna de nombre de kernel confirmó literalmente ese mismo nombre. La conclusión anterior quedó corregida: no es una brecha de instrumentación de Nsight Compute con binarios cuBLAS en general, sino que este binario específico enruta a Tensor Core, y el \textit{pipeline} de este proyecto excluye correctamente esa ruta del conteo escalar de FLOPs por un guardarraíl explícito (\texttt{fase1\_telemetria/ncu\_convergence.py}, condición \texttt{tensor\_instructions\_observed > 0}) --- por diseño, no por incapacidad de la herramienta. Al investigar por qué ese guardarraíl nunca se había disparado en ninguna corrida real del proyecto hasta este momento, se encontró un defecto genuino en el analizador: \texttt{parse\_ncu\_csv} tiene dos rutas de interpretación del formato de salida de Nsight Compute --- una para el formato ``largo'' (una fila por métrica), que sí detecta las columnas de \textit{pipe\_tensor} correctamente, y otra para el formato ``ancho'' (una fila por lanzamiento, todas las métricas como columnas), que es el único formato usado en producción --- y la ruta ``ancha'' nunca sumaba la columna de actividad Tensor Core. Corregido el analizador y agregada una prueba de regresión, se auditaron los 37 kernels del catálogo con el detector corregido: 17 mostraron actividad Tensor Core no nula, con un umbral de fracción calibrado en 10\% sobre un hueco real observado en la distribución, entre 3.3\% (ruido de medición) y 20.8\% (actividad Tensor Core genuina).
+
+Con la causa raíz ya correctamente establecida, se buscó una segunda ancla \textit{compute-bound} profunda de suite o proveedor, evitando código propio. Un primer intento --- forzar el modo \texttt{CUBLAS\_PEDANTIC\_MATH}, que la documentación de NVIDIA describe como desactivador de Tensor Core --- falló: perfilado con Nsight Compute, el binario modificado siguió despachando exactamente el mismo kernel Tensor Core, con actividad no nula en \texttt{sm\_\_inst\_executed\_pipe\_tensor.sum} en cada lanzamiento, resultado real y verificado en esta combinación específica de controlador/cuBLAS/CUDA del nodo, no una limitación teórica. Un segundo intento, usando CUTLASS v2.11.0 (ya presente en el nodo sin compilar) con la clase de operación \texttt{OpClassSimt} --- que fuerza explícitamente unidades de cómputo escalares, no Tensor Core --- sí funcionó: un programa \textit{standalone} instanciando \texttt{cutlass::gemm::device::Gemm<double, \ldots, OpClassSimt, Sm50, \ldots>} midió una intensidad operacional de \textbf{26.73~FLOP/byte}, confirmada con conteo exacto de instrucciones DFMA igual a $N^3=4096^3$, muy por encima del ridge de doble precisión en el nivel de referencia ($6.898$~FLOP/byte, sección \ref{sec:resultados-gpu-dataset-final}) y sin ninguna actividad Tensor Core detectada. Este kernel (\textit{gpu\_cutlass\_simt\_dgemm\_n4096}) se agregó a la campaña final, que queda así en 18 kernels y 540 corridas planificadas.
+
+\begin{table}[H]
+\centering
+\caption{Cronología de los cinco intentos de establecer un kernel GEMM denso utilizable en el catálogo GPU final.}
+\label{tab:gpu-gemm-saga}
+\small
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{4.2cm}>{\raggedright\arraybackslash}p{3.0cm}>{\raggedright\arraybackslash}p{1.9cm}>{\raggedright\arraybackslash}p{3.9cm}@{}}
+\toprule
+\textbf{Intento} & \textbf{Mecanismo} & \textbf{OI (FLOP/\allowbreak byte)} & \textbf{Veredicto} \\
+\midrule
+\textit{dual\_gemm\_gpu} & cuBLAS \texttt{Dgemm}, sin verificar & 0.0153 & Excluido, causa no confirmada \\
+\textit{gpu\_dgemm\_n4096} & cuBLAS \texttt{Dgemm}, mismo binario base & 0.0083 & Excluido; enrutamiento a Tensor Core, confirmado por SASS \\
+\textit{gpu\_gemm\_\allowbreak native\_\allowbreak n4096} & CUDA propio, sin cuBLAS & $\sim$4.05 & Descartado; código propio, riesgo experimental \\
+\textit{gpu\_rajaperf\_\allowbreak gemm} & RAJAPerf \texttt{Polybench\_GEMM} & 2.81 & En campaña; cerca del ridge, no profundo \\
+\texttt{CUBLAS\_\allowbreak PEDANTIC\_\allowbreak MATH} & cuBLAS con modo pedante & --- & Fallido; sigue enrutando a Tensor Core \\
+\textit{gpu\_cutlass\_\allowbreak simt\_dgemm\_\allowbreak n4096} & CUTLASS \texttt{OpClassSimt} & 26.73 & En campaña; segunda ancla \textit{compute-bound} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Barrido de memoria real y calibración de warmup: composición final del dataset}
+\label{sec:resultados-gpu-dataset-final}
+
+\subsection{Techos Roofline de referencia para GPU}
+
+Siguiendo el mismo principio de calibración empírica descrito para CPU (sección \ref{sec:resultados-ppico}), el ridge de GPU se determina por precisión aritmética y nivel de frecuencia, mediante un microbenchmark propio de densidad aritmética pura (bucle de multiplicación-suma fusionada en registros, sin \texttt{cuBLAS}) y un microbenchmark compartido de ancho de banda equivalente a STREAM Triad. En el nivel de referencia (\texttt{REF}, reloj nativo sin restricción), el ridge resultante es de \textbf{14.965852~FLOP/byte en simple precisión} y \textbf{6.898377~FLOP/byte en doble precisión} --- ambos calculados como $P_{\text{pico,precisión}}/BW_{\text{pico}}$ a partir del rendimiento y ancho de banda pico medidos en ese mismo nivel. Estos valores, y no una aproximación previa citada informalmente durante el desarrollo de este trabajo (del orden de 3.4--3.7 y 7.3--8.0~FLOP/byte, correspondientes a un nivel de frecuencia distinto de \texttt{REF}), son los empleados en la Tabla \ref{tab:gpu-catalogo-final-18} y en la Figura \ref{fig:gpu-roofline-18kernels} para posicionar cada kernel del catálogo final frente al techo de su propia precisión.
+
+\subsection{Barrido de memoria a escala real de VRAM}
+
+El director de este trabajo solicitó explícitamente que, donde aplique, el catálogo incluya muestras que ocupen una fracción significativa de la memoria física del acelerador (A100, 40~GB de VRAM) --- el mismo principio ya aplicado en CPU mediante un barrido de tamaños sobre la familia \textit{dual\_fft\_cpu}. Se encontró que, salvo tres kernels ya investigados por otras razones, ninguna de las cinco familias \textit{dual\_*} de GPU tenía evidencia real de que su intensidad operacional cambiara con el tamaño del problema: el catálogo declaraba un único valor ``representativo de familia'', copiado sin verificar a todas las variantes de $N$, incluyendo tamaños nunca perfilados directamente. Antes de esta corrección, todos los kernels \textit{dual\_*} usados en la campaña ocupaban menos del 2\% de la VRAM del A100.
+
+Se derivaron tamaños candidato apuntando a $\sim$50\% de VRAM a partir de la ley de escalamiento de memoria ya presente en el catálogo, y se verificó cada uno con ejecución real antes de comprometer tiempo de perfilado: las estimaciones por fórmula resultaron sistemáticamente por encima de la memoria real medida en vivo (ejemplo: FFT estimó 21.1~GB a $N=22528$, la medición real con \texttt{nvidia-smi} dio 15.92~GB). La Tabla \ref{tab:gpu-memoria-barrido} y la Figura \ref{fig:gpu-memoria-barrido} resumen los cinco tamaños finalmente verificados y perfilados.
+
+\begin{table}[H]
+\centering
+\caption{Resultado del barrido de memoria a escala real de VRAM para las cinco familias \textit{dual\_*} de GPU.}
+\label{tab:gpu-memoria-barrido}
+\small
+\begin{tabular}{@{}lrrr>{\raggedright\arraybackslash}p{4.3cm}@{}}
+\toprule
+\textbf{Familia} & \textbf{$N$ final} & \textbf{Memoria real} & \textbf{\% VRAM} & \textbf{Resultado / decisión} \\
+\midrule
+\textit{dual\_fft\_gpu} & 25600 & 20.43~GB & 49.9\% & Excluido: precisión mixta detectada \\
+\textit{dual\_cholesky\_gpu} & 32768 & 8.64~GB & 21.1\% & Excluido: no converge (cache-residencia) \\
+\textit{dual\_axpy\_gpu} & 1\,280\,000\,000 & 19.50~GB & 48.8\% & En campaña final \\
+\textit{dual\_spmv\_gpu} & 200\,000\,000 & 19.80~GB & 49.5\% & En campaña final \\
+\textit{dual\_stencil\_gpu} & 36864 & 20.66~GB & 51.7\% & En campaña final \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+De las cinco familias, solo tres (\textit{dual\_axpy\_gpu}, \textit{dual\_spmv\_gpu}, \textit{dual\_stencil\_gpu}) entraron a la campaña final, agregadas junto a sus variantes de escala pequeña ya validadas, no en su reemplazo. \textit{dual\_cholesky\_gpu\_N32768} no convergió dentro del criterio de estabilidad del 1\% (1.55\% observado, todavía descendiendo), consistente con un efecto de residencia en caché que se diluye al crecer $N$ --- su intensidad operacional cayó de 9.887 (valor heredado de familia, nunca medido a esta escala) a 0.217, una caída de $\sim$45$\times$ que confirma el mismo mecanismo ya documentado para \textit{gemm\_native\_gpu} a menor escala. \textit{dual\_fft\_gpu\_N25600} reveló un hallazgo colateral no investigado a fondo: a $N=16384$ esta familia es de doble precisión pura, pero a $N=25600$ Nsight Compute detecta instrucciones de simple y doble precisión mezcladas --- un cambio de estrategia interna del kernel a partir de cierto tamaño, posiblemente en una tabla de factores de rotación (\textit{twiddle factors}), que no afecta a \textit{dual\_fft\_gpu\_N4096} (ya en campaña, confirmado de precisión pura). Ninguna de las tres familias excluidas resultó ser una nueva ancla cercana al ridge: a la escala de memoria que efectivamente usa un acelerador grande, las cinco familias \textit{dual\_*} se confirman o se profundizan hacia el régimen \textit{memory-bound} --- un resultado real del barrido, no un fallo de diseño, y el dato metodológicamente correcto para alimentar el clasificador.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.72\textwidth]
+        {figuras/fig_gpu_memoria_barrido_20260915.png}
+    \caption[Barrido de memoria real de GPU]{Porcentaje de VRAM del A100 (40~GB) alcanzado por cada tamaño perfilado en el barrido de memoria. Los tres tamaños que entraron a la campaña final se distinguen de los dos que quedaron documentados pero excluidos. Fuente: elaboración propia.}
+    \label{fig:gpu-memoria-barrido}
+\end{figure}
+
+\subsection{Calibración de warmup y su efecto sobre el conjunto de entrenamiento}
+
+Antes de esta corrección, la campaña final GPU (\texttt{gpu\_final.yaml}) declaraba \texttt{warmup\_\allowbreak seconds\_\allowbreak override: 0.0} de forma intencional --- el primer paso del procedimiento de calibración documentado consiste en ejecutar la campaña real sin excluir el transitorio de arranque, precisamente para poder medirlo después sobre datos reales en vez de sobre una mini-campaña separada. Los pasos restantes del procedimiento (calibrar, aplicar al catálogo, reprocesar) no se habían ejecutado todavía cuando se entrenó una primera versión del clasificador diagnóstico (sección \ref{sec:resultados-gpu-separabilidad}): verificado directamente contra los datos, el 100\% de las filas de \texttt{training\_gpu\_phases.csv} tenían \texttt{n\_nvml\_samples\_warmup\_excluded=0}, es decir, cada corrida mezclaba muestras del transitorio de arranque con muestras de estado estable en sus agregados (mediana de potencia, utilización y reloj calculada incluyendo instantes posteriores al arranque, no solo el régimen estacionario).
+
+La calibración se ejecutó en un nodo libre del clúster, sin usar en ningún momento el nodo donde corría la campaña final de CPU, sobre las ventanas de telemetría ya recolectadas por la campaña real de GPU (sin necesidad de una mini-campaña adicional): el detector de estado estable (método \texttt{cv\_threshold}, el principal del procedimiento, no un respaldo) exige dos ventanas móviles consecutivas con coeficiente de variación menor o igual a 5\% sobre IPC/\texttt{gpu\_util\_pct}, y el warmup adoptado es $1.2\times$ el instante detectado, tomando el máximo observado entre repeticiones y niveles de frecuencia por kernel. Los 18 kernels de \texttt{gpu\_final.yaml} dieron \texttt{status=measured} sobre 28--30 corridas analizadas cada uno --- ninguno cayó al estado de respaldo \texttt{insufficient\_signal}. En 17 de los 18 casos, el warmup real resultó mayor que el valor previamente declarado a mano en el catálogo (Tabla \ref{tab:gpu-warmup-calibrado}) --- confirmando que el transitorio real de arranque es sistemáticamente más largo de lo que se había estimado en distintos momentos del desarrollo de este trabajo.
+
+\begin{table}[H]
+\centering
+\caption{Warmup declarado (heredado, sin medir) frente a warmup calibrado con evidencia real, para los 18 kernels de la campaña final GPU.}
+\label{tab:gpu-warmup-calibrado}
+\small
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{5.0cm}rrr@{}}
+\toprule
+\textbf{Kernel} & \textbf{Declarado (s)} & \textbf{Calibrado (s)} & \textbf{Corridas} \\
+\midrule
+\textit{rodinia\_\allowbreak lavamd} & 1.00 & 6.51 & 30 \\
+\textit{rodinia\_\allowbreak dwt2d} & 1.00 & 6.41 & 30 \\
+\textit{gpu\_\allowbreak cutlass\_\allowbreak simt\_\allowbreak dgemm\_\allowbreak n4096} & 0.50 & 6.64 & 30 \\
+\textit{gpu\_\allowbreak rajaperf\_\allowbreak gemm} & 0.50 & 6.81 & 30 \\
+\textit{gpu\_\allowbreak rajaperf\_\allowbreak heat\_\allowbreak 3d} & 0.50 & 5.41 & 30 \\
+\textit{dual\_\allowbreak axpy\_\allowbreak gpu\_\allowbreak N10000000} & 0.05 & 5.69 & 30 \\
+\textit{dual\_\allowbreak axpy\_\allowbreak gpu\_\allowbreak N1280000000} & 0.05 & 5.44 & 30 \\
+\textit{dual\_\allowbreak stencil\_\allowbreak gpu\_\allowbreak N36864} & 0.05 & 4.47 & 30 \\
+\textit{dual\_\allowbreak cholesky\_\allowbreak gpu\_\allowbreak N2048} & 0.05 & 4.35 & 30 \\
+\textit{dual\_\allowbreak stencil\_\allowbreak gpu\_\allowbreak N1024} & 0.05 & 4.33 & 30 \\
+\textit{dual\_\allowbreak spmv\_\allowbreak gpu\_\allowbreak N1000000} & 0.05 & 4.34 & 30 \\
+\textit{dual\_\allowbreak spmv\_\allowbreak gpu\_\allowbreak N200000000} & 0.05 & 4.32 & 30 \\
+\textit{dual\_\allowbreak fft\_\allowbreak gpu\_\allowbreak N4096} & 0.05 & 4.11 & 30 \\
+\textit{gpu\_\allowbreak rajaperf\_\allowbreak jacobi\_\allowbreak 2d} & 0.50 & 4.09 & 30 \\
+\textit{rodinia\_\allowbreak heartwall} & 1.00 & 1.91 & 30 \\
+\textit{rodinia\_\allowbreak lud} & 1.00 & 1.67 & 28 \\
+\textit{rodinia\_\allowbreak gaussian} & 1.00 & 1.66 & 30 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+El efecto de excluir correctamente el transitorio real, más largo que el declarado, no se ocultó: 46 de las 540 corridas de la campaña final (8.5\%) pasan de aceptadas a rechazadas por ventanas de estado estable insuficientes (menos de 5 frente al objetivo de 5 por repetición) --- las 46 concentradas exclusivamente en \textit{rodinia\_lud}, \textit{rodinia\_lavamd} y \textit{rodinia\_dwt2d}, los tres kernels con el warmup calibrado más largo en relación con su duración total de corrida. Estas corridas estaban siendo aceptadas por error antes de esta corrección: al no excluirse ningún transitorio, el código contaba muestras del arranque como si fueran ventanas de estado estable válidas. El efecto sobre el conjunto de entrenamiento es sustancial: de 525 a \textbf{334 corridas elegibles}, de 18 a \textbf{16 kernels}, de 13 a \textbf{11 familias algorítmicas} --- \textit{rodinia\_lavamd}, la ancla \textit{compute-bound} más profunda de todo el catálogo, y \textit{rodinia\_dwt2d} quedan sin ninguna corrida utilizable para entrenamiento, ya que ninguna de sus repeticiones o niveles de frecuencia alcanza las 5 ventanas de estado estable reales una vez excluido el transitorio correctamente medido. La Figura \ref{fig:gpu-balance-clases-warmup} muestra el efecto agregado de esta corrección sobre el balance de clases del conjunto de entrenamiento.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.62\textwidth]
+        {figuras/fig_gpu_balance_clases_warmup_20260915.png}
+    \caption[Balance de clases antes y después de calibrar warmup]{Distribución de corridas elegibles por clase antes (warmup sin corregir, 525 corridas) y después (warmup calibrado, 334 corridas) de aplicar la calibración de warmup. Fuente: elaboración propia.}
+    \label{fig:gpu-balance-clases-warmup}
+\end{figure}
+
+La Tabla \ref{tab:gpu-catalogo-final-18} y la Figura \ref{fig:gpu-roofline-18kernels} presentan la posición Roofline final de los 18 kernels de la campaña, usando el ridge exacto de referencia de cada precisión (sección anterior) y marcando cuáles quedan efectivamente sin datos de entrenamiento utilizables tras la calibración de warmup.
+
+\begin{table}[H]
+\centering
+\caption{Los 18 kernels de la campaña final GPU: precisión, intensidad operacional (OI) declarada, ridge de referencia de su propia precisión, $\log_2(\text{OI}/\text{ridge})$ y zona Roofline resultante.}
+\label{tab:gpu-catalogo-final-18}
+\small
+\renewcommand{\arraystretch}{1.1}
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{3.6cm}rrrr>{\raggedright\arraybackslash}p{3.3cm}@{}}
+\toprule
+\textbf{Kernel} & \textbf{Precisión} & \textbf{OI} & \textbf{Ridge REF} & \textbf{$\log_2$} & \textbf{Zona} \\
+\midrule
+\textit{rodinia\_\allowbreak lavamd} & fp64 & 708.140 & 6.898 & +6.68 & \textit{compute-bound} (sin datos) \\
+\textit{gpu\_\allowbreak cutlass\_\allowbreak simt\_\allowbreak dgemm\_\allowbreak n4096} & fp64 & 26.730 & 6.898 & +1.95 & \textit{compute-bound} \\
+\textit{rodinia\_\allowbreak heartwall} & fp32 & 35.300 & 14.966 & +1.24 & \textit{compute-bound} \\
+\textit{dual\_\allowbreak cholesky\_\allowbreak gpu\_\allowbreak N2048} & fp64 & 8.215 & 6.898 & +0.25 & cerca del ridge \\
+\textit{rodinia\_\allowbreak lud} & fp32 & 7.820 & 14.966 & $-$0.94 & cerca del ridge \\
+\textit{gpu\_\allowbreak rajaperf\_\allowbreak gemm} & fp64 & 2.810 & 6.898 & $-$1.30 & \textit{memory-bound} \\
+\textit{dual\_\allowbreak fft\_\allowbreak gpu\_\allowbreak N4096} & fp64 & 2.499 & 6.898 & $-$1.46 & \textit{memory-bound} \\
+\textit{rodinia\_\allowbreak dwt2d} & fp32 & 2.170 & 14.966 & $-$2.79 & \textit{memory-bound} (sin datos) \\
+\textit{gpu\_\allowbreak rajaperf\_\allowbreak heat\_\allowbreak 3d} & fp64 & 0.746 & 6.898 & $-$3.21 & \textit{memory-bound} \\
+\textit{dual\_\allowbreak stencil\_\allowbreak gpu\_\allowbreak N1024} & fp64 & 0.495 & 6.898 & $-$3.80 & \textit{memory-bound} \\
+\textit{gpu\_\allowbreak rajaperf\_\allowbreak jacobi\_\allowbreak 2d} & fp64 & 0.295 & 6.898 & $-$4.55 & \textit{memory-bound} \\
+\textit{dual\_\allowbreak spmv\_\allowbreak gpu\_\allowbreak N1000000} & fp64 & 0.274 & 6.898 & $-$4.65 & \textit{memory-bound} \\
+\textit{dual\_\allowbreak spmv\_\allowbreak gpu\_\allowbreak N200000000} & fp64 & 0.266 & 6.898 & $-$4.70 & \textit{memory-bound} \\
+\textit{dual\_\allowbreak stencil\_\allowbreak gpu\_\allowbreak N36864} & fp64 & 0.258 & 6.898 & $-$4.74 & \textit{memory-bound} \\
+\textit{rodinia\_\allowbreak gaussian} & fp32 & 0.281 & 14.966 & $-$5.73 & \textit{memory-bound} \\
+\textit{dual\_\allowbreak axpy\_\allowbreak gpu\_\allowbreak N10000000} & fp64 & 0.125 & 6.898 & $-$5.79 & \textit{memory-bound} \\
+\textit{dual\_\allowbreak axpy\_\allowbreak gpu\_\allowbreak N1280000000} & fp64 & 0.086 & 6.898 & $-$6.33 & \textit{memory-bound} \\
+\textit{gpu\_\allowbreak rajaperf\_\allowbreak stream\_\allowbreak triad} & fp64 & 0.083 & 6.898 & $-$6.38 & \textit{memory-bound} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]
+        {figuras/fig_gpu_roofline_18kernels_20260915.png}
+    \caption[Posición Roofline de los 18 kernels finales de GPU]{$\log_2(\text{OI}/\text{ridge}_\text{REF})$ de cada uno de los 18 kernels de la campaña final GPU, coloreado por zona Roofline respecto al ridge de su propia precisión aritmética. Fuente: elaboración propia.}
+    \label{fig:gpu-roofline-18kernels}
+\end{figure}
+
+Finalmente, la Figura \ref{fig:gpu-composicion-clase-por-kernel} descompone, para cada uno de los 16 kernels con corridas utilizables tras la calibración de warmup, el porcentaje de sus corridas clasificadas \textit{compute\_bound} frente a \textit{memory\_bound}. Dado que el ridge se recalibra por nivel de frecuencia (sección \ref{sec:roofline}), el veredicto de un kernel individual puede en principio oscilar entre niveles; en la práctica, 13 de los 16 kernels resultan completamente homogéneos (100\% de una sola clase en todas sus corridas elegibles), y solo \textit{gpu\_rajaperf\_gemm} (50.0\%/50.0\%) y, en menor medida, \textit{rodinia\_lud} (80.0\% \textit{compute\_bound}) y \textit{dual\_fft\_gpu\_N4096} (16.7\% \textit{compute\_bound}) muestran una composición mixta --- consistente con su posición cercana al ridge en la Tabla \ref{tab:gpu-catalogo-final-18}, donde un desplazamiento pequeño del techo entre niveles de frecuencia puede efectivamente cruzar el punto de inflexión.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]
+        {figuras/fig_gpu_composicion_clase_por_kernel_20260915.png}
+    \caption[Composición de clase por kernel del conjunto de entrenamiento GPU]{Porcentaje de corridas elegibles clasificadas \textit{compute\_bound} frente a \textit{memory\_bound}, por kernel, sobre las 334 corridas elegibles tras la calibración de warmup. Fuente: elaboración propia.}
+    \label{fig:gpu-composicion-clase-por-kernel}
+\end{figure}
+
+\section{Análisis exploratorio y clasificador diagnóstico del dataset GPU}
+\label{sec:resultados-gpu-separabilidad}
+
+Aunque el entrenamiento del clasificador de fase corresponde formalmente a la Fase 2 de este proyecto, los resultados obtenidos hasta este punto de la Fase 1 --- el conjunto de entrenamiento GPU ya definido y depurado (sección \ref{sec:resultados-gpu-dataset-final}) --- permiten un primer análisis diagnóstico real sobre datos reales, que se reporta aquí íntegramente por su valor directo para entender la calidad del propio conjunto de datos de Fase 1, independientemente de cualquier desarrollo posterior del agente de decisión.
+
+\subsection{Contrato de \textit{features} y granularidad de entrenamiento}
+
+Cada corrida real de la campaña GPU (kernel $\times$ nivel de frecuencia $\times$ repetición) se resume en una única fila de \texttt{training\_gpu\_phases.csv}, agregando sus muestras NVML mediante estadísticos robustos (mediana, media recortada, desviación estándar, rango intercuartílico, mínimo, máximo y fracción válida) sobre cinco señales: utilización de \textit{streaming multiprocessors}, utilización de memoria, potencia, reloj de \textit{SM} y temperatura. El entrenamiento no opera sobre muestras NVML crudas sino sobre estas corridas ya resumidas, por dos razones directamente vinculadas al diseño del instrumento: primero, el propio pipeline de post-procesamiento etiqueta y agrega a esta granularidad como parte de su contrato de salida, de modo que una fila de este archivo es la unidad experimental que efectivamente atraviesa las verificaciones de calidad y warmup descritas en la sección anterior; segundo, entrenar sobre muestras NVML individuales trataría observaciones altamente correlacionadas dentro de una misma corrida (decenas de muestras consecutivas del mismo proceso físico) como si fueran independientes, inflando artificialmente el tamaño efectivo de la muestra y sesgando cualquier validación cruzada que no las agrupe explícitamente por corrida.
+
+El contrato de \textit{features} se determinó con evidencia real, no por diseño asumido: un análisis de correlación de Pearson y Spearman, más el factor de inflación de varianza (VIF), sobre las 540 filas de la campaña completa. La temperatura de GPU (\texttt{gpu\_temperature\_c}) se descartó de las cuatro variantes evaluadas de agregación estadística porque las ocho variantes agregadas de esta señal correlacionan con \texttt{gpu\_power\_mw} por encima de 0.85 en todos los pares evaluados --- consistente con que la temperatura observada es, en este régimen de operación, principalmente una consecuencia térmica de la potencia disipada y no una señal adicional independiente. El contrato final retiene cuatro \textit{features}: la mediana de utilización de \textit{SM}, la mediana de utilización de memoria, la mediana de potencia y la mediana de reloj de \textit{SM}, con VIF entre 2.5 y 6.5 --- sin colinealidad severa entre ellas. Ninguna variable derivada del propio proceso de etiquetado (intensidad operacional, ridge aplicado, o cualquier variante de la etiqueta de fase) se admite como \textit{feature}, verificado mediante un guardarraíl explícito en el código de entrenamiento que aborta la ejecución si alguna de ellas aparece en el conjunto de columnas de entrada --- evitando por construcción una fuga de información desde la propia variable objetivo.
+
+La Figura \ref{fig:gpu-matriz-correlacion} muestra la matriz de correlación de Pearson entre la variante mediana de las cinco señales NVML, recalculada sobre las 522 corridas con muestras NVML válidas de la campaña final ya reprocesada con warmup corregido (sección \ref{sec:resultados-gpu-dataset-final}) --- un conjunto distinto al de 540 filas sobre el que se ejecutó originalmente el análisis de contrato de \textit{features}, pero que reproduce el mismo patrón que motivó la decisión: la correlación entre \texttt{gpu\_temperature\_c\_median} y \texttt{gpu\_power\_mw\_median} es 0.91, la más alta de toda la matriz y muy por encima del resto de pares entre las señales retenidas (0.50 a 0.53 entre utilización de \textit{SM} y las demás, 0.82 entre utilización de memoria y potencia). El reloj de \textit{SM} es la señal más independiente del grupo, con correlación negativa y cercana a cero frente a la utilización de \textit{SM} ($-$0.09) --- consistente con que el reloj depende del nivel de frecuencia solicitado por la campaña y no del comportamiento del kernel en ese nivel, mientras que la utilización sí refleja directamente ese comportamiento.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.55\textwidth]
+        {figuras/fig_gpu_matriz_correlacion_features_20260915.png}
+    \caption[Matriz de correlación de las señales NVML del contrato de \textit{features}]{Correlación de Pearson entre la variante mediana de las cinco señales NVML disponibles, sobre las 522 corridas con NVML válido de la campaña final reprocesada. Fuente: elaboración propia.}
+    \label{fig:gpu-matriz-correlacion}
+\end{figure}
+
+\subsection{Balanceo de clases y tres etapas de refinamiento}
+
+El conjunto de entrenamiento final (334 corridas, 16 kernels, 11 familias algorítmicas) está desbalanceado: 73 corridas \textit{compute\_bound} frente a 261 \textit{memory\_bound} (21.9\%/78.1\%). Sin corrección, este desbalance sesga cualquier clasificador hacia la clase mayoritaria. Se aplicó \texttt{class\_weight="balanced"} de \textit{scikit-learn} a todos los modelos salvo el clasificador de referencia (que predice siempre la clase mayoritaria, por diseño sin balanceo) y XGBoost, que no admite ese mecanismo y en su lugar recibe \texttt{scale\_pos\_weight} calculado una sola vez sobre la razón global de corridas negativas a positivas del conjunto completo (0.2797) --- una simplificación documentada: el valor correcto sería recalcularlo dentro de cada pliegue de validación cruzada, no una sola vez sobre el conjunto completo, para evitar cualquier fuga de la distribución de clases del pliegue de prueba hacia el ajuste del modelo.
+
+La validación se realiza mediante \textit{leave-one-familia-out}: en cada pliegue, todas las corridas de una familia algorítmica completa (por ejemplo, todas las variantes de \textit{dual\_spmv\_gpu}) se retienen como prueba y el resto se usa para entrenar, evitando que el modelo se beneficie de haber visto otra corrida de la misma familia --- a distinto nivel de frecuencia o repetición --- durante su ajuste. Este criterio, más estricto que una validación cruzada aleatoria estándar, es la razón directa por la que el modelo final generaliza peor de lo que un F1 promedio simple sugeriría: la Tabla \ref{tab:gpu-clasificador-tres-etapas} documenta la evolución del resultado a través de las tres correcciones metodológicas aplicadas sucesivamente durante este trabajo.
+
+\begin{table}[H]
+\centering
+\caption{Evolución del clasificador diagnóstico GPU a través de las tres correcciones metodológicas aplicadas: balanceo de clases y calibración real de warmup.}
+\label{tab:gpu-clasificador-tres-etapas}
+\small
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+& \textbf{Sin balanceo,} & \textbf{Con balanceo,} & \textbf{Con balanceo,} \\
+& \textbf{warmup sin corregir} & \textbf{warmup sin corregir} & \textbf{warmup corregido} \\
+\midrule
+Corridas & 525 & 525 & \textbf{334} \\
+Familias & 13 & 13 & \textbf{11} \\
+F1 macro & 0.576 & 0.594 & \textbf{0.617} \\
+F1 \textit{compute\_bound} & (no se medía) & 0.148 & \textbf{0.197} \\
+F1 \textit{memory\_bound} & (no se medía) & 0.579 & 0.583 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Las tres correcciones se suman en la dirección correcta: el F1 macro sube de 0.576 a 0.617, y el F1 de la clase \textit{compute\_bound} casi se duplica (0.148 a 0.197). El modelo finalmente serializado es un árbol de decisión de profundidad 1 (\texttt{arbol\_prof1}), seleccionado entre siete candidatos comparados (árbol de profundidad 1, árbol de profundidad 6, regresión logística, \textit{random forest}, \textit{extra trees}, XGBoost y el clasificador de referencia de clase mayoritaria) mediante una puntuación compuesta que combina calidad de clasificación y costo de inferencia: $\text{Score} = (1 - \overline{F1}_{\text{macro}}) + 0.2 \times (p_{99}/\max(p_{99}))$, penalizando un modelo más lento en proporción a su latencia relativa al más lento del conjunto comparado. La Figura \ref{fig:gpu-pareto-calidad-latencia} sitúa a los siete modelos comparados en el plano calidad--latencia, mostrando por qué esta elección no es solo la de mayor F1 macro nominal.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.75\textwidth]
+        {figuras/fig_gpu_pareto_calidad_latencia_20260915.png}
+    \caption[Frente de calidad frente a latencia de inferencia]{F1 macro (\textit{leave-one-familia-out}) frente a latencia de inferencia p99 por fila (escala logarítmica), para los siete modelos comparados. El modelo serializado (\texttt{arbol\_prof1}) se marca con una estrella. Fuente: elaboración propia.}
+    \label{fig:gpu-pareto-calidad-latencia}
+\end{figure}
+
+Los cinco modelos con hiperparámetros ajustables (todos salvo \texttt{mayoritaria} y \texttt{arbol\_prof1}, dejados fijos a propósito como puntos de comparación) se afinaron con una búsqueda Bayesiana (Optuna, muestreador TPE, 30 intentos por modelo) anidada dentro de cada pliegue externo de \textit{leave-one-familia-out}: la búsqueda de hiperparámetros de un pliegue corre únicamente sobre las familias de entrenamiento de ese pliegue, nunca sobre la familia retenida para prueba, y el modelo final se reoptimiza una última vez sobre las 11 familias completas antes de servirlo. El resultado es honesto y no trivial: \textbf{ningún modelo optimizado superó al árbol de profundidad 1}, pese a la búsqueda real. \textit{Random forest} y \textit{extra trees} alcanzan el mejor F1 macro del grupo optimizado (0.470 y 0.463 respectivamente, todavía por debajo del árbol seleccionado) a un costo de inferencia p99 de $\sim$29~ms y $\sim$88~ms por fila --- 250--750$\times$ mayor que los 118~\textmu s del árbol de profundidad 1 --- consistente con el costo de evaluar cientos de árboles internos por predicción frente a una sola comparación de umbral. XGBoost (F1=0.392) y la regresión logística (F1=0.360, la más baja del grupo optimizado) tampoco cierran la brecha. La lectura metodológica es consistente con el tamaño del dataset: con 11 familias y una búsqueda anidada que a su vez subdivide el conjunto de entrenamiento de cada pliegue externo, cada evaluación interna de un candidato de hiperparámetros ve muy pocas familias --- exactamente el régimen en el que un modelo de alta varianza (bosques, \textit{gradient boosting}) tiende a sobreajustar el ruido de la partición en lugar de encontrar una configuración que generalice, mientras que la simplicidad forzada del árbol de profundidad 1 actúa como una regularización mucho más fuerte que cualquier hiperparámetro que la búsqueda pueda encontrarle a un modelo más flexible.
+
+\subsection{Matriz de confusión y limitaciones del resultado}
+
+La Figura \ref{fig:gpu-matriz-confusion} muestra la matriz de confusión acumulada sobre los 11 pliegues de validación \textit{leave-one-familia-out} del modelo final. De las 73 corridas reales \textit{compute\_bound}, el modelo predice correctamente 33 (45.2\%) y confunde 40 (54.8\%) como \textit{memory\_bound}; de las 261 corridas reales \textit{memory\_bound}, predice correctamente 234 (89.7\%) y confunde 27 (10.3\%) como \textit{compute\_bound}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.5\textwidth]
+        {figuras/fig_gpu_matriz_confusion_20260915.png}
+    \caption[Matriz de confusión del clasificador diagnóstico GPU]{Matriz de confusión acumulada sobre los 11 pliegues de validación \textit{leave-one-familia-out} (334 corridas). Fuente: elaboración propia.}
+    \label{fig:gpu-matriz-confusion}
+\end{figure}
+
+La debilidad de la clase \textit{compute\_bound} (F1$=$0.197, muy por debajo del F1$=$0.583 de \textit{memory\_bound}) tiene una explicación teórica directa, más allá del desbalance de clase ya corregido: con solo 73 corridas \textit{compute\_bound} distribuidas entre apenas 5 kernels distintos --- frente a 261 corridas \textit{memory\_bound} sobre 11 kernels --- y bajo un criterio de validación que retiene familias enteras fuera del entrenamiento en cada pliegue, el modelo dispone en la práctica de muy pocos ejemplos independientes de la clase minoritaria sobre los cuales generalizar; perder precisamente la ancla \textit{compute\_bound} más profunda del catálogo (\textit{rodinia\_lavamd}, sin ninguna corrida utilizable tras la calibración de warmup, sección \ref{sec:resultados-gpu-dataset-final}) agrava directamente esta escasez, dejando al modelo sin ningún ejemplo de la región más alejada del ridge en el lado \textit{compute-bound} del espacio de \textit{features}.
+
+El resultado del clasificador diagnóstico debe leerse, en consecuencia, con honestidad sobre sus límites: un F1 macro de 0.617 supera al clasificador de referencia (0.553) pero permanece débil en términos absolutos, y la pérdida de las dos anclas \textit{compute\_bound} más profundas del catálogo (\textit{rodinia\_lavamd} y \textit{rodinia\_dwt2d}) reduce, no solo teóricamente sino de forma medible, la capacidad del conjunto de datos actual para sostener una clasificación robusta de esa clase. No se investigó todavía si alargar la duración de corrida de estos dos kernels --- mismo criterio ya aplicado exitosamente a otros kernels del catálogo (sección \ref{sec:resultados-gpu-gemm-evolucion}) para acomodar un perfilado más costoso --- recuperaría suficientes ventanas de estado estable tras excluir su warmup real, ya calibrado en 6.4--6.5~s; sería el paso natural para intentar recuperar la representación \textit{compute\_bound} profunda perdida en esta corrección. De forma similar, la latencia de conmutación de reloj de GPU medida en este trabajo ($t_{\text{actuación}}\approx170$~ms, cota conservadora) no está implementada todavía como un filtro explícito en el post-procesamiento de fase de GPU, aunque se confirmó que no altera el resultado actual: todas las corridas del catálogo final duran entre 25 y 34~s, muy por encima de ese transitorio.
