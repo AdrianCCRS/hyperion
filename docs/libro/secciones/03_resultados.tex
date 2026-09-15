@@ -299,7 +299,31 @@ La Figura \ref{fig:gpu-matriz-confusion} muestra la matriz de confusión acumula
     \label{fig:gpu-matriz-confusion}
 \end{figure}
 
-El F1 por clase reportado en la Tabla \ref{tab:gpu-clasificador-tres-etapas} (\textit{compute\_bound}$=0.197$) es el promedio simple sobre los 11 pliegues, distinto del que se obtiene calculando precision/recall directamente sobre la matriz acumulada (precision$=0.550$, recall$=0.452$, F1$\approx0.496$). No es un error de cómputo: solo 5 de los 16 kernels utilizables son \textit{compute\_bound}, así que en la mayoría de los pliegues la familia excluida no aporta ningún ejemplo de esa clase y su F1 se registra como 0 por ausencia de soporte, arrastrando el promedio por pliegue por debajo de la cifra agregada. Se reportan ambas cifras para no sugerir, con una sola, una precisión distinta de la que el modelo realmente exhibe.
+La Tabla \ref{tab:gpu-metricas-tradicionales} reporta las métricas de clasificación estándar derivadas directamente de esa matriz acumulada.
+
+\begin{table}[H]
+\centering
+\caption{Métricas de clasificación estándar del modelo final, calculadas sobre la matriz de confusión acumulada (334 corridas).}
+\label{tab:gpu-metricas-tradicionales}
+\small
+\begin{tabular}{@{}lr@{}}
+\toprule
+\textbf{Métrica} & \textbf{Valor} \\
+\midrule
+Exactitud (\textit{accuracy}) & 0.799 \\
+Exactitud balanceada (\textit{balanced accuracy}) & 0.674 \\
+Coeficiente de correlación de Matthews (MCC) & 0.375 \\
+Precisión \textit{compute\_bound} & 0.550 \\
+Sensibilidad (\textit{recall}) \textit{compute\_bound} & 0.452 \\
+Precisión \textit{memory\_bound} & 0.854 \\
+Sensibilidad (\textit{recall}) \textit{memory\_bound} & 0.897 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+La exactitud simple (0.799) es engañosamente alta dado el desbalance de clase (261 \textit{memory\_bound} frente a 73 \textit{compute\_bound}): un clasificador que siempre predijera \textit{memory\_bound} ya alcanzaría 0.781. La exactitud balanceada (0.674) y el MCC (0.375, sobre una escala de $-1$ a $+1$) son las métricas apropiadas bajo este desbalance y confirman una capacidad de discriminación real pero moderada.
+
+El F1 por clase reportado en la Tabla \ref{tab:gpu-clasificador-tres-etapas} (\textit{compute\_bound}$=0.197$) es el promedio simple sobre los 11 pliegues, distinto del F1 derivado de la matriz acumulada de la Tabla \ref{tab:gpu-metricas-tradicionales} (precision$=0.550$, recall$=0.452$, F1$\approx0.496$). No es un error de cómputo: solo 5 de los 16 kernels utilizables son \textit{compute\_bound}, así que en la mayoría de los pliegues la familia excluida no aporta ningún ejemplo de esa clase y su F1 se registra como 0 por ausencia de soporte, arrastrando el promedio por pliegue por debajo de la cifra agregada. Se reportan ambas cifras para no sugerir, con una sola, una precisión distinta de la que el modelo realmente exhibe.
 
 \subsubsection*{Discusión}
 
