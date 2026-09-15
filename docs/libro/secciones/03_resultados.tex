@@ -325,6 +325,29 @@ La exactitud simple (0.799) es engañosamente alta dado el desbalance de clase (
 
 El F1 por clase reportado en la Tabla \ref{tab:gpu-clasificador-tres-etapas} (\textit{compute\_bound}$=0.197$) es el promedio simple sobre los 11 pliegues, distinto del F1 derivado de la matriz acumulada de la Tabla \ref{tab:gpu-metricas-tradicionales} (precision$=0.550$, recall$=0.452$, F1$\approx0.496$). No es un error de cómputo: solo 5 de los 16 kernels utilizables son \textit{compute\_bound}, así que en la mayoría de los pliegues la familia excluida no aporta ningún ejemplo de esa clase y su F1 se registra como 0 por ausencia de soporte, arrastrando el promedio por pliegue por debajo de la cifra agregada. Se reportan ambas cifras para no sugerir, con una sola, una precisión distinta de la que el modelo realmente exhibe.
 
+La Tabla \ref{tab:gpu-lofo-por-familia} desglosa los 67 errores (20.1\% de las 334 corridas) por familia algorítmica, en el mismo protocolo \textit{leave-one-familia-out}.
+
+\begin{table}[H]
+\centering
+\caption{Errores del clasificador final por familia algorítmica (\textit{leave-one-familia-out}, 334 corridas). Familias con 0 errores omitidas.}
+\label{tab:gpu-lofo-por-familia}
+\small
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{3.3cm}>{\raggedright\arraybackslash}p{2.4cm}rrrr@{}}
+\toprule
+\textbf{Familia} & \textbf{Clase real predom.} & \textbf{$n$} & \textbf{Errores} & \textbf{comp.$\to$mem.} & \textbf{mem.$\to$comp.} \\
+\midrule
+\textit{dual\_cholesky} & \textit{compute\_bound} & 16 & 16 & 16 & 0 \\
+\textit{rodinia\_gaussian} & \textit{memory\_bound} & 18 & 15 & 0 & 15 \\
+\textit{rajaperf\_cuda} & \textit{memory\_bound} & 66 & 12 & 0 & 12 \\
+\textit{rodinia\_lud} & \textit{compute\_bound} & 15 & 12 & 12 & 0 \\
+\textit{rodinia\_heartwall} & \textit{compute\_bound} & 15 & 9 & 9 & 0 \\
+\textit{dual\_fft} & \textit{memory\_bound} & 18 & 3 & 3 & 0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Los errores no se reparten uniformemente: se concentran en 6 de las 11 familias, y las 5 restantes (\textit{dual\_axpy}, \textit{dual\_spmv}, \textit{dual\_stencil}, \textit{gpu\_cutlass\_simt\_dgemm\_n4096}, \textit{rajaperf\_stream}) se clasifican sin ningún error. De las cuatro familias \textit{compute\_bound} del conjunto de entrenamiento, tres (\textit{dual\_cholesky}, \textit{rodinia\_lud}, \textit{rodinia\_heartwall}) fallan predominante o totalmente hacia \textit{memory\_bound}, y solo \textit{gpu\_cutlass\_simt\_dgemm\_n4096} --- la ancla \textit{compute\_bound} más profunda entre las que sí tienen datos de entrenamiento (Tabla \ref{tab:gpu-catalogo-final-18}) --- se clasifica sin ningún error. \textit{dual\_cholesky} y \textit{rodinia\_lud} están, en efecto, cerca del ridge (Tabla \ref{tab:gpu-catalogo-final-18}), consistente con el patrón esperado; pero \textit{rodinia\_gaussian} es la familia \textit{memory\_bound} más alejada del ridge del catálogo ($\log_2(\text{OI}/\text{ridge})=-5.73$) y aun así falla en 15 de sus 18 corridas, en dirección contraria (predicho \textit{compute\_bound}) --- una falla que la cercanía al ridge no explica, y que el conjunto actual de \textit{features} NVML no permite diagnosticar más allá de constatarla.
+
 \subsubsection*{Discusión}
 
 La debilidad de \textit{compute\_bound} tiene una explicación directa más allá del desbalance ya corregido: solo 73 corridas de esa clase, repartidas entre 5 kernels (frente a 261 corridas / 11 kernels de \textit{memory\_bound}), y un criterio de validación que retiene familias completas fuera del entrenamiento en cada pliegue dejan al modelo con muy pocos ejemplos independientes sobre los cuales generalizar. Perder la ancla \textit{compute\_bound} más profunda del catálogo (\textit{rodinia\_lavamd}, sin corridas utilizables tras la calibración de warmup) agrava directamente esa escasez; \textit{rodinia\_dwt2d} se pierde en la misma corrección pero es \textit{memory-bound} (Tabla \ref{tab:gpu-catalogo-final-18}), así que su ausencia no afecta a la clase minoritaria.
