@@ -111,7 +111,16 @@ def load(
     return df.dropna(subset=FEATURES + [LABEL])
 
 
-def build_models(seed: int):
+def build_models(seed: int, scale_pos_weight: float = 1.0):
+    """``class_weight="balanced"`` en todo modelo que lo soporta -- el
+    dataset real (525 corridas: 387 memory_bound / 138 compute_bound, 74%/26%)
+    está desbalanceado, y sin esto los modelos optimizan implícitamente por
+    la clase mayoritaria. La línea base ``mayoritaria`` se deja SIN balancear
+    a propósito: representa "no hacer nada", el balanceo no le corresponde.
+    XGBoost no tiene ``class_weight``; usa ``scale_pos_weight`` (razón
+    negativos/positivos), calculada por el caller sobre el split real de
+    entrenamiento, no un valor fijo -- ver ``main()``.
+    """
     from sklearn.dummy import DummyClassifier
     from sklearn.ensemble import ExtraTreesClassifier, RandomForestClassifier
     from sklearn.linear_model import LogisticRegression
@@ -122,17 +131,22 @@ def build_models(seed: int):
 
     return {
         "mayoritaria": DummyClassifier(strategy="most_frequent"),
-        "arbol_prof1": DecisionTreeClassifier(max_depth=1, random_state=seed),
+        "arbol_prof1": DecisionTreeClassifier(
+            max_depth=1, class_weight="balanced", random_state=seed),
         "regresion_log": make_pipeline(
-            StandardScaler(), LogisticRegression(max_iter=1000, random_state=seed)),
-        "arbol_prof6": DecisionTreeClassifier(max_depth=6, random_state=seed),
+            StandardScaler(),
+            LogisticRegression(max_iter=1000, class_weight="balanced", random_state=seed)),
+        "arbol_prof6": DecisionTreeClassifier(
+            max_depth=6, class_weight="balanced", random_state=seed),
         "random_forest": RandomForestClassifier(
-            n_estimators=100, max_depth=12, n_jobs=-1, random_state=seed),
+            n_estimators=100, max_depth=12, class_weight="balanced",
+            n_jobs=-1, random_state=seed),
         "extra_trees": ExtraTreesClassifier(
-            n_estimators=100, max_depth=12, n_jobs=-1, random_state=seed),
+            n_estimators=100, max_depth=12, class_weight="balanced",
+            n_jobs=-1, random_state=seed),
         "xgboost": XGBClassifier(
             n_estimators=100, max_depth=6, n_jobs=-1, random_state=seed,
-            eval_metric="logloss",
+            eval_metric="logloss", scale_pos_weight=scale_pos_weight,
         ),
     }
 
@@ -212,7 +226,7 @@ def main() -> None:
     levels = args.levels.split(",") if args.levels else None
 
     from sklearn.base import clone
-    from sklearn.metrics import f1_score
+    from sklearn.metrics import confusion_matrix, f1_score
 
     leaking = set(FEATURES) & FORBIDDEN
     if leaking:
@@ -234,29 +248,62 @@ def main() -> None:
     X = df[FEATURES].to_numpy(dtype=np.float32)
     y = (df[LABEL] == "memory_bound").to_numpy()
 
+    # scale_pos_weight de XGBoost (no tiene class_weight="balanced" como
+    # sklearn): razón negativos/positivos sobre TODO el dataset, una sola
+    # vez -- no por pliegue, para no complicar la comparación con una
+    # ponderación que cambia de fold a fold; es una aproximación razonable,
+    # no un ajuste per-fold exacto como el que sklearn hace internamente
+    # para los demás modelos con class_weight="balanced".
+    n_pos = int(y.sum())
+    n_neg = int(len(y) - n_pos)
+    scale_pos_weight = (n_neg / n_pos) if n_pos > 0 else 1.0
+
     results: dict[str, dict[str, float]] = {}
     latencies: dict[str, tuple[float, float, float]] = {}
+    per_class_f1: dict[str, dict[str, float]] = {}  # modelo -> {compute_bound, memory_bound} (media entre pliegues)
+    confusions: dict[str, np.ndarray] = {}  # modelo -> matriz de confusión acumulada [[TN,FP],[FN,TP]] (True=memory_bound)
 
-    for name, prototype in build_models(args.seed).items():
+    for name, prototype in build_models(args.seed, scale_pos_weight=scale_pos_weight).items():
         per_fold: dict[str, float] = {}
+        per_fold_compute: list[float] = []
+        per_fold_memory: list[float] = []
+        cm_total = np.zeros((2, 2), dtype=np.int64)
         for idx_train, idx_test, familia in protocol.leave_one_kernel_out(df, kernel_col="kernel_family"):
             model = clone(prototype)
             model.fit(X[idx_train], y[idx_train])
             pred = model.predict(X[idx_test])
             per_fold[familia] = f1_score(y[idx_test], pred, average="macro", zero_division=0)
+            f1_per_class = f1_score(y[idx_test], pred, average=None, labels=[False, True], zero_division=0)
+            per_fold_compute.append(float(f1_per_class[0]))
+            per_fold_memory.append(float(f1_per_class[1]))
+            cm_total += confusion_matrix(y[idx_test], pred, labels=[False, True])
             if familia == familias[0]:
                 latencies[name] = measure_latency(model, X[idx_test])
         results[name] = protocol.fold_summary(per_fold)
         results[name]["_per_fold"] = per_fold  # type: ignore[assignment]
+        per_class_f1[name] = {
+            "compute_bound": float(np.mean(per_fold_compute)),
+            "memory_bound": float(np.mean(per_fold_memory)),
+        }
+        confusions[name] = cm_total
 
     print(f"{'modelo':<16}{'F1 macro':>10}{'sd':>8}{'peor':>8}{'familia peor':>28}"
-          f"{'p50 us':>9}{'p95 us':>9}{'p99 us':>9}")
-    print("-" * 97)
+          f"{'F1 comp':>9}{'F1 mem':>9}{'p50 us':>9}{'p95 us':>9}{'p99 us':>9}")
+    print("-" * 115)
     for name, summary in sorted(results.items(), key=lambda kv: -kv[1]["mean"]):
         p50, p95, p99 = latencies.get(name, (float("nan"), float("nan"), float("nan")))
+        pc = per_class_f1[name]
         print(f"{name:<16}{summary['mean']:>10.3f}{summary['std']:>8.3f}"
               f"{summary['min']:>8.3f}{summary['worst_kernel']:>28}"
+              f"{pc['compute_bound']:>9.3f}{pc['memory_bound']:>9.3f}"
               f"{p50:>9.1f}{p95:>9.1f}{p99:>9.1f}")
+
+    print("\n\nMatriz de confusión acumulada por modelo (todas las corridas de todos los pliegues, "
+          "filas=real, columnas=predicho; orden [compute_bound, memory_bound]):")
+    for name, summary in sorted(results.items(), key=lambda kv: -kv[1]["mean"]):
+        cm = confusions[name]
+        print(f"  {name}: real=compute_bound -> pred=[{cm[0,0]:>4} compute, {cm[0,1]:>4} memory]  "
+              f"| real=memory_bound -> pred=[{cm[1,0]:>4} compute, {cm[1,1]:>4} memory]")
 
     print("\n\nF1 macro por pliegue (familia excluida del entrenamiento):")
     fold_keys = sorted(next(iter(results.values()))["_per_fold"])  # type: ignore[index]
@@ -278,7 +325,7 @@ def main() -> None:
         import joblib
         from sklearn.base import clone as _clone
 
-        final_model = _clone(build_models(args.seed)[best_name])
+        final_model = _clone(build_models(args.seed, scale_pos_weight=scale_pos_weight)[best_name])
         final_model.fit(X, y)
 
         args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -300,13 +347,30 @@ def main() -> None:
             "n_kernels": int(df["kernel_ref"].nunique()),
             "n_familias": len(familias),
             "familias": familias,
+            "class_balance": {"compute_bound": n_neg, "memory_bound": n_pos},
+            "class_weight_strategy": (
+                "sklearn class_weight='balanced' (todos salvo mayoritaria/xgboost); "
+                "xgboost scale_pos_weight="
+                f"{scale_pos_weight:.4f} (razon global neg/pos, no por pliegue)"
+            ),
             "latency_weight": args.latency_weight,
             "cv_f1_macro_mean": results[best_name]["mean"],
             "cv_f1_macro_std": results[best_name]["std"],
             "cv_f1_macro_worst_familia": results[best_name]["worst_kernel"],
+            "cv_f1_per_class_mean": per_class_f1[best_name],
+            "cv_confusion_matrix_pooled": {
+                "labels": ["compute_bound", "memory_bound"],
+                "matrix": confusions[best_name].tolist(),
+                "note": "filas=real, columnas=predicho, sumada sobre todos los pliegues de leave-one-familia-out",
+            },
             "latency_us_p50_p95_p99": list(latencies[best_name]),
             "all_models_compared": {
-                name: {"f1_macro_mean": r["mean"], "latency_us_p99": latencies[name][2]}
+                name: {
+                    "f1_macro_mean": r["mean"],
+                    "f1_compute_bound_mean": per_class_f1[name]["compute_bound"],
+                    "f1_memory_bound_mean": per_class_f1[name]["memory_bound"],
+                    "latency_us_p99": latencies[name][2],
+                }
                 for name, r in results.items()
             },
         }
