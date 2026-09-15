@@ -3722,3 +3722,116 @@ detectó y corrigió ANTES de aplicarlo a `gpu_final.yaml` -- documentado
 explícitamente en vez de omitido. El candidato de reemplazo GEMM (parte
 2 de la nota externa, `CUBLAS_PEDANTIC_MATH`/CUTLASS) queda abierto, no
 cerrado en esta entrada.
+
+## F1-GPU-013 — Segunda ancla compute-bound de suite/proveedor: `CUBLAS_PEDANTIC_MATH` falla, DGEMM via CUTLASS `OpClassSimt` funciona (OI=26.73 FLOP/byte)
+
+**Fecha de registro:** 2026-09-14
+**Estado:** cerrado. `gpu_cutlass_simt_dgemm_n4096` se agrega a
+`gpu_final.yaml`. Campaña final queda en **18 kernels / 540 corridas**.
+
+### Motivación
+
+Continuación directa de F1-GPU-012: la revisión externa
+(`Nota_Candidatos_GPU_Compute_Bound_20260914.md`) proponía, en orden de
+prioridad, (1) `CUBLAS_PEDANTIC_MATH` o CUTLASS SIMT para recuperar un
+GEMM optimizado por el proveedor sin Tensor Core, y (2) `Apps_LTIMES`
+de RAJAPerf como alternativa. El usuario pidió intentarlo pese a que ya
+habían fallado tres búsquedas anteriores de un segundo compute-bound
+profundo (GEMM propio near-ridge, 2MM/3MM peor que GEMM simple).
+
+### Investigación
+
+**Intento 1, `CUBLAS_PEDANTIC_MATH` -- falló.** Se creó
+`kernels/gpu/cublas_dgemm_pedantic_bench.cu`, copia exacta de
+`old/kernels/gpu/cublas_dgemm_bench.cu` (el binario detrás de
+`gpu_dgemm_n4096`/`gpu_dgemm_calibration`) con
+`cublasSetMathMode(handle, CUBLAS_PEDANTIC_MATH)` agregado antes de
+`cublasDgemm`. Compilado, verificado numéricamente (`Verification =
+SUCCESSFUL`), pero perfilado con `ncu` (3 lanzamientos, sin ciclo
+completo de convergencia -- no hacía falta) mostró el MISMO kernel:
+`void Kernel2<cutlass_80_tensorop_d884gemm_64x64_16x4_nn_align1>(Params)`,
+con `sm__inst_executed_pipe_tensor.sum` no-cero por lanzamiento. La
+documentación de NVIDIA (CUDA 12.0) dice que pedantic desactiva Tensor
+Core; en esta combinación específica de driver/cuBLAS/CUDA (CUDA 13.1
+detectado en el nodo) NO lo hizo -- resultado real y verificado, no
+teórico.
+
+**Intento 2, CUTLASS `OpClassSimt` -- funcionó.** Se encontró CUTLASS
+v2.11.0 ya clonado en pacca (`~/cutlass`, sin compilar). En vez de
+compilar el `cutlass_profiler` completo (pesado, requiere CMake no
+disponible en PATH), se escribió un programa standalone
+(`kernels/gpu/cutlass_simt_dgemm_bench.cu`) que instancia
+`cutlass::gemm::device::Gemm<double, ..., cutlass::arch::OpClassSimt,
+cutlass::arch::Sm50, ...>` con el tile `128x32x8`/`32x16x8` -- copiado
+EXACTO de `cutlass/test/unit/gemm/device/simt_dgemm_nn_sm50.cu` (una
+configuración ya validada por los tests propios de CUTLASS, no una
+elección sin precedente). Compilado directo con `nvcc -I
+cutlass/include` (sin CMake), verificado numéricamente.
+
+Confirmación con `ncu`: el nombre del kernel SASS contiene
+`MmaSimt` (no `MmaTensorOp`), y una medición rápida dio
+`sm__inst_executed_pipe_tensor.sum = 0` exacto junto con
+`sm__sass_thread_inst_executed_op_dfma_pred_on.sum = 68,719,476,736`
+-- coincide EXACTO con N³ para N=4096 (4096³ = 68,719,476,736), la
+cuenta de FLOPs esperada para una GEMM completa. Perfilado con el
+ciclo completo de convergencia (lc5/lc20/lc50): **OI = 26.73 FLOP/byte,
+fp64, `converged: true` (cambio relativo 0.0001), extremadamente
+estable (26.721 → 26.724 → 26.727), `roofline_label_eligible: true`,
+`tensor_instructions_observed: 0.0`**.
+
+Contra el ridge fp64 (~3.4-3.7 FLOP/byte), esto da
+log2(OI/ridge) ≈ **+2.9** -- comparable a `rodinia_heartwall` (+2.06),
+la segunda ancla compute-bound de suite/proveedor real de la sesión
+(`rodinia_lavamd`, +7.52, sigue siendo la más profunda).
+
+Tamaño elegido por tiempo de pared real (F1-GPU-006, piso ~30-35s):
+N=4096 con `--iterations 1650` da 31.1s medido. La huella (3 matrices
+4096²×8B ≈ 402MB) no cabe en L2 (40MB del A100), así que no hay riesgo
+de artefacto de cache-residencia como el visto en `gemm_native_gpu`.
+
+### Decisión
+
+Se agrega `gpu_cutlass_simt_dgemm_n4096` a `gpu_final.yaml` **junto a**
+`gpu_rajaperf_gemm` (no lo reemplaza): tienen roles distintos --
+`gpu_rajaperf_gemm` cubre la zona cerca del ridge, este cubre
+compute-bound genuino. Campaña final: **18 kernels / 540 corridas**
+(antes: 17/510).
+
+### Limitaciones
+
+- Solo se probó un tile SIMT (`128x32x8`/`32x16x8`, el de la referencia
+  de CUTLASS); no se exploró si otro tile daría un OI aún más alto o
+  más bajo -- no hacía falta para el objetivo (encontrar UNA ancla
+  compute-bound adicional), pero significa que 26.73 no es
+  necesariamente el máximo alcanzable con CUTLASS SIMT.
+- No se investigó por qué `CUBLAS_PEDANTIC_MATH` no tuvo el efecto
+  documentado en este entorno (¿versión de cuBLAS?, ¿comportamiento
+  específico de FP64 DGEMM?) -- se aceptó el resultado negativo y se
+  pasó al siguiente candidato en vez de depurar la causa.
+- CUTLASS v2.11.0 (clonado en pacca, enero 2023) es una versión vieja
+  frente al CUDA 13.1 detectado en el nodo -- compiló con warnings de
+  deprecación (`long4`/`double4` etc.), no errores; funciona, pero no
+  se investigó si una versión más nueva de CUTLASS cambiaría el
+  resultado.
+- No se probó `Apps_LTIMES` (prioridad 2 de la nota externa) ni
+  miniBUDE (prioridad 3) -- innecesario, el candidato de prioridad 1
+  ya dio resultado positivo.
+
+### Trabajo pendiente
+
+Ninguno para esta entrada -- cerrado. Si en el futuro se quiere seguir
+poblando la zona compute-bound, el punto de partida sería probar otros
+tiles SIMT de CUTLASS o `Apps_LTIMES` de RAJAPerf (candidato de
+prioridad 2 de la nota externa, aún sin probar).
+
+### Criterio exacto de cierre
+
+Cerrado: dos candidatos investigados en orden de prioridad de la
+revisión externa, el primero (`CUBLAS_PEDANTIC_MATH`) descartado con
+evidencia real de `ncu` (mismo kernel Tensor Core con o sin pedantic),
+el segundo (CUTLASS `OpClassSimt`) confirmado con evidencia real en
+tres niveles independientes (nombre de kernel SASS, conteo exacto de
+DFMA=N³, `tensor_instructions_observed=0` en las tres mediciones de
+convergencia) -- no solo un número de OI aislado. Instanciación de
+CUTLASS copiada de un test ya validado por el propio proyecto CUTLASS,
+no inventada. `gpu_final.yaml` y `catalog.yaml` actualizados.

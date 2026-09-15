@@ -10,8 +10,8 @@
 # basta borrar su linea `- kernel_ref: X`. No hace falta re-someter nada.
 #
 # ⚠️ COSTO: el motor corre el PRODUCTO CRUZADO frequency_levels x
-# gpu_frequency_levels. Tal como esta: 1 nivel CPU x 10 niveles GPU x 17
-# kernels x 3 reps = 510 corridas.
+# gpu_frequency_levels. Tal como esta: 1 nivel CPU x 10 niveles GPU x 18
+# kernels x 3 reps = 540 corridas.
 #
 # F1-GPU-008/F1-GPU-009 (2026-09-14): -9 kernels sin evidencia real de
 # Roofline valida -- rodinia_backprop/rodinia_myocyte (precision FP32/
@@ -45,6 +45,17 @@
 # GPU, no solo a escala de juguete. dual_cholesky_gpu_N32768 (no
 # converge del todo, ~0.217) y dual_fft_gpu_N25600 (precision mixta
 # inesperada a este tamano) quedan fuera de la campana por ahora.
+#
+# F1-GPU-013 (2026-09-14): +1 gpu_cutlass_simt_dgemm_n4096 -- DGEMM via
+# CUTLASS con OperatorClass=Simt explicito (CUDA cores, sin Tensor
+# Core), tras confirmar que CUBLAS_PEDANTIC_MATH NO desactiva la ruta
+# Tensor Core de cuBLAS en este entorno (mismo kernel
+# cutlass_80_tensorop_d884gemm con o sin pedantic, verificado con ncu).
+# OI real medido: 26.73 FLOP/byte, fp64, converged,
+# tensor_instructions_observed=0.0 confirmado. Segunda ancla
+# compute-bound de suite/proveedor real (log2(OI/ridge)~+2.9, similar a
+# rodinia_heartwall) -- se agrega junto a gpu_rajaperf_gemm (que cubre
+# la zona cerca del ridge), no lo reemplaza, son roles distintos.
 # Ver Seguimiento_Cambios_Plan_Director.md.
 #
 # DECISION 2026-09-13: la CPU se deja SOLO en REF. Ver F1-XDEV-006 en
@@ -91,6 +102,7 @@ kernels:
 - kernel_ref: gpu_rajaperf_jacobi_2d
 - kernel_ref: gpu_rajaperf_heat_3d
 - kernel_ref: gpu_rajaperf_gemm
+- kernel_ref: gpu_cutlass_simt_dgemm_n4096
 - kernel_ref: dual_fft_gpu_N4096
 - kernel_ref: dual_axpy_gpu_N10000000
 - kernel_ref: dual_axpy_gpu_N1280000000
@@ -157,11 +169,11 @@ temperature:
   require_package_sensor: true
   minimum_c: 0
   maximum_c: 90
-# 510 corridas x ~39 MB/corrida (medido en el cribado) = ~19.9 GB.
+# 540 corridas x ~39 MB/corrida (medido en el cribado) = ~21.1 GB.
 # Se declara 64 GiB de margen (habia 1.2 TB libres en /home).
 projected_campaign_bytes: 68719476736
 remaining_core_hours: 100000
-projected_core_hours: 296
+projected_core_hours: 313
 cores:
   delegated_cpus:
   - 0

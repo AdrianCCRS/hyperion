@@ -5729,3 +5729,39 @@ kernels:
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
     binary_checksum:
       pacca-a100: "sha256:0678e6829048a38028c4e3770fc60d0bba5aaf80910abfb63334e7965d5b29d3"
+
+  # F1-GPU-013 (2026-09-14): DGEMM via CUTLASS con OperatorClass=Simt
+  # explicito (CUDA cores, no Tensor Core). Candidato de la revision
+  # externa (Nota_Candidatos_GPU_Compute_Bound_20260914.md) tras confirmar
+  # que CUBLAS_PEDANTIC_MATH NO desactiva la ruta Tensor Core de cuBLAS en
+  # este entorno (gpu_dgemm_n4096/gpu_dgemm_calibration siguen enrutando a
+  # cutlass_80_tensorop_d884gemm con o sin pedantic, verificado con ncu,
+  # mismo hallazgo de F1-GPU-012). Instanciacion identica a
+  # cutlass/test/unit/gemm/device/simt_dgemm_nn_sm50.cu (CUTLASS v2.11.0,
+  # tile 128x32x8/32x16x8), ya validada por los tests propios de CUTLASS,
+  # no una eleccion propia sin precedente. Confirmado con ncu: kernel
+  # SASS usa MmaSimt (no MmaTensorOp), sm__inst_executed_pipe_tensor.sum=0
+  # en las tres mediciones de convergencia. OI real medido: 26.73
+  # FLOP/byte, fp64, converged (cambio relativo 0.0001),
+  # roofline_label_eligible=true -- log2(OI/ridge)~+2.9 contra el ridge
+  # fp64 (~3.4-3.7), comparable a rodinia_heartwall. Segunda ancla
+  # compute-bound de suite/proveedor real de la sesion (la primera,
+  # rodinia_lavamd, es +7.52 mucho mas profunda). Se agrega a
+  # gpu_final.yaml junto a gpu_rajaperf_gemm (roles distintos: uno cubre
+  # cerca del ridge, este cubre compute-bound).
+  - id: gpu_cutlass_simt_dgemm_n4096
+    suite: CUTLASS-SIMT-DGEMM
+    role: dataset
+    device: gpu
+    exec_path: bin/gpu_cutlass_simt_dgemm
+    exec_args: "--size 4096 --iterations 1650"
+    phase_label_hint: compute_bound
+    operational_intensity_flops_per_byte: 26.73
+    gpu_precision: fp64
+    size_variant: N4096
+    expected_runtime_seconds: 31
+    warmup_seconds: 1.0
+    estimated_memory_bytes: 536870912
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:4afe55447bedf8fda74d1f9f66692c391e96a399c279142a9d96b75a669fb34d"
