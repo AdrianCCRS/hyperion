@@ -223,6 +223,15 @@ def parse_ncu_csv(text: str) -> dict:
     int_cols = col_idx(lambda h: any(k in h for k in _INT_KEYS))
     fma_cols = col_idx(lambda h: any(k in h for k in _FMA_KEYS))
     dram_cols = col_idx(lambda h: h in _DRAM_BYTES_KEYS or ("dram__bytes" in h and h.endswith(".sum")))
+    # F1-GPU-012 (2026-09-14): faltaba tensor_cols -- el formato ancho
+    # (el que ncu realmente produce en corridas reales, no el de fixtures
+    # largos) nunca acumulaba tensor_inst, asi que el guardarrail de
+    # Tensor Core en build_kernel_report() jamas se disparaba para una
+    # corrida real. Confirmado con gpu_dgemm_n4096: su CSV crudo muestra
+    # Kernel Name=cutlass_80_tensorop_d884gemm (Tensor Core real, ya
+    # documentado en ARC-76), pero tensor_instructions_observed salia
+    # 0.0 porque esta columna nunca se sumaba.
+    tensor_cols = col_idx(lambda h: "pipe_tensor" in h or "tensor_op_" in h)
     # nombre de kernel para agrupar, si está
     kname_cols = col_idx(lambda h: h in ("kernel name", "\"kernel name\"", "demangled name"))
 
@@ -237,7 +246,7 @@ def parse_ncu_csv(text: str) -> dict:
         for name, cols, key in (
             ("fp32", fp32_cols, "fp32_inst"), ("fp64", fp64_cols, "fp64_inst"),
             ("int", int_cols, "int_inst"), ("fma", fma_cols, "fma_inst"),
-            ("dram", dram_cols, "dram_bytes"),
+            ("dram", dram_cols, "dram_bytes"), ("tensor", tensor_cols, "tensor_inst"),
         ):
             for ci in cols:
                 v = _num(r[ci]) if ci < len(r) else None

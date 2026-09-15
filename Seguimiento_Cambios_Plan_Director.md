@@ -3538,3 +3538,128 @@ convergencia o hasta obtener una medición estable con nota
 metodológica, 3 de 5 incorporados a `gpu_final.yaml` con decisión
 explícita del usuario, 2 documentados como excluidos con motivo
 verificable; `gpu_final.yaml` y `catalog.yaml` actualizados.
+
+## F1-GPU-012 — Corrige F1-GPU-009: el DGEMM cuBLAS usa Tensor Cores (no una "brecha de instrumentación"), y el parser de `ncu_convergence.py` nunca detectaba Tensor Core en corridas reales
+
+**Fecha de registro:** 2026-09-14
+**Estado:** cerrado el bug del parser (código corregido, prueba de
+regresión agregada). Abierto el candidato de reemplazo GEMM
+(`CUBLAS_PEDANTIC_MATH`/CUTLASS SIMT) -- ver Trabajo pendiente.
+
+### Motivación
+
+El usuario adjuntó una revisión externa (`Nota_Candidatos_GPU_Compute_Bound_20260914.md`,
+generada por otra sesión de Claude, sin ejecutar nada en pacca) que
+cuestionaba la conclusión de F1-GPU-009 ("brecha de instrumentación de
+`ncu` con binarios cuBLAS") citando un comentario `ARC-76` ya existente
+en `catalog.yaml` (líneas 400-409) que documentaba, ANTES de esta
+sesión, que `cublas_dgemm_bench` enruta a un kernel Tensor Core
+(`cutlass_80_tensorop_d884gemm`) sin que se le pida, y que el pipeline
+excluye Tensor Cores del conteo de FLOPs por contrato explícito
+(`fase1_telemetria/ncu_convergence.py::build_kernel_report`, guardrail
+en `tensor_instructions_observed > 0`).
+
+### Investigación
+
+Se verificó la afirmación contra el CSV crudo real de `ncu` ya generado
+para `gpu_dgemm_n4096` durante F1-GPU-009
+(`pacca_screen_20260909/ncu/gpu_dgemm_n4096__lc5.csv`): la columna
+"Kernel Name" confirma literalmente `cutlass_80_tensorop_d884gemm_64x64_16x4_nn_align1`
+-- el mismo kernel Tensor Core de ARC-76. **La conclusión de F1-GPU-009
+está corregida**: no es una brecha de instrumentación de `ncu` con
+binarios cuBLAS en general, es que ESTE binario/config específico
+(`cublas_dgemm_bench --size 4096`) enruta a Tensor Cores, y el pipeline
+correctamente excluye esa ruta del conteo escalar de FLOPs -- por
+diseño, no por incapacidad de `ncu`.
+
+Al verificar por qué `tensor_instructions_observed` había salido 0.0 en
+el reporte (en vez de disparar el guardrail y marcar el kernel como
+`not_suitable_for_roofline_truth: Tensor Core`), se encontró un bug real
+en `ncu_convergence.py`: la función `parse_ncu_csv` tiene dos rutas de
+parseo, una para el formato "largo" (una fila por métrica, usada en los
+fixtures de prueba) que sí detecta columnas `pipe_tensor` correctamente
+vía `_metric_bucket`, y una para el formato "ancho" (una fila por
+lanzamiento, todas las métricas como columnas) -- que es el formato que
+`ncu --page raw` REALMENTE produce en toda corrida real de este
+proyecto (confirmado contra el CSV crudo). En la rama de formato ancho,
+la lista de columnas a sumar (`fp32_cols`, `fp64_cols`, `int_cols`,
+`fma_cols`, `dram_cols`) **nunca incluía `tensor_cols`**, y el bucle de
+acumulación no iteraba sobre "tensor" -- el campo `tensor_inst` se
+inicializaba en 0.0 y nunca se tocaba, sin importar lo que el CSV
+crudo realmente contuviera.
+
+**Impacto:** el guardrail de exclusión de Tensor Core nunca se disparó
+para NINGUNA corrida real de `ncu` en todo el proyecto hasta ahora (el
+formato ancho es el único que se usa en producción). Cualquier kernel
+que secretamente enrutara por Tensor Cores habría sido medido con
+FLOPs≈0 (near-zero OI, "converged") en vez de excluido correctamente
+como `not_suitable_for_roofline_truth`. Para GEMM esto llevó a la
+conclusión equivocada de F1-GPU-009 ("brecha de instrumentación") en
+vez de la correcta ("Tensor Core, excluido por diseño") -- pero la
+conclusión práctica de F1-GPU-009 y F1-GPU-010 (reemplazar el GEMM
+cuBLAS en la campaña, GEMM propio o de RAJAPerf) sigue siendo correcta,
+solo el diagnóstico estaba mal.
+
+### Corrección aplicada
+
+`fase1_telemetria/ncu_convergence.py`, rama de formato ancho de
+`parse_ncu_csv`: se agregó `tensor_cols = col_idx(lambda h: "pipe_tensor"
+in h or "tensor_op_" in h)` y se agregó `("tensor", tensor_cols,
+"tensor_inst")` a la tupla que itera el bucle de acumulación --
+mismo criterio de detección que ya usaba la rama de formato largo
+(`_metric_bucket`), ahora consistente entre ambas rutas. Prueba de
+regresión agregada (`test_formato_ancho_real_detecta_tensor_cores`)
+con un CSV sintético que imita el formato ancho real (columnas "ID"/
+"Kernel Name" + `sm__inst_executed_pipe_tensor.sum`), verifica que
+`tensor_inst` se acumula correctamente y que `build_kernel_report`
+dispara el guardrail con esa evidencia.
+
+Se descubrió, al correr la suite completa, que 6 pruebas de
+`test_ncu_convergence.py` ya fallaban ANTES de este cambio (confirmado
+con `git stash`) -- no relacionado con este fix, no se investigó ni se
+corrigió (fuera de alcance de esta entrada).
+
+### Sobre el segundo punto de la nota externa (2MM/3MM)
+
+La nota también cuestiona la explicación causal que di para la caída
+de OI en `gpu_rajaperf_2mm`/`gpu_rajaperf_3mm` (F1-GPU-011 previo,
+"round-trip por DRAM entre etapas") -- señala correctamente que no se
+verificó desglosando FLOPs/bytes por nombre de kernel individual dentro
+del perfil agregado de 2-3 lanzamientos. Esto queda como una
+afirmación no verificada, no retractada ni confirmada -- el resultado
+medido (OI 2.81→2.50→1.95) sigue siendo válido, solo la explicación
+mecanicista de por qué es especulación sin verificar.
+
+### Limitaciones
+
+- No se re-perfiló `gpu_dgemm_n4096` con el fix aplicado (requeriría
+  reprocesar el CSV ya existente con `--from-csv`, sin gastar `ncu` de
+  nuevo) -- pendiente.
+- No se auditó si algún OTRO kernel del catálogo GPU, además de los dos
+  GEMM cuBLAS, secretamente enruta por Tensor Cores y quedó mal
+  etiquetado por este mismo bug.
+- No se investigó `CUBLAS_PEDANTIC_MATH` ni CUTLASS SIMT (candidatos de
+  la nota externa para recuperar un GEMM optimizado sin Tensor Cores).
+- No se investigó la causa raíz de la caída de OI en 2MM/3MM por
+  kernel individual.
+
+### Trabajo pendiente
+
+1. Reprocesar `gpu_dgemm_n4096`/`dual_gemm_gpu_N2048` desde sus CSV ya
+   existentes con el parser corregido, confirmar que ahora el guardrail
+   de Tensor Core se dispara correctamente.
+2. Evaluar `CUBLAS_PEDANTIC_MATH`/CUTLASS SIMT como vía para un GEMM
+   optimizado real sin Tensor Cores (prioridad 1 de la nota externa).
+3. Considerar una auditoría rápida de `tensor_instructions_observed` en
+   los reportes `ncu` ya generados este mes, para descartar
+   contaminación silenciosa en otros kernels.
+
+### Criterio exacto de cierre (del bug del parser)
+
+Cerrado: causa raíz confirmada contra CSV crudo real (no solo teoría),
+bug identificado con precisión de línea de código, corrección mínima y
+simétrica con la lógica ya existente para el formato largo, prueba de
+regresión agregada y pasando, pre-existencia de otras 6 fallas de test
+verificada y descartada como no relacionada. El candidato de reemplazo
+GEMM (parte 2 de la nota externa) queda abierto, no cerrado en esta
+entrada.

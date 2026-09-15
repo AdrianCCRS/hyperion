@@ -85,6 +85,35 @@ def test_kernel_entero_sin_flops_es_no_apto():
     assert "FLOPs" in rep.reason
 
 
+def test_formato_ancho_real_detecta_tensor_cores():
+    """F1-GPU-012: el formato ancho (el que ncu --page raw produce en
+    corridas reales, no el fixture corto de _csv) nunca acumulaba
+    tensor_inst -- el guardarrail de Tensor Core en build_kernel_report()
+    jamas se disparaba para una corrida real. Confirmado con el CSV crudo
+    real de gpu_dgemm_n4096 (Kernel Name=cutlass_80_tensorop_d884gemm)."""
+    header = (
+        '"ID","Kernel Name","dram__bytes.sum",'
+        '"sm__inst_executed_pipe_tensor.sum",'
+        '"sm__sass_thread_inst_executed_op_dfma_pred_on.sum"'
+    )
+    units = '"","","byte","inst","inst"'
+    row = '"0","cutlass_80_tensorop_d884gemm","1,000,000","5,000","0"'
+    text = "banner line\n" + header + "\n" + units + "\n" + row + "\n"
+    p = nc.parse_ncu_csv(text)
+    assert p["csv_layout"] == "wide_fixture"
+    assert p["tensor_inst"] == 5000.0
+    assert p["dram_bytes"] == 1000000.0
+    assert "sm__inst_executed_pipe_tensor.sum" in p["by_metric"]
+
+    rep = nc.build_kernel_report("gpu_dgemm_n4096", [
+        nc.NcuPoint(5, 5, 0.0, 1000000, None, "fp64",
+                    raw_metric_sums={"sm__inst_executed_pipe_tensor.sum": 5000.0}),
+    ], tensor_instructions_observed=5000.0)
+    assert rep.status == "not_suitable_for_roofline_truth"
+    assert rep.roofline_label_eligible is False
+    assert "Tensor" in rep.reason
+
+
 def test_convergencia_cuando_la_oi_se_estabiliza():
     pts = [
         nc.NcuPoint(10, 10, 1000, 1000, 1.0, "fp32"),
