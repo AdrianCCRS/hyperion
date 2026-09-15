@@ -85,6 +85,27 @@ def test_muestras_de_warmup_se_cuentan_aparte_y_bajan_la_fraccion_usable():
     assert r["phase_quality_status"] == "insufficient_samples"
 
 
+def test_muestras_de_transicion_se_cuentan_aparte_y_bajan_la_fraccion_usable():
+    # F1-GPU-002/ARC-155/170: excluded_transition_not_settled se cuenta y
+    # excluye igual que warmup_excluded, pero en su propio contador -- para
+    # que quede trazable POR QUÉ se excluyó cada muestra.
+    wins = [_gpu_win("run_A", 100 + i, util=90, power=200_000, sm_clock=1400,
+                     quality="warmup_excluded") for i in range(5)]
+    wins += [_gpu_win("run_A", 200 + i, util=90, power=200_000, sm_clock=1400,
+                     quality="excluded_transition_not_settled") for i in range(10)]
+    wins += [_gpu_win("run_A", 1000 + i * 100, util=90, power=200_000, sm_clock=1400)
+             for i in range(15)]
+    rows = gpu_phases.build_gpu_phase_rows(wins, min_nvml_samples=5,
+                                          min_usable_sample_fraction=0.6)
+    r = rows[0]
+    assert r["n_nvml_samples"] == 15
+    assert r["n_nvml_samples_warmup_excluded"] == 5
+    assert r["n_nvml_samples_transition_excluded"] == 10
+    assert r["usable_sample_fraction"] == 0.5  # 15 / (15+5+10)
+    assert r["training_eligible"] is False
+    assert r["phase_quality_status"] == "insufficient_samples"
+
+
 def test_pocas_muestras_no_es_elegible():
     wins = [_gpu_win("run_A", 1000 + i * 100, util=90, power=2e5, sm_clock=1400) for i in range(4)]
     rows = gpu_phases.build_gpu_phase_rows(wins, min_nvml_samples=8)

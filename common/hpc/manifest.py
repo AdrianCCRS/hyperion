@@ -313,8 +313,21 @@ def _validate_catalog_references(
         )
 
 
-def load(path: str | Path) -> Manifest:
-    """Carga y valida un campaign.yaml antes de ejecutar cualquier operación de nodo."""
+def load(path: str | Path, *, skip_output_dir_check: bool = False) -> Manifest:
+    """Carga y valida un campaign.yaml antes de ejecutar cualquier operación de nodo.
+
+    `skip_output_dir_check` (default False, preserva I07 para todo caller
+    existente): pensado exclusivamente para
+    `fase1_telemetria/repostprocess_campaign.py`, cuyo caso de uso es
+    reprocesar una campaña YA COMPLETADA sin relanzar ningún kernel -- el
+    manifiesto real de esa campaña casi siempre declara `overwrite: false`
+    (correcto para el lanzamiento original) y el chequeo I07 lo rechazaría
+    aunque nada vaya a escribirse en `output_dir` vía `runner.py`. Antes de
+    este parámetro, la única forma de sortear esto era una copia temporal
+    del manifiesto con `overwrite: true` (documentado como sorteo, no
+    solución, en Seguimiento_Cambios_Plan_Director.md). MAN-04 (que
+    `overwrite` exista y sea booleano) sigue exigiéndose siempre -- esto
+    solo desactiva el propio chequeo I07 de existencia."""
     source_path = Path(path)
     with source_path.open(encoding="utf-8") as source_file:
         document = yaml.safe_load(source_file) or {}
@@ -354,7 +367,7 @@ def load(path: str | Path) -> Manifest:
     output_dir = Path(output_dir_value)
     if not output_dir.is_absolute():
         output_dir = source_path.parent / output_dir
-    if output_dir.exists() and not overwrite:
+    if output_dir.exists() and not overwrite and not skip_output_dir_check:
         _error("I07", "output_dir", "ya existe y overwrite es false")
 
     cores_value = _required(document, "cores")

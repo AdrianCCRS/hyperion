@@ -196,6 +196,7 @@ def cmd_postprocess(args: argparse.Namespace) -> int:
         freq_grace_seconds=float(frequency_validation.get("grace_seconds", 0.0)),
         freq_tail_grace_seconds=float(frequency_validation.get("tail_grace_seconds", 0.0)),
         freq_is_native_governor=frequency_level.mode == "native_governor",
+        gpu_transition_seconds=campaign_module.GPU_TRANSITION_SECONDS_CONSERVATIVE,
     )
     print(path)
     return 0

@@ -183,6 +183,7 @@ def repostprocess_campaign(
                 freq_grace_seconds=float(frequency_validation.get("grace_seconds", 0.0)),
                 freq_tail_grace_seconds=float(frequency_validation.get("tail_grace_seconds", 0.0)),
                 freq_is_native_governor=combo.frequency_level.mode == "native_governor",
+                gpu_transition_seconds=campaign_module.GPU_TRANSITION_SECONDS_CONSERVATIVE,
             )
             # Re-validación (ver docstring del módulo): el accept/reject debe
             # reflejar el windows.csv YA corregido, no el provisional con el
@@ -227,7 +228,13 @@ def main(argv: list[str] | None = None) -> int:
                         help="Solo reporta qué se reprocesaría y con qué warmup_seconds, sin escribir nada.")
     args = parser.parse_args(argv)
 
-    manifest = manifest_module.load(args.manifest)
+    # F1-XDEV: este módulo nunca relanza kernels (solo relee samples.csv/
+    # metadata.json ya en disco), así que el I07 de manifest_module.load()
+    # -- pensado para bloquear un lanzamiento real sobre un output_dir ya
+    # ocupado -- no aplica aquí y se desactiva explícitamente. Reemplaza el
+    # sorteo anterior de una copia temporal del manifiesto con
+    # `overwrite: true` (ver Seguimiento_Cambios_Plan_Director.md).
+    manifest = manifest_module.load(args.manifest, skip_output_dir_check=True)
     catalog_path = args.catalog_path if args.catalog_path is not None else manifest.catalog_path
     catalog = catalog_module.load_catalog(str(catalog_path))
 

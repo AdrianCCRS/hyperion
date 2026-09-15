@@ -124,6 +124,14 @@ VALID_QUALITY_STATUSES = frozenset({
     # cuando esa calibración está disponible -- "gpu_telemetry" describe que
     # la fila es un passthrough NVML, no que carezca de etiqueta.
     "gpu_telemetry",
+    # F1-GPU-002/ARC-155/170: T_transicion_gpu_ns_conservative (el reloj de
+    # la GPU tarda en asentarse tras cambiar de nivel, medido en job 7055,
+    # ~170ms cota conservadora) -- distinto de warmup_excluded (que excluye
+    # el transitorio de ARRANQUE del propio kernel). Una muestra puede caer
+    # después del warmup pero todavía dentro de la ventana de asentamiento
+    # del reloj GPU cuando esta última es más larga; se marca aparte para
+    # que quede trazable por qué se excluyó.
+    "excluded_transition_not_settled",
 })
 
 # Priority order used when more than one condition applies to the same
@@ -197,6 +205,11 @@ class WindowContext:
     # i_ridge_flops_per_byte (ese es el de CPU) para una fila de GPU.
     gpu_operational_intensity: float | None = None
     gpu_i_ridge_flops_per_byte: float | None = None
+    # F1-GPU-002/ARC-155/170: T_transicion_gpu_ns_conservative, en segundos.
+    # 0.0 (default) preserva el comportamiento anterior byte a byte para
+    # cualquier caller que no lo pase. Solo afecta filas GPU (quality_status
+    # "excluded_transition_not_settled" más abajo); nunca a ventanas CPU.
+    gpu_transition_seconds: float = 0.0
     # ARC-94 (segunda ronda): antes de este campo, las filas GPU heredaban
     # roofline_calibration_ref de _base_row() (el archivo de calibración de
     # CPU) aunque su phase_label_train se calculó con gpu_i_ridge_flops_per_byte
@@ -905,9 +918,23 @@ def build_windows(samples_csv_path: str | Path, context: WindowContext) -> list[
         # warmup arriba, mismo run_start_ns/warmup_end_ns). Reusa la misma
         # referencia temporal de origen del run (cpu_rows[0]) para que
         # ambos ejes midan el calentamiento desde el mismo instante cero.
-        row["quality_status"] = (
-            "warmup_excluded" if int(gpu_row["timestamp_ns"]) < warmup_end_ns else "gpu_telemetry"
+        # F1-GPU-002/ARC-155/170: T_transicion_gpu_ns_conservative -- el
+        # reloj de la GPU puede tardar más en asentarse que el warmup del
+        # propio kernel. gpu_transition_end_ns nunca es anterior a
+        # warmup_end_ns (max()), así que cuando el warmup calibrado ya
+        # domina (caso de todo el catálogo actual, corridas de 25-34s vs.
+        # ~170ms de transición) esto es un no-op y el comportamiento no
+        # cambia byte a byte.
+        gpu_transition_end_ns = max(
+            warmup_end_ns, run_start_ns + int(context.gpu_transition_seconds * 1_000_000_000)
         )
+        sample_ts_ns = int(gpu_row["timestamp_ns"])
+        if sample_ts_ns < warmup_end_ns:
+            row["quality_status"] = "warmup_excluded"
+        elif sample_ts_ns < gpu_transition_end_ns:
+            row["quality_status"] = "excluded_transition_not_settled"
+        else:
+            row["quality_status"] = "gpu_telemetry"
         windows.append(row)
 
     return windows
@@ -1188,6 +1215,7 @@ def run_postprocess(
     freq_tail_grace_seconds: float = 0.0,
     freq_is_native_governor: bool = False,
     output_dir: str | Path | None = None,
+    gpu_transition_seconds: float = 0.0,
 ) -> Path:
     """Orchestrates one run's samples.csv -> windows.csv + training_cpu_intervals.csv.
 
@@ -1287,6 +1315,7 @@ def run_postprocess(
         gpu_operational_intensity=gpu_operational_intensity,
         gpu_i_ridge_flops_per_byte=gpu_i_ridge,
         gpu_roofline_calibration_ref=gpu_roofline_calibration_ref,
+        gpu_transition_seconds=gpu_transition_seconds,
         gpu_freq_level_id=gpu_freq_level_id,
         freq_tolerance_fraction=freq_tolerance_fraction,
         freq_expected_cpu_count=freq_expected_cpu_count,
