@@ -1064,6 +1064,66 @@ kernels:
     binary_checksum:
       pacca-a100: "sha256:fb4296f36ebb386401f693374566053b875cda282a8e55d944fd2b0c8552cf0d"
 
+  # rodinia_kmeans_omp (2026-09-16): datos de entrada de kmeans no
+  # vendorizados (kdd_cup ausente), reemplazados por un generador sintético
+  # propio (N puntos ~ D atributos, agrupados alrededor de K centros
+  # gaussianos reales, ver gen_kmeans_input.py) -- desbloquea el kernel para
+  # CPU y GPU sin depender del dataset original. K debe coincidir con el
+  # numero real de clusters generados: pedir mas clusters de los que existen
+  # hace que el criterio de parada (0 puntos cambian de cluster o 500
+  # iteraciones, kmeans_clustering.c) oscile sin converger -- con K=15 sobre
+  # datos de 5 clusters reales, la corrida nunca terminaba (>120 s). Con
+  # K=200 real (generador con nclusters_reales=200) converge limpio.
+  - id: rodinia_kmeans_omp
+    suite: Rodinia-OpenMP
+    role: dataset
+    exec_path: bin/rodinia_kmeans_omp
+    exec_args: "-i data/kmeans/kmeans_synth_N350000_D34_K200.txt -k 200 -n 3"
+    phase_label_hint: memory_bound
+    size_variant: "N350000_D34_K200"
+    expected_runtime_seconds: 30  # medido con harness real: 28.6-28.7 s (3 reps)
+    warmup_seconds: 0.002  # measure_warmup.py sobre samples.csv real (IPC), max de 3 reps (0.001-0.002 s, negligible como el resto de CPU)
+    estimated_memory_bytes: 100000000
+    success_check: {type: exit_code}
+    binary_checksum:
+      pacca-a100: "sha256:61eca256e92dac78358804d4b5640e8407db438e3609b395c1702fa49f9c4c4e"
+
+  # rodinia_kmeans_gpu (2026-09-16): candidato compute_bound directo (ver
+  # Nota_Candidatos_GPU_Compute_Bound). Mismo archivo sintético que la
+  # variante OMP, pero la interfaz de linea de comandos difiere (binario
+  # CUDA usa -m/-n para fijar un K unico, no -k) y el criterio de
+  # convergencia se comporta de forma completamente distinta: converge en
+  # 2 iteraciones sin importar la escala (vs. decenas para la variante CPU
+  # con los mismos datos). -l (nloops) repite la corrida completa de forma
+  # determinista (mismo init secuencial, sin rand()) y es la palanca de
+  # duracion: escala linealmente (~0.019 s/loop medido en hardware real,
+  # 3 s a l=100 -> 26.25 s a l=1300). OI real medido con ncu_convergence.py:
+  # 68.9495 FLOP/byte, fp32, convergencia real a partir de 2000 lanzamientos
+  # (cambio relativo 0.76% < 1% tolerancia) -- muy por encima del ridge fp32
+  # de referencia (14.965852 FLOP/byte, ver 03_resultados.tex), la ancla
+  # compute_bound mas fuerte del catalogo despues de gpu_cutlass_simt_conv2d.
+  # Actividad Tensor Core detectada (~0.03% de las instrucciones escalares)
+  # es ruido, muy por debajo del umbral de contaminacion real (10%,
+  # calibrado en la saga DGEMM). Warmup real medido vía telemetry_kernel_launcher
+  # (gpu_util_pct, 3 reps REF, target_windows_per_repetition=5): 1.92-2.15 s
+  # (6.1-6.9% del runtime); se declara el máximo de los 3 (mas conservador).
+  - id: rodinia_kmeans_gpu_N350000_D34_K200
+    suite: Rodinia-CUDA
+    role: dataset
+    device: gpu
+    gpu_precision: fp32
+    exec_path: bin/rodinia_kmeans
+    exec_args: "-i data/kmeans/kmeans_synth_N350000_D34_K200.txt -m 200 -n 200 -l 1300"
+    phase_label_hint: compute_bound
+    size_variant: "N350000_D34_K200_l1300"
+    expected_runtime_seconds: 30  # medido con harness real: 26.08-26.10 s (3 reps)
+    warmup_seconds: 2.1507
+    operational_intensity_flops_per_byte: 68.9495
+    estimated_memory_bytes: 100000000
+    success_check: {type: exit_code}
+    binary_checksum:
+      pacca-a100: "sha256:368505ca8beb4b7bf0c69755d9df4d3b98c5c1f60d20771bab2fc4720d500b56"
+
   # Segundo candidato CPU, medido solo después de comprobar que LavaMD no
   # basta para aliviar el desbalance global. RAJAPerf v2025.12.1,
   # Polybench_3MM/Base_OpenMP, Real_type=double (RP_USE_DOUBLE del build).
