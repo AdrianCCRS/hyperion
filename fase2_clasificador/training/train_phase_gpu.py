@@ -259,10 +259,21 @@ def main() -> None:
     best_params_por_pliegue: dict[str, dict[str, dict]] = {name: {} for name in tunable_names}
     per_fold_by_model.update({name: {} for name in tunable_names if name not in per_fold_by_model})
     scale_pos_weight_por_pliegue: dict[str, float] = {}
+    # ARC-XX: pliegues "mixtos" = la familia retenida contiene corridas de
+    # ambas clases. La mayoria de familias de este catalogo son 100% de una
+    # sola clase (ver recordatorios/mejoras_metodologia_clasificador_gpu.md),
+    # asi que en esos pliegues el F1 de la clase ausente se fuerza a 0 por
+    # convencion de sklearn sin reflejar ningun error real del modelo. El
+    # F1 macro sobre solo los pliegues mixtos mide discriminacion real
+    # dentro de una familia, distinto del F1 por-pliegue estandar (que
+    # tambien promedia los pliegues de una sola clase).
+    pliegues_mixtos: set[str] = set()
     n_search_omitida = 0
 
     for idx_train, idx_test, familia in FOLD_FN(df, kernel_col=KERNEL_COL):
         df_train_outer = df.iloc[idx_train]
+        if len(np.unique(y[idx_test])) > 1:
+            pliegues_mixtos.add(familia)
 
         # ARC-XX: recalculado por pliegue (nunca el global de arriba) para
         # que XGBoost reciba el mismo tipo de ajuste dinámico que
@@ -325,6 +336,7 @@ def main() -> None:
             "metadata.\n"
         )
 
+    f1_macro_pliegues_mixtos: dict[str, float | None] = {}
     for name in per_fold_by_model:
         results[name] = protocol.fold_summary(per_fold_by_model[name])
         results[name]["_per_fold"] = per_fold_by_model[name]  # type: ignore[assignment]
@@ -333,7 +345,12 @@ def main() -> None:
             "memory_bound": float(np.mean(per_fold_memory_by_model[name])),
         }
         confusions[name] = cm_by_model[name]
+        valores_mixtos = [
+            v for fam, v in per_fold_by_model[name].items() if fam in pliegues_mixtos
+        ]
+        f1_macro_pliegues_mixtos[name] = float(np.mean(valores_mixtos)) if valores_mixtos else None
 
+    print(f"\nPliegues mixtos (familia con ambas clases en su test): {sorted(pliegues_mixtos) or 'ninguno'}")
     print(f"{'modelo':<16}{'F1 macro':>10}{'sd':>8}{'peor':>8}{'familia peor':>28}"
           f"{'F1 comp':>9}{'F1 mem':>9}{'p50 us':>9}{'p95 us':>9}{'p99 us':>9}")
     print("-" * 115)
@@ -438,6 +455,18 @@ def main() -> None:
             "cv_f1_macro_std": results[best_name]["std"],
             "cv_f1_macro_worst_familia": results[best_name]["worst_kernel"],
             "cv_f1_per_class_mean": per_class_f1[best_name],
+            "cv_f1_macro_pliegues_mixtos": {
+                "value": f1_macro_pliegues_mixtos[best_name],
+                "familias": sorted(pliegues_mixtos),
+                "note": (
+                    "F1 macro promediado solo sobre los pliegues cuya familia "
+                    "retenida tiene corridas de ambas clases -- separa 'que tan "
+                    "bien discrimina el modelo cuando SI hay algo que discriminar' "
+                    "del F1 por-pliegue estandar (cv_f1_macro_mean), que tambien "
+                    "promedia los pliegues de una sola clase (F1=0 forzado por "
+                    "convencion en la clase ausente, sin reflejar un error real)."
+                ),
+            },
             "cv_confusion_matrix_pooled": {
                 "labels": ["compute_bound", "memory_bound"],
                 "matrix": confusions[best_name].tolist(),
