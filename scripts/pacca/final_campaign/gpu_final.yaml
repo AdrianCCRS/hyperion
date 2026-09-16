@@ -10,8 +10,15 @@
 # basta borrar su linea `- kernel_ref: X`. No hace falta re-someter nada.
 #
 # ⚠️ COSTO: el motor corre el PRODUCTO CRUZADO frequency_levels x
-# gpu_frequency_levels. Tal como esta: 1 nivel CPU x 10 niveles GPU x 18
-# kernels x 3 reps = 540 corridas.
+# gpu_frequency_levels. Tal como esta: 1 nivel CPU x 10 niveles GPU x 19
+# kernels x 3 reps = 570 corridas.
+#
+# rodinia_kmeans_gpu_N350000_D34_K200 (2026-09-16): agregado tras cerrar
+# gpu_conv2d_extra -- candidato compute_bound verificado con ncu real
+# (OI=68.9495 FLOP/byte fp32, muy por encima del ridge REF=14.965852).
+# Ya corrio como campana aislada (pacca_gpu_kmeans_extra_20260916, 30/30
+# aceptadas) antes de agregarse aqui; falta la corrida dentro de la
+# campana completa junto con los otros 18 kernels.
 #
 # F1-GPU-008/F1-GPU-009 (2026-09-14): -9 kernels sin evidencia real de
 # Roofline valida -- rodinia_backprop/rodinia_myocyte (precision FP32/
@@ -104,6 +111,7 @@ kernels:
 - kernel_ref: gpu_rajaperf_gemm
 - kernel_ref: gpu_cutlass_simt_dgemm_n4096
 - kernel_ref: gpu_cutlass_simt_conv2d
+- kernel_ref: rodinia_kmeans_gpu_N350000_D34_K200
 - kernel_ref: dual_fft_gpu_N4096
 - kernel_ref: dual_axpy_gpu_N10000000
 - kernel_ref: dual_axpy_gpu_N1280000000
