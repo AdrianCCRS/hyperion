@@ -1,13 +1,16 @@
 \chapter{Resultados}
-
+%Hay que hacer alguna especie de division entre los resultados CPU y GPU
+(Cambiar este parrafo, esta mal para la version final)
 Este capítulo reporta los resultados de la Fase 1: la construcción y validación del instrumento de medición, la campaña CPU solicitada en múltiples niveles --- junto con la verificación posterior que demostró que estos no constituyeron frecuencias físicas distintas ---, la caracterización de precisión aritmética del catálogo de GPU, y la ampliación del catálogo con kernels de patrón de acceso irregular. Incluye también un primer entrenamiento y análisis del clasificador GPU (Fase 2, secciones \ref{sec:resultados-gpu-separabilidad} en adelante), posible porque el conjunto de entrenamiento de GPU ya quedó definido dentro de esta misma fase; el resto de la Fase 2 (clasificador CPU), la Fase 3 (implementación del agente) y la Fase 4 (evaluación de EDP frente a los gobernadores nativos) están fuera del alcance de estos resultados y se reportarán al cerrarse el desarrollo completo del proyecto.
 
+%Este pedazo tambien está desactualizado....
 \section{Descripción del conjunto de datos experimental}
 
 El catálogo experimental final está compuesto por 9 cargas de CPU (7 de conjunto de datos y 2 de calibración) y 12 cargas de GPU (8 de conjunto de datos y 4 de calibración). Todas las cargas de CPU operan en doble precisión, verificado empíricamente para las 9 sobre el catálogo completo, no solo sobre las empleadas en la validación principal (sección \ref{sec:validacion-flops}). El conjunto de datos GPU combina siete kernels de la suite Rodinia y una multiplicación densa de matrices sobre cuBLAS. Las cuatro cargas de calibración corresponden a tres microbenchmarks propios que sostienen los techos Roofline --- ancho de banda, pico FP32 y pico FP64 --- y una DGEMM de cuBLAS conservada como referencia informativa independiente.
 
 La auditoría de precisión aritmética de la sección \ref{sec:resultados-precision-gpu} excluyó del catálogo GPU un kernel de simulación térmica cuya intensidad operacional real, con precisión mixta, cae demasiado cerca del punto de inflexión para clasificarlo con confianza; se reemplazó por una eliminación gaussiana de la misma suite, confirmada empíricamente pura en la precisión declarada.
 
+%%Resumir todo esto, o alguna tabla o figura que lo condense<<
 \section{Validación de la actuación DVFS en CPU}
 \label{sec:resultados-cpu-dvfs}
 
@@ -23,6 +26,7 @@ Sobre la plataforma descrita en la Tabla \ref{tab:plataforma}: 7 kernels de conj
 
 Esta aceptación confirma la integridad de la adquisición y el etiquetado, pero los seis niveles solicitados no corresponden a seis frecuencias físicas distintas: la plataforma mantiene el turbo activo bajo \texttt{intel\_pstate}/HWP, y los controles globales capaces de limitarlo (\texttt{no\_turbo}, \texttt{max\_perf\_pct}) no son escribibles con los permisos actuales --- una carga solicitada a 2.2~GHz sostiene $\sim$3.5~GHz reales bajo carga, confirmado con 40 lecturas periódicas de sysfs independientes del instrumento. La campaña no se presenta, en consecuencia, como un barrido DVFS válido: sus intensidades y etiquetas describen las cargas en el único punto de operación realmente observado, pero las repeticiones F0--F4 no son estados DVFS independientes hasta resolver el control de turbo.
 
+%Texto amplio y confuso que se puede presentar en figura o tabla (creo)
 \section{Caracterización de precisión aritmética en el catálogo de GPU}
 \label{sec:resultados-precision-gpu}
 
