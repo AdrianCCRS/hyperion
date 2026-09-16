@@ -103,6 +103,7 @@ kernels:
 - kernel_ref: gpu_rajaperf_heat_3d
 - kernel_ref: gpu_rajaperf_gemm
 - kernel_ref: gpu_cutlass_simt_dgemm_n4096
+- kernel_ref: gpu_cutlass_simt_conv2d
 - kernel_ref: dual_fft_gpu_N4096
 - kernel_ref: dual_axpy_gpu_N10000000
 - kernel_ref: dual_axpy_gpu_N1280000000
