@@ -1020,6 +1020,50 @@ kernels:
     # recalcular alpha para este kernel por falta de este patrón.
     runtime_seconds_stdout_pattern: "Total time:\\s*([0-9.]+)\\s*s"
 
+  # Kernels de patrón de acceso irregular (§2.1.1/§3.10), Rodinia commit
+  # 9c10d3ea16ddba2ba057cc3951a9efc4c2cc18a4, sin parches. Sin verificador
+  # numérico propio (ninguno de los dos imprime un checksum de resultado),
+  # así que success_check queda en exit_code -- limitación registrada, no
+  # ocultada. Tamaño y warmup medidos en paccaA100 (2026-09-16): tamaño de
+  # fábrica de Rodinia da corridas de <2s, escalado a ~26s con margen del
+  # criterio F1-CPU-006 (~25-30s de ventana de estado estable).
+  - id: rodinia_srad_omp
+    suite: Rodinia-OpenMP
+    role: dataset
+    exec_path: bin/rodinia_srad_omp
+    # rows cols y1 y2 x1 x2 threads lambda iter -- iteraciones 100->300
+    # (tamaño de imagen sin cambio) tras confirmar que escalar iteraciones
+    # sí extiende la corrida en CPU (a diferencia de la GPU, donde el
+    # costo por iteración es demasiado barato frente al overhead fijo).
+    exec_args: "4096 4096 0 127 0 127 3 0.5 300"
+    phase_label_hint: memory_bound
+    size_variant: "4096x4096_iter300"
+    expected_runtime_seconds: 32  # medido con harness real: 26.34 s
+    warmup_seconds: 0.0036  # measure_warmup.py sobre samples.csv real (IPC), telemetry_kernel_launcher
+    estimated_memory_bytes: 700000000  # RSS medido 461380 KiB, con margen
+    success_check: {type: exit_code}
+    binary_checksum:
+      pacca-a100: "sha256:1d4bc31497befa18859336e64d00b7ee6f26727a78ef3b265c5aa84711aee0b3"
+
+  - id: rodinia_particlefilter_omp
+    suite: Rodinia-OpenMP
+    role: dataset
+    exec_path: bin/rodinia_particlefilter_omp
+    # -np (partículas) escalado 50000->100000 tras confirmar que la
+    # instrumentación completa (perf attach) introduce ~6x de overhead
+    # sobre el tiempo del binario puro para este kernel específicamente
+    # (300000 partículas: 38 s puro -> 230 s instrumentado) -- 100000 da
+    # ~26 s instrumentado, dentro del rango objetivo.
+    exec_args: "-x 256 -y 256 -z 20 -np 100000"
+    phase_label_hint: memory_bound
+    size_variant: "np100000"
+    expected_runtime_seconds: 32  # medido con harness real: 25.75 s
+    warmup_seconds: 0.0096  # measure_warmup.py sobre samples.csv real (IPC), telemetry_kernel_launcher
+    estimated_memory_bytes: 150000000  # RSS medido 41908 KiB, con margen generoso
+    success_check: {type: exit_code}
+    binary_checksum:
+      pacca-a100: "sha256:fb4296f36ebb386401f693374566053b875cda282a8e55d944fd2b0c8552cf0d"
+
   # Segundo candidato CPU, medido solo después de comprobar que LavaMD no
   # basta para aliviar el desbalance global. RAJAPerf v2025.12.1,
   # Polybench_3MM/Base_OpenMP, Real_type=double (RP_USE_DOUBLE del build).
