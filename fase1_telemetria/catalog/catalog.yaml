@@ -1124,6 +1124,53 @@ kernels:
     binary_checksum:
       pacca-a100: "sha256:368505ca8beb4b7bf0c69755d9df4d3b98c5c1f60d20771bab2fc4720d500b56"
 
+  # miniBUDE (2026-09-16): candidato compute_bound de terceros, no del
+  # propio catalogo Rodinia/RAJAPerf. Repo UoB-HPC/miniBUDE, commit
+  # 570f66c1fd0c29b7f3ab6fa96fba87f4561aa44c, licencia Apache-2.0
+  # (LICENSE.txt real, verificado). Vendorizado con datos reales incluidos
+  # en el propio repo (data/bm1: 938 proteinas, 26 ligandos, 34 campos de
+  # fuerza, con ref_energies.out de referencia) -- sin el riesgo de datos
+  # sinteticos inventados que sí aplica a cfd. Modelo CUDA (src/cuda),
+  # build con CMake >=3.14: requirio vendorizar libjsoncpp.so.19/1.8.4
+  # localmente (ausente en paccaA100, presente en el login pacca --
+  # divergencia ya documentada, ver pacca01-vs-paccaA100-node-divergence)
+  # y forzar CMAKE_CXX_COMPILER=g++ explicito (el autodetectado nvc++
+  # agrega -fast, flag NVHPC-only que nvcc reenvia a un host-compiler que
+  # en realidad es gcc plano, rompe la compilacion). El propio binario se
+  # auto-valida contra ref_energies.out (outcome.valid=true, max_diff_%
+  # =0.014 en la corrida de verificacion). OI real medido con
+  # ncu_convergence.py: 25582.5597 FLOP/byte, fp32, convergencia real
+  # confirmada por la logica oficial del script entre lc=50 y lc=100
+  # (cambio relativo 0.0020, muy por debajo de la tolerancia 0.01) -- el
+  # barrido extendido a lc=500 se abandono (se cayo la sesion SSH tras
+  # >1h corriendo, sin necesidad real ya que lc=100 ya convergio). Es,
+  # con enorme margen, la ancla compute_bound mas extrema del catalogo
+  # (~1700x el ridge fp32 de referencia 14.965852, ~373x el OI de
+  # gpu_cutlass_simt_conv2d). Bajo telemetria completa el kernel muestra
+  # ~1.84x de overhead de instrumentacion (731.6ms/iter instrumentado vs
+  # 397.8ms/iter en bruto, medido con /usr/bin/time) -- similar en
+  # naturaleza al 6x de particlefilter_omp, aunque de magnitud menor;
+  # -i recalibrado de 68 (bruto) a 37 (instrumentado) para mantener la
+  # duracion en el rango objetivo. Warmup real medido vía
+  # telemetry_kernel_launcher (gpu_util_pct, 3 reps REF): 1.07-1.20 s
+  # (2.9-3.3% del runtime); se declara el máximo de los 3.
+  - id: minibude_cuda_bm1
+    suite: miniBUDE-CUDA
+    role: dataset
+    device: gpu
+    gpu_precision: fp32
+    exec_path: bin/minibude_cuda
+    exec_args: "--deck data/minibude/bm1 -i 37"
+    phase_label_hint: compute_bound
+    operational_intensity_flops_per_byte: 25582.5597
+    size_variant: "bm1_i37"
+    expected_runtime_seconds: 30  # medido con harness real: 30.31-30.36 s (3 reps)
+    warmup_seconds: 1.2025
+    estimated_memory_bytes: 100000000
+    success_check: {type: exit_code}
+    binary_checksum:
+      pacca-a100: "sha256:de35e0f33fb7a478d9a8317c38a16d8e3c71da4972c861809993970dd2928dc5"
+
   # Segundo candidato CPU, medido solo después de comprobar que LavaMD no
   # basta para aliviar el desbalance global. RAJAPerf v2025.12.1,
   # Polybench_3MM/Base_OpenMP, Real_type=double (RP_USE_DOUBLE del build).
