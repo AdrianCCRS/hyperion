@@ -10,8 +10,25 @@
 # basta borrar su linea `- kernel_ref: X`. No hace falta re-someter nada.
 #
 # ⚠️ COSTO: el motor corre el PRODUCTO CRUZADO frequency_levels x
-# gpu_frequency_levels. Tal como esta: 1 nivel CPU x 10 niveles GPU x 18
-# kernels x 3 reps = 540 corridas.
+# gpu_frequency_levels. Tal como esta: 1 nivel CPU x 10 niveles GPU x 19
+# kernels x 3 reps = 570 corridas.
+#
+# rodinia_kmeans_gpu_N350000_D34_K200 (2026-09-16): agregado tras cerrar
+# gpu_conv2d_extra -- candidato compute_bound verificado con ncu real
+# (OI=68.9495 FLOP/byte fp32, muy por encima del ridge REF=14.965852).
+# Ya corrio como campana aislada (pacca_gpu_kmeans_extra_20260916, 30/30
+# aceptadas). NO intentar resumir esto dentro de output_dir=.../campaigns/gpu
+# (las 540 corridas ya aceptadas de los otros 18 kernels): CAM-09 lo
+# bloquea a proposito, el fingerprint del protocolo incluye el set completo
+# de kernel_refs referenciados, asi que agregar un kernel nuevo aqui SIEMPRE
+# cambia el fingerprint y el resume falla (verificado con hardware real,
+# 2026-09-16). gpu_cutlass_simt_conv2d tiene el mismo problema -- tampoco
+# tiene corridas dentro de esa carpeta oficial, solo en su propia campana
+# aislada. El patron establecido de este proyecto es fusionar a nivel del
+# CSV de entrenamiento (training_gpu_phases.csv combinado entre campanas),
+# no reanudar dentro del mismo output_dir de Slurm. Esta lista de kernels
+# queda como documentacion de la composicion completa deseada, util solo
+# si algun dia se rehace la campana entera en un output_dir nuevo.
 #
 # F1-GPU-008/F1-GPU-009 (2026-09-14): -9 kernels sin evidencia real de
 # Roofline valida -- rodinia_backprop/rodinia_myocyte (precision FP32/
@@ -103,6 +120,8 @@ kernels:
 - kernel_ref: gpu_rajaperf_heat_3d
 - kernel_ref: gpu_rajaperf_gemm
 - kernel_ref: gpu_cutlass_simt_dgemm_n4096
+- kernel_ref: gpu_cutlass_simt_conv2d
+- kernel_ref: rodinia_kmeans_gpu_N350000_D34_K200
 - kernel_ref: dual_fft_gpu_N4096
 - kernel_ref: dual_axpy_gpu_N10000000
 - kernel_ref: dual_axpy_gpu_N1280000000

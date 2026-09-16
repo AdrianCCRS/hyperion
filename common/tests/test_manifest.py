@@ -318,6 +318,29 @@ def test_man_t04_directorio_existente_es_i07(tmp_path, monkeypatch, catalogo, ca
         cargar(tmp_path, monkeypatch, catalogo, campaign)
 
 
+def test_skip_output_dir_check_evita_i07_sobre_directorio_existente(tmp_path, monkeypatch, catalogo, campaign):
+    # fase1_telemetria/repostprocess_campaign.py es el único caller
+    # pensado para pasar esto -- nunca relanza kernels, así que el I07
+    # (pensado para proteger un lanzamiento real) no debe bloquearlo.
+    Path(campaign["output_dir"]).mkdir()
+    ruta = tmp_path / "campaign.yaml"
+    ruta.write_text(yaml.safe_dump(campaign), encoding="utf-8")
+    monkeypatch.setattr(manifest, "load_catalog", lambda _: catalogo)
+    resultado = manifest.load(ruta, skip_output_dir_check=True)
+    assert resultado.campaign_id == "prueba"
+
+
+def test_skip_output_dir_check_no_afecta_man04_overwrite_ausente(tmp_path, monkeypatch, catalogo, campaign):
+    # skip_output_dir_check desactiva SOLO el chequeo I07 de existencia --
+    # overwrite sigue siendo obligatorio y booleano (MAN-04).
+    campaign.pop("overwrite")
+    ruta = tmp_path / "campaign.yaml"
+    ruta.write_text(yaml.safe_dump(campaign), encoding="utf-8")
+    monkeypatch.setattr(manifest, "load_catalog", lambda _: catalogo)
+    with pytest.raises(manifest.ManifestValidationError, match="overwrite"):
+        manifest.load(ruta, skip_output_dir_check=True)
+
+
 def test_man_t05_seed_ausente(tmp_path, monkeypatch, catalogo, campaign):
     campaign.pop("seed")
     with pytest.raises(manifest.ManifestValidationError, match="seed"):

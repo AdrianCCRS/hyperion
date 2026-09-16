@@ -941,6 +941,60 @@ def test_arc94_filas_gpu_excluyen_calentamiento(tmp_path):
     assert usable[0]["gpu_power_mw"] == 45000
 
 
+def test_transicion_gpu_excluye_mas_alla_del_warmup(tmp_path):
+    """F1-GPU-002/ARC-155/170: gpu_transition_seconds marca
+    excluded_transition_not_settled para muestras que ya pasaron el
+    warmup del kernel pero siguen dentro de la ventana de asentamiento del
+    reloj GPU -- filtro distinto de (y compuesto con) warmup_excluded."""
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0),
+        # warmup_seconds=0.05 -> warmup_end_ns=1_050_000_000
+        # gpu_transition_seconds=0.2 -> gpu_transition_end_ns=1_200_000_000
+        _gpu_row(repetition=1, ts=1_040_000_000, gpu_power_mw=36000, gpu_util_pct=0),    # antes del warmup
+        _gpu_row(repetition=1, ts=1_100_000_000, gpu_power_mw=37000, gpu_util_pct=10),   # tras warmup, reloj aun asentando
+        _gpu_row(repetition=1, ts=1_199_999_999, gpu_power_mw=38000, gpu_util_pct=20),   # justo dentro de la transicion
+        _gpu_row(repetition=1, ts=1_200_000_000, gpu_power_mw=45000, gpu_util_pct=80),   # justo fuera
+        _gpu_row(repetition=1, ts=1_500_000_000, gpu_power_mw=46000, gpu_util_pct=90),   # bien fuera
+    ])
+    windows = postprocess.build_windows(
+        samples, _context(warmup_seconds=0.05, gpu_transition_seconds=0.2)
+    )
+
+    gpu_windows = [w for w in windows if w.get("gpu_power_mw") is not None]
+    gpu_windows.sort(key=lambda w: w["t_end_ns"])
+    assert [w["quality_status"] for w in gpu_windows] == [
+        "warmup_excluded",
+        "excluded_transition_not_settled",
+        "excluded_transition_not_settled",
+        "gpu_telemetry",
+        "gpu_telemetry",
+    ]
+
+
+def test_transicion_gpu_default_cero_preserva_comportamiento_anterior(tmp_path):
+    """gpu_transition_seconds=0.0 (default) no debe cambiar nada respecto a
+    antes de F1-GPU-002 -- mismo escenario que
+    test_arc94_filas_gpu_excluyen_calentamiento, sin pasar el nuevo campo."""
+    samples = tmp_path / "samples.csv"
+    _write_samples(samples, [
+        _cpu_row(repetition=1, ts=1_000_000_000, instructions=0, cycles=0,
+                 cache_references=0, cache_misses=0, time_enabled=0, time_running=0),
+        _gpu_row(repetition=1, ts=1_050_000_000, gpu_power_mw=36324, gpu_util_pct=0),
+        _gpu_row(repetition=1, ts=1_199_999_999, gpu_power_mw=36400, gpu_util_pct=1),
+        _gpu_row(repetition=1, ts=1_200_000_000, gpu_power_mw=45000, gpu_util_pct=80),
+        _gpu_row(repetition=1, ts=1_500_000_000, gpu_power_mw=46000, gpu_util_pct=90),
+    ])
+    windows = postprocess.build_windows(samples, _context(warmup_seconds=0.2))
+
+    gpu_windows = [w for w in windows if w.get("gpu_power_mw") is not None]
+    gpu_windows.sort(key=lambda w: w["t_end_ns"])
+    assert [w["quality_status"] for w in gpu_windows] == [
+        "warmup_excluded", "warmup_excluded", "gpu_telemetry", "gpu_telemetry",
+    ]
+
+
 def test_arc95_filas_gpu_calculan_delta_de_energia(tmp_path):
     """ARC-95: gpu_energy_mj es un contador acumulado (igual que pkg_uj de
     RAPL) -- sin un delta por ventana no es insumo utilizable para EDP de

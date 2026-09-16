@@ -26,6 +26,20 @@ logger = logging.getLogger(__name__)
 
 # CAM-XX ids refer to docs/retoma/Guia_Maestra_Fase1_DVFS.md section 12.8.
 
+# F1-GPU-002/ARC-155/170: T_transicion_gpu_ns_conservative medido en
+# paccaA100 (job 7055) con fase1_telemetria/gpu_transition/
+# aggregate_transition_matrix.py -- el máximo (nunca un promedio) sobre
+# todos los pares origen->destino y réplicas medidos. Alimenta tanto el piso
+# de min_dwell_ns de fase3_daemon/policy/derive_policy_table.py como, aquí,
+# el filtro de asentamiento del reloj GPU en el postprocesado
+# (postprocess.py::run_postprocess(gpu_transition_seconds=...)). No hay hoy
+# un artefacto JSON persistido por campaña que este módulo pueda cargar
+# automáticamente, así que se fija el valor ya medido y documentado
+# (docs/libro/secciones/03_resultados.tex) en vez de inventar un mecanismo
+# de carga para un solo número; recalibrar (mismo comando) si el hardware o
+# el actuador de reloj GPU cambian.
+GPU_TRANSITION_SECONDS_CONSERVATIVE = 0.170
+
 
 class CampaignTimeoutError(RuntimeError):
     """CAM-06: the campaign exceeded its overall wall-clock budget."""
@@ -1111,6 +1125,7 @@ def run_campaign(
                         freq_grace_seconds=float(frequency_validation.get("grace_seconds", 0.0)),
                         freq_tail_grace_seconds=float(frequency_validation.get("tail_grace_seconds", 0.0)),
                         freq_is_native_governor=item.combination.frequency_level.mode == "native_governor",
+                        gpu_transition_seconds=GPU_TRANSITION_SECONDS_CONSERVATIVE,
                     )
                     verdict = validation_module.validate_windows(
                         windows_path,

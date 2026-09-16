@@ -4,12 +4,27 @@ from dataclasses import dataclass
 import logging
 import os
 import subprocess
+import time
 from typing import Any, Callable, Iterable
 
 logger = logging.getLogger(__name__)
 
 STRATEGY_LOCKED_CLOCKS = "locked_clocks"
 STRATEGY_UNAVAILABLE = "unavailable"
+
+# ARC-142 (2026-09-16, hardware real): `utilization.gpu` de NVML es un
+# promedio sobre la ultima ventana de muestreo (~1s), no un valor
+# instantaneo -- justo despues de que un kernel de calibracion largo
+# termina (proceso ya salio, `run_single` ya devolvio el control), esa
+# ventana todavia puede reportar >0% por un momento aunque no haya nada
+# corriendo. Sin esta espera, `apply_gpu_frequency` del nivel SIGUIENTE
+# relee utilizacion>0 residual justo despues de fijar el candado y lo
+# confunde con carga real nueva -- ARC-112 nunca contempló esta ventana de
+# NVML, solo el caso binario "hay carga ahora / no hay". Reproducido 3
+# veces seguidas en la transicion F4->F5 de una campaña GPU real
+# (utilizacion observada 7%/9%/11%, sin ningun proceso propio corriendo
+# concurrente en las ultimas dos repeticiones).
+_UTILIZATION_SETTLE_SECONDS = 1.5
 
 # ARC-87: GPU no tiene un análogo de scaling_governor/scaling_min_freq que
 # pueda os.access()-earse como en CPU (E09) -- el mecanismo real es
@@ -145,6 +160,7 @@ def apply_gpu_frequency(
     run_nvidia_smi: Callable[..., subprocess.CompletedProcess] = _default_run_nvidia_smi,
     query_sm_clock_mhz: Callable[[int | str], int | None] = _default_query_sm_clock_mhz,
     query_gpu_utilization_pct: Callable[[int | str], int | None] = _default_query_gpu_utilization_pct,
+    sleep: Callable[[float], None] | None = None,
 ) -> AppliedGpuFrequency:
     """Fija el reloj de SM de la GPU al valor que implica `level.fraction`
     sobre `env.gpu_available_clocks_mhz`, vía `nvidia-smi -lgc <t>,<t>`
@@ -228,6 +244,7 @@ def apply_gpu_frequency(
         raise GpuFrequencyControlError(
             f"gpu_freqctl: nvidia-smi -lgc {target} falló para el nivel {level.id!r}: {result.stderr.strip()}"
         )
+    (sleep or time.sleep)(_UTILIZATION_SETTLE_SECONDS)
     observed = query_sm_clock_mhz(gpu_index)
     utilization_pct = query_gpu_utilization_pct(gpu_index)
     if observed is not None and observed > target and utilization_pct is not None and utilization_pct > 0:

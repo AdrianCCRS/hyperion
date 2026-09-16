@@ -80,6 +80,7 @@ GPU_PHASE_COLUMNS: tuple[str, ...] = (
     "gpu_frequency_valid_fraction",
     "n_nvml_samples",
     "n_nvml_samples_warmup_excluded",
+    "n_nvml_samples_transition_excluded",
     "usable_sample_fraction",
     "covered_duration_ns",
     "gpu_energy_delta_mj_sum",
@@ -204,15 +205,21 @@ def build_gpu_phase_rows(
     """
     by_run: dict[str, list[dict[str, Any]]] = {}
     warmup_excluded: dict[str, int] = {}
+    # F1-GPU-002/ARC-155/170: T_transicion_gpu_ns_conservative, distinto del
+    # warmup del propio kernel -- ver postprocess.py::run_postprocess().
+    transition_excluded: dict[str, int] = {}
     for w in windows:
         qs = w.get("quality_status")
-        if qs not in ("gpu_telemetry", "warmup_excluded"):
+        if qs not in ("gpu_telemetry", "warmup_excluded", "excluded_transition_not_settled"):
             continue  # no es una fila GPU
         rid = w.get("run_id")
         if rid is None:
             continue
         if qs == "warmup_excluded":
             warmup_excluded[rid] = warmup_excluded.get(rid, 0) + 1
+            continue
+        if qs == "excluded_transition_not_settled":
+            transition_excluded[rid] = transition_excluded.get(rid, 0) + 1
             continue
         by_run.setdefault(rid, []).append(w)
 
@@ -230,8 +237,9 @@ def build_gpu_phase_rows(
         result["gpu_freq_mhz_applied"] = gpu_freq_mhz_applied
         result["n_nvml_samples"] = len(rows)
         result["n_nvml_samples_warmup_excluded"] = warmup_excluded.get(rid, 0)
+        result["n_nvml_samples_transition_excluded"] = transition_excluded.get(rid, 0)
 
-        n_total_gpu = len(rows) + warmup_excluded.get(rid, 0)
+        n_total_gpu = len(rows) + warmup_excluded.get(rid, 0) + transition_excluded.get(rid, 0)
         result["usable_sample_fraction"] = (len(rows) / n_total_gpu) if n_total_gpu else 0.0
 
         ts = [int(r["t_end_ns"]) for r in rows if r.get("t_end_ns") not in (None, "")]

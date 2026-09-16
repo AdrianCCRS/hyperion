@@ -13,6 +13,14 @@ from common.hpc import gpu_freqctl
 AVAILABLE_MHZ = [765, 900, 1050, 1200, 1350, 1410]
 
 
+@pytest.fixture(autouse=True)
+def _no_settle_sleep(monkeypatch):
+    # ARC-142: apply_gpu_frequency ahora espera _UTILIZATION_SETTLE_SECONDS
+    # antes de releer utilizacion (ventana de muestreo de NVML) -- sin esto
+    # cada test que pasa por la rama "fixed" pagaria ese sleep real.
+    monkeypatch.setattr(gpu_freqctl.time, "sleep", lambda _seconds: None)
+
+
 def _env(*, write_capable: bool, available_mhz: list[int] | None = AVAILABLE_MHZ) -> SimpleNamespace:
     return SimpleNamespace(
         gpu_frequency_write_capable=write_capable,

@@ -313,7 +313,7 @@ def test_main_cli_reporta_veredictos_cambiados(tmp_path, monkeypatch, capsys):
     manifest = _manifest(tmp_path)
     manifest_path = tmp_path / "campaign.yaml"
     catalog_path = tmp_path / "catalog.yaml"
-    monkeypatch.setattr(rc.manifest_module, "load", lambda path: manifest)
+    monkeypatch.setattr(rc.manifest_module, "load", lambda path, **kwargs: manifest)
     monkeypatch.setattr(rc.catalog_module, "load_catalog",
                         lambda path: {"npb_ep": _kernel_entry(tmp_path, "npb_ep", warmup_seconds=0.6)})
     run_dir = manifest.output_dir / _run_id(manifest)
@@ -328,3 +328,23 @@ def test_main_cli_reporta_veredictos_cambiados(tmp_path, monkeypatch, capsys):
     assert "VEREDICTO CAMBIÓ" in out
     assert "revisar a mano" in out
     assert rc_code == 0  # no hubo 'error', solo un cambio de veredicto (no bloquea)
+
+
+def test_main_carga_manifiesto_sin_chequeo_i07(tmp_path, monkeypatch):
+    """El propio mecanismo (no una copia temporal del manifiesto con
+    overwrite: true) es lo que evita el I07 al reprocesar una campaña cuyo
+    output_dir ya existe -- ver docstring de manifest.load()."""
+    manifest = _manifest(tmp_path)
+    manifest_path = tmp_path / "campaign.yaml"
+    calls: list[dict] = []
+
+    def _fake_load(path, **kwargs):
+        calls.append(kwargs)
+        return manifest
+
+    monkeypatch.setattr(rc.manifest_module, "load", _fake_load)
+    monkeypatch.setattr(rc.catalog_module, "load_catalog", lambda path: {})
+
+    rc.main(["--manifest", str(manifest_path), "--node-id", "pacca"])
+
+    assert calls == [{"skip_output_dir_check": True}]
