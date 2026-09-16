@@ -264,9 +264,19 @@ def main() -> None:
              "fija de build_models() en todos los pliegues -- útil para "
              "iterar rápido, nunca el modo por defecto.",
     )
+    parser.add_argument(
+        "--only-models", default=None,
+        help="Lista separada por coma para restringir qué modelos (de los 7 "
+             "de build_fixed_models()+tunable_specs()) se entrenan y evalúan "
+             "en esta corrida (p.ej. 'xgboost'). Pensado para revalidar UN "
+             "modelo tras un fix que no afecta a los demás (p.ej. el fix de "
+             "scale_pos_weight, que solo toca xgboost) sin repetir la "
+             "búsqueda completa de los otros 6. Default: los 7.",
+    )
     args = parser.parse_args()
     kernels = args.kernels.split(",") if args.kernels else None
     levels = args.levels.split(",") if args.levels else None
+    only_models = set(args.only_models.split(",")) if args.only_models else None
 
     from sklearn.base import clone
     from sklearn.metrics import confusion_matrix, f1_score
@@ -302,10 +312,14 @@ def main() -> None:
     scale_pos_weight_global = (n_neg / n_pos) if n_pos > 0 else 1.0
 
     fixed_models = model_specs.build_fixed_models(args.seed)
+    if only_models is not None:
+        fixed_models = {k: v for k, v in fixed_models.items() if k in only_models}
     KERNEL_COL = "kernel_ref"
     FOLD_FN = protocol.leave_one_familia_out  # familia derivada de kernel_ref
 
     tunable_names = list(model_specs.tunable_specs(args.seed, scale_pos_weight_global).keys())
+    if only_models is not None:
+        tunable_names = [n for n in tunable_names if n in only_models]
     results: dict[str, dict[str, float]] = {}
     latencies: dict[str, tuple[float, float, float]] = {}
     per_class_f1: dict[str, dict[str, float]] = {}  # modelo -> {compute_bound, memory_bound} (media entre pliegues)
@@ -328,6 +342,8 @@ def main() -> None:
         scale_pos_weight_fold = (n_neg_fold / n_pos_fold) if n_pos_fold > 0 else 1.0
         scale_pos_weight_por_pliegue[familia] = scale_pos_weight_fold
         tunable = model_specs.tunable_specs(args.seed, scale_pos_weight_fold)
+        if only_models is not None:
+            tunable = {k: v for k, v in tunable.items() if k in only_models}
 
         for name, prototype in fixed_models.items():
             model = clone(prototype)
