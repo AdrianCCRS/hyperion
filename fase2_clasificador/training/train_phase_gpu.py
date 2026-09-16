@@ -247,17 +247,16 @@ def main() -> None:
     KERNEL_COL = "kernel_family"
     FOLD_FN = protocol.leave_one_kernel_out  # kernel_family ya es la familia
 
+    tunable_names = list(model_specs.tunable_specs(args.seed, scale_pos_weight_global).keys())
     results: dict[str, dict[str, float]] = {}
     latencies: dict[str, tuple[float, float, float]] = {}
     per_class_f1: dict[str, dict[str, float]] = {}  # modelo -> {compute_bound, memory_bound} (media entre pliegues)
     confusions: dict[str, np.ndarray] = {}  # modelo -> matriz de confusión acumulada [[TN,FP],[FN,TP]] (True=memory_bound)
-    per_fold_by_model: dict[str, dict[str, float]] = {name: {} for name in {**fixed_models, **tunable}}
+    per_fold_by_model: dict[str, dict[str, float]] = {name: {} for name in set(fixed_models) | set(tunable_names)}
     per_fold_compute_by_model: dict[str, list[float]] = {name: [] for name in per_fold_by_model}
     per_fold_memory_by_model: dict[str, list[float]] = {name: [] for name in per_fold_by_model}
     cm_by_model: dict[str, np.ndarray] = {name: np.zeros((2, 2), dtype=np.int64) for name in per_fold_by_model}
-    tunable_names = list(model_specs.tunable_specs(args.seed, scale_pos_weight_global).keys())
     best_params_por_pliegue: dict[str, dict[str, dict]] = {name: {} for name in tunable_names}
-    per_fold_by_model.update({name: {} for name in tunable_names if name not in per_fold_by_model})
     scale_pos_weight_por_pliegue: dict[str, float] = {}
     # ARC-XX: pliegues "mixtos" = la familia retenida contiene corridas de
     # ambas clases. La mayoria de familias de este catalogo son 100% de una
