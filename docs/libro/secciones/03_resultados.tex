@@ -8,6 +8,13 @@ El catálogo experimental final está compuesto por 9 cargas de CPU (7 de conjun
 
 La composición de GPU no es la originalmente propuesta: una auditoría de precisión aritmética --- descrita en la sección \ref{sec:resultados-precision-gpu} --- encontró que uno de los siete kernels de Rodinia inicialmente incluidos ejecutaba una fracción no trivial de su trabajo en una precisión distinta de la declarada, con una intensidad operacional resultante demasiado cercana al punto de inflexión como para clasificarlo con confianza; se retiró del catálogo y se reemplazó por una eliminación gaussiana de la misma suite, confirmada empíricamente pura en la precisión declarada.
 
+\subsection{Validación de la medición directa de FLOPs}
+\label{sec:resultados-validacion-flops}
+
+La medición directa descrita en la sección \ref{sec:validacion-flops} reprodujo el volumen analítico de operaciones de la multiplicación de matrices con errores relativos de 0.29\% sin afinidad fijada y de 0.30\% con la afinidad de la campaña. En el kernel de NAS Parallel Benchmarks, el error respecto del total reportado por el programa fue de 7.48\%; la diferencia se atribuyó a que el contador cubrió el proceso completo, incluida la verificación final, mientras el tiempo interno del programa delimitó solo su ciclo principal. En ambas pruebas, la razón entre tiempo de conteo y tiempo habilitado fue igual a uno, sin evidencia de multiplexación.
+
+La verificación posterior comprendió 66 corridas y cerca de 1.29 millones de ventanas con diferencias válidas; todas obtuvieron sus FLOPs mediante los contadores de hardware y ninguna presentó degradación en estos eventos. Estos resultados respaldan el uso del método en la plataforma Ice Lake-SP evaluada, pero no constituyen una cota de error ni se extrapolan a otras microarquitecturas sin repetir la validación.
+
 \section{Validación de la actuación DVFS en CPU}
 \label{sec:resultados-cpu-dvfs}
 
