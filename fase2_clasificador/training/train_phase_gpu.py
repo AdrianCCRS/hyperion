@@ -234,17 +234,16 @@ def main() -> None:
     y = (df[LABEL] == "memory_bound").to_numpy()
 
     # scale_pos_weight de XGBoost (no tiene class_weight="balanced" como
-    # sklearn): razón negativos/positivos sobre TODO el dataset, una sola
-    # vez -- no por pliegue, para no complicar la comparación con una
-    # ponderación que cambia de fold a fold; es una aproximación razonable,
-    # no un ajuste per-fold exacto como el que sklearn hace internamente
-    # para los demás modelos con class_weight="balanced".
+    # sklearn): razón negativos/positivos sobre TODO el dataset, solo para
+    # reportar el balance de clase global en la metadata -- el peso real
+    # que usa XGBoost en cada pliegue se recalcula por pliegue más abajo,
+    # sobre y[idx_train], igual que class_weight="balanced" hace
+    # internamente para los demás modelos.
     n_pos = int(y.sum())
     n_neg = int(len(y) - n_pos)
-    scale_pos_weight = (n_neg / n_pos) if n_pos > 0 else 1.0
+    scale_pos_weight_global = (n_neg / n_pos) if n_pos > 0 else 1.0
 
     fixed_models = model_specs.build_fixed_models(args.seed)
-    tunable = model_specs.tunable_specs(args.seed, scale_pos_weight)
     KERNEL_COL = "kernel_family"
     FOLD_FN = protocol.leave_one_kernel_out  # kernel_family ya es la familia
 
@@ -256,11 +255,27 @@ def main() -> None:
     per_fold_compute_by_model: dict[str, list[float]] = {name: [] for name in per_fold_by_model}
     per_fold_memory_by_model: dict[str, list[float]] = {name: [] for name in per_fold_by_model}
     cm_by_model: dict[str, np.ndarray] = {name: np.zeros((2, 2), dtype=np.int64) for name in per_fold_by_model}
-    best_params_por_pliegue: dict[str, dict[str, dict]] = {name: {} for name in tunable}
+    tunable_names = list(model_specs.tunable_specs(args.seed, scale_pos_weight_global).keys())
+    best_params_por_pliegue: dict[str, dict[str, dict]] = {name: {} for name in tunable_names}
+    per_fold_by_model.update({name: {} for name in tunable_names if name not in per_fold_by_model})
+    scale_pos_weight_por_pliegue: dict[str, float] = {}
     n_search_omitida = 0
 
     for idx_train, idx_test, familia in FOLD_FN(df, kernel_col=KERNEL_COL):
         df_train_outer = df.iloc[idx_train]
+
+        # ARC-XX: recalculado por pliegue (nunca el global de arriba) para
+        # que XGBoost reciba el mismo tipo de ajuste dinámico que
+        # class_weight="balanced" le da gratis a los demás modelos --
+        # antes quedaba congelado en el valor de las 334 filas completas,
+        # que se aleja hasta 30% del balance real de cada pliegue (ver
+        # recordatorios/mejoras_metodologia_clasificador_gpu.md).
+        y_train_fold = y[idx_train]
+        n_pos_fold = int(y_train_fold.sum())
+        n_neg_fold = int(len(y_train_fold) - n_pos_fold)
+        scale_pos_weight_fold = (n_neg_fold / n_pos_fold) if n_pos_fold > 0 else 1.0
+        scale_pos_weight_por_pliegue[familia] = scale_pos_weight_fold
+        tunable = model_specs.tunable_specs(args.seed, scale_pos_weight_fold)
 
         for name, prototype in fixed_models.items():
             model = clone(prototype)
@@ -365,9 +380,13 @@ def main() -> None:
         # señal que cualquier pliegue externo individual) -- nunca se
         # reutiliza el hiperparámetro de un solo pliegue para el modelo de
         # producción.
+        # El modelo final se entrena sobre TODO el dataset (334 filas), así
+        # que su scale_pos_weight es el global -- no queda ningún pliegue
+        # que aporte una razón distinta, a diferencia del bucle de arriba.
+        tunable_final = model_specs.tunable_specs(args.seed, scale_pos_weight_global)
         final_best_params: dict = {}
-        if best_name in tunable:
-            build_fn, space_fn = tunable[best_name]
+        if best_name in tunable_final:
+            build_fn, space_fn = tunable_final[best_name]
             if hyperparam_search.n_groups(df, kernel_col=KERNEL_COL, fold_fn=FOLD_FN) >= hyperparam_search.MIN_FAMILIAS_PARA_BUSQUEDA and args.n_trials > 0:
                 final_best_params, _ = hyperparam_search.search_best_params(
                     build_fn, space_fn, df, X, y, kernel_col=KERNEL_COL,
@@ -402,12 +421,15 @@ def main() -> None:
             "class_balance": {"compute_bound": n_neg, "memory_bound": n_pos},
             "class_weight_strategy": (
                 "sklearn class_weight='balanced' (todos salvo mayoritaria/xgboost); "
-                "xgboost scale_pos_weight="
-                f"{scale_pos_weight:.4f} (razon global neg/pos, no por pliegue)"
+                "xgboost scale_pos_weight recalculado por pliegue externo "
+                f"(rango observado: {min(scale_pos_weight_por_pliegue.values()):.4f}-"
+                f"{max(scale_pos_weight_por_pliegue.values()):.4f}; modelo final sobre "
+                f"el dataset completo usa el global={scale_pos_weight_global:.4f})"
             ),
+            "xgboost_scale_pos_weight_por_pliegue": scale_pos_weight_por_pliegue,
             "latency_weight": args.latency_weight,
             "hyperparameter_search": {
-                "method": "optuna_tpe" if best_name in tunable else "n/a (linea base fija)",
+                "method": "optuna_tpe" if best_name in tunable_final else "n/a (linea base fija)",
                 "n_trials": args.n_trials,
                 "best_params_final_model": final_best_params,
                 "best_params_por_pliegue_externo": best_params_por_pliegue.get(best_name, {}),
