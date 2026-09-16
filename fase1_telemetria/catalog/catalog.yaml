@@ -113,7 +113,7 @@ kernels:
     # ARC-81: medido, no puesto a ojo -- CV% de IPC estable (<5%, dos
     # ventanas de 15 muestras consecutivas) a partir de ~0.060s, consistente
     # en 3 repeticiones (0.0601/0.0611/0.0601 s). warmup = raw*1.2.
-    warmup_seconds: 0.08
+    warmup_seconds: 0.0769  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.08)
     estimated_memory_bytes: 536870912 # medido en pacca: 181576 KB de pico, con margen
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -128,7 +128,7 @@ kernels:
     phase_label_hint: memory_bound
     size_variant: B
     expected_runtime_seconds: 4 # medido en felix: 2.6-2.9 s
-    warmup_seconds: 0.3
+    warmup_seconds: 0.0361  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.3)
     estimated_memory_bytes: 536870912
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -146,7 +146,7 @@ kernels:
     expected_runtime_seconds: 26 # medido en felix: 21.7-22.8 s
     # ARC-81: medido -- CV% de IPC estable a partir de ~0.050s exacto en las
     # 3 repeticiones (pacca). warmup = raw*1.2.
-    warmup_seconds: 0.07
+    warmup_seconds: 0.0649  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.07)
     estimated_memory_bytes: 268435456
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -171,7 +171,7 @@ kernels:
     phase_label_hint: intermedio # sin confirmar en literatura para este hardware -- que lo diga la medición real, no un supuesto
     size_variant: B
     expected_runtime_seconds: 20 # medido en pacca (6 hilos, pinned): 16.87 s
-    warmup_seconds: 0.5
+    warmup_seconds: 0.0  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.5)
     estimated_memory_bytes: 536870912 # medido en pacca: 189612 KB de pico, con margen
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -186,7 +186,7 @@ kernels:
     phase_label_hint: intermedio
     size_variant: B
     expected_runtime_seconds: 14 # medido en felix: 11.1-11.9 s
-    warmup_seconds: 0.5
+    warmup_seconds: 0.0025  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.5)
     estimated_memory_bytes: 536870912
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -238,7 +238,7 @@ kernels:
     # ya daban valores muy distintos entre sí: 0.25/0.66/0.59s, otra señal
     # de que no era una medición sólida). Se deja el valor conservador
     # anterior hasta tener una medición que sobreviva el umbral correcto.
-    warmup_seconds: 1.0
+    warmup_seconds: 0.0  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 1.0)
     estimated_memory_bytes: 268435456
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -979,7 +979,7 @@ kernels:
     # 3.31 s instrumentados en REF en la campaña 20260813; 6 s conserva
     # margen para el extremo F4 sin cambiar el tamaño del problema.
     expected_runtime_seconds: 6
-    warmup_seconds: 0.5
+    warmup_seconds: 0.0  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.5)
     estimated_memory_bytes: 134217728 # 3 arreglos x 2048^2 x 8 B ~= 96 MB, con margen
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -1004,7 +1004,7 @@ kernels:
     # 7.44--7.54 s instrumentados en 10 repeticiones REF; 12 s cubre la
     # proyección conservadora al extremo F4 antes del factor RUN-03 x3.
     expected_runtime_seconds: 12
-    warmup_seconds: 0.5
+    warmup_seconds: 0.0049  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.5)
     estimated_memory_bytes: 157286400 # RSS medido 108680 KiB, con margen
     # Rodinia LavaMD no incluye verificador numérico. Este patrón exige que
     # el binario confirme los inputs y alcance el final temporizado del
@@ -1035,7 +1035,7 @@ kernels:
     # 12.65--12.94 s instrumentados con repfact=10 en 10 repeticiones REF;
     # 25 s deja margen para el extremo F4 antes del factor RUN-03 x3.
     expected_runtime_seconds: 25
-    warmup_seconds: 0.5
+    warmup_seconds: 0.0433  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.5)
     estimated_memory_bytes: 100663296 # 59.36 MB asignados, RSS 62.7 MB, con margen
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -1077,7 +1077,7 @@ kernels:
     phase_label_hint: mixed
     size_variant: P010MS
     expected_runtime_seconds: 24
-    warmup_seconds: 0.5
+    warmup_seconds: 0.1128  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.5)
     estimated_memory_bytes: 671088640
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -1091,7 +1091,7 @@ kernels:
     phase_label_hint: mixed
     size_variant: P100MS
     expected_runtime_seconds: 24
-    warmup_seconds: 0.5
+    warmup_seconds: 0.1128  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.5)
     estimated_memory_bytes: 671088640
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -1105,7 +1105,7 @@ kernels:
     phase_label_hint: mixed
     size_variant: P1000MS
     expected_runtime_seconds: 24
-    warmup_seconds: 0.5
+    warmup_seconds: 0.1153  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.5)
     estimated_memory_bytes: 671088640
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -1356,7 +1356,7 @@ kernels:
     phase_label_hint: memory_bound  # tamizaje v2: alpha=0.078, r2=0.984
     size_variant: memtouched_10xLLC
     expected_runtime_seconds: 12  # medido F4=5.62s (tamizaje 6575), margen ~2x
-    warmup_seconds: 0.5
+    warmup_seconds: 0.0565  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.5)
     estimated_memory_bytes: 157286400  # 150 MiB, margen sobre 125829120 B objetivo
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -1369,7 +1369,7 @@ kernels:
     phase_label_hint: memory_bound  # tamizaje v2: alpha=0.128, r2=0.982
     size_variant: memtouched_10xLLC
     expected_runtime_seconds: 7  # medido F4=3.07s, margen ~2x
-    warmup_seconds: 0.5
+    warmup_seconds: 0.0817  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.5)
     estimated_memory_bytes: 157286400
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -1382,7 +1382,7 @@ kernels:
     phase_label_hint: memory_bound  # tamizaje v2: alpha=0.147, r2=0.989
     size_variant: memtouched_10xLLC
     expected_runtime_seconds: 7  # medido F4=3.14s, margen ~2x
-    warmup_seconds: 0.5
+    warmup_seconds: 0.0565  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.5)
     estimated_memory_bytes: 157286400
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -1395,7 +1395,7 @@ kernels:
     phase_label_hint: memory_bound  # tamizaje v2: alpha=0.113, r2=0.958
     size_variant: memtouched_10xLLC
     expected_runtime_seconds: 13  # medido F4=6.41s, margen ~2x
-    warmup_seconds: 0.5
+    warmup_seconds: 0.0553  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.5)
     estimated_memory_bytes: 157286400
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -1419,7 +1419,7 @@ kernels:
     phase_label_hint: memory_bound  # tamizaje v2: alpha=0.125, r2=0.980
     size_variant: memtouched_10xLLC
     expected_runtime_seconds: 20  # medido: 4.16s nativo con repfact=2 -> ~17-18s estimado a la frecuencia mas lenta
-    warmup_seconds: 3.6  # F1-XDEV-005: warmup real medido con la corrida corta, 2.3-3.6s -- sin recalibrar todavia con la corrida larga
+    warmup_seconds: 0.09  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 3.6)
     estimated_memory_bytes: 157286400
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -1437,7 +1437,7 @@ kernels:
     phase_label_hint: memory_bound  # tamizaje v2: alpha=0.148, r2=0.970
     size_variant: memtouched_10xLLC
     expected_runtime_seconds: 11  # medido F4=5.42s, margen ~2x
-    warmup_seconds: 0.5
+    warmup_seconds: 0.0457  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.5)
     estimated_memory_bytes: 157286400
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -1454,7 +1454,7 @@ kernels:
     phase_label_hint: memory_bound  # tamizaje v2: alpha=0.175, r2=0.976
     size_variant: memtouched_10xLLC
     expected_runtime_seconds: 5  # medido F4=1.11s, margen ~2x con piso razonable
-    warmup_seconds: 0.5
+    warmup_seconds: 0.0433  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.5)
     estimated_memory_bytes: 157286400
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -1467,7 +1467,7 @@ kernels:
     phase_label_hint: memory_bound  # tamizaje v2: alpha=0.161, r2=0.972
     size_variant: memtouched_10xLLC
     expected_runtime_seconds: 4  # medido F4=1.94s, margen ~2x
-    warmup_seconds: 0.5
+    warmup_seconds: 0.054  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.5)
     estimated_memory_bytes: 157286400
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -1486,7 +1486,7 @@ kernels:
     phase_label_hint: memory_bound  # tamizaje v2: alpha=0.178, r2=0.963
     size_variant: memtouched_10xLLC
     expected_runtime_seconds: 18  # medido: 3.71s nativo con repfact=3 -> ~16s estimado a la frecuencia mas lenta
-    warmup_seconds: 2.3  # F1-XDEV-005: warmup real medido con la corrida corta, 2.3-3.6s -- sin recalibrar todavia con la corrida larga
+    warmup_seconds: 0.0529  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 2.3)
     estimated_memory_bytes: 157286400
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -1503,7 +1503,7 @@ kernels:
     phase_label_hint: intermedio # alpha=0.533, r2=0.998 (tamizaje, job 6612) -- que lo diga la medicion real
     size_variant: cube120_iter300
     expected_runtime_seconds: 300  # medido F4=237.8s, margen ~1.25x
-    warmup_seconds: 0.5
+    warmup_seconds: 0.2437  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.5)
     estimated_memory_bytes: 200000000
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     # C02 hashea exec_path (el wrapper), no el binario lulesh2.0 -- error
@@ -1523,7 +1523,7 @@ kernels:
     phase_label_hint: intermedio # alpha=0.324, r2=0.903 (tamizaje, job 6612) -- que lo diga la medicion real
     size_variant: cube80_rt5
     expected_runtime_seconds: 60  # medido F4=38.8s, margen ~1.5x
-    warmup_seconds: 0.5
+    warmup_seconds: 0.0373  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.5)
     estimated_memory_bytes: 200000000
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -1553,7 +1553,7 @@ kernels:
     phase_label_hint: intermedio # tamizaje (job 6601): alpha=0.690 agregado -- que lo diga la medicion real por ventana
     size_variant: kronecker_scale22
     expected_runtime_seconds: 40  # medido ~7.8s nativo, margen amplio para F4
-    warmup_seconds: 0.5
+    warmup_seconds: 0.0277  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.5)
     estimated_memory_bytes: 700000000
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -1572,7 +1572,7 @@ kernels:
     phase_label_hint: intermedio # que lo diga la medicion real
     size_variant: laplacian3d_N70
     expected_runtime_seconds: 40  # medido ~6.5s nativo, margen amplio para F4
-    warmup_seconds: 0.5
+    warmup_seconds: 0.0637  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.5)
     estimated_memory_bytes: 2200000000  # medido: peak 2042 MB
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -1969,7 +1969,7 @@ kernels:
     size_variant: N2048
     exec_args: "--size 2048 --iterations 41"
     expected_runtime_seconds: 11
-    warmup_seconds: 0.05
+    warmup_seconds: 0.0265  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.05)
     estimated_memory_bytes: 130862284
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
@@ -2269,7 +2269,7 @@ kernels:
     size_variant: N128
     exec_args: "--size 128 --iterations 30919"
     expected_runtime_seconds: 11
-    warmup_seconds: 0.05
+    warmup_seconds: 0.0325  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.05)
     estimated_memory_bytes: 681574
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
@@ -2491,7 +2491,7 @@ kernels:
     size_variant: N1024
     exec_args: "--size 1024 --iterations 184"
     expected_runtime_seconds: 11
-    warmup_seconds: 0.05
+    warmup_seconds: 0.0  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.05)
     estimated_memory_bytes: 43620761
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
@@ -2639,7 +2639,7 @@ kernels:
     size_variant: N4096
     exec_args: "--size 4096 --iterations 8"
     expected_runtime_seconds: 11
-    warmup_seconds: 0.05
+    warmup_seconds: 0.0277  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.05)
     estimated_memory_bytes: 697932185
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
@@ -2873,7 +2873,7 @@ kernels:
     size_variant: N100000
     exec_args: "--size 100000 --iterations 21336"
     expected_runtime_seconds: 11
-    warmup_seconds: 0.05
+    warmup_seconds: 0.0301  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.05)
     estimated_memory_bytes: 3120000
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
@@ -2984,7 +2984,7 @@ kernels:
     size_variant: N3162278
     exec_args: "--size 3162278 --iterations 475"
     expected_runtime_seconds: 11
-    warmup_seconds: 0.05
+    warmup_seconds: 0.0  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.05)
     estimated_memory_bytes: 98663073
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
@@ -3021,7 +3021,7 @@ kernels:
     size_variant: N10000000
     exec_args: "--size 10000000 --iterations 153"
     expected_runtime_seconds: 11
-    warmup_seconds: 0.05
+    warmup_seconds: 0.0865  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.05)
     estimated_memory_bytes: 312000000
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
@@ -3249,7 +3249,7 @@ kernels:
     size_variant: N256
     exec_args: "--size 256 --iterations 40444"
     expected_runtime_seconds: 11
-    warmup_seconds: 0.05
+    warmup_seconds: 0.0217  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.05)
     estimated_memory_bytes: 2044723
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
@@ -3323,7 +3323,7 @@ kernels:
     size_variant: N512
     exec_args: "--size 512 --iterations 8078"
     expected_runtime_seconds: 11
-    warmup_seconds: 0.05
+    warmup_seconds: 0.0  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.05)
     estimated_memory_bytes: 8178892
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
@@ -3397,7 +3397,7 @@ kernels:
     size_variant: N1024
     exec_args: "--size 1024 --iterations 1564"
     expected_runtime_seconds: 11
-    warmup_seconds: 0.05
+    warmup_seconds: 0.0577  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.05)
     estimated_memory_bytes: 32715571
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
@@ -3434,7 +3434,7 @@ kernels:
     size_variant: N1536
     exec_args: "--size 1536 --iterations 672"
     expected_runtime_seconds: 11
-    warmup_seconds: 0.05
+    warmup_seconds: 0.0  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.05)
     estimated_memory_bytes: 73610035
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
@@ -3730,7 +3730,7 @@ kernels:
     size_variant: N256
     exec_args: "--size 256 --iterations 2860"
     expected_runtime_seconds: 11
-    warmup_seconds: 0.05
+    warmup_seconds: 0.0313  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.05)
     estimated_memory_bytes: 1363148
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
@@ -3878,7 +3878,7 @@ kernels:
     size_variant: N1024
     exec_args: "--size 1024 --iterations 121"
     expected_runtime_seconds: 11
-    warmup_seconds: 0.05
+    warmup_seconds: 0.0  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.05)
     estimated_memory_bytes: 21810380
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
@@ -3952,7 +3952,7 @@ kernels:
     size_variant: N2048
     exec_args: "--size 2048 --iterations 22"
     expected_runtime_seconds: 11
-    warmup_seconds: 0.05
+    warmup_seconds: 0.0  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.05)
     estimated_memory_bytes: 87241523
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
@@ -3980,7 +3980,7 @@ kernels:
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
     runtime_seconds_stdout_pattern: "Time in seconds\\s*=\\s*([0-9.]+)"
-    operational_intensity_flops_per_byte: 9.887307  # ncu real, representativa de la operacion (no por tamano)
+    operational_intensity_flops_per_byte: 8.215  # F1-GPU-012 (2026-09-15): re-medido con ncu, convergencia limpia (cambio relativo 0.0000); corrige el 9.887307 heredado de familia (nunca verificado para N2048 especificamente) -- N16384/N32768 si estan contaminados por Tensor Core (20.8%/34.2%), ver F1-GPU-012
     binary_checksum:
       pacca-a100: "sha256:0df46019e61e6cffdb3e7df55370bc9407bc1fc2a8bbc7b5fb4b6b90581f0058"
 
@@ -4588,7 +4588,7 @@ kernels:
     size_variant: N100000
     exec_args: "--size 100000 --iterations 13136"
     expected_runtime_seconds: 11
-    warmup_seconds: 0.05
+    warmup_seconds: 0.0349  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.05)
     estimated_memory_bytes: 13520005
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
@@ -4662,7 +4662,7 @@ kernels:
     size_variant: N1000000
     exec_args: "--size 1000000 --iterations 714"
     expected_runtime_seconds: 11
-    warmup_seconds: 0.05
+    warmup_seconds: 0.0253  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.05)
     estimated_memory_bytes: 135200005
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
@@ -5286,7 +5286,7 @@ kernels:
     size_variant: N46
     exec_args: "--size 46 --iterations 800"
     expected_runtime_seconds: 4
-    warmup_seconds: 0.05
+    warmup_seconds: 0.0  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.05)
     estimated_memory_bytes: 14642182
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
@@ -5511,7 +5511,7 @@ kernels:
     size_variant: N472
     exec_args: "--size 472 --iterations 420"
     expected_runtime_seconds: 4
-    warmup_seconds: 0.05
+    warmup_seconds: 0.0372  # F1-CPU-XXX (2026-09-16): medido con measure_warmup.py sobre windows.csv real REF/rep01 (antes 0.05)
     estimated_memory_bytes: 7129088
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     flops_rate_stdout_pattern: "Mop/s total\\s*=\\s*([0-9.]+)"
@@ -5765,3 +5765,45 @@ kernels:
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
       pacca-a100: "sha256:4afe55447bedf8fda74d1f9f66692c391e96a399c279142a9d96b75a669fb34d"
+
+  # Tercera ancla compute-bound de suite/proveedor (2026-09-16), candidato
+  # "opcional" de Nota_Candidatos_GPU_Compute_Bound_20260914.md: CUTLASS
+  # ImplicitGemm Conv2d fprop, OpClassSimt (CUDA cores, NO Tensor Core),
+  # instanciacion identica a
+  # cutlass/test/unit/conv/device/conv2d_fprop_implicit_gemm_f32nhwc_f32nhwc_f32nhwc_simt_f32_sm80.cu
+  # (tile 128x128x8/64x32x8, IteratorAlgorithm::kOptimized) -- programa
+  # standalone compilado directo con nvcc -I cutlass/include (sin CMake,
+  # que en paccaA100 falla por libjsoncpp ausente), mismo patron que
+  # gpu_cutlass_simt_dgemm. Medido con ncu (ciclo de convergencia
+  # lc10/50/100/500): OI=438.06 FLOP/byte, fp32, converged (cambio
+  # relativo 0.0001), roofline_label_eligible=true,
+  # tensor_instructions_observed=0 tras el guardarraiel de fraccion
+  # Tensor (F1-GPU-013). Contra el ridge fp32 (~14.97), log2(OI/ridge)
+  # ~ +4.87 -- la ancla mas profunda de las tres CUTLASS/GEMM, cerca de
+  # rodinia_lavamd (+7.52 en fp64). Verificado que NO es un artefacto de
+  # residencia en L2 (40MB del A100): con N=32 (footprint ~100MB, excede
+  # L2 con margen) la OI remedida da 445.15, a 1.6% del valor a N=8
+  # (footprint ~26MB, cabe en L2) -- misma intensidad aritmetica real,
+  # no un espejismo de cache (mismo chequeo que evito el error de
+  # gemm_native_gpu).
+  - id: gpu_cutlass_simt_conv2d
+    suite: CUTLASS-SIMT-CONV2D
+    role: dataset
+    device: gpu
+    exec_path: bin/gpu_cutlass_simt_conv2d
+    # N,H,W,C=8,64,64,512 K,R,S=512,3,3 pad=1 stride=1 dilation=1 (P,Q=64,64).
+    exec_args: "--iterations 2600"
+    phase_label_hint: compute_bound
+    operational_intensity_flops_per_byte: 438.06
+    gpu_precision: fp32
+    size_variant: "N8H64W64C512_K512R3S3"
+    expected_runtime_seconds: 32 # medido en paccaA100: 29.97 s binario puro / 31.27 s con harness
+    # Warmup real medido con telemetry_kernel_launcher (gpu_util_pct,
+    # transicion limpia 0%->100%, 5013 muestras a 5ms).
+    warmup_seconds: 1.1737
+    # Huella real: A (8.4MB) + B/filtro (9.4MB) + C (8.4MB) ~26MB, con
+    # margen generoso sobre workspace interno de CUTLASS.
+    estimated_memory_bytes: 134217728
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:e60ca315b94f31a3125de7270947e2b458eac300197cf1b974be6ac1b7dee743"
