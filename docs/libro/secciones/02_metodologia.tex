@@ -2,26 +2,26 @@
 
 \section{Enfoque metodológico}
 
-La investigación adopta un enfoque cuantitativo, experimental y aplicado para evaluar el efecto de las decisiones de frecuencia del agente sobre la eficiencia energética de las cargas de trabajo. La variable de respuesta principal es el Producto Energía--Retardo (EDP), que integra la energía consumida y el tiempo de ejecución en una sola medida; no obstante, ambas magnitudes se conservan por separado para interpretar el origen de las variaciones observadas.
+El enfoque metodológico fue cuantitativo, experimental y aplicado. La variable de respuesta fue el Producto Energía--Retardo (EDP), calculado a partir de la energía consumida y el tiempo de ejecución. Para analizar los resultados e identificar el origen de las variaciones, también se consideraron estas dos magnitudes por separado.
 
-El estado de frecuencia constituye la variable independiente y se modifica sobre un conjunto controlado de cargas, mientras sus efectos se observan en el tiempo de ejecución, la energía y el EDP; a su vez, el carácter aplicado de la investigación se concreta en un agente de software cuya utilidad se compara con las políticas de frecuencia disponibles en el sistema operativo.
+La variable independiente fue el estado de frecuencia, que se modificó para un conjunto controlado de cargas de trabajo. Sus efectos se evaluaron mediante el tiempo de ejecución, la energía y el EDP. Además, se desarrolló un agente de software y se comparó su desempeño con el de las políticas de frecuencia proporcionadas por el sistema operativo.
 
-El desarrollo se estructura en cuatro fases secuenciales e interdependientes, que abarcan desde la caracterización de cargas y extracción de telemetría hasta la validación empírica del sistema.
+El estudio se desarrolló en cuatro fases: caracterización de las cargas y recolección de telemetría; desarrollo del clasificador; implementación del agente; y validación experimental del sistema.
 
 \section{Diseño metodológico}
 
 \subsection{Población y muestra}
 
-La población de estudio comprende las aplicaciones ejecutables en sistemas heterogéneos CPU--GPU; de esta población se selecciona una muestra no probabilística e intencional de benchmarks y microbenchmarks con regímenes de ejecución contrastantes. La selección proporciona cargas controladas y reproducibles para construir el conjunto de datos de entrenamiento, sin pretender representar exhaustivamente todas las aplicaciones científicas.
+La población de estudio comprendió las aplicaciones ejecutables en sistemas heterogéneos CPU--GPU. De esta población se seleccionó una muestra no probabilística e intencional de \textit{benchmarks} y microbenchmarks con regímenes de ejecución contrastantes. Estas cargas permitieron construir un conjunto de datos controlado y reproducible para el entrenamiento, sin representar de forma exhaustiva todas las aplicaciones científicas.
 
 \label{sec:unidades}
-Las cargas se admiten en el catálogo cuando verifican la corrección de su resultado, permiten observar directamente su trabajo de punto flotante y producen una magnitud comparable con un techo Roofline expresado en FLOPs. En CPU, el trabajo se mide mediante los contadores de instrucciones de punto flotante retiradas descritos en la sección \ref{sec:validacion-flops}, mientras que en GPU se obtiene mediante el perfilado presentado en la sección \ref{sec:gpu-calibracion}; cuando una carga reporta su propio conteo de operaciones, este se utiliza solo como contraste independiente. De acuerdo con la regla de validez de la sección \ref{sec:banco-candidatos}, se excluyen las cargas dominadas por aritmética entera, ya que su intensidad operacional no es comparable con el techo empleado.
+Las cargas se incluyeron en el catálogo cuando verificaron la corrección de sus resultados, permitieron medir el trabajo de punto flotante y produjeron una magnitud comparable con un techo Roofline expresado en FLOPs. En CPU, el trabajo se midió mediante los contadores de instrucciones de punto flotante retiradas descritos en la sección \ref{sec:validacion-flops}; en GPU se obtuvo con el perfilado presentado en la sección \ref{sec:gpu-calibracion}. Cuando una carga reportó su propio conteo de operaciones, este se utilizó como contraste independiente. Las cargas dominadas por aritmética entera se excluyeron porque su intensidad operacional no era comparable con el techo empleado, de acuerdo con la regla de validez de la sección \ref{sec:banco-candidatos}.
 
 \subsection{Plataforma experimental}
 
-Los experimentos se ejecutan sobre el nodo heterogéneo descrito en la Tabla \ref{tab:plataforma}, seleccionado porque integra una GPU NVIDIA observable mediante NVML y permite acceder, sin privilegios administrativos, a la medición energética interna del procesador; ambas capacidades son necesarias para obtener telemetría de CPU y GPU bajo las mismas condiciones experimentales.
+Los experimentos se realizaron en el nodo heterogéneo descrito en la Tabla \ref{tab:plataforma}. La plataforma integró una GPU NVIDIA observable mediante NVML y permitió acceder a la medición energética interna del procesador sin privilegios administrativos. Estas capacidades permitieron recolectar telemetría de CPU y GPU bajo las mismas condiciones experimentales.
 
-La microarquitectura determina la codificación de varios eventos crudos de la PMU que no disponen de un mapeo genérico en el kernel del nodo (sección \ref{sec:eventos-genericos-crudos}); por esta razón, antes de habilitarlos, el instrumento comprueba que la familia y el modelo del procesador correspondan con los valores de la Tabla \ref{tab:plataforma}. Si la identificación no coincide, la codificación se rechaza para evitar una interpretación incorrecta de los conteos del hardware; esta protección se aplica, entre otros, a los subeventos de \texttt{FP\_ARITH\_INST\_RETIRED} utilizados para medir FLOPs (sección \ref{sec:validacion-flops}).
+La codificación de algunos eventos crudos de la PMU dependió de la microarquitectura y no contó con un mapeo genérico en el kernel del nodo (sección \ref{sec:eventos-genericos-crudos}). Antes de habilitar estos eventos, el instrumento verificó que la familia y el modelo del procesador coincidieran con los valores de la Tabla \ref{tab:plataforma}. Cuando la identificación no coincidió, la codificación se rechazó para evitar una interpretación incorrecta de los conteos. Esta comprobación incluyó los subeventos de \texttt{FP\_ARITH\_INST\_RETIRED} utilizados para medir FLOPs (sección \ref{sec:validacion-flops}).
 \begin{table}[H]
 \centering
 \caption{Características de la plataforma experimental.}
@@ -33,7 +33,7 @@ La microarquitectura determina la codificación de varios eventos crudos de la P
 Procesador & 2 $\times$ Intel Xeon Gold 5315Y \\
 Microarquitectura & Ice Lake-SP (10~nm, generación de servidor lanzada en 2021) \\
 Identificador CPUID (\texttt{cpu family}/\texttt{model}) & 6 / 106 \\
-Extensiones SIMD relevantes & AVX2, FMA3, AVX-512 (\texttt{avx512f}, \texttt{avx512bw}, \texttt{avx512cd}, \texttt{avx512dq}, \texttt{avx512vl}, \texttt{avx512\_vnni}, entre otras) --- el ancho de 512 bits es el que domina el conteo de FLOPs medido en las cargas de álgebra lineal densa del catálogo \\
+Extensiones SIMD relevantes & AVX2, FMA3, AVX-512 (\texttt{avx512f}, \texttt{avx512bw}, \texttt{avx512cd}, \texttt{avx512dq}, \texttt{avx512vl}, \texttt{avx512\_vnni}, entre otras) \\
 Núcleos & 8 núcleos físicos por zócalo, 2 hilos por núcleo (32 lógicos) \\
 Nodos NUMA & 2 (uno por zócalo) \\
 Jerarquía de caché & L1d 48~KiB, L1i 32~KiB, L2 1.25~MiB por núcleo; L3 12~MiB por zócalo \\
@@ -48,15 +48,15 @@ Gestor de recursos & Slurm \\
 \end{tabular}
 \end{table}
 
-Las condiciones de ejecución se controlan mediante asignación exclusiva del nodo a través del gestor de recursos, de modo que ninguna carga ajena al experimento comparta el procesador durante las mediciones. Los procesadores lógicos empleados se restringen a hilos primarios de un mismo zócalo, evitando la asignación simultánea de hilos hermanos del mismo núcleo físico, de acuerdo con lo expuesto en la sección \ref{sec:dominios}.
+Las condiciones de ejecución se controlaron mediante una asignación exclusiva del nodo a través del gestor de recursos. Los procesadores lógicos utilizados se restringieron a los hilos primarios de un mismo zócalo. Asimismo, no se asignaron de forma simultánea hilos hermanos del mismo núcleo físico, según lo expuesto en la sección \ref{sec:dominios}.
 
 \subsection{Instrumentos de recolección}
 
-La recolección de telemetría se implementa mediante un instrumento propio, desarrollado específicamente para este trabajo, compuesto por dos capas con responsabilidades separadas.
+La recolección de telemetría se realizó mediante un instrumento propio compuesto por dos capas con responsabilidades separadas.
 
-La capa inferior es un ejecutor escrito en C++ que lanza la carga de trabajo como proceso hijo y adjunta los contadores de hardware sobre ella. El diseño de esta capa responde directamente a los requisitos de atribución expuestos en la sección \ref{sec:perfevent}: el proceso hijo se detiene inmediatamente después de su creación y antes de ejecutar la primera instrucción de la carga, momento en el cual el proceso padre abre los contadores asociados a ese identificador de proceso con herencia habilitada; solo entonces se reanuda la ejecución. Este protocolo garantiza que ninguna instrucción de la carga medida se ejecute fuera del intervalo de observación y que la medida abarque el árbol completo de procesos e hilos que la carga genere, sin incluir actividad ajena.
+La capa inferior fue un ejecutor escrito en C++ que inició la carga como proceso hijo y le adjuntó los contadores de hardware. Para cumplir los requisitos de atribución de la sección \ref{sec:perfevent}, el proceso hijo se detuvo antes de ejecutar su primera instrucción. Luego, el proceso padre abrió los contadores asociados a su identificador con la herencia habilitada y reanudó la ejecución. Con este protocolo se midió el árbol de procesos e hilos generado por la carga durante todo el intervalo de observación, sin incluir actividad de otros procesos.
 
-El muestreo se realiza mediante un hilo productor dedicado, fijado a un procesador lógico distinto de los asignados a la carga, que a intervalos regulares lee los contadores y deposita las muestras en una estructura circular de productor y consumidor únicos. Un hilo consumidor, igualmente fijado a un procesador lógico separado, extrae las muestras y las persiste. Esta separación evita que la actividad de escritura a disco interfiera con la periodicidad del muestreo, y el aislamiento de ambos hilos respecto de los núcleos medidos reduce su interferencia sobre la carga observada. La ausencia de pérdidas en la estructura circular se registra como indicador de integridad de cada corrida. La Figura \ref{fig:muestreo-spsc} resume esta ruta.
+El muestreo se realizó con un hilo productor fijado a un procesador lógico distinto de los asignados a la carga. Este hilo leyó periódicamente los contadores y depositó las muestras en una estructura circular con un único productor y un único consumidor. El hilo consumidor, fijado a otro procesador lógico, extrajo y persistió las muestras. Esta separación redujo la interferencia de la escritura en disco sobre la periodicidad del muestreo. Además, las pérdidas de la estructura circular se registraron como indicador de integridad de cada corrida. La Figura \ref{fig:muestreo-spsc} muestra el recorrido de las muestras.
 
 \begin{figure}[H]
 \centering
@@ -123,11 +123,11 @@ escribe cada muestra en la ranura que señala el puntero de escritura (borde ver
 consumidor la retira por el puntero de lectura (borde negro); ambos punteros avanzan en el mismo
 sentido, de modo que las ranuras naranjas son las escritas que el consumidor aún no ha leído. Los
 dos hilos se fijan a procesadores lógicos distintos de los que ejecutan la carga, y la estructura
-circular desacopla la cadencia de muestreo de la escritura a disco. Fuente: elaboración propia.}
+circular desacopla la cadencia de muestreo de la escritura a disco.}
 \label{fig:muestreo-spsc}
 \end{figure}
 
-La capa superior es un orquestador escrito en Python que administra la lógica experimental mediante la interpretación del manifiesto de campaña, la detección de capacidades, la ejecución de verificaciones previas, la calibración y la planificación de cada combinación; además, aplica el estado de frecuencia, valida las corridas y transforma las muestras crudas en el conjunto de datos final. Esta distribución de responsabilidades reserva a la capa C++ la medición sensible a la latencia y asigna a la capa Python la planificación y la trazabilidad del experimento, cuyo recorrido se resume en la Figura \ref{fig:arquitectura-instrumento}.
+La capa superior fue un orquestador escrito en Python que interpretó el manifiesto de campaña, detectó las capacidades del nodo, ejecutó las verificaciones previas y planificó cada combinación experimental. Además, aplicó el estado de frecuencia, validó las corridas y transformó las muestras crudas en el conjunto de datos final. La capa C++ realizó la medición sensible a la latencia, mientras que la capa Python administró la planificación y la trazabilidad del experimento. La Figura \ref{fig:arquitectura-instrumento} muestra el recorrido de una campaña.
 
 \begin{figure}[H]
 \centering
@@ -189,16 +189,16 @@ La capa superior es un orquestador escrito en Python que administra la lógica e
 campaña a través de las dos capas del instrumento. La capa Python prepara la campaña (banda
 superior), invoca por subproceso el ejecutor de la capa C++ una vez por combinación de carga y
 frecuencia (banda intermedia), y consolida las muestras crudas que este produce en el conjunto de
-datos (banda inferior). La capa C++ concentra la medición sensible a la latencia; la capa Python,
-la lógica experimental, donde priman la claridad y la trazabilidad. Fuente: elaboración propia.}
+datos (banda inferior). La capa C++ concentra la medición sensible a la latencia y la capa Python
+administra la lógica experimental.}
 \label{fig:arquitectura-instrumento}
 \end{figure}
 
 \subsection{Variables observadas}
 
-Antes de describir las señales capturadas, conviene precisar qué se entiende por ventana de muestreo, término empleado de aquí en adelante. El hilo productor descrito en la sección anterior toma una lectura de los contadores cada cierto período configurado en la campaña; cada lectura individual es un valor acumulativo, y por sí sola no describe el comportamiento de un intervalo concreto. Una ventana de muestreo se define como el intervalo delimitado por dos lecturas consecutivas, y su contenido se obtiene restando la lectura anterior de la lectura actual, conforme a lo argumentado en la sección \ref{sec:ventanas}. Por tanto, una ventana no es un conjunto o agregado de varias muestras, sino el resultado de un único par de lecturas consecutivas; se requieren dos lecturas para producir una ventana, de modo que la primera lectura de cada corrida no genera ventana alguna, al carecer de una lectura previa contra la cual diferenciarse (condición registrada en la Tabla \ref{tab:calidad} como ``sin diferencia previa''). La duración real de una ventana corresponde al tiempo efectivamente transcurrido entre ambas lecturas, medido con un reloj monótono, y no al período nominal configurado.
+Una ventana de muestreo fue el intervalo entre dos lecturas consecutivas de los contadores. Como cada lectura contenía valores acumulativos, las métricas del intervalo se calcularon mediante la diferencia entre la lectura actual y la anterior, según la sección \ref{sec:ventanas}. La primera lectura de cada corrida no produjo una ventana porque no tuvo un valor previo; esta condición se registró como ``sin diferencia previa'' en la Tabla \ref{tab:calidad}. La duración se obtuvo a partir del tiempo efectivo entre ambas lecturas, medido con un reloj monótono, y no mediante el período nominal configurado.
 
-La Tabla \ref{tab:contadores} enumera las señales activas del instrumento de producción y separa los contadores de núcleo, atribuibles a la carga, de los del controlador de memoria, que son de alcance de zócalo. El conjunto de eventos se dimensionó para permanecer dentro del presupuesto de contadores físicos simultáneos de la plataforma, verificado empíricamente sobre la máquina en lugar de asumirse a partir del modelo de procesador, con el fin de evitar el error de extrapolación asociado a la multiplexación descrito en la sección \ref{sec:multiplexacion}.
+La Tabla \ref{tab:contadores} enumera las señales activas del instrumento. Distingue los contadores de núcleo, atribuibles a la carga, de los contadores del controlador de memoria, cuyo alcance correspondió al zócalo. El número de eventos se ajustó al presupuesto de contadores físicos simultáneos, verificado en la plataforma para evitar la multiplexación descrita en la sección \ref{sec:multiplexacion}.
 
 \begin{table}[H]
 \centering
@@ -264,7 +264,7 @@ RAPL: \texttt{pkg\_uj},\newline \texttt{dram\_uj} &
 \end{tabular}
 \end{table}
 
-A partir de estas señales se derivan, para cada ventana, IPC, tasa de fallos de caché, MPKI, \texttt{stall\_mem\_ratio}, intensidad operacional y magnitudes energéticas. Las tasas de núcleo se calculan sobre el intervalo real entre lecturas consecutivas; la intensidad y la etiqueta Roofline conservan la granularidad del intervalo \textit{uncore}, conforme a lo argumentado en la sección \ref{sec:ventanas}.
+A partir de estas señales se calcularon, para cada ventana, el IPC, la tasa de fallos de caché, el MPKI, \texttt{stall\_mem\_ratio}, la intensidad operacional y las magnitudes energéticas. Las tasas de núcleo utilizaron el intervalo real entre lecturas consecutivas; la intensidad y la etiqueta Roofline conservaron la granularidad del intervalo \textit{uncore}, según la sección \ref{sec:ventanas}.
 
 \section{Fase 1: Recolección de información y caracterización de cargas}
 

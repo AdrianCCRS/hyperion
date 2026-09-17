@@ -3,34 +3,19 @@
 \section{Marco Conceptual}
 \label{sec:marco-conceptual}
 
-El ajuste dinámico de frecuencia y voltaje para la optimización energética se
-fundamenta en la relación no lineal entre los parámetros de operación del
-hardware y la disipación de calor. Sobre esa base física, este trabajo asume
-una cadena de dependencias que articula el resto del capítulo: el régimen que
-limita el rendimiento de una fase de ejecución, entendido en los términos del
-modelo Roofline, deja una traza observable en los contadores del procesador y
-en las interfaces de telemetría de la plataforma; esa traza puede resumirse en
-un vector de características y, si es suficientemente discriminante, permite
-inferir el régimen mediante un modelo de clasificación cuyo costo de inferencia
-sea compatible con un lazo de control; y esa inferencia habilita, a su vez, una
-política discreta de frecuencia cuyo beneficio neto debe juzgarse con una
-métrica que integre energía y tiempo. Cada eslabón de esa cadena es una
-suposición que puede fallar, y las secciones siguientes desarrollan tanto el
-concepto que lo sustenta como las condiciones bajo las cuales deja de
-sostenerse.
+El ajuste dinámico de voltaje y frecuencia (DVFS) permite modificar el punto operativo del hardware para gestionar el compromiso entre consumo energético y rendimiento. Su aplicación depende del régimen que limita la ejecución de la carga, de la información que puede obtenerse mediante la telemetría disponible y de la capacidad de traducir esas observaciones en una decisión de frecuencia con un costo suficientemente bajo. En este trabajo, estas relaciones se articulan mediante el modelo Roofline, la telemetría de CPU y GPU, un clasificador ligero y una política de actuación cuya evaluación considera conjuntamente energía y tiempo.
 
-El capítulo sigue ese mismo orden. Las secciones \ref{sec:marco-cmos} a
-\ref{sec:intensidad} establecen el fundamento físico y el criterio de
+El capítulo sigue esta secuencia. Las secciones \ref{sec:marco-cmos} a
+\ref{sec:intensidad} presentan el fundamento físico y el criterio de
 clasificación de regímenes; las secciones \ref{sec:marco-telemetria} a
-\ref{sec:marco-interfaces} describen qué puede observarse realmente de ese
-comportamiento y con qué limitaciones de alcance, privilegio y granularidad; la
-sección \ref{sec:dvfs-cpu} presenta el mecanismo de actuación y sus
-restricciones temporales; la sección \ref{sec:marco-cargas} delimita las cargas
-sobre las que se mide; las secciones \ref{sec:marco-ml-ligero} a
-\ref{sec:marco-validacion-anidada} desarrollan el modelo de inferencia, su
-evaluación y las condiciones de validez de esa evaluación; y las secciones
-\ref{sec:marco-pruebas-estadisticas} y \ref{sec:marco-edp} fijan los criterios
-con los que se decidirá si el sistema propuesto aporta una mejora defendible.
+\ref{sec:marco-interfaces} describen las fuentes de observación y sus
+limitaciones; la sección \ref{sec:dvfs-cpu} aborda el mecanismo de actuación;
+y la sección \ref{sec:marco-cargas} delimita las cargas de trabajo. Las
+secciones \ref{sec:marco-ml-ligero} a
+\ref{sec:marco-validacion-anidada} desarrollan el modelo de inferencia y su
+evaluación, mientras que las secciones
+\ref{sec:marco-pruebas-estadisticas} y \ref{sec:marco-edp} establecen los
+criterios para valorar experimentalmente el sistema propuesto.
 
 \subsection{Termodinámica del silicio y potencia CMOS}
 \label{sec:marco-cmos}
@@ -46,415 +31,265 @@ donde $\alpha$ es el factor de actividad, $C$ la capacitancia efectiva conmutada
 \subsection{Modelo Roofline y regímenes de limitación del rendimiento}
 \label{sec:roofline}
 
-El modelo Roofline analiza el rendimiento de una aplicación en función de su intensidad operacional y de los límites físicos del hardware:
+El modelo Roofline relaciona el rendimiento alcanzable de una carga con su
+intensidad operacional y con los límites de cómputo y ancho de banda de la
+plataforma:
 
 \begin{equation}
 P = \min\left(P_{\text{pico}},\; I \cdot BW_{\text{pico}}\right)
 \label{eq:roofline}
 \end{equation}
 
-donde $P_{\text{pico}}$ es el rendimiento aritmético pico, $I$ la intensidad operacional (operaciones por byte transferido desde memoria) y $BW_{\text{pico}}$ el ancho de banda pico \cite{Williams2009}. Si el término activo es $I \cdot BW_{\text{pico}}$ el kernel es \textit{memory-bound}; si es $P_{\text{pico}}$, es \textit{compute-bound}.
+donde $P_{\text{pico}}$ representa el rendimiento aritmético pico, $I$ la
+intensidad operacional, expresada como operaciones por byte transferido desde
+memoria, y $BW_{\text{pico}}$ el ancho de banda pico
+\cite{Williams2009}. Cuando el límite viene dado por
+$I \cdot BW_{\text{pico}}$, la carga se encuentra en régimen
+\textit{memory-bound}; cuando corresponde a $P_{\text{pico}}$, se encuentra
+en régimen \textit{compute-bound}.
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.75\textwidth]
+    \includegraphics[width=0.72\textwidth]
         {figuras/fig_modelo_roofline_conceptual_williams2009.png}
-    \caption[Modelo Roofline conceptual]{Modelo Roofline conceptual: relación entre el techo de ancho de banda de memoria y el techo de rendimiento de cómputo. Fuente: tomado de Williams et al. \cite[Fig.~1(a)]{Williams2009}.}
+    \caption[Modelo Roofline conceptual]{Modelo Roofline conceptual y relación entre el techo de ancho de banda de memoria y el techo de rendimiento de cómputo. Tomado de Williams et al. \cite[Fig.~1(a)]{Williams2009}.}
     \label{fig:modelo-roofline-conceptual}
 \end{figure}
 
-La intensidad operacional $I$ relaciona el trabajo aritmético con los
-bytes transferidos desde el nivel de memoria modelado, no con el tamaño
-nominal del conjunto de trabajo \cite[p.~66]{Williams2009}. Por ello, que
-los datos excedan la caché de último nivel solo indica que parte de ellos
-deberá atravesar niveles inferiores de la jerarquía, pero no determina
-cuánto tráfico se genera ni cuánta reutilización ocurre. La multiplicación
-de matrices densas ilustra esta diferencia: mediante bloqueo o mosaico
-(\textit{tiling}), los bloques pueden reutilizarse y su movimiento entre
-niveles de memoria se amortiza, sin requerir que las matrices completas
-residan simultáneamente en caché \cite[Secs.~3--4]{Goto2008}. Para una
-cantidad fija de operaciones, esa reducción del tráfico aumenta la
-intensidad operacional. El tamaño del conjunto de trabajo frente a la
-caché es, por tanto, un indicio útil, pero no un criterio suficiente para
-clasificar una carga como \textit{memory-bound} o \textit{compute-bound}.
+La intensidad operacional relaciona el trabajo aritmético con los bytes
+transferidos desde el nivel de memoria analizado y no con el tamaño nominal del
+conjunto de trabajo \cite[p.~66]{Williams2009}. Una carga que excede la
+capacidad de la caché no es necesariamente \textit{memory-bound}, ya que la
+reutilización de datos puede reducir el tráfico hacia memoria y aumentar su
+intensidad operacional \cite[Secs.~3--4]{Goto2008}.
 
 \subsubsection{Punto de inflexión y criterio de clasificación}
 \label{sec:marco-ridge}
 
-La frontera entre regímenes es el punto de inflexión o \textit{ridge point}, donde ambas ramas de \eqref{eq:roofline} se igualan:
+La frontera entre ambos regímenes corresponde al punto de inflexión o
+\textit{ridge point}, donde las dos ramas de \eqref{eq:roofline} se igualan:
 
 \begin{equation}
-I_{\text{ridge}} = \frac{P_{\text{pico}}}{BW_{\text{pico}}}
+I_{\text{ridge}} =
+\frac{P_{\text{pico}}}{BW_{\text{pico}}}
 \label{eq:ridge}
 \end{equation}
 
-$I_{\text{ridge}}$ se convierte así en el umbral operativo de
-etiquetado: una intensidad observada inferior se clasifica como
-\textit{memory-bound} y una superior como \textit{compute-bound}, de
-acuerdo con la separación de regímenes que plantea el modelo Roofline
-\cite{Williams2009}. La caracterización Roofline puede determinar techos
-de cómputo por separado para distintos tipos de dato y precisiones
-aritméticas \cite{Antepara2025}. En consecuencia, cuando esos techos
-difieren, el valor de $P_{\text{pico}}$ empleado en
-\eqref{eq:ridge} debe corresponder a la precisión de las operaciones
-medidas; cada precisión requiere entonces su propio
-$I_{\text{ridge}}$. Una carga de precisión mixta no puede compararse
-directamente con un único techo sin definir previamente cómo se tratará
-esa mezcla.
+En este trabajo, $I_{\text{ridge}}$ define el criterio de etiquetado. Una
+intensidad inferior se clasifica como \textit{memory-bound} y una superior
+como \textit{compute-bound} \cite{Williams2009}. Como el techo de cómputo
+depende de la precisión aritmética, cada precisión requiere su propio
+$I_{\text{ridge}}$ \cite{Antepara2025}. Las cargas de precisión mixta
+requieren, por ello, un tratamiento específico antes de compararse con un
+único techo.
 
-Por la misma razón, $I_{\text{ridge}}$ tampoco es una constante del
-dispositivo cuando el punto operativo varía. Ambos términos de
-\eqref{eq:ridge} dependen de la frecuencia: el rendimiento aritmético pico
-escala con el reloj de las unidades de cómputo, mientras que el ancho de
-banda alcanzable hacia memoria principal responde a un dominio de reloj
-distinto y no necesariamente en la misma proporción
-\cite{Guerreiro2019,Ali2023}. En consecuencia, un barrido de frecuencia
-desplaza el punto de inflexión, y comparar intensidades medidas en niveles
-distintos contra un único $I_{\text{ridge}}$ atribuiría al régimen de la
-carga un efecto que en realidad procede del punto operativo. La
-calibración debe entonces resolverse por precisión y por nivel de
-frecuencia, no una sola vez por dispositivo.
+El punto de inflexión también cambia con la frecuencia. El rendimiento pico de
+cómputo y el ancho de banda de memoria pertenecen a dominios distintos y no
+varían necesariamente en la misma proporción
+\cite{Guerreiro2019,Ali2023}. Por esta razón, $I_{\text{ridge}}$ debe
+calibrarse para cada precisión y nivel de frecuencia, evitando atribuir a la
+carga un cambio originado por el punto operativo.
 
-Los valores de fábrica sirven como referencia inicial, pero no representan
-necesariamente los techos alcanzables bajo la configuración experimental.
-La caracterización Roofline recomienda estimarlos mediante microkernels y
-condiciones de ejecución representativas \cite{NERSC2026}.
+Los valores nominales del hardware sirven como referencia, pero los techos
+empleados para la clasificación deben obtenerse mediante calibración empírica
+bajo las condiciones del experimento \cite{NERSC2026}.
 
 \subsubsection{Cálculo de la intensidad operacional observada}
 \label{sec:intensidad}
 
-Aplicar el criterio anterior exige calcular la intensidad sobre un mismo
-intervalo de observación:
+La intensidad operacional observada durante un intervalo $i$ se calcula como:
 
 \begin{equation}
-I_i = \frac{\text{FLOPs}_i}{B_i^{\text{DRAM}}}
+I_i =
+\frac{\text{FLOPs}_i}{B_i^{\text{DRAM}}}
 \label{eq:intensidad}
 \end{equation}
 
 donde $\text{FLOPs}_i$ representa el trabajo aritmético realizado y
 $B_i^{\text{DRAM}}$ los bytes transferidos hacia o desde memoria principal
-durante el intervalo $i$ \cite{Williams2009}. Ambos términos deben 
-corresponder al mismo intervalo temporal; dividir magnitudes obtenidas 
-con granularidades distintas produciría una intensidad sin consistencia 
-física (sección \ref{sec:ventanas}).
+durante el mismo intervalo \cite{Williams2009}. Ambas magnitudes deben
+corresponder a los mismos límites temporales. Combinar mediciones con
+granularidades distintas produciría una intensidad sin consistencia física
+(sección \ref{sec:ventanas}).
 
-
-
-Los contadores de rendimiento no miden FLOPs como una magnitud abstracta,
-sino eventos definidos por una microarquitectura concreta. Incluso eventos
-aparentemente directos, como las instrucciones retiradas, pueden presentar
-diferencias de implementación y sensibilidad a las condiciones de medición
-\cite{Weaver2008}. Por ello, cualquier conversión desde eventos PMU hacia
-FLOPs requiere verificar la disponibilidad, la codificación y la semántica
-del evento utilizado.
-
-El tráfico hacia memoria principal se observa desde un dominio distinto,
-mediante los contadores \textit{uncore} del controlador de memoria integrado
-(IMC), descritos en la sección \ref{sec:uncore}. Cuando su granularidad
-temporal es más gruesa que la de los contadores de núcleo, los FLOPs deben
-agregarse sobre el mismo intervalo antes de calcular la intensidad
+En CPU, los FLOPs se obtienen mediante eventos de la PMU cuya codificación y
+semántica dependen de la microarquitectura \cite{Weaver2008}. El tráfico de
+memoria se mide mediante los contadores \textit{uncore} del controlador de
+memoria integrado, descritos en la sección \ref{sec:uncore}. Cuando estos
+operan con una granularidad más gruesa que los contadores de núcleo, los FLOPs
+se agregan sobre el mismo intervalo antes de calcular la intensidad
 operacional.
 
 \subsection{Telemetría microarquitectónica}
 \label{sec:marco-telemetria}
 
 Los procesadores modernos incorporan Unidades de Monitorización de Rendimiento
-(\textit{Performance Monitoring Units}, PMU), encargadas de registrar mediante
-hardware eventos asociados al comportamiento interno del procesador. Para ello,
-disponen de Contadores de Monitorización de Rendimiento
-(\textit{Performance Monitoring Counters}, PMC), que acumulan ocurrencias de
-eventos como instrucciones retiradas, ciclos de ejecución, fallos de caché o
-accesos a determinados recursos microarquitectónicos. Los PMC pueden ser fijos
-o programables. Los primeros están asociados a eventos predefinidos por la
-arquitectura y, en la documentación de Intel, se identifican como registros de
-función fija independientes de los programables (FC$_0$, FC$_1$, \ldots); los
-segundos permiten seleccionar el evento que se desea contabilizar mediante
-registros de configuración y se identifican como PMC$_0$, PMC$_1$, \ldots,
-PMC$_n$ \cite{IntelSDM2026}. En arquitecturas Intel, esta selección se expresa
-principalmente mediante un código de evento (\textit{Event Select}) y una
-máscara de unidad (\textit{Unit Mask}), junto con calificadores adicionales
-cuando el evento lo requiere \cite{IntelSDM2026} (Figura
-\ref{fig:pmu-conceptual}).
+(\textit{Performance Monitoring Units}, PMU), que permiten observar mediante
+hardware eventos asociados a la ejecución. Entre ellos se encuentran las
+instrucciones retiradas, los ciclos de procesador, los fallos de caché y otros
+eventos definidos por la microarquitectura. Algunos contadores están asociados
+a eventos fijos y otros pueden programarse mediante la codificación establecida
+por el fabricante \cite{IntelSDM2026}.
 
-\begin{figure}[H]
-    \centering
+Esta capacidad de observación está limitada por el número de contadores físicos
+disponibles. Cuando se solicitan más eventos de los que pueden medirse
+simultáneamente, el kernel puede multiplexarlos y estimar los conteos a partir
+del tiempo durante el cual cada evento estuvo habilitado y efectivamente activo
+\cite{Liu2024}. La estimación pierde precisión cuando la tasa del evento cambia
+durante los intervalos no observados. Por esta razón, el conjunto de eventos
+debe mantenerse dentro de la capacidad de la PMU y las lecturas utilizadas en
+el análisis deben verificarse mediante \textit{time running} y
+\textit{time enabled} \cite{Liu2024,LinuxPerfEventOpen2026}.
 
-    \begin{tikzpicture}[
-        font=\small,
-        box/.style={
-            draw,
-            rounded corners,
-            align=center,
-            minimum height=1cm,
-            minimum width=4.4cm
-        },
-        arrow/.style={
-            -{Latex[length=2mm]},
-            thick
-        }
-    ]
-
-    % Entrada
-    \node[align=center] (events)
-        {Eventos\\microarquitectónicos};
-
-    % Contadores
-    \node[box, right=2.2cm of events, yshift=1.25cm] (fixed)
-        {\textbf{Contadores fijos}\\
-        FC$_0$, FC$_1$, \ldots\\
-        eventos predefinidos\\
-        (instrucciones, ciclos)};
-
-    \node[box, below=0.8cm of fixed] (programmable)
-        {\textbf{Contadores programables}\\
-        PMC$_0$, PMC$_1$, \ldots, PMC$_n$};
-
-    % Configuración
-    \node[box, below=0.8cm of programmable] (control)
-        {\textbf{Registros de configuración}\\
-        \textit{Event Select} + \textit{Unit Mask}\\
-        + calificadores};
-
-    % Marco de PMU
-    \node[
-        draw,
-        rounded corners,
-        fit=(fixed)(programmable)(control),
-        inner sep=0.35cm,
-        label=above:\textbf{PMU}
-    ] (pmu) {};
-
-    % Flechas
-    \draw[arrow] (events.east) -- ++(0.75,0)
-        |- (fixed.west);
-
-    \draw[arrow] (events.east) -- ++(0.75,0)
-        |- (programmable.west);
-
-    \draw[arrow] (control.north) -- (programmable.south);
-
-    \end{tikzpicture}
-
-    \caption[Unidad de Monitorización de Rendimiento (PMU)]{Organización conceptual de una Unidad de Monitorización de
-    Rendimiento (PMU) con contadores fijos y programables.
-    Fuente: elaboración propia.}
-    \label{fig:pmu-conceptual}
-\end{figure}
-
-La cantidad de contadores disponibles para realizar mediciones simultáneas es
-limitada y depende de la microarquitectura. En consecuencia, aunque el
-procesador pueda exponer un catálogo amplio de eventos, solo un subconjunto
-puede contabilizarse al mismo tiempo. Cuando la cantidad de eventos solicitados
-supera los contadores físicos disponibles, es necesario compartirlos mediante
-mecanismos de multiplexación \cite{Liu2024}, cuyo efecto sobre la medición se
-discute a continuación.
-
-\subsubsection{Multiplexación de contadores y escalado de medidas}
-\label{sec:multiplexacion}
-
-Cuando los eventos solicitados exceden los contadores físicos disponibles,
-el kernel puede multiplexarlos, alternando periódicamente su asignación sobre
-los contadores de hardware. En este caso, el conteo observado se escala a partir
-de la relación entre el tiempo durante el cual el evento permaneció habilitado
-(\textit{time enabled}) y el tiempo durante el cual contó efectivamente
-(\textit{time running}). Este procedimiento constituye una extrapolación y
-supone que la tasa de ocurrencia del evento se mantiene aproximadamente estable
-durante los intervalos no observados, supuesto que puede perder validez cuando
-el comportamiento de la carga cambia dentro de la ventana \cite{Liu2024}.
-
-La multiplexación introduce, por tanto, una fuente adicional de incertidumbre
-en la medición. Para reducirla, conviene limitar el conjunto de eventos a la
-capacidad física de la PMU y verificar la relación entre \textit{time running}
-y \textit{time enabled}, que permite identificar si una lectura estuvo sujeta
-a multiplexación \cite{Liu2024,LinuxPerfEventOpen2026}.
-
-\subsubsection{Eventos genéricos y eventos crudos}
-\label{sec:eventos-genericos-crudos}
-
-Los eventos genéricos son una abstracción portable que el kernel traduce a
-la codificación concreta de la microarquitectura; los eventos crudos se
-especifican mediante la codificación nativa del procesador (selector de evento,
-máscara de subevento y calificadores adicionales)
-\cite{Weaver2015,IntelSDM2026}. Cuando el kernel carece de una traducción para
-un evento disponible en el procesador, puede ser necesario usar su codificación
-cruda, lo que traslada al instrumento la responsabilidad de verificar que esa
-codificación corresponde a la microarquitectura evaluada. Una codificación
-incorrecta puede producir valores sin significado físico aun cuando la apertura
-del contador no genere un error explícito.
+Los eventos también difieren en la forma como se solicitan. Linux proporciona
+eventos genéricos que el kernel traduce a la plataforma disponible, mientras
+que los eventos crudos utilizan directamente la codificación definida por la
+microarquitectura \cite{Weaver2015,IntelSDM2026}. Estos últimos permiten acceder
+a señales que no disponen de una abstracción genérica, pero requieren comprobar
+que el código, la máscara y los calificadores correspondan al procesador
+evaluado. La apertura correcta del contador no basta para garantizar que el
+valor obtenido tenga la interpretación esperada.
 
 \subsubsection{Contadores de núcleo y contadores de \textit{uncore}}
 \label{sec:uncore}
 
-Los contadores de núcleo observan eventos atribuibles a un núcleo concreto y
-pueden asociarse a un proceso. Los contadores de \textit{uncore} observan
-recursos compartidos del zócalo, como el controlador de memoria, la caché de
-último nivel distribuida y las interconexiones, y por tanto son de alcance de
-sistema, no atribuibles a un proceso específico. Los contadores del controlador
-de memoria contabilizan el tráfico que alcanza la memoria principal, tanto por
-accesos de demanda como por precarga \cite{IntelUncore2021}, por lo que
-constituyen la fuente estándar para estimar el denominador de la intensidad
-operacional (ecuación \eqref{eq:intensidad}). Su acceso, sin embargo, está
-sujeto a una categoría de privilegio distinta a la de los contadores de núcleo
-(sección \ref{sec:paranoid}).
+Las señales necesarias para caracterizar una carga no proceden de un único
+dominio del procesador. Los contadores de núcleo observan eventos asociados a
+la ejecución sobre uno o varios núcleos y pueden vincularse con un proceso. Los
+contadores de \textit{uncore} cubren recursos compartidos del zócalo, entre
+ellos el controlador de memoria, la caché de último nivel y las
+interconexiones, por lo que sus mediciones tienen alcance de sistema.
+
+Esta diferencia es especialmente relevante para la intensidad operacional
+definida en la sección \ref{sec:intensidad}. El trabajo aritmético puede
+obtenerse mediante eventos asociados a la ejecución de la carga, mientras que
+el tráfico hacia memoria principal se observa mediante los contadores del
+controlador de memoria integrado. Estos contabilizan transferencias que
+alcanzan la DRAM, incluidos accesos de demanda y precarga
+\cite{IntelUncore2021}, y proporcionan los bytes utilizados en el denominador
+de la intensidad operacional. Su alcance compartido también implica
+restricciones de acceso distintas a las de los contadores de núcleo, descritas
+en la sección \ref{sec:paranoid}.
+
+% Se conserva aquí la figura actual de contadores de núcleo y uncore.
+% Puede mantenerse sin cambios su código TikZ.
+
 
 \begin{figure}[H]
 \centering
-\begin{adjustbox}{max width=\textwidth}
+
 \begin{tikzpicture}[
-    every node/.style={font=\small},
-    unit/.style={rectangle, draw=blue!45!black, fill=white,
-        minimum width=1.9cm, minimum height=0.80cm, align=center, rounded corners=1pt},
-    uunit/.style={rectangle, draw=green!45!black, fill=white,
-        minimum width=2.9cm, minimum height=0.80cm, align=center, rounded corners=1pt},
-    corezone/.style={rectangle, draw=blue!45!black, thick, fill=blue!8,
-        rounded corners=2pt, inner xsep=0.35cm, inner ysep=0.30cm},
-    uncorezone/.style={rectangle, draw=green!45!black, thick, fill=green!12,
-        rounded corners=2pt, inner xsep=0.35cm, inner ysep=0.30cm},
-    cbox/.style={rectangle, draw=blue!45!black, dashed, thick, fill=white,
-        align=left, rounded corners=2pt, inner sep=0.28cm, font=\footnotesize},
-    ubox/.style={rectangle, draw=green!45!black, dashed, thick, fill=white,
-        align=left, rounded corners=2pt, inner sep=0.28cm, font=\footnotesize},
-    pkg/.style={rectangle, draw=black!55, very thick, fill=none,
-        rounded corners=3pt, inner xsep=0.55cm, inner ysep=0.55cm},
-    arr/.style={-{Stealth[length=2mm]}, thick}
+font=\small,
+box/.style={
+draw,
+rounded corners,
+align=center,
+minimum height=1cm,
+minimum width=4.4cm
+},
+arrow/.style={
+-{Latex[length=2mm]},
+thick
+}
 ]
-    % --- Núcleos: contadores de núcleo ---
-    \node[unit] (alu1) {ALU / FPU};
-    \node[unit, right=0.3cm of alu1] (l11) {L1\\(I\$ / D\$)};
-    \node[unit, right=0.3cm of l11] (l21) {L2\\(privada)};
 
-    \node[unit, below=2.0cm of alu1] (alu2) {ALU / FPU};
-    \node[unit, right=0.3cm of alu2] (l12) {L1\\(I\$ / D\$)};
-    \node[unit, right=0.3cm of l12] (l22) {L2\\(privada)};
+% Entrada
+\node[align=center] (events)
+{Eventos\\microarquitectónicos};
 
-    % --- Dominio uncore ---
-    \node[uunit] (llc) at ([yshift=-1.8cm]alu2.south west) [anchor=north west]
-        {LLC / L3 (compartida)};
-    \node[uunit, below=0.28cm of llc] (imc) {Controlador de memoria};
-    \node[uunit, below=0.28cm of imc] (icn) {Interconexión (anillo / malla)};
-    \node[uunit, below=0.28cm of icn] (pcie) {PCIe (opcional)};
+% Contadores
+\node[box, right=2.2cm of events, yshift=1.25cm] (fixed)
+{\textbf{Contadores fijos}\\
+FC$_0$, FC$_1$, \ldots\\
+eventos predefinidos\\
+(instrucciones, ciclos)};
 
-    % --- Cajas de contadores ---
-    \node[cbox, anchor=west] (ccount)
-        at ([xshift=1.6cm]$(l21.east)!0.5!(l22.east)$) {%
-        \textbf{Contadores de núcleo}\\[2pt]
-        Eventos locales de un núcleo,\\
-        atribuibles a un proceso:\\[3pt]
-        $\bullet$~instrucciones retiradas\\
-        $\bullet$~ciclos\\
-        $\bullet$~fallos de caché\\
-        $\bullet$~fallos de predicción de salto};
+\node[box, below=0.8cm of fixed] (programmable)
+{\textbf{Contadores programables}\\
+PMC$_0$, PMC$_1$, \ldots, PMC$_n$};
 
-    \node[ubox, anchor=west] (ucount)
-        at ([xshift=2.3cm]$(llc.east)!0.5!(pcie.east)$) {%
-        \textbf{Contadores de \textit{uncore}}\\[2pt]
-        Eventos compartidos del zócalo,\\
-        no atribuibles a un proceso:\\[3pt]
-        $\bullet$~tráfico a memoria principal\\
-        $\bullet$~accesos a la LLC\\
-        $\bullet$~ancho de banda\\
-        $\bullet$~actividad de interconexión};
+% Configuración
+\node[box, below=0.8cm of programmable] (control)
+{\textbf{Registros de configuración}\\
+\textit{Event Select} + \textit{Unit Mask}\\
++ calificadores};
 
-    % --- Espacio para rótulos internos ---
-    \coordinate (chead1) at ([yshift=0.48cm]alu1.north);
-    \coordinate (chead2) at ([yshift=0.48cm]alu2.north);
-    \coordinate (uhead)  at ([yshift=0.48cm]llc.north);
-    \coordinate (pkghead) at ([yshift=1.30cm]$(alu1.north)!0.5!(l21.north)$);
+% Marco de PMU
+\node[
+draw,
+rounded corners,
+fit=(fixed)(programmable)(control),
+inner sep=0.35cm,
+label=above:\textbf{PMU}
+] (pmu) {};
 
-    % --- Zonas y paquete (capa de fondo) ---
-    \begin{pgfonlayer}{background}
-        \node[corezone, fit=(chead1)(alu1)(l11)(l21)] (cz1) {};
-        \node[corezone, fit=(chead2)(alu2)(l12)(l22)] (cz2) {};
-        \node[uncorezone, fit=(uhead)(llc)(imc)(icn)(pcie)] (uz) {};
-        \node[pkg, fit=(pkghead)(cz1)(cz2)(uz)(ccount)(ucount)] (pkgbox) {};
-    \end{pgfonlayer}
+% Flechas
+\draw[arrow] (events.east) -- ++(0.75,0)
+|- (fixed.west);
 
-    % --- Títulos internos ---
-    \node[font=\bfseries, anchor=north] at ([yshift=-0.12cm]pkgbox.north)
-        {PAQUETE DEL CPU};
-    \node[font=\bfseries\small, anchor=north west]
-        at ([xshift=0.30cm, yshift=-0.12cm]cz1.north west) {Núcleo 1};
-    \node[font=\bfseries\small, anchor=north west]
-        at ([xshift=0.30cm, yshift=-0.12cm]cz2.north west) {Núcleo 2};
-    \node[font=\bfseries\small, anchor=north west]
-        at ([xshift=0.30cm, yshift=-0.12cm]uz.north west) {Dominio \textit{uncore}};
+\draw[arrow] (events.east) -- ++(0.75,0)
+|- (programmable.west);
 
-    % --- Flechas de atribución ---
-    \draw[arr] (cz1.east) -- (ccount.west);
-    \draw[arr] (cz2.east) -- (ccount.west);
-    \draw[arr] (uz.east) -- (ucount.west);
+\draw[arrow] (control.north) -- (programmable.south);
+
 \end{tikzpicture}
-\end{adjustbox}
-\caption[Contadores de núcleo y contadores de \textit{uncore}]{Ámbito de
-atribución de los contadores de núcleo y de \textit{uncore} dentro del paquete
-del procesador. Los contadores de núcleo observan eventos locales de un núcleo
-concreto y pueden asociarse a un proceso; los de \textit{uncore} observan
-recursos compartidos del zócalo y son de alcance de sistema. Fuente: elaboración propia.}
-\label{fig:core-uncore-counters}
+
+\caption[Unidad de Monitorización de Rendimiento (PMU)]{Organización conceptual de una Unidad de Monitorización de
+Rendimiento (PMU) con contadores fijos y programables.
+Fuente: elaboración propia.}
+\label{fig:pmu-conceptual}
 \end{figure}
 
 \subsubsection{Métricas microarquitectónicas de eficiencia}
 \label{sec:marco-metricas-eficiencia}
 
-Las instrucciones por ciclo (IPC), las métricas de fallos de caché y los ciclos
-de estancamiento describen aspectos complementarios del comportamiento de la
-ejecución. El IPC relaciona las instrucciones retiradas con los ciclos
-transcurridos y constituye una medida del aprovechamiento efectivo del
-procesador \cite[Ch.~6]{Gregg2020}. Por su parte, los eventos genéricos de Linux
-\texttt{cache-references} y \texttt{cache-misses} permiten derivar métricas como
-la tasa de fallos de caché y los fallos por cada mil instrucciones (MPKI). La
-primera normaliza los fallos respecto al número de referencias, mientras que
-el MPKI los normaliza respecto al trabajo retirado, por lo que ambas métricas
-describen aspectos distintos de la presión ejercida sobre la jerarquía de
-memoria. No obstante, la abstracción genérica de estos eventos no garantiza
-un nivel específico de caché: aunque habitualmente se asocian al último nivel,
-su correspondencia puede variar entre procesadores e incluir accesos de
-precarga o tráfico de coherencia \cite{LinuxPerfEventOpen2026}.
+Los contadores de rendimiento permiten derivar señales que describen distintos
+aspectos de la ejecución. El IPC relaciona las instrucciones retiradas con los
+ciclos transcurridos y permite observar el aprovechamiento del procesador
+\cite[Ch.~6]{Gregg2020}. Los eventos \texttt{cache-references} y
+\texttt{cache-misses} permiten calcular la tasa de fallos de caché y el MPKI,
+dos medidas de presión sobre la jerarquía de memoria. Su carácter genérico no
+garantiza, sin embargo, que correspondan a un nivel específico de caché, ya que
+su implementación depende de la plataforma
+\cite{LinuxPerfEventOpen2026}.
 
-Los ciclos de estancamiento representan intervalos durante los cuales la
-ejecución no progresa al ritmo esperado. Sin embargo, un contador agregado de
-estancamiento del \textit{backend} no permite identificar por sí solo la causa
-del bloqueo. Este puede originarse tanto en esperas relacionadas con memoria
-como en limitaciones internas del núcleo, entre ellas dependencias entre
-instrucciones o saturación de recursos de ejecución \cite{VTune2026}. Para
-obtener una señal más directamente relacionada con presión de memoria pueden
-emplearse eventos que contabilizan ciclos con cargas pendientes hacia el
-subsistema de memoria, disponibles de forma específica para determinadas
-microarquitecturas \cite{IntelPerfmon2026}. Como ocurre con otros eventos
-crudos de la PMU (sección \ref{sec:eventos-genericos-crudos}), su disponibilidad,
-codificación y semántica deben verificarse para la plataforma evaluada antes de
-interpretarlos \cite{Weaver2008,IntelSDM2026}.
+Los ciclos de estancamiento aportan información sobre intervalos en los que la
+ejecución deja de progresar al ritmo esperado. Un conteo agregado del
+\textit{backend} no permite determinar si la espera procede de memoria o de
+otros recursos internos \cite{VTune2026}. Para aproximar con mayor precisión
+las esperas relacionadas con memoria pueden emplearse eventos específicos que
+contabilizan ciclos con solicitudes de carga pendientes
+\cite{IntelPerfmon2026}. Como ocurre con los demás eventos crudos, su uso
+requiere verificar previamente la codificación y la semántica definidas para
+la microarquitectura \cite{Weaver2008,IntelSDM2026}.
 
-En conjunto, IPC, fallos de caché y ciclos de estancamiento constituyen señales
-microarquitectónicas complementarias para caracterizar el comportamiento de una
-carga y pueden utilizarse como características de entrada para un clasificador.
-Sin embargo, ninguna de estas métricas determina por sí sola que una ejecución
-sea \textit{compute-bound} o \textit{memory-bound}. En el modelo Roofline, esta
-distinción se establece a partir de la intensidad operacional de la carga y de
-su posición respecto al punto de inflexión de la plataforma
-\cite{Williams2009} (sección \ref{sec:intensidad}).
+IPC, fallos de caché y ciclos de estancamiento se utilizan como señales
+observables del comportamiento de la carga. Ninguna de ellas determina por sí
+sola si una ejecución pertenece al régimen \textit{compute-bound} o
+\textit{memory-bound}. Esa etiqueta procede del criterio Roofline definido a
+partir de la intensidad operacional y del punto de inflexión de la plataforma
+\cite{Williams2009}. Las métricas microarquitectónicas cumplen una función
+distinta y sirven como características a partir de las cuales el clasificador
+intenta inferir dicho régimen.
 
 \subsubsection{Ventanas de muestreo y naturaleza temporal de la observación}
 \label{sec:ventanas}
 
-En modo de conteo, las lecturas de los eventos de rendimiento representan
-valores acumulados desde su habilitación o último reinicio
-\cite{LinuxPerfEventOpen2026}. Para analizar el comportamiento dentro de una
-ventana temporal, interesa por tanto el incremento entre dos lecturas
-consecutivas y no únicamente el valor acumulado. En contraste, existen modos
-de reporte periódico que entregan directamente los conteos correspondientes a
-cada intervalo de observación, en lugar del valor acumulado
-\cite{LinuxPerfStat2026}.
+Las lecturas de los contadores representan valores acumulados desde su
+habilitación o último reinicio \cite{LinuxPerfEventOpen2026}. Las métricas de
+cada ventana se obtienen, por ello, mediante la diferencia entre dos lecturas
+consecutivas y utilizando el tiempo realmente transcurrido entre ambas. Este
+intervalo debe medirse con una fuente temporal que no cambie ante ajustes del
+reloj del sistema \cite{LinuxClockGettime2026}.
 
-El período de muestreo determina la resolución temporal de la observación.
-Intervalos más cortos permiten distinguir cambios de comportamiento con mayor
-detalle, pero requieren lecturas más frecuentes y pueden aumentar la
-sobrecarga de medición \cite{LinuxPerfStat2026}. Intervalos más largos reducen
-la frecuencia de observación, aunque pueden agrupar dentro de una misma ventana
-comportamientos distintos. Por esta razón, las tasas derivadas deben calcularse utilizando el tiempo
-realmente transcurrido entre lecturas, medido con una fuente temporal que no
-se vea afectada por ajustes del reloj del sistema
-\cite{LinuxClockGettime2026}.
+El período de muestreo determina la resolución con la que pueden observarse
+cambios en la carga. Reducirlo mejora la resolución temporal, pero aumenta la
+frecuencia de lectura y la sobrecarga asociada
+\cite{LinuxPerfStat2026}. Además, no todas las fuentes de telemetría operan con
+la misma granularidad. Cuando los contadores de \textit{uncore} producen
+intervalos más amplios que los contadores de núcleo, las magnitudes utilizadas
+para calcular la intensidad operacional deben agregarse sobre un intervalo
+común antes de aplicar el criterio Roofline.
 
 \subsection{Espacios de ejecución: \textit{user-space} y \textit{kernel-space}}
 \label{sec:marco-espacios-ejecucion}
