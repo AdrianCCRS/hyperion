@@ -324,7 +324,7 @@ def stage_diagnostics(frame, families, fam_codes, args, out: Path):
     # abstencion aleatoria a la misma cobertura (control)
     rng = np.random.default_rng(0)
     ctrl = []
-    for thr in [0.7, 0.85, 0.95]:
+    for thr in [0.7, 0.85, 0.9, 0.95]:
         keep = sub["conf"].to_numpy() >= thr
         rk = rng.random(len(sub)) < keep.mean()
         c = counts_from(fam_arr[rk], sub["y"].to_numpy()[rk], sub["pred"].to_numpy()[rk], families)
@@ -1084,13 +1084,13 @@ def stage_nested_optuna(frame, families, fam_codes, args, out: Path):
     (out / "nested_optuna.json").write_text(json.dumps({"trials_xgboost": args.optuna_trials, "results": results}, indent=1))
 
 
-FINAL_THRESHOLD = 0.85
+FINAL_THRESHOLD = 0.90
 
 
 def stage_final_model(frame, families, fam_codes, args, out: Path):
     """Cifras del modelo final en una sola poblacion y una sola configuracion.
 
-    Configuracion congelada: XGBoost, 12 entradas, pesos por celda familia x clase, umbral 0.85.
+    Configuracion congelada: XGBoost, 12 entradas, pesos por celda familia x clase, umbral 0.90.
     Protocolo: LOFO, entrenamiento sobre la muestra con tope por celda, evaluacion sobre TODOS los
     intervalos elegibles de la familia retenida. Promedio de ``seeds`` semillas de muestreo para los
     conteos (se redondean al reportar). Todo lo que el capitulo cita sale de aqui.
