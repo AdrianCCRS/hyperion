@@ -69,6 +69,64 @@ def test_guardarrail_acepta_un_split_loko_valido():
     protocol.assert_no_kernel_leak(df, idx_train, idx_test)
 
 
+def test_leave_mixed_families_out_empareja_familias_puras_sin_fuga():
+    df = pd.DataFrame({
+        "kernel_family": [
+            "compute_a", "compute_a", "compute_b", "compute_b",
+            "memory_a", "memory_a", "memory_b", "memory_b",
+        ],
+        "phase_label_train": [
+            "compute_bound", "compute_bound", "compute_bound", "compute_bound",
+            "memory_bound", "memory_bound", "memory_bound", "memory_bound",
+        ],
+    })
+
+    folds = list(protocol.leave_mixed_families_out(df, seed=7))
+
+    assert len(folds) == 2
+    tested_families = set()
+    for idx_train, idx_test, fold_name in folds:
+        train_families = set(df.iloc[idx_train]["kernel_family"])
+        test_families = set(df.iloc[idx_test]["kernel_family"])
+        assert train_families.isdisjoint(test_families)
+        assert set(df.iloc[idx_test]["phase_label_train"]) == {
+            "compute_bound", "memory_bound",
+        }
+        assert fold_name.startswith("mixed_")
+        tested_families.update(test_families)
+    assert tested_families == set(df["kernel_family"])
+
+
+def test_leave_mixed_families_out_conserva_familia_heterogenea_completa():
+    df = pd.DataFrame({
+        "kernel_family": ["heterogenea", "heterogenea", "compute", "memory"],
+        "phase_label_train": [
+            "compute_bound", "memory_bound", "compute_bound", "memory_bound",
+        ],
+    })
+
+    folds = list(protocol.leave_mixed_families_out(df, seed=11))
+
+    assert len(folds) == 2
+    heterogeneous = next(
+        fold for fold in folds
+        if set(df.iloc[fold[1]]["kernel_family"]) == {"heterogenea"}
+    )
+    assert set(df.iloc[heterogeneous[1]]["phase_label_train"]) == {
+        "compute_bound", "memory_bound",
+    }
+
+
+def test_leave_mixed_families_out_falla_si_solo_hay_una_clase():
+    df = pd.DataFrame({
+        "kernel_family": ["compute_a", "compute_b"],
+        "phase_label_train": ["compute_bound", "compute_bound"],
+    })
+
+    with pytest.raises(ValueError, match="requieren ambas clases"):
+        list(protocol.leave_mixed_families_out(df))
+
+
 def test_fold_summary_reporta_el_peor_kernel_no_solo_la_media():
     scores = {"npb_cg": 0.95, "npb_mg": 0.60, "dgemm_n2048": 0.98}
 
@@ -186,3 +244,11 @@ def test_honest_constant_baseline_exige_al_menos_dos_kernels():
 
     with pytest.raises(ValueError):
         protocol.honest_constant_baseline(edp)
+
+
+def test_derive_kernel_family_new_compute_rajaperf_are_own_families():
+    from fase2_clasificador.eval.protocol import derive_kernel_family
+    assert derive_kernel_family("cpu_rajaperf_basic_pi_reduce") == "rajaperf_basic_pi_reduce"
+    assert derive_kernel_family("cpu_rajaperf_apps_fir") == "rajaperf_apps_fir"
+    # las ya existentes siguen agrupadas por sub-suite
+    assert derive_kernel_family("cpu_rajaperf_basic_daxpy") == "rajaperf_basic"

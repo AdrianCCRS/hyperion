@@ -35,6 +35,7 @@ que ningún número del trabajo llegue a existir fuera del protocolo.
 from __future__ import annotations
 
 import re
+import random
 from collections.abc import Iterator
 
 import numpy as np
@@ -57,6 +58,17 @@ _FAMILY_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"^dual_(?P<algo>[a-z0-9]+)_(cpu|gpu)_N\d+$"), "dual_{algo}"),
     # npb_<name> / npb_<name>_c (clase B vs C del mismo problema) -> npb_<name>.
     (re.compile(r"^npb_(?P<name>[a-z]+)(_c)?$"), "npb_{name}"),
+    # Seis kernels RAJAPerf compute-bound añadidos en la campaña de 2026-09-19:
+    # cada uno es un algoritmo distinto (elementos finitos de arista, filtro FIR,
+    # ensamblaje parcial, matmul por teselas, reducción de pi, integral
+    # trapezoidal), así que cada uno es su propia familia y no se funde con la
+    # sub-suite `basic`.
+    (
+        re.compile(
+            r"^cpu_rajaperf_(?P<k>apps_edge3d|apps_fir|apps_mass3dpa|basic_mat_mat_shared|basic_pi_reduce|basic_trap_int)$"
+        ),
+        "rajaperf_{k}",
+    ),
     # (cpu_|gpu_)?rajaperf_<subsuite>_<resto> -> rajaperf_<subsuite>, solo
     # para las 4 sub-suites que el plan trata como familias con nombre.
     (
@@ -150,6 +162,98 @@ def leave_one_familia_out(
     with_family = df.copy()
     with_family["_familia"] = df[kernel_col].map(family_fn)
     yield from leave_one_kernel_out(with_family, kernel_col="_familia")
+
+
+def leave_mixed_families_out(
+    df: pd.DataFrame,
+    kernel_col: str = "kernel_family",
+    label_col: str = "phase_label_train",
+    seed: int = 20260806,
+) -> Iterator[tuple[np.ndarray, np.ndarray, str]]:
+    """Retiene grupos de familias cuyo conjunto de prueba contiene ambas clases.
+
+    Las familias puras ``compute_bound`` y ``memory_bound`` se emparejan una
+    a una. Una familia que ya contiene ambas clases forma por sí sola un
+    pliegue válido. Si sobran familias puras de una clase, se distribuyen
+    determinísticamente entre pliegues que ya contienen la clase opuesta.
+
+    Ninguna familia se divide entre entrenamiento y prueba. El ``seed`` solo
+    decide el emparejamiento reproducible; nunca mezcla filas de una misma
+    familia. La función falla de forma explícita si el catálogo no permite
+    construir pruebas con soporte para ambas clases.
+    """
+    required = {kernel_col, label_col}
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"faltan columnas para pliegues mixtos: {sorted(missing)}")
+
+    valid = df[[kernel_col, label_col]].dropna()
+    if valid.empty:
+        raise ValueError("no hay filas etiquetadas para construir pliegues mixtos")
+
+    labels = set(valid[label_col].unique())
+    expected = {"compute_bound", "memory_bound"}
+    unexpected = labels - expected
+    if unexpected:
+        raise ValueError(f"etiquetas de fase no reconocidas: {sorted(unexpected)}")
+    if labels != expected:
+        raise ValueError(
+            "los pliegues mixtos requieren ambas clases en el dataset; "
+            f"presentes={sorted(labels)}"
+        )
+
+    family_labels = valid.groupby(kernel_col, sort=True)[label_col].agg(lambda s: frozenset(s))
+    mixed: list[str] = []
+    compute: list[str] = []
+    memory: list[str] = []
+    for family, family_set in family_labels.items():
+        if family_set == expected:
+            mixed.append(family)
+        elif family_set == {"compute_bound"}:
+            compute.append(family)
+        elif family_set == {"memory_bound"}:
+            memory.append(family)
+        else:
+            raise ValueError(f"familia {family!r} sin clase válida: {sorted(family_set)}")
+
+    rng = random.Random(seed)
+    rng.shuffle(compute)
+    rng.shuffle(memory)
+
+    folds: list[list[str]] = [[family] for family in mixed]
+    paired = min(len(compute), len(memory))
+    folds.extend([[compute[i], memory[i]] for i in range(paired)])
+
+    remaining_compute = compute[paired:]
+    remaining_memory = memory[paired:]
+    if remaining_compute:
+        targets = [fold for fold in folds if any(f in memory or f in mixed for f in fold)]
+        if not targets:
+            raise ValueError("no hay familias memory_bound para acompañar las compute_bound sobrantes")
+        for i, family in enumerate(remaining_compute):
+            targets[i % len(targets)].append(family)
+    if remaining_memory:
+        targets = [fold for fold in folds if any(f in compute or f in mixed for f in fold)]
+        if not targets:
+            raise ValueError("no hay familias compute_bound para acompañar las memory_bound sobrantes")
+        for i, family in enumerate(remaining_memory):
+            targets[i % len(targets)].append(family)
+
+    if not folds:
+        raise ValueError("no fue posible construir ningún pliegue mixto")
+
+    values = df[kernel_col].to_numpy()
+    positions = np.arange(len(df))
+    for fold_index, families in enumerate(folds, start=1):
+        held_out = np.isin(values, families)
+        test_labels = set(df.iloc[positions[held_out]][label_col].dropna().unique())
+        if test_labels != expected:
+            raise AssertionError(
+                f"pliegue mixto inválido {fold_index}: familias={sorted(families)}, "
+                f"clases={sorted(test_labels)}"
+            )
+        fold_name = f"mixed_{fold_index:02d}[{'+'.join(sorted(families))}]"
+        yield positions[~held_out], positions[held_out], fold_name
 
 
 def assert_no_familia_leak(
