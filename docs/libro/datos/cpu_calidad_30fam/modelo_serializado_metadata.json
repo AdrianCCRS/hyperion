@@ -1,0 +1,42 @@
+ 10 files changed, 128 insertions(+), 127 deletions(-)
+{
+  "schema": "cpu_selective_candidate/1",
+  "model": "xgboost",
+  "features": [
+    "ipc",
+    "mpki",
+    "cache_miss_rate",
+    "stall_mem_ratio",
+    "ips",
+    "freq_khz_observed",
+    "cache_references_per_ki",
+    "cache_references_per_cycle",
+    "cache_misses_per_cycle",
+    "stalls_mem_per_ki",
+    "stalls_mem_per_cache_miss",
+    "log1p_mpki"
+  ],
+  "frequency_feature": "freq_khz_observed",
+  "quality_only_features": [
+    "delta_enabled_ns",
+    "delta_running_ns",
+    "running_ratio"
+  ],
+  "training_weight": "equal total weight per observed family×class cell",
+  "xgboost_scale_pos_weight": 1.0,
+  "decision": {
+    "threshold": 0.9,
+    "automatic": "confidence >= threshold",
+    "otherwise": "revisar"
+  },
+  "threshold_selection": {
+    "scheme": "LOFO interno",
+    "f1_macro_mean": 0.6788380918094169,
+    "coverage_mean": 0.671782828281682,
+    "minimum_coverage": 0.6
+  },
+  "n_rows": 42014,
+  "n_families": 30,
+  "source": "/home/latorresn/hyperion-results/final/training/cpu_quality_30fam_20260920/source30.csv",
+  "seed": 20260918
+}
