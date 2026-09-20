@@ -568,13 +568,102 @@ Una restricción es innegociable y se implementa como comprobación dura, no com
 
 El resultado del análisis es una propuesta, no una decisión automática. La selección final se revisa y se \textbf{congela} en un contrato versionado por dispositivo, que registra las columnas admitidas y el instante de congelación, y contra el cual se verifica el entrenamiento posterior. Los descartes y su motivo se documentan como parte del método, dado que constituyen evidencia de que la reducción de columnas obedeció a un criterio declarado y no a un ajuste posterior al resultado.
 
-\section{Fase 2: Desarrollo del modelo de aprendizaje automático}
+\section{Fase 2. Desarrollo del modelo de aprendizaje automático}
+\label{sec:metodologia-modelo}
 
-En esta fase se desarrollan las técnicas de análisis orientadas a la construcción de un modelo predictivo capaz de identificar el comportamiento de la carga de trabajo en tiempo de ejecución. El proceso de preprocesamiento incluye la limpieza, la normalización y la selección de características relevantes, partiendo del conjunto de datos producido en la Fase 1 y aplicando sobre él los criterios de filtrado a partir de las anotaciones de calidad descritas en la Tabla \ref{tab:calidad}. Para GPU, este proceso ya se ejecutó (sección \ref{sec:resultados-gpu-separabilidad}); para CPU permanece pendiente.
+El problema se formuló como una clasificación supervisada binaria independiente por dispositivo. En CPU, cada observación corresponde a un intervalo real del controlador de memoria y no a una ventana de núcleo de aproximadamente 1~ms. La salida del modelo es la probabilidad de la clase \textit{memory-bound}; la clase \textit{compute-bound} corresponde a su complemento. La etiqueta objetivo se obtuvo fuera de línea con la regla Roofline descrita en la sección \ref{sec:intensidad}. Ninguno de sus insumos se utilizó como entrada del clasificador.
 
-El problema se formula como una tarea de clasificación supervisada binaria, donde el modelo recibe como entrada un vector de telemetría --- correspondiente a una ventana de ejecución en CPU, o a una corrida completa en GPU (sección \ref{sec:resultados-gpu-separabilidad}) --- y produce como salida la etiqueta de régimen. Dado que el sistema debe operar en tiempo de ejecución, se prioriza el uso de modelos de baja complejidad computacional, entre ellos árboles de decisión, bosques aleatorios, regresión logística y ensambles potenciados, comparados mediante métricas de clasificación y latencia de inferencia medida.
+\subsection{Construcción de las variables de entrada CPU}
+\label{sec:metodologia-features-cpu}
 
-Un criterio metodológico relevante en esta fase es la estrategia de partición del conjunto de datos. Dado que las observaciones provenientes de una misma corrida no son independientes entre sí, una partición aleatoria a nivel de observación produciría una estimación optimista de la capacidad de generalización. Por ello, la partición se realiza a nivel de familia algorítmica (\textit{leave-one-familia-out} para GPU), de modo que la evaluación mida la capacidad del modelo para generalizar hacia algoritmos no observados. A partir de este análisis se selecciona el modelo que represente el mejor compromiso entre desempeño predictivo y costo de inferencia, y se serializa para su integración en el sistema de control.
+Las tasas base se recalcularon a partir de los deltas agregados dentro de cada intervalo \textit{uncore}. Este procedimiento evita promediar cocientes calculados sobre ventanas con cantidades de trabajo diferentes. Sean $N_{\mathrm{inst}}$, $N_{\mathrm{cyc}}$, $N_{\mathrm{ref}}$, $N_{\mathrm{miss}}$ y $N_{\mathrm{stall}}$ los conteos agregados de instrucciones, ciclos, referencias de caché, fallos de caché y ciclos detenidos por memoria, respectivamente. Sea $\Delta t$ la duración del intervalo en segundos. Las seis variables base se calcularon como:
+
+\begin{align}
+\mathrm{IPC} &= \frac{N_{\mathrm{inst}}}{N_{\mathrm{cyc}}}, &
+\mathrm{MPKI} &= 1000\frac{N_{\mathrm{miss}}}{N_{\mathrm{inst}}}, \\
+r_{\mathrm{miss}} &= \frac{N_{\mathrm{miss}}}{N_{\mathrm{ref}}}, &
+r_{\mathrm{stall}} &= \frac{N_{\mathrm{stall}}}{N_{\mathrm{cyc}}}, \\
+\mathrm{IPS} &= \frac{N_{\mathrm{inst}}}{\Delta t}, &
+f_{\mathrm{obs}} &= \operatorname{mediana}(f_1,\ldots,f_m).
+\label{eq:features-base-cpu}
+\end{align}
+
+La frecuencia observada $f_{\mathrm{obs}}$ es la mediana de las $m$ lecturas de frecuencia de las ventanas cubiertas por el intervalo. Se conservó como covariable porque la misma carga puede cambiar de posición respecto del \textit{ridge} cuando cambia el techo de cómputo. No representa la frecuencia solicitada ni identifica el nivel nominal del manifiesto.
+
+La representación ampliada añadió seis transformaciones calculables con los mismos contadores, sin incorporar FLOPs ni tráfico de DRAM. Estas transformaciones fueron referencias de caché por millar de instrucciones, referencias por ciclo, fallos por ciclo, ciclos detenidos por millar de instrucciones, ciclos detenidos por fallo de caché y $\log(1+\mathrm{MPKI})$. Los cocientes cuyo denominador era cero se marcaron como indefinidos y no se imputaron. Las columnas de tiempo habilitado, tiempo corrido y su cociente se emplearon exclusivamente para aceptar o rechazar contadores. Tampoco ingresaron al modelo los identificadores de kernel, corrida, repetición, nivel nominal o intervalo, dado que podrían actuar como huellas del experimento.
+
+\subsection{Auditoría de correlación y colinealidad}
+\label{sec:metodologia-correlacion-cpu}
+
+La auditoría se ejecutó sobre los 1\,169\,833 intervalos elegibles antes de realizar el submuestreo de evaluación. Para cada par de columnas numéricas se calcularon la correlación lineal de Pearson y la correlación de rangos de Spearman. Un par se marcó cuando el valor absoluto de cualquiera de las dos medidas superó 0.85. Después de retirar una variable por par marcado se calculó el factor de inflación de la varianza de cada columna restante:
+
+\begin{equation}
+\mathrm{VIF}_j = \frac{1}{1-R_j^2},
+\label{eq:vif-cpu}
+\end{equation}
+
+donde $R_j^2$ se obtiene al ajustar la columna $j$ mediante una regresión lineal sobre las demás columnas estandarizadas. Se adoptó 10 como umbral de alerta. El reporte automático se utilizó como diagnóstico y no como selector ciego. La revisión final prefirió tasas normalizadas frente a deltas crudos que dependen de la duración del intervalo y retiró las cantidades reservadas para control de calidad.
+
+\subsection{Submuestreo reproducible y ponderación}
+\label{sec:metodologia-muestreo-cpu}
+
+La evaluación anidada completa sobre más de un millón de intervalos repetidos dentro de 24 familias no aportaba 24 veces más evidencia de generalización. Para controlar el costo y el dominio por volumen se limitó cada celda observada de familia y clase a 1000 intervalos. Dentro de cada celda se generó un orden pseudoaleatorio con semilla 20260918 y se conservaron los primeros $\min(n_{fc},1000)$ elementos. Si una celda contenía menos de 1000 intervalos, se retuvieron todos. Si una clase no existía en una familia, no se fabricaron observaciones. La selección produjo 36\,310 intervalos distribuidos entre las 24 familias.
+
+El muestreo limita el número de filas, pero no iguala por sí mismo la contribución de todas las celdas. Durante cada ajuste se asignó a la observación $i$, perteneciente a la familia $f$ y la clase $c$, un peso inverso al tamaño de su celda:
+
+\begin{equation}
+w_i = \frac{1/n_{fc}}{\frac{1}{N}\sum_{k=1}^{N}1/n_{f_kc_k}}.
+\label{eq:peso-familia-clase}
+\end{equation}
+
+La normalización del denominador hace que el peso medio sea uno y no altera la masa relativa entre celdas. La suma de pesos de cada celda observada resulta igual, con independencia de si contiene 5, 100 o 1000 intervalos. XGBoost se configuró con \texttt{scale\_pos\_weight=1.0}, puesto que aplicar simultáneamente una segunda corrección global por clase habría balanceado dos veces los mismos ejemplos.
+
+\subsection{Validación anidada por familia}
+\label{sec:metodologia-lofo-cpu}
+
+La partición externa siguió un esquema \textit{leave-one-family-out} con 24 pliegues. En cada pliegue se retiró por completo una familia algorítmica y se impidió que participara en el ajuste, la selección de representación o la elección del umbral. Sobre las 23 familias restantes se ejecutó otro LOFO para comparar la representación base con la representación de interacciones y los umbrales $\{0.50,0.55,\ldots,0.90\}$. El modelo utilizado en esta selección corta fue XGBoost con 100 árboles, profundidad máxima 6, semilla 20260918 y los pesos de la ecuación \eqref{eq:peso-familia-clase}. No se inició una nueva búsqueda masiva de hiperparámetros.
+
+Sea $p_i$ la probabilidad estimada de \textit{memory-bound}. La confianza y la regla selectiva se definieron como:
+
+\begin{align}
+q_i &= \max(p_i,1-p_i), \\
+\widehat{y}_i &=
+\begin{cases}
+\textit{memory-bound}, & p_i\geq 0.5\ \land\ q_i\geq\tau,\\
+\textit{compute-bound}, & p_i<0.5\ \land\ q_i\geq\tau,\\
+\textit{revisar}, & q_i<\tau.
+\end{cases}
+\label{eq:decision-selectiva-cpu}
+\end{align}
+
+Para cada combinación se calculó la F1 macro media entre familias y la cobertura media entre familias. Solo se consideraron combinaciones con cobertura media mínima de 0.60. Se eligió la de mayor F1 macro media; los empates se resolvieron por mayor cobertura y luego por menor umbral. La cobertura y la F1 macro se calcularon como:
+
+\begin{align}
+\mathrm{Cobertura}(\tau) &= \frac{\sum_i \mathbb{1}(q_i\geq\tau)}{N}, \\
+F1_{\mathrm{macro}} &= \frac{F1_{\mathrm{compute}}+F1_{\mathrm{memory}}}{2}, \\
+F1_c &= \frac{2P_cR_c}{P_c+R_c}.
+\label{eq:metricas-selectivas-cpu}
+\end{align}
+
+La F1 de cada clase y la exactitud se calcularon solo sobre las observaciones cubiertas. Los casos con salida \textit{revisar} se contabilizaron por separado y nunca como aciertos.
+
+\paragraph{Métrica de reporte.} La medida principal es la exactitud balanceada por celda de familia y clase. Sea $\mathcal{C}$ el conjunto de celdas $(f,c)$ observadas, con $n_{fc}$ intervalos cada una, y sea $a_{fc}$ el número de esos intervalos clasificados correctamente:
+
+\begin{equation}
+\mathrm{EB} = \frac{1}{|\mathcal{C}|}\sum_{(f,c)\in\mathcal{C}} \frac{a_{fc}}{n_{fc}}.
+\label{eq:exactitud-balanceada-celda}
+\end{equation}
+
+Esta medida asigna la misma importancia a cada combinación de familia y clase, de modo que no depende del número de intervalos que aporte una familia ni de la proporción entre clases dentro de ella, y está definida cuando una familia contiene una sola clase. Se descartó promediar la F1 macro calculada dentro de cada familia porque en una familia de una sola clase la clase ausente recibe F1 igual a cero y el promedio queda acotado a 0.5 aun con clasificación perfecta, lo que confunde dificultad de clasificación con composición del catálogo. Como referencia comparable con la literatura se reporta además la F1 macro agrupada, obtenida al concatenar todas las predicciones externas, junto con la exactitud, la precisión y la sensibilidad por clase, la exactitud balanceada clásica, el área bajo la curva ROC y el coeficiente de Matthews, definidos en la Tabla \ref{tab:cpu-metricas-definicion}.
+
+La incertidumbre se informa por dos vías. La variabilidad debida al submuestreo se estimó repitiendo la evaluación completa con cinco semillas. La variabilidad debida a la composición del catálogo se estimó mediante remuestreo con reemplazo de las 24 familias, con 2000 réplicas, del que se derivan los intervalos de confianza del 95\% y las comparaciones pareadas entre configuraciones.
+
+\subsection{Congelación y auditoría del candidato CPU}
+\label{sec:metodologia-congelacion-cpu}
+
+Terminada la evaluación anidada se fijó la representación con interacciones y se repitió el LOFO interno sobre las 24 familias para obtener un único umbral operativo. El umbral se congeló antes de auditar errores por familia y frecuencia. El modelo serializado se ajustó sobre los 36\,310 intervalos con el mismo vector de 12 entradas, ponderación y semilla. Para producir predicciones fuera de muestra, la auditoría reajustó el mismo XGBoost en las 23 familias restantes de cada pliegue y predijo la familia retenida. La representación, los hiperparámetros y el umbral permanecieron fijos y no se modificaron a partir de esos resultados.
+
+En GPU se aplicó el mismo principio de separación por familia, pero la unidad de observación fue una corrida completa resumida mediante estadísticos de NVML. Esta diferencia responde a la granularidad disponible para construir la etiqueta y no convierte las lecturas repetidas de una misma corrida en ejemplos independientes.
 
 \section{Fase 3: Implementación del agente de control DVFS}
 

@@ -1,0 +1,4 @@
+threshold_equiv,coverage,cell_balanced_acc,recall_compute,recall_memory,pooled_f1_macro,pooled_accuracy,mean_family_accuracy
+0.7,0.8704991153115459,0.7063,0.5384,0.833,0.691,0.7364,0.7713
+0.85,0.7362461407504148,0.7085,0.5382,0.8329,0.6909,0.7362,0.7717
+0.95,0.5600584186129527,0.7094,0.5374,0.8329,0.6905,0.736,0.7719

@@ -1,0 +1,4 @@
+subset,n_families,cell_balanced_acc,recall_compute,recall_memory,pooled_f1_macro,pooled_accuracy,mean_family_accuracy,sd_cell_bal
+all,30,0.7273,0.7094,0.8495,0.7823,0.794,0.8175,0.0088
+old24,24,0.7133,0.6463,0.8495,0.7507,0.7829,0.7908,0.0069
+new6,6,0.7788,0.8925,0.5654,0.4755,0.8923,0.9245,0.0281

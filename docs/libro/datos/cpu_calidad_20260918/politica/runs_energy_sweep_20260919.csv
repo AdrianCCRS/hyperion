@@ -1,0 +1,236 @@
+run,kernel_ref,level,rep,elapsed_ns,pkg_uj,dram_uj,n_compute,n_memory,freq_applied,accepted,cmd_args
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_edge3d__F0__rep01,cpu_rajaperf_apps_edge3d,F0,1,8087200000.0,864964338,46922621,7466,0,3200000,True,--repfact 2
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_edge3d__F0__rep02,cpu_rajaperf_apps_edge3d,F0,2,8090980000.0,862604603,46651260,7465,0,3200000,True,--repfact 2
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_edge3d__F0__rep03,cpu_rajaperf_apps_edge3d,F0,3,8092610000.0,858577087,47082461,7480,0,3200000,True,--repfact 2
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_edge3d__F1__rep01,cpu_rajaperf_apps_edge3d,F1,1,8900580000.0,888630781,51867383,8275,0,2900000,True,--repfact 2
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_edge3d__F1__rep02,cpu_rajaperf_apps_edge3d,F1,2,8884260000.0,893346407,51424983,8272,0,2900000,True,--repfact 2
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_edge3d__F1__rep03,cpu_rajaperf_apps_edge3d,F1,3,8888480000.0,893034823,52005480,8277,0,2900000,True,--repfact 2
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_edge3d__F2__rep01,cpu_rajaperf_apps_edge3d,F2,1,9890140000.0,948015273,57816986,9279,0,2600000,True,--repfact 2
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_edge3d__F2__rep02,cpu_rajaperf_apps_edge3d,F2,2,9897400000.0,947453812,57918762,9282,0,2600000,True,--repfact 2
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_edge3d__F2__rep03,cpu_rajaperf_apps_edge3d,F2,3,9895210000.0,947768387,57842185,9274,0,2600000,True,--repfact 2
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_edge3d__F3__rep01,cpu_rajaperf_apps_edge3d,F3,1,11158200000.0,1044251782,65728249,10538,0,2300000,True,--repfact 2
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_edge3d__F3__rep02,cpu_rajaperf_apps_edge3d,F3,2,11193600000.0,1047390141,65680513,10570,0,2300000,True,--repfact 2
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_edge3d__F3__rep03,cpu_rajaperf_apps_edge3d,F3,3,11157300000.0,1044358654,65226088,10537,0,2300000,True,--repfact 2
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_edge3d__F4__rep01,cpu_rajaperf_apps_edge3d,F4,1,12796400000.0,1141420357,74947081,12180,0,2000000,True,--repfact 2
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_edge3d__F4__rep02,cpu_rajaperf_apps_edge3d,F4,2,12801400000.0,1140380992,75470968,12187,0,2000000,True,--repfact 2
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_edge3d__F4__rep03,cpu_rajaperf_apps_edge3d,F4,3,12821500000.0,1140501291,75407947,12196,0,2000000,True,--repfact 2
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_edge3d__F5__rep01,cpu_rajaperf_apps_edge3d,F5,1,15044600000.0,1303586567,89025941,14423,0,1700000,True,--repfact 2
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_edge3d__F5__rep02,cpu_rajaperf_apps_edge3d,F5,2,15040800000.0,1302550254,89120006,14423,0,1700000,True,--repfact 2
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_edge3d__F5__rep03,cpu_rajaperf_apps_edge3d,F5,3,15118700000.0,1300183500,89009035,14482,0,1700000,True,--repfact 2
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_edge3d__F6__rep01,cpu_rajaperf_apps_edge3d,F6,1,18429100000.0,1552136407,108974602,17806,0,1400000,True,--repfact 2
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_edge3d__F6__rep02,cpu_rajaperf_apps_edge3d,F6,2,18268000000.0,1542485126,108237066,17647,0,1400000,True,--repfact 2
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_edge3d__F6__rep03,cpu_rajaperf_apps_edge3d,F6,3,18271400000.0,1517075279,108099121,17641,0,1400000,True,--repfact 2
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_edge3d__F7__rep01,cpu_rajaperf_apps_edge3d,F7,1,23370400000.0,1914857525,139021492,22754,0,1100000,True,--repfact 2
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_edge3d__F7__rep02,cpu_rajaperf_apps_edge3d,F7,2,23323600000.0,1912223865,137340680,22714,0,1100000,True,--repfact 2
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_edge3d__F7__rep03,cpu_rajaperf_apps_edge3d,F7,3,23312700000.0,1914158552,137562422,22677,0,1100000,True,--repfact 2
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_edge3d__F8__rep01,cpu_rajaperf_apps_edge3d,F8,1,32305400000.0,2584180762,192609359,31663,26,800000,True,--repfact 2
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_edge3d__F8__rep02,cpu_rajaperf_apps_edge3d,F8,2,32299200000.0,2588424038,191845659,31643,25,800000,True,--repfact 2
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_edge3d__F8__rep03,cpu_rajaperf_apps_edge3d,F8,3,32281800000.0,2586619233,192992716,31645,26,800000,True,--repfact 2
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_edge3d__REF__rep01,cpu_rajaperf_apps_edge3d,REF,1,8074790000.0,859599056,46750619,7650,34,,True,--repfact 2
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_edge3d__REF__rep02,cpu_rajaperf_apps_edge3d,REF,2,8093500000.0,864184067,47174046,7678,32,,True,--repfact 2
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_edge3d__REF__rep03,cpu_rajaperf_apps_edge3d,REF,3,8084790000.0,866800576,46941456,7649,35,,True,--repfact 2
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_fir__F0__rep01,cpu_rajaperf_apps_fir,F0,1,4708940000.0,488254182,27331644,4087,0,3200000,True,--repfact 25
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_fir__F0__rep02,cpu_rajaperf_apps_fir,F0,2,4714330000.0,487966890,27518167,4093,0,3200000,True,--repfact 25
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_fir__F0__rep03,cpu_rajaperf_apps_fir,F0,3,4710580000.0,488361970,27639358,4089,0,3200000,True,--repfact 25
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_fir__F1__rep01,cpu_rajaperf_apps_fir,F1,1,5154770000.0,503260919,30588112,4539,0,2900000,True,--repfact 25
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_fir__F1__rep02,cpu_rajaperf_apps_fir,F1,2,5148010000.0,502135250,30147503,4535,0,2900000,True,--repfact 25
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_fir__F1__rep03,cpu_rajaperf_apps_fir,F1,3,5168600000.0,503416069,29937235,4543,0,2900000,True,--repfact 25
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_fir__F2__rep01,cpu_rajaperf_apps_fir,F2,1,5706620000.0,534942722,33270477,5094,0,2600000,True,--repfact 25
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_fir__F2__rep02,cpu_rajaperf_apps_fir,F2,2,5714260000.0,537567105,35074975,5103,0,2600000,True,--repfact 25
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_fir__F2__rep03,cpu_rajaperf_apps_fir,F2,3,5710920000.0,535725985,34319567,5099,0,2600000,True,--repfact 25
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_fir__F3__rep01,cpu_rajaperf_apps_fir,F3,1,6415120000.0,587544394,37756957,5803,0,2300000,True,--repfact 25
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_fir__F3__rep02,cpu_rajaperf_apps_fir,F3,2,6437070000.0,588021993,37500025,5807,0,2300000,True,--repfact 25
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_fir__F3__rep03,cpu_rajaperf_apps_fir,F3,3,6435620000.0,589926712,38316708,5819,0,2300000,True,--repfact 25
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_fir__F4__rep01,cpu_rajaperf_apps_fir,F4,1,7350150000.0,651210613,43169945,6728,0,2000000,True,--repfact 25
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_fir__F4__rep02,cpu_rajaperf_apps_fir,F4,2,7340370000.0,644807492,43193690,6731,0,2000000,True,--repfact 25
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_fir__F4__rep03,cpu_rajaperf_apps_fir,F4,3,7349140000.0,645401851,43937500,6727,0,2000000,True,--repfact 25
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_fir__F5__rep01,cpu_rajaperf_apps_fir,F5,1,8605220000.0,733553603,50650497,7982,0,1700000,True,--repfact 25
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_fir__F5__rep02,cpu_rajaperf_apps_fir,F5,2,8616710000.0,734124647,50764910,7992,0,1700000,True,--repfact 25
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_fir__F5__rep03,cpu_rajaperf_apps_fir,F5,3,8599880000.0,733262527,50706892,7984,0,1700000,True,--repfact 25
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_fir__F6__rep01,cpu_rajaperf_apps_fir,F6,1,10397700000.0,866666909,62098844,9785,0,1400000,True,--repfact 25
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_fir__F6__rep02,cpu_rajaperf_apps_fir,F6,2,10405900000.0,867628577,61636754,9786,0,1400000,True,--repfact 25
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_fir__F6__rep03,cpu_rajaperf_apps_fir,F6,3,10409000000.0,866198100,60863232,9796,0,1400000,True,--repfact 25
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_fir__F7__rep01,cpu_rajaperf_apps_fir,F7,1,13236600000.0,1078616136,79267234,12619,0,1100000,True,--repfact 25
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_fir__F7__rep02,cpu_rajaperf_apps_fir,F7,2,13224500000.0,1077012197,79107426,12606,0,1100000,True,--repfact 25
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_fir__F7__rep03,cpu_rajaperf_apps_fir,F7,3,13213900000.0,1076378958,78413158,12607,0,1100000,True,--repfact 25
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_fir__F8__rep01,cpu_rajaperf_apps_fir,F8,1,18202500000.0,1450680124,108633289,17538,53,800000,True,--repfact 25
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_fir__F8__rep02,cpu_rajaperf_apps_fir,F8,2,18217700000.0,1452513127,108319869,17552,54,800000,True,--repfact 25
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_fir__F8__rep03,cpu_rajaperf_apps_fir,F8,3,18251600000.0,1454024965,110604450,17567,59,800000,True,--repfact 25
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_fir__REF__rep01,cpu_rajaperf_apps_fir,REF,1,4697570000.0,485120829,27147861,4263,46,,True,--repfact 25
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_fir__REF__rep02,cpu_rajaperf_apps_fir,REF,2,4697570000.0,486185523,27443304,4257,55,,True,--repfact 25
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_fir__REF__rep03,cpu_rajaperf_apps_fir,REF,3,4701610000.0,486207069,27735886,4265,47,,True,--repfact 25
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_mass3dpa__F0__rep01,cpu_rajaperf_apps_mass3dpa,F0,1,5372830000.0,565793169,32095958,4762,0,3200000,True,--repfact 150
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_mass3dpa__F0__rep02,cpu_rajaperf_apps_mass3dpa,F0,2,5437260000.0,571793397,33015334,4823,0,3200000,True,--repfact 150
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_mass3dpa__F0__rep03,cpu_rajaperf_apps_mass3dpa,F0,3,5398050000.0,568842538,32988789,4787,0,3200000,True,--repfact 150
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_mass3dpa__F1__rep01,cpu_rajaperf_apps_mass3dpa,F1,1,5953010000.0,594067144,36186014,5341,0,2900000,True,--repfact 150
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_mass3dpa__F1__rep02,cpu_rajaperf_apps_mass3dpa,F1,2,5939260000.0,595224916,37548694,5330,0,2900000,True,--repfact 150
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_mass3dpa__F1__rep03,cpu_rajaperf_apps_mass3dpa,F1,3,5974430000.0,595550417,35817116,5362,0,2900000,True,--repfact 150
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_mass3dpa__F2__rep01,cpu_rajaperf_apps_mass3dpa,F2,1,6541860000.0,626294234,39775257,5929,0,2600000,True,--repfact 150
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_mass3dpa__F2__rep02,cpu_rajaperf_apps_mass3dpa,F2,2,6559570000.0,628209757,39129382,5947,0,2600000,True,--repfact 150
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_mass3dpa__F2__rep03,cpu_rajaperf_apps_mass3dpa,F2,3,6530430000.0,622991997,39489009,5916,0,2600000,True,--repfact 150
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_mass3dpa__F3__rep01,cpu_rajaperf_apps_mass3dpa,F3,1,7375770000.0,684706316,46599179,6767,0,2300000,True,--repfact 150
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_mass3dpa__F3__rep02,cpu_rajaperf_apps_mass3dpa,F3,2,7383120000.0,684639177,44581507,6757,0,2300000,True,--repfact 150
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_mass3dpa__F3__rep03,cpu_rajaperf_apps_mass3dpa,F3,3,7342460000.0,677599218,44577055,6716,0,2300000,True,--repfact 150
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_mass3dpa__F4__rep01,cpu_rajaperf_apps_mass3dpa,F4,1,8429580000.0,759777413,51754423,7807,0,2000000,True,--repfact 150
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_mass3dpa__F4__rep02,cpu_rajaperf_apps_mass3dpa,F4,2,8395710000.0,756351396,50391545,7787,0,2000000,True,--repfact 150
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_mass3dpa__F4__rep03,cpu_rajaperf_apps_mass3dpa,F4,3,8433950000.0,758527294,51421097,7821,0,2000000,True,--repfact 150
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_mass3dpa__F5__rep01,cpu_rajaperf_apps_mass3dpa,F5,1,9904600000.0,853118055,59630572,9293,0,1700000,True,--repfact 150
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_mass3dpa__F5__rep02,cpu_rajaperf_apps_mass3dpa,F5,2,9889490000.0,850674580,61166845,9267,0,1700000,True,--repfact 150
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_mass3dpa__F5__rep03,cpu_rajaperf_apps_mass3dpa,F5,3,9880230000.0,851633074,61070853,9273,0,1700000,True,--repfact 150
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_mass3dpa__F6__rep01,cpu_rajaperf_apps_mass3dpa,F6,1,11961200000.0,1005300466,74144733,11349,0,1400000,True,--repfact 150
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_mass3dpa__F6__rep02,cpu_rajaperf_apps_mass3dpa,F6,2,11921200000.0,1002516843,72719569,11307,0,1400000,True,--repfact 150
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_mass3dpa__F6__rep03,cpu_rajaperf_apps_mass3dpa,F6,3,11954700000.0,1003270442,73657795,11334,0,1400000,True,--repfact 150
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_mass3dpa__F7__rep01,cpu_rajaperf_apps_mass3dpa,F7,1,15205800000.0,1246061691,92631479,14577,0,1100000,True,--repfact 150
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_mass3dpa__F7__rep02,cpu_rajaperf_apps_mass3dpa,F7,2,15120300000.0,1239190553,91640544,14503,0,1100000,True,--repfact 150
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_mass3dpa__F7__rep03,cpu_rajaperf_apps_mass3dpa,F7,3,15165800000.0,1242832084,92685916,14544,0,1100000,True,--repfact 150
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_mass3dpa__F8__rep01,cpu_rajaperf_apps_mass3dpa,F8,1,21087100000.0,1689204782,128361844,20466,0,800000,True,--repfact 150
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_mass3dpa__F8__rep02,cpu_rajaperf_apps_mass3dpa,F8,2,20908300000.0,1672710928,127395006,20290,0,800000,True,--repfact 150
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_mass3dpa__F8__rep03,cpu_rajaperf_apps_mass3dpa,F8,3,20881600000.0,1669510802,125254536,20267,0,800000,True,--repfact 150
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_mass3dpa__REF__rep01,cpu_rajaperf_apps_mass3dpa,REF,1,5445860000.0,570543217,33842392,5003,30,,True,--repfact 150
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_mass3dpa__REF__rep02,cpu_rajaperf_apps_mass3dpa,REF,2,5408550000.0,569414009,32043479,4991,32,,True,--repfact 150
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_apps_mass3dpa__REF__rep03,cpu_rajaperf_apps_mass3dpa,REF,3,5465070000.0,574626519,33690539,5027,35,,True,--repfact 150
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_mat_mat_shared__F0__rep01,cpu_rajaperf_basic_mat_mat_shared,F0,1,6293600000.0,636871783,36792507,5682,0,3200000,True,--repfact 20
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_mat_mat_shared__F0__rep02,cpu_rajaperf_basic_mat_mat_shared,F0,2,6288460000.0,637100297,36448471,5677,0,3200000,True,--repfact 20
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_mat_mat_shared__F0__rep03,cpu_rajaperf_basic_mat_mat_shared,F0,3,6305910000.0,636466632,36565088,5678,0,3200000,True,--repfact 20
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_mat_mat_shared__F1__rep01,cpu_rajaperf_basic_mat_mat_shared,F1,1,6898250000.0,663193187,40458937,6289,0,2900000,True,--repfact 20
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_mat_mat_shared__F1__rep02,cpu_rajaperf_basic_mat_mat_shared,F1,2,6901820000.0,664440682,40450247,6294,0,2900000,True,--repfact 20
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_mat_mat_shared__F1__rep03,cpu_rajaperf_basic_mat_mat_shared,F1,3,6908580000.0,664101755,40568241,6298,0,2900000,True,--repfact 20
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_mat_mat_shared__F2__rep01,cpu_rajaperf_basic_mat_mat_shared,F2,1,7663230000.0,718270439,44959738,7048,0,2600000,True,--repfact 20
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_mat_mat_shared__F2__rep02,cpu_rajaperf_basic_mat_mat_shared,F2,2,7675080000.0,720289294,45116579,7066,0,2600000,True,--repfact 20
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_mat_mat_shared__F2__rep03,cpu_rajaperf_basic_mat_mat_shared,F2,3,8031110000.0,747446939,47209175,7226,190,2600000,True,--repfact 20
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_mat_mat_shared__F3__rep01,cpu_rajaperf_basic_mat_mat_shared,F3,1,8645860000.0,780596940,50802977,8012,0,2300000,True,--repfact 20
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_mat_mat_shared__F3__rep02,cpu_rajaperf_basic_mat_mat_shared,F3,2,8688930000.0,784076728,51054080,8068,0,2300000,True,--repfact 20
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_mat_mat_shared__F3__rep03,cpu_rajaperf_basic_mat_mat_shared,F3,3,8698590000.0,784247931,51152521,8071,0,2300000,True,--repfact 20
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_mat_mat_shared__F4__rep01,cpu_rajaperf_basic_mat_mat_shared,F4,1,9932210000.0,866018779,58690188,9323,0,2000000,True,--repfact 20
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_mat_mat_shared__F4__rep02,cpu_rajaperf_basic_mat_mat_shared,F4,2,9863450000.0,867670935,57831521,9252,0,2000000,True,--repfact 20
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_mat_mat_shared__F4__rep03,cpu_rajaperf_basic_mat_mat_shared,F4,3,9879550000.0,858753478,58035486,9255,0,2000000,True,--repfact 20
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_mat_mat_shared__F5__rep01,cpu_rajaperf_basic_mat_mat_shared,F5,1,11581400000.0,971068681,68767961,10952,0,1700000,True,--repfact 20
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_mat_mat_shared__F5__rep02,cpu_rajaperf_basic_mat_mat_shared,F5,2,11578400000.0,972186904,68461900,10955,0,1700000,True,--repfact 20
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_mat_mat_shared__F5__rep03,cpu_rajaperf_basic_mat_mat_shared,F5,3,11565400000.0,972420301,68698484,10956,0,1700000,True,--repfact 20
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_mat_mat_shared__F6__rep01,cpu_rajaperf_basic_mat_mat_shared,F6,1,14009600000.0,1149897020,83443982,13400,0,1400000,True,--repfact 20
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_mat_mat_shared__F6__rep02,cpu_rajaperf_basic_mat_mat_shared,F6,2,14029700000.0,1148086172,83453131,13407,0,1400000,True,--repfact 20
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_mat_mat_shared__F6__rep03,cpu_rajaperf_basic_mat_mat_shared,F6,3,14010500000.0,1147333611,83401096,13399,0,1400000,True,--repfact 20
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_mat_mat_shared__F7__rep01,cpu_rajaperf_basic_mat_mat_shared,F7,1,17817300000.0,1434359853,106312876,17204,0,1100000,True,--repfact 20
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_mat_mat_shared__F7__rep02,cpu_rajaperf_basic_mat_mat_shared,F7,2,17827600000.0,1436567001,106375331,17201,13,1100000,True,--repfact 20
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_mat_mat_shared__F7__rep03,cpu_rajaperf_basic_mat_mat_shared,F7,3,17847700000.0,1446524190,105613375,17226,0,1100000,True,--repfact 20
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_mat_mat_shared__F8__rep01,cpu_rajaperf_basic_mat_mat_shared,F8,1,24641700000.0,1962648296,146978379,24017,13,800000,True,--repfact 20
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_mat_mat_shared__F8__rep02,cpu_rajaperf_basic_mat_mat_shared,F8,2,24627200000.0,1964994176,146916888,23992,26,800000,True,--repfact 20
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_mat_mat_shared__F8__rep03,cpu_rajaperf_basic_mat_mat_shared,F8,3,24658100000.0,1964245582,146689255,24010,13,800000,True,--repfact 20
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_mat_mat_shared__REF__rep01,cpu_rajaperf_basic_mat_mat_shared,REF,1,6304690000.0,636477802,36730205,5856,36,,True,--repfact 20
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_mat_mat_shared__REF__rep02,cpu_rajaperf_basic_mat_mat_shared,REF,2,6318570000.0,637811539,36720398,5879,34,,True,--repfact 20
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_mat_mat_shared__REF__rep03,cpu_rajaperf_basic_mat_mat_shared,REF,3,6310440000.0,638303603,36607453,5876,36,,True,--repfact 20
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_pi_reduce__F0__rep01,cpu_rajaperf_basic_pi_reduce,F0,1,4857280000.0,471521254,27124146,4238,0,3200000,True,--repfact 400
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_pi_reduce__F0__rep02,cpu_rajaperf_basic_pi_reduce,F0,2,4815520000.0,469736590,27149467,4207,0,3200000,True,--repfact 400
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_pi_reduce__F0__rep03,cpu_rajaperf_basic_pi_reduce,F0,3,4817120000.0,470571366,27115548,4209,0,3200000,True,--repfact 400
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_pi_reduce__F1__rep01,cpu_rajaperf_basic_pi_reduce,F1,1,5285380000.0,492564352,29805792,4674,0,2900000,True,--repfact 400
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_pi_reduce__F1__rep02,cpu_rajaperf_basic_pi_reduce,F1,2,5285530000.0,492111350,29746826,4675,0,2900000,True,--repfact 400
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_pi_reduce__F1__rep03,cpu_rajaperf_basic_pi_reduce,F1,3,5314470000.0,493105122,29896506,4686,0,2900000,True,--repfact 400
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_pi_reduce__F2__rep01,cpu_rajaperf_basic_pi_reduce,F2,1,5868610000.0,533737831,33286680,5252,0,2600000,True,--repfact 400
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_pi_reduce__F2__rep02,cpu_rajaperf_basic_pi_reduce,F2,2,5858830000.0,532311503,33080926,5252,0,2600000,True,--repfact 400
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_pi_reduce__F2__rep03,cpu_rajaperf_basic_pi_reduce,F2,3,5880640000.0,534889927,33061036,5249,0,2600000,True,--repfact 400
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_pi_reduce__F3__rep01,cpu_rajaperf_basic_pi_reduce,F3,1,6587720000.0,575797232,37552672,5975,0,2300000,True,--repfact 400
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_pi_reduce__F3__rep02,cpu_rajaperf_basic_pi_reduce,F3,2,6591660000.0,575511649,37651755,5979,0,2300000,True,--repfact 400
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_pi_reduce__F3__rep03,cpu_rajaperf_basic_pi_reduce,F3,3,6600030000.0,572801451,37649934,5978,0,2300000,True,--repfact 400
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_pi_reduce__F4__rep01,cpu_rajaperf_basic_pi_reduce,F4,1,7618740000.0,646496636,43744995,6998,0,2000000,True,--repfact 400
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_pi_reduce__F4__rep02,cpu_rajaperf_basic_pi_reduce,F4,2,7558540000.0,642741885,43585018,6944,0,2000000,True,--repfact 400
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_pi_reduce__F4__rep03,cpu_rajaperf_basic_pi_reduce,F4,3,7541550000.0,641508185,42822069,6928,0,2000000,True,--repfact 400
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_pi_reduce__F5__rep01,cpu_rajaperf_basic_pi_reduce,F5,1,8821520000.0,732201617,51043232,8211,0,1700000,True,--repfact 400
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_pi_reduce__F5__rep02,cpu_rajaperf_basic_pi_reduce,F5,2,8827790000.0,732902482,50787126,8206,12,1700000,True,--repfact 400
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_pi_reduce__F5__rep03,cpu_rajaperf_basic_pi_reduce,F5,3,8822050000.0,732575945,50436771,8209,0,1700000,True,--repfact 400
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_pi_reduce__F6__rep01,cpu_rajaperf_basic_pi_reduce,F6,1,10676800000.0,864291793,61934936,10061,0,1400000,True,--repfact 400
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_pi_reduce__F6__rep02,cpu_rajaperf_basic_pi_reduce,F6,2,10677200000.0,866080912,62352335,10067,0,1400000,True,--repfact 400
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_pi_reduce__F6__rep03,cpu_rajaperf_basic_pi_reduce,F6,3,10667800000.0,866332071,61920247,10061,0,1400000,True,--repfact 400
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_pi_reduce__F7__rep01,cpu_rajaperf_basic_pi_reduce,F7,1,13615800000.0,1078057543,79299411,12981,0,1100000,True,--repfact 400
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_pi_reduce__F7__rep02,cpu_rajaperf_basic_pi_reduce,F7,2,13578100000.0,1074738826,79181448,12949,0,1100000,True,--repfact 400
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_pi_reduce__F7__rep03,cpu_rajaperf_basic_pi_reduce,F7,3,13583400000.0,1077384266,79688123,12974,0,1100000,True,--repfact 400
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_pi_reduce__F8__rep01,cpu_rajaperf_basic_pi_reduce,F8,1,18723500000.0,1479819332,109293730,18082,13,800000,True,--repfact 400
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_pi_reduce__F8__rep02,cpu_rajaperf_basic_pi_reduce,F8,2,18697400000.0,1482349354,110391948,18071,14,800000,True,--repfact 400
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_pi_reduce__F8__rep03,cpu_rajaperf_basic_pi_reduce,F8,3,18716200000.0,1472551284,110393340,18087,13,800000,True,--repfact 400
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_pi_reduce__REF__rep01,cpu_rajaperf_basic_pi_reduce,REF,1,4890240000.0,474573736,27374653,4445,35,,True,--repfact 400
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_pi_reduce__REF__rep02,cpu_rajaperf_basic_pi_reduce,REF,2,4821550000.0,470652299,27031810,4400,29,,True,--repfact 400
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_pi_reduce__REF__rep03,cpu_rajaperf_basic_pi_reduce,REF,3,4828160000.0,470483659,27125600,4404,26,,True,--repfact 400
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_trap_int__F0__rep01,cpu_rajaperf_basic_trap_int,F0,1,5760890000.0,539062280,32609548,5151,0,3200000,True,--repfact 200
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_trap_int__F0__rep02,cpu_rajaperf_basic_trap_int,F0,2,5756010000.0,537896084,32598073,5142,0,3200000,True,--repfact 200
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_trap_int__F0__rep03,cpu_rajaperf_basic_trap_int,F0,3,5753220000.0,539123986,32685436,5144,0,3200000,True,--repfact 200
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_trap_int__F1__rep01,cpu_rajaperf_basic_trap_int,F1,1,6388270000.0,584394439,36515485,5761,0,2900000,True,--repfact 200
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_trap_int__F1__rep02,cpu_rajaperf_basic_trap_int,F1,2,6356660000.0,579060713,35819671,5744,0,2900000,True,--repfact 200
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_trap_int__F1__rep03,cpu_rajaperf_basic_trap_int,F1,3,6377230000.0,583610139,36527205,5758,0,2900000,True,--repfact 200
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_trap_int__F2__rep01,cpu_rajaperf_basic_trap_int,F2,1,7040410000.0,622391534,40270487,6432,0,2600000,True,--repfact 200
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_trap_int__F2__rep02,cpu_rajaperf_basic_trap_int,F2,2,7054110000.0,620227966,40527374,6441,0,2600000,True,--repfact 200
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_trap_int__F2__rep03,cpu_rajaperf_basic_trap_int,F2,3,7090850000.0,624610339,40437028,6479,0,2600000,True,--repfact 200
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_trap_int__F3__rep01,cpu_rajaperf_basic_trap_int,F3,1,7959130000.0,678330234,45409237,7335,0,2300000,True,--repfact 200
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_trap_int__F3__rep02,cpu_rajaperf_basic_trap_int,F3,2,7999770000.0,682716636,45980692,7384,0,2300000,True,--repfact 200
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_trap_int__F3__rep03,cpu_rajaperf_basic_trap_int,F3,3,7978940000.0,683228842,45904361,7363,0,2300000,True,--repfact 200
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_trap_int__F4__rep01,cpu_rajaperf_basic_trap_int,F4,1,9189580000.0,765134516,53321831,8571,0,2000000,True,--repfact 200
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_trap_int__F4__rep02,cpu_rajaperf_basic_trap_int,F4,2,9215080000.0,764326595,53430139,8604,0,2000000,True,--repfact 200
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_trap_int__F4__rep03,cpu_rajaperf_basic_trap_int,F4,3,9205430000.0,767293140,52880334,8579,0,2000000,True,--repfact 200
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_trap_int__F5__rep01,cpu_rajaperf_basic_trap_int,F5,1,10786600000.0,877106458,62858872,10161,0,1700000,True,--repfact 200
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_trap_int__F5__rep02,cpu_rajaperf_basic_trap_int,F5,2,10820800000.0,880056036,62041347,10210,0,1700000,True,--repfact 200
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_trap_int__F5__rep03,cpu_rajaperf_basic_trap_int,F5,3,10823800000.0,878821602,62876727,10209,0,1700000,True,--repfact 200
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_trap_int__F6__rep01,cpu_rajaperf_basic_trap_int,F6,1,13123400000.0,1061196074,76031667,12511,0,1400000,True,--repfact 200
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_trap_int__F6__rep02,cpu_rajaperf_basic_trap_int,F6,2,13137100000.0,1065981036,77079074,12527,0,1400000,True,--repfact 200
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_trap_int__F6__rep03,cpu_rajaperf_basic_trap_int,F6,3,13105800000.0,1044798289,76972449,12495,0,1400000,True,--repfact 200
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_trap_int__F7__rep01,cpu_rajaperf_basic_trap_int,F7,1,16648200000.0,1323242462,98619807,16025,12,1100000,True,--repfact 200
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_trap_int__F7__rep02,cpu_rajaperf_basic_trap_int,F7,2,16686000000.0,1323739043,97811752,16052,13,1100000,True,--repfact 200
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_trap_int__F7__rep03,cpu_rajaperf_basic_trap_int,F7,3,16694800000.0,1324318265,98345707,16057,13,1100000,True,--repfact 200
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_trap_int__F8__rep01,cpu_rajaperf_basic_trap_int,F8,1,23172100000.0,1808289011,136747499,22539,13,800000,True,--repfact 200
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_trap_int__F8__rep02,cpu_rajaperf_basic_trap_int,F8,2,23069500000.0,1797292701,136884587,22436,13,800000,True,--repfact 200
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_trap_int__F8__rep03,cpu_rajaperf_basic_trap_int,F8,3,23086800000.0,1804620380,135929867,22445,12,800000,True,--repfact 200
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_trap_int__REF__rep01,cpu_rajaperf_basic_trap_int,REF,1,5759300000.0,538784082,32259530,5335,29,,True,--repfact 200
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_trap_int__REF__rep02,cpu_rajaperf_basic_trap_int,REF,2,5751220000.0,536141938,32578886,5336,31,,True,--repfact 200
+pacca_cpu_compute_sweep_20260919__cpu_rajaperf_basic_trap_int__REF__rep03,cpu_rajaperf_basic_trap_int,REF,3,5765460000.0,540473653,32288508,5351,26,,True,--repfact 200
+pacca_cpu_compute_sweep_20260919__ert_probe__F0__rep00,ert_probe,F0,0,396819000.0,8992287,524056,0,0,3200000,False,
+pacca_cpu_compute_sweep_20260919__ert_probe__F1__rep00,ert_probe,F1,0,384193000.0,8534463,537841,0,0,2900000,False,
+pacca_cpu_compute_sweep_20260919__ert_probe__F2__rep00,ert_probe,F2,0,388834000.0,8430033,552054,0,0,2600000,False,
+pacca_cpu_compute_sweep_20260919__ert_probe__F3__rep00,ert_probe,F3,0,392880000.0,8535196,581981,0,0,2300000,False,
+pacca_cpu_compute_sweep_20260919__ert_probe__F4__rep00,ert_probe,F4,0,410029000.0,8694557,621226,0,0,2000000,False,
+pacca_cpu_compute_sweep_20260919__ert_probe__F5__rep00,ert_probe,F5,0,401227000.0,8607888,631125,0,0,1700000,False,
+pacca_cpu_compute_sweep_20260919__ert_probe__F6__rep00,ert_probe,F6,0,405529000.0,8713722,654381,0,0,1400000,False,
+pacca_cpu_compute_sweep_20260919__ert_probe__F7__rep00,ert_probe,F7,0,419375000.0,9517371,743213,0,0,1100000,False,
+pacca_cpu_compute_sweep_20260919__ert_probe__F8__rep00,ert_probe,F8,0,469758000.0,12256133,966531,0,0,800000,False,
+pacca_cpu_compute_sweep_20260919__ert_probe__REF__rep00,ert_probe,REF,0,395035000.0,9000954,525693,0,0,,True,
+pacca_cpu_compute_sweep_20260919__npb_mg__F0_calibration__rep01,npb_mg,F0_calibration,1,1292600000.0,115360545,15288907,0,0,,True,
+pacca_cpu_compute_sweep_20260919__npb_mg__F0_calibration__rep02,npb_mg,F0_calibration,2,1279890000.0,114431836,15189320,0,0,,True,
+pacca_cpu_compute_sweep_20260919__npb_mg__F0_calibration__rep03,npb_mg,F0_calibration,3,1289770000.0,114358044,15144001,0,0,,True,
+pacca_cpu_compute_sweep_20260919__npb_mg__F0_calibration__rep04,npb_mg,F0_calibration,4,1295960000.0,114817027,15193160,0,0,,True,
+pacca_cpu_compute_sweep_20260919__npb_mg__F0_calibration__rep05,npb_mg,F0_calibration,5,1273640000.0,114034681,15154497,0,0,,True,
+pacca_cpu_compute_sweep_20260919__ptrchase__F0__rep01,ptrchase,F0,1,5048400000.0,432166679,34129771,0,4257,3200000,True,--size-mib 512 --iterations 6 --seed 20260806
+pacca_cpu_compute_sweep_20260919__ptrchase__F0__rep02,ptrchase,F0,2,5050470000.0,433759571,34344950,0,4274,3200000,True,--size-mib 512 --iterations 6 --seed 20260806
+pacca_cpu_compute_sweep_20260919__ptrchase__F0__rep03,ptrchase,F0,3,5052360000.0,433526295,34164533,0,4264,3200000,True,--size-mib 512 --iterations 6 --seed 20260806
+pacca_cpu_compute_sweep_20260919__ptrchase__F1__rep01,ptrchase,F1,1,5088610000.0,423383133,34100809,0,4298,2900000,True,--size-mib 512 --iterations 6 --seed 20260806
+pacca_cpu_compute_sweep_20260919__ptrchase__F1__rep02,ptrchase,F1,2,5098650000.0,424692577,34299326,0,4299,2900000,True,--size-mib 512 --iterations 6 --seed 20260806
+pacca_cpu_compute_sweep_20260919__ptrchase__F1__rep03,ptrchase,F1,3,5074800000.0,421663837,33645343,0,4259,2900000,True,--size-mib 512 --iterations 6 --seed 20260806
+pacca_cpu_compute_sweep_20260919__ptrchase__F2__rep01,ptrchase,F2,1,5156620000.0,418319181,34536659,0,4345,2600000,True,--size-mib 512 --iterations 6 --seed 20260806
+pacca_cpu_compute_sweep_20260919__ptrchase__F2__rep02,ptrchase,F2,2,5148490000.0,417892851,34744067,0,4346,2600000,True,--size-mib 512 --iterations 6 --seed 20260806
+pacca_cpu_compute_sweep_20260919__ptrchase__F2__rep03,ptrchase,F2,3,5163500000.0,417507354,33860965,0,4351,2600000,True,--size-mib 512 --iterations 6 --seed 20260806
+pacca_cpu_compute_sweep_20260919__ptrchase__F3__rep01,ptrchase,F3,1,5189660000.0,415957431,34950876,0,4379,2300000,True,--size-mib 512 --iterations 6 --seed 20260806
+pacca_cpu_compute_sweep_20260919__ptrchase__F3__rep02,ptrchase,F3,2,5236100000.0,418252835,34792965,0,4418,2300000,True,--size-mib 512 --iterations 6 --seed 20260806
+pacca_cpu_compute_sweep_20260919__ptrchase__F3__rep03,ptrchase,F3,3,5231770000.0,420158226,35422499,0,4429,2300000,True,--size-mib 512 --iterations 6 --seed 20260806
+pacca_cpu_compute_sweep_20260919__ptrchase__F4__rep01,ptrchase,F4,1,5339890000.0,420633078,35492833,0,4560,2000000,True,--size-mib 512 --iterations 6 --seed 20260806
+pacca_cpu_compute_sweep_20260919__ptrchase__F4__rep02,ptrchase,F4,2,5344910000.0,419593530,35365169,0,4587,2000000,True,--size-mib 512 --iterations 6 --seed 20260806
+pacca_cpu_compute_sweep_20260919__ptrchase__F4__rep03,ptrchase,F4,3,5305390000.0,417045990,35201292,0,4544,2000000,True,--size-mib 512 --iterations 6 --seed 20260806
+pacca_cpu_compute_sweep_20260919__ptrchase__F5__rep01,ptrchase,F5,1,5489590000.0,426025032,36981370,0,4676,1700000,True,--size-mib 512 --iterations 6 --seed 20260806
+pacca_cpu_compute_sweep_20260919__ptrchase__F5__rep02,ptrchase,F5,2,5471820000.0,421081747,36454759,0,4665,1700000,True,--size-mib 512 --iterations 6 --seed 20260806
+pacca_cpu_compute_sweep_20260919__ptrchase__F5__rep03,ptrchase,F5,3,5445450000.0,419831566,36203977,0,4703,1700000,True,--size-mib 512 --iterations 6 --seed 20260806
+pacca_cpu_compute_sweep_20260919__ptrchase__F6__rep01,ptrchase,F6,1,5684840000.0,433692738,37333010,0,5003,1400000,True,--size-mib 512 --iterations 6 --seed 20260806
+pacca_cpu_compute_sweep_20260919__ptrchase__F6__rep02,ptrchase,F6,2,5714750000.0,438637976,37883044,0,5082,1400000,True,--size-mib 512 --iterations 6 --seed 20260806
+pacca_cpu_compute_sweep_20260919__ptrchase__F6__rep03,ptrchase,F6,3,5684010000.0,434479417,37111512,0,4972,1400000,True,--size-mib 512 --iterations 6 --seed 20260806
+pacca_cpu_compute_sweep_20260919__ptrchase__F7__rep01,ptrchase,F7,1,6097370000.0,467407312,40062331,0,5232,1100000,True,--size-mib 512 --iterations 6 --seed 20260806
+pacca_cpu_compute_sweep_20260919__ptrchase__F7__rep02,ptrchase,F7,2,6049910000.0,461310953,39579279,0,5236,1100000,True,--size-mib 512 --iterations 6 --seed 20260806
+pacca_cpu_compute_sweep_20260919__ptrchase__F7__rep03,ptrchase,F7,3,6124840000.0,468203880,40410130,0,5280,1100000,True,--size-mib 512 --iterations 6 --seed 20260806
+pacca_cpu_compute_sweep_20260919__ptrchase__F8__rep01,ptrchase,F8,1,6937380000.0,530496872,45562574,0,6315,800000,True,--size-mib 512 --iterations 6 --seed 20260806
+pacca_cpu_compute_sweep_20260919__ptrchase__F8__rep02,ptrchase,F8,2,6940570000.0,527334588,45640252,0,6319,800000,True,--size-mib 512 --iterations 6 --seed 20260806
+pacca_cpu_compute_sweep_20260919__ptrchase__F8__rep03,ptrchase,F8,3,6925530000.0,534703405,45872568,0,6312,800000,True,--size-mib 512 --iterations 6 --seed 20260806
+pacca_cpu_compute_sweep_20260919__ptrchase__REF__rep01,ptrchase,REF,1,5045490000.0,432210075,34019014,0,4657,,True,--size-mib 512 --iterations 6 --seed 20260806
+pacca_cpu_compute_sweep_20260919__ptrchase__REF__rep02,ptrchase,REF,2,5064000000.0,432580374,34131638,0,4648,,True,--size-mib 512 --iterations 6 --seed 20260806
+pacca_cpu_compute_sweep_20260919__ptrchase__REF__rep03,ptrchase,REF,3,5018090000.0,430144162,33552732,0,4630,,True,--size-mib 512 --iterations 6 --seed 20260806
+pacca_cpu_compute_sweep_20260919__stream_official__F0__rep00,stream_official,F0,0,1402670000.0,115837472,18044040,0,0,3200000,True,
+pacca_cpu_compute_sweep_20260919__stream_official__F1__rep00,stream_official,F1,0,1405500000.0,111557088,18052837,0,0,2900000,True,
+pacca_cpu_compute_sweep_20260919__stream_official__F2__rep00,stream_official,F2,0,1401910000.0,110020165,18216685,0,0,2600000,True,
+pacca_cpu_compute_sweep_20260919__stream_official__F3__rep00,stream_official,F3,0,1424420000.0,109473353,18415631,0,0,2300000,True,
+pacca_cpu_compute_sweep_20260919__stream_official__F4__rep00,stream_official,F4,0,1443630000.0,109402063,18559114,0,0,2000000,True,
+pacca_cpu_compute_sweep_20260919__stream_official__F5__rep00,stream_official,F5,0,1494830000.0,111372579,18978824,0,0,1700000,True,
+pacca_cpu_compute_sweep_20260919__stream_official__F6__rep00,stream_official,F6,0,1548990000.0,113487686,19478599,0,0,1400000,True,
+pacca_cpu_compute_sweep_20260919__stream_official__F7__rep00,stream_official,F7,0,1668240000.0,121869744,20463903,0,0,1100000,True,
+pacca_cpu_compute_sweep_20260919__stream_official__F8__rep00,stream_official,F8,0,1883860000.0,138466931,22247898,0,0,800000,True,
+pacca_cpu_compute_sweep_20260919__stream_official__REF__rep00,stream_official,REF,0,1360850000.0,114367322,17987705,0,0,,True,

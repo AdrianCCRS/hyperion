@@ -1,0 +1,16 @@
+scope,method,cell_balanced_acc,recall_compute,recall_memory,pooled_f1_macro,pooled_accuracy,mean_family_accuracy,sd_cell_bal
+all,base,0.7153,0.5751,0.8376,0.7109,0.7513,0.7381,0.0096
+all,adapt_start,0.7713,0.856,0.9376,0.8985,0.9108,0.8921,0.0037
+all,adapt_periodic,0.8006,0.9351,0.9672,0.9509,0.9567,0.9262,0.0068
+all,sticky_start,0.6885,0.7789,0.9111,0.8485,0.8676,0.8714,0.0
+all,sticky_periodic,0.6915,0.7197,0.9515,0.8512,0.8752,0.8862,0.0
+mixed_blocks,base,0.623,0.3659,0.9045,0.624,0.6737,0.1579,0.0241
+mixed_blocks,adapt_start,0.7816,0.6966,0.9355,0.8233,0.8331,0.1952,0.0195
+mixed_blocks,adapt_periodic,0.8513,0.9158,0.9222,0.918,0.9194,0.2151,0.0037
+mixed_blocks,sticky_start,0.5063,0.4395,0.6913,0.5648,0.5834,0.1329,0.0
+mixed_blocks,sticky_periodic,0.5207,0.2923,0.8558,0.5555,0.6144,0.1404,0.0
+pure_blocks,base,0.7039,0.6957,0.8166,0.7452,0.7816,0.7113,0.0108
+pure_blocks,adapt_start,0.7635,0.9479,0.9382,0.9304,0.941,0.8724,0.007
+pure_blocks,adapt_periodic,0.7801,0.9462,0.9814,0.9649,0.9712,0.8998,0.0049
+pure_blocks,sticky_start,0.7032,0.9746,0.9801,0.9741,0.9785,0.8923,0.0
+pure_blocks,sticky_periodic,0.6857,0.9661,0.9815,0.9722,0.977,0.9028,0.0

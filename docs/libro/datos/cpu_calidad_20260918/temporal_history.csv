@@ -1,0 +1,5 @@
+variant,n_features,cell_balanced_acc,recall_compute,recall_memory,pooled_f1_macro,pooled_accuracy,mean_family_accuracy,sd_cell_bal
+inter_only,12,0.7071,0.5877,0.8393,0.7177,0.7569,0.7798,0.0039
+inter_hist5,20,0.7195,0.5319,0.8894,0.7223,0.7723,0.8264,0.0074
+inter_hist20,20,0.7035,0.445,0.9263,0.7004,0.7685,0.8207,0.0087
+hist5_only_means,16,0.7196,0.5851,0.8635,0.7311,0.7722,0.8091,0.007

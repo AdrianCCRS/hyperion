@@ -1,0 +1,8 @@
+family,n,true_memory_share,acc,coverage,sel_acc,pred_compute_share,sd_acc
+cpu_rajaperf_apps_edge3d,32761.0,0.0003,0.6922,0.3812,0.7583,0.6923,0.1968
+cpu_rajaperf_apps_fir,18124.0,0.0012,0.6036,0.7842,0.6219,0.6028,0.3175
+cpu_rajaperf_apps_mass3dpa,21114.0,0.0003,0.7461,0.5483,0.7119,0.7458,0.0295
+cpu_rajaperf_basic_mat_mat_shared,24916.0,0.001,0.9302,0.8279,0.9843,0.9308,0.061
+cpu_rajaperf_basic_pi_reduce,16559.0,0.0005,0.9998,1.0,0.9998,0.9996,0.0
+cpu_rajaperf_basic_trap_int,18125.0,0.0005,0.9998,0.9999,0.9998,0.9997,0.0
+ptrchase,10990.0,1.0,0.997,0.9972,0.9984,0.003,0.0008

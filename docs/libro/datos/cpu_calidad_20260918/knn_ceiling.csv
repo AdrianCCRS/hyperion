@@ -1,0 +1,3 @@
+knn_k25,cell_balanced_acc,recall_compute,recall_memory,pooled_f1_macro,pooled_accuracy,mean_family_accuracy
+pmu_only,0.6828,0.7439,0.7215,0.7281,0.7309,0.7369
+with_freq,0.6984,0.7857,0.719,0.7454,0.7472,0.7544
