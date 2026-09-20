@@ -732,6 +732,8 @@ El cuarto es la curva de aprendizaje por número de familias (Figura \ref{fig:cp
 
 Como referencia de límite superior, se evaluó el mismo modelo con la intensidad operacional medida como entrada adicional. Alcanza una exactitud balanceada por celda de 0.9955 (recuperación de 0.998 en compute y 0.997 en memory), frente a 0.709 sin ella. La diferencia no representa una mejora del modelo: la intensidad operacional es, por construcción, la cantidad con la que se define la etiqueta, de modo que incluirla equivale a leerla. Por eso queda excluida del vector de entrada y se reporta solo para mostrar que la brecha entre 0.709 y 1 es información que los contadores de rendimiento no transportan.
 
+Como comprobación adicional, el modelo congelado se evaluó una sola vez sobre seis familias compute inéditas, medidas con el mismo protocolo. La exactitud por familia va de 0.60 a 0.9998 (media de 0.83): acierta en bucles escalares y en la multiplicación de matrices por teselas, y falla en los núcleos de elementos finitos y en los filtros, cuyos contadores se parecen a los de memory. La generalización a una familia compute nueva depende, por tanto, de cuánto se parezca su perfil de contadores a los ya vistos.
+
 \subsubsection{Síntesis del clasificador CPU}
 \label{sec:resultados-cpu-sintesis}
 
