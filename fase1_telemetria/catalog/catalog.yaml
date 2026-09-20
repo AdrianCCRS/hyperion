@@ -545,6 +545,9 @@ kernels:
     role: dataset
     device: gpu
     exec_path: bin/rodinia_gaussian
+    cupti_activity_exec_path: bin/rodinia_gaussian
+    cupti_activity_binary_checksum:
+      pacca-a100: "sha256:396a0777118b360442f2987f8b5447fcd4eac60c4f94500892c82dd79d29677d"
     # ARC-110: -s 4096 (matriz generada internamente) para un runtime de
     # varios segundos -- 6.4s medido en paccaA100 (5.94s de kernels CUDA,
     # el resto transferencias H2D/D2H).
@@ -693,6 +696,9 @@ kernels:
     role: dataset
     device: gpu
     exec_path: bin/rodinia_heartwall
+    cupti_activity_exec_path: bin/rodinia_heartwall
+    cupti_activity_binary_checksum:
+      pacca-a100: "sha256:0693860b0e2b75e010a9a5d2554da58f9b8fd437c2474a72e19142f2876f8f09"
     # ARC-86: video sintetico regenerado con 20000 cuadros en el archivo
     # (antes 25, generate_rodinia_synthetic_inputs.py --heartwall-frames)
     # -- se procesan 1000 de esos 20000 (ver mas abajo por que no los
@@ -735,6 +741,9 @@ kernels:
     role: dataset
     device: gpu
     exec_path: bin/rodinia_lud
+    cupti_activity_exec_path: bin/rodinia_lud
+    cupti_activity_binary_checksum:
+      pacca-a100: "sha256:2b42526c26f72589b9361f70bf57b6926ee4ff86dd4629b7530e458f26a13a32"
     exec_args: "-s 2048 -v"
     # ARC-76: hint = intermedio, no "compute" como se esperaba por ser
     # "algebra lineal densa" (Rodinia solo describe el dominio, no clasifica
@@ -1113,6 +1122,9 @@ kernels:
     device: gpu
     gpu_precision: fp32
     exec_path: bin/rodinia_kmeans
+    cupti_activity_exec_path: bin/rodinia_kmeans
+    cupti_activity_binary_checksum:
+      pacca-a100: "sha256:368505ca8beb4b7bf0c69755d9df4d3b98c5c1f60d20771bab2fc4720d500b56"
     exec_args: "-i data/kmeans/kmeans_synth_N350000_D34_K200.txt -m 200 -n 200 -l 1300"
     phase_label_hint: compute_bound
     size_variant: "N350000_D34_K200_l1300"
@@ -1160,6 +1172,9 @@ kernels:
     device: gpu
     gpu_precision: fp32
     exec_path: bin/minibude_cuda
+    cupti_activity_exec_path: bin/minibude_cuda
+    cupti_activity_binary_checksum:
+      pacca-a100: "sha256:de35e0f33fb7a478d9a8317c38a16d8e3c71da4972c861809993970dd2928dc5"
     exec_args: "--deck data/minibude/bm1 -i 37"
     phase_label_hint: compute_bound
     operational_intensity_flops_per_byte: 25582.5597
@@ -1400,6 +1415,12 @@ kernels:
     role: dataset
     device: gpu
     exec_path: bin/gpu_rajaperf_stream_triad
+    cupti_activity_exec_path: /home/latorresn/hyperion-kernels/libexec/raja-perf-cuda-v2025.12.1
+    cupti_activity_binary_checksum:
+      pacca-a100: "sha256:4803d205ec61a129f6901508779bd73a415f49604538bac70bfb877bbafbf067"
+    cupti_activity_exec_args: "--warmup-disable -k Stream_TRIAD -v Base_CUDA --sizefact 400 --outdir ."
+    cupti_activity_success_check: {type: exit_code, expected: 0}
+    cupti_activity_workdir: run_dir
     phase_label_hint: memory_bound  # OI de sizefact100=0.0831 << ridge fp64 (3.36); pendiente reverificar con ncu a sizefact400 (F1-GPU-006), pero para stream ~lineal la OI no deberia moverse
     operational_intensity_flops_per_byte: 0.0831  # ncu, job 6528, medido a sizefact100 -- pendiente re-medicion
     gpu_precision: fp64
@@ -1457,6 +1478,12 @@ kernels:
     role: dataset
     device: gpu
     exec_path: bin/gpu_rajaperf_jacobi_2d
+    cupti_activity_exec_path: /home/latorresn/hyperion-kernels/libexec/raja-perf-cuda-v2025.12.1
+    cupti_activity_binary_checksum:
+      pacca-a100: "sha256:4803d205ec61a129f6901508779bd73a415f49604538bac70bfb877bbafbf067"
+    cupti_activity_exec_args: "--warmup-disable -k Polybench_JACOBI_2D -v Base_CUDA --sizefact 400 --outdir ."
+    cupti_activity_success_check: {type: exit_code, expected: 0}
+    cupti_activity_workdir: run_dir
     phase_label_hint: intermedio  # OI de sizefact100=0.2949; pendiente reverificar con ncu a sizefact400 (F1-GPU-006)
     operational_intensity_flops_per_byte: 0.2949  # ncu, job 6528, medido a sizefact100 -- pendiente re-medicion
     gpu_precision: fp64
@@ -1477,6 +1504,12 @@ kernels:
     role: dataset
     device: gpu
     exec_path: bin/gpu_rajaperf_heat_3d
+    cupti_activity_exec_path: /home/latorresn/hyperion-kernels/libexec/raja-perf-cuda-v2025.12.1
+    cupti_activity_binary_checksum:
+      pacca-a100: "sha256:4803d205ec61a129f6901508779bd73a415f49604538bac70bfb877bbafbf067"
+    cupti_activity_exec_args: "--warmup-disable -k Polybench_HEAT_3D -v Base_CUDA --sizefact 400 --outdir ."
+    cupti_activity_success_check: {type: exit_code, expected: 0}
+    cupti_activity_workdir: run_dir
     phase_label_hint: intermedio  # OI de sizefact100=0.7458; pendiente reverificar con ncu a sizefact400 (F1-GPU-006)
     operational_intensity_flops_per_byte: 0.7458  # ncu, job 6528, medido a sizefact100 -- pendiente re-medicion
     gpu_precision: fp64
@@ -2804,6 +2837,9 @@ kernels:
     device: gpu
     gpu_precision: fp64
     exec_path: bin/fft_gpu
+    cupti_activity_exec_path: libexec/dual/fft_gpu
+    cupti_activity_binary_checksum:
+      pacca-a100: "sha256:e61a982f5fa5ef316a1cec4332cae3dd691b7997a3e84476260d01552fc3ae32"
     config_id: fft_N4096
     phase_label_hint: intermedio
     size_variant: N4096
@@ -3186,6 +3222,9 @@ kernels:
     device: gpu
     gpu_precision: fp64
     exec_path: bin/axpy_gpu
+    cupti_activity_exec_path: libexec/dual/axpy_gpu
+    cupti_activity_binary_checksum:
+      pacca-a100: "sha256:90bc1a172b17803fa807f123f62d286c264a53ff999a7d5251079382a8018aaf"
     config_id: axpy_N10000000
     phase_label_hint: intermedio
     size_variant: N10000000
@@ -3562,6 +3601,11 @@ kernels:
     device: gpu
     gpu_precision: fp64
     exec_path: bin/stencil_gpu
+    # El wrapper Bash normal prepara cwd; para CUPTI se ejecuta este mismo
+    # ELF directamente, evitando que el intérprete absorba la actividad.
+    cupti_activity_exec_path: libexec/dual/stencil_gpu
+    cupti_activity_binary_checksum:
+      pacca-a100: "sha256:f4de0e2156e0bcca7383a63562e814d679b6aa1300c64504c1422a4bed41d382"
     config_id: stencil_N1024
     phase_label_hint: intermedio
     size_variant: N1024
@@ -4117,6 +4161,9 @@ kernels:
     device: gpu
     gpu_precision: fp64
     exec_path: bin/cholesky_gpu
+    cupti_activity_exec_path: libexec/dual/cholesky_gpu
+    cupti_activity_binary_checksum:
+      pacca-a100: "sha256:4b40d49407632cf1ceb0e76fa7cd9e96659c55d64589912a8bc7d24493eae487"
     config_id: cholesky_N2048
     phase_label_hint: intermedio
     size_variant: N2048
@@ -4827,6 +4874,9 @@ kernels:
     device: gpu
     gpu_precision: fp64
     exec_path: bin/spmv_gpu
+    cupti_activity_exec_path: libexec/dual/spmv_gpu
+    cupti_activity_binary_checksum:
+      pacca-a100: "sha256:6e179b357d4e8ba4cacee6da6253c581c329e1d519cc670581714da87cc0cf1f"
     config_id: spmv_N1000000
     phase_label_hint: intermedio
     size_variant: N1000000
@@ -5734,6 +5784,12 @@ kernels:
     role: dataset
     device: gpu
     exec_path: bin/gpu_rajaperf_gemm
+    cupti_activity_exec_path: /home/latorresn/hyperion-kernels/libexec/raja-perf-cuda-v2025.12.1
+    cupti_activity_binary_checksum:
+      pacca-a100: "sha256:4803d205ec61a129f6901508779bd73a415f49604538bac70bfb877bbafbf067"
+    cupti_activity_exec_args: "--warmup-disable -k Polybench_GEMM -v Base_CUDA --sizefact 250 --outdir ."
+    cupti_activity_success_check: {type: exit_code, expected: 0}
+    cupti_activity_workdir: run_dir
     phase_label_hint: intermedio
     operational_intensity_flops_per_byte: 2.81
     gpu_precision: fp64
@@ -5813,6 +5869,9 @@ kernels:
     device: gpu
     gpu_precision: fp64
     exec_path: bin/axpy_gpu
+    cupti_activity_exec_path: libexec/dual/axpy_gpu
+    cupti_activity_binary_checksum:
+      pacca-a100: "sha256:90bc1a172b17803fa807f123f62d286c264a53ff999a7d5251079382a8018aaf"
     config_id: axpy_N1280000000
     phase_label_hint: intermedio
     size_variant: N1280000000
@@ -5835,6 +5894,9 @@ kernels:
     device: gpu
     gpu_precision: fp64
     exec_path: bin/spmv_gpu
+    cupti_activity_exec_path: libexec/dual/spmv_gpu
+    cupti_activity_binary_checksum:
+      pacca-a100: "sha256:6e179b357d4e8ba4cacee6da6253c581c329e1d519cc670581714da87cc0cf1f"
     config_id: spmv_N200000000
     phase_label_hint: intermedio
     size_variant: N200000000
@@ -5861,6 +5923,9 @@ kernels:
     device: gpu
     gpu_precision: fp64
     exec_path: bin/stencil_gpu
+    cupti_activity_exec_path: libexec/dual/stencil_gpu
+    cupti_activity_binary_checksum:
+      pacca-a100: "sha256:f4de0e2156e0bcca7383a63562e814d679b6aa1300c64504c1422a4bed41d382"
     config_id: stencil_N36864
     phase_label_hint: intermedio
     size_variant: N36864
@@ -5905,6 +5970,9 @@ kernels:
     role: dataset
     device: gpu
     exec_path: bin/gpu_cutlass_simt_dgemm
+    cupti_activity_exec_path: bin/gpu_cutlass_simt_dgemm
+    cupti_activity_binary_checksum:
+      pacca-a100: "sha256:4afe55447bedf8fda74d1f9f66692c391e96a399c279142a9d96b75a669fb34d"
     exec_args: "--size 4096 --iterations 1650"
     phase_label_hint: compute_bound
     operational_intensity_flops_per_byte: 26.73
@@ -5942,6 +6010,9 @@ kernels:
     role: dataset
     device: gpu
     exec_path: bin/gpu_cutlass_simt_conv2d
+    cupti_activity_exec_path: bin/gpu_cutlass_simt_conv2d
+    cupti_activity_binary_checksum:
+      pacca-a100: "sha256:e60ca315b94f31a3125de7270947e2b458eac300197cf1b974be6ac1b7dee743"
     # N,H,W,C=8,64,64,512 K,R,S=512,3,3 pad=1 stride=1 dilation=1 (P,Q=64,64).
     exec_args: "--iterations 2600"
     phase_label_hint: compute_bound
@@ -5958,3 +6029,134 @@ kernels:
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
       pacca-a100: "sha256:e60ca315b94f31a3125de7270947e2b458eac300197cf1b974be6ac1b7dee743"
+
+  # --- Candidatas compute-bound CPU (2026-09-19) --------------------------------
+  # Adaptadores RAJAPerf/Base_OpenMP de scripts/pacca/rajaperf_compute_adapters/,
+  # misma plantilla que rajaperf_polybench_3mm_omp. repfact provisional, ajustado
+  # con tiempo nativo en paccaA100; la etiqueta la decide la medicion, no la hipotesis.
+
+  - id: cpu_rajaperf_apps_mass3dpa
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_apps_mass3dpa
+    exec_args: "--repfact 150"
+    phase_label_hint: intermedio  # MASS3DPA (elementos finitos de alto orden, ensamblaje parcial); sin etiqueta previa
+    size_variant: repfact150
+    expected_runtime_seconds: 25
+    warmup_seconds: 0.05  # provisional; la campana usa warmup_seconds_override
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:f9e7c08fd9988ece30abd64a13580b2da13f9b3de01dd1113f2c312580240e3a"
+
+  - id: cpu_rajaperf_apps_diffusion3dpa
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_apps_diffusion3dpa
+    exec_args: "--repfact 50"
+    phase_label_hint: intermedio  # DIFFUSION3DPA (elementos finitos de alto orden); sin etiqueta previa
+    size_variant: repfact50
+    expected_runtime_seconds: 25
+    warmup_seconds: 0.05  # provisional; la campana usa warmup_seconds_override
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:fa5ebe657db68719375c663ba596fca3818198c9bce81183cb40d54364ab4594"
+
+  - id: cpu_rajaperf_apps_convection3dpa
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_apps_convection3dpa
+    exec_args: "--repfact 100"
+    phase_label_hint: intermedio  # CONVECTION3DPA (elementos finitos de alto orden); sin etiqueta previa
+    size_variant: repfact100
+    expected_runtime_seconds: 25
+    warmup_seconds: 0.05  # provisional; la campana usa warmup_seconds_override
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:79352fbf6741ab63bba720d3c3d108e0002911dbfd38e42c019ed6f396b88f1a"
+
+  - id: cpu_rajaperf_apps_edge3d
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_apps_edge3d
+    exec_args: "--repfact 2"
+    phase_label_hint: intermedio  # EDGE3D (elementos finitos de arista); sin etiqueta previa
+    size_variant: repfact2
+    expected_runtime_seconds: 25
+    warmup_seconds: 0.05  # provisional; la campana usa warmup_seconds_override
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:2c1edcb55c3474bc7b5478def74530b11349f740aa9d2f2e49325ff4fc556dd2"
+
+  - id: cpu_rajaperf_basic_trap_int
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_basic_trap_int
+    exec_args: "--repfact 200"
+    phase_label_hint: intermedio  # integracion trapezoidal con funcion transcendente; sin etiqueta previa
+    size_variant: repfact200
+    expected_runtime_seconds: 25
+    warmup_seconds: 0.05  # provisional; la campana usa warmup_seconds_override
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:a0b5ea59d6743b3872832b0d8c0435835efe6196bea347b44e860e584c1c6a34"
+
+  - id: cpu_rajaperf_basic_pi_reduce
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_basic_pi_reduce
+    exec_args: "--repfact 400"
+    phase_label_hint: intermedio  # calculo de pi por reduccion; sin etiqueta previa
+    size_variant: repfact400
+    expected_runtime_seconds: 25
+    warmup_seconds: 0.05  # provisional; la campana usa warmup_seconds_override
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:30143b48e03e5f489c3096d213f538620723272f3f6f679b21cf4fc783fcfb7a"
+
+  - id: cpu_rajaperf_basic_mat_mat_shared
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_basic_mat_mat_shared
+    exec_args: "--repfact 20"
+    phase_label_hint: intermedio  # multiplicacion de matrices por teselas; sin etiqueta previa
+    size_variant: repfact20
+    expected_runtime_seconds: 25
+    warmup_seconds: 0.05  # provisional; la campana usa warmup_seconds_override
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:c8ef06915101e32dd7d7b9c10f4f25ba5858ec51b4bdb5312f5192d5a8404bca"
+
+  - id: cpu_rajaperf_apps_ltimes
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_apps_ltimes
+    exec_args: "--repfact 40"
+    phase_label_hint: intermedio  # transporte de particulas (LTimes, contraccion tensorial); sin etiqueta previa
+    size_variant: repfact40
+    expected_runtime_seconds: 25
+    warmup_seconds: 0.05  # provisional; la campana usa warmup_seconds_override
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:00e9a4275a62b43acbc0b9d84e599bf5f9c0c7255cc2dccb5af12f6d3d672179"
+
+  - id: cpu_rajaperf_apps_fir
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_apps_fir
+    exec_args: "--repfact 25"
+    phase_label_hint: intermedio  # filtro FIR; sin etiqueta previa
+    size_variant: repfact25
+    expected_runtime_seconds: 25
+    warmup_seconds: 0.05  # provisional; la campana usa warmup_seconds_override
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:2867a9f5d986a9570bb74059a7ec022c30389fdcf93763295d8c63386a5392a3"
