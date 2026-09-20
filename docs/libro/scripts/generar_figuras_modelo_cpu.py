@@ -101,12 +101,13 @@ def umbral_y_calibracion() -> None:
     b.plot(rc["coverage_pooled"], rc["cell_balanced_acc"], "o-", color=COMPUTE, lw=2, ms=5)
     for _, r in rc.iterrows():
         if r["threshold"] in (0.5, 0.9, 0.99):
-            off = {0.5: (2, 7), 0.9: (8, -12), 0.99: (-34, 8)}[r["threshold"]]
+            off = {0.5: (8, -14), 0.9: (8, -14), 0.99: (-34, -16)}[r["threshold"]]
             b.annotate(f"τ={r['threshold']:.2f}", (r["coverage_pooled"], r["cell_balanced_acc"]),
                        textcoords="offset points", xytext=off, fontsize=8.5, color="#333")
     b.axhline(rc.loc[rc["threshold"] == 0.5, "cell_balanced_acc"].iloc[0], color=MEMORY, ls="--", lw=1)
     b.set_xlabel("Cobertura"); b.set_ylabel("Exactitud balanceada"); b.invert_xaxis()
-    b.set_title("Abstención: qué se gana y qué se deja de decidir", fontsize=10)
+    b.set_title("Abstención: ganancia frente a cobertura", fontsize=10)
+    lo = rc["cell_balanced_acc"].min(); b.set_ylim(lo - 0.006, rc["cell_balanced_acc"].max() + 0.004)
     fig.tight_layout(); fig.savefig(F / "fig_cpu_umbral_calibracion_20260919.png"); plt.close(fig)
 
 
