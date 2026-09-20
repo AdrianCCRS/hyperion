@@ -58,9 +58,9 @@ def save_kernel_composition() -> None:
     ax.barh(y, memory, color=MEMORY, label="memory-bound")
     ax.barh(y, compute, left=memory, color=COMPUTE, label="compute-bound")
     ax.axhline(0.5, color="#374151", linewidth=0.8)
-    ax.text(memory[0] / 2, y[0], f"memory\n{train_memory:,}", ha="center",
+    ax.text(memory[0] / 2, y[0], f"memory {train_memory:,}", ha="center",
             va="center", fontsize=7.5, color="white", fontweight="bold")
-    ax.text(memory[0] + compute[0] / 2, y[0], f"compute\n{train_compute:,}",
+    ax.text(memory[0] + compute[0] / 2, y[0], f"compute {train_compute:,}",
             ha="center", va="center", fontsize=7.5, color="white", fontweight="bold")
     ax.set_yticks(y, names, fontsize=10.5, fontfamily="monospace")
     ax.set_xlim(0, 100)
@@ -97,7 +97,7 @@ def save_level_composition() -> None:
     for xpos, value in zip(x, compute_pct):
         ax.text(xpos, value / 2, f"{value:.1f}%", ha="center", va="center",
                 fontsize=8, color="white", fontweight="bold")
-    ax.legend(loc="lower center", ncols=2, frameon=False)
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.13), ncols=2, frameon=False)
     for spine in ("top", "right"):
         ax.spines[spine].set_visible(False)
     fig.tight_layout()

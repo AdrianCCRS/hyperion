@@ -101,8 +101,9 @@ def umbral_y_calibracion() -> None:
     b.plot(rc["coverage_pooled"], rc["cell_balanced_acc"], "o-", color=COMPUTE, lw=2, ms=5)
     for _, r in rc.iterrows():
         if r["threshold"] in (0.5, 0.9, 0.99):
+            off = {0.5: (2, 7), 0.9: (8, -12), 0.99: (-34, 8)}[r["threshold"]]
             b.annotate(f"τ={r['threshold']:.2f}", (r["coverage_pooled"], r["cell_balanced_acc"]),
-                       textcoords="offset points", xytext=(6, -11), fontsize=8.5, color="#333")
+                       textcoords="offset points", xytext=off, fontsize=8.5, color="#333")
     b.axhline(rc.loc[rc["threshold"] == 0.5, "cell_balanced_acc"].iloc[0], color=MEMORY, ls="--", lw=1)
     b.set_xlabel("Cobertura"); b.set_ylabel("Exactitud balanceada"); b.invert_xaxis()
     b.set_title("Abstención: qué se gana y qué se deja de decidir", fontsize=10)
@@ -129,10 +130,10 @@ def margen_ridge() -> None:
     ax.axhline(0.5, color="#9a9a9a", ls="--", lw=1)
     etiquetas = e["margin_bin"].astype(str).str.replace("inf", "∞").str.replace(".0", "", regex=False)
     ax.set_xticks(range(len(e))); ax.set_xticklabels(etiquetas, rotation=40, ha="right", fontsize=8)
-    ax.set_ylabel("Exactitud"); ax.set_ylim(0, 1)
+    ax.set_ylabel("Exactitud"); ax.set_ylim(0, 1.14); ax.set_yticks([0, 0.2, 0.4, 0.6, 0.8, 1.0])
     ax.set_xlabel(r"$\log_2(\mathrm{OI}/\mathrm{ridge})$ del intervalo")
     ax.legend(handles=[Patch(color=MEMORY, label="intervalos memory-bound"),
-                       Patch(color=COMPUTE, label="intervalos compute-bound")], loc="lower center", ncol=2, frameon=False, fontsize=8.5)
+                       Patch(color=COMPUTE, label="intervalos compute-bound")], loc="upper center", ncol=2, frameon=False, fontsize=8.5)
     fig.tight_layout(); fig.savefig(F / "fig_cpu_margen_ridge_20260919.png"); plt.close(fig)
 
 
