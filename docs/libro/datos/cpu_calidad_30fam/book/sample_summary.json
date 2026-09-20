@@ -1,0 +1,11 @@
+{
+ "n_eligible": 1296981,
+ "n_compute": 513508,
+ "n_memory": 783473,
+ "sample_rows": 42455,
+ "sample_compute": 21350,
+ "sample_memory": 21105,
+ "n_cells": 56,
+ "n_families": 30,
+ "n_kernels": 49
+}

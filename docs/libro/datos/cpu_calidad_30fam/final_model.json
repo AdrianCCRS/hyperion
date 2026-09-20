@@ -1,0 +1,80 @@
+{
+ "protocol": "LOFO 24 familias; entrenamiento en muestra con tope 1000 por celda; evaluacion en todos los intervalos elegibles de la familia retenida",
+ "model": "xgboost n_estimators=100 max_depth=6 scale_pos_weight=1",
+ "features": [
+  "ipc",
+  "mpki",
+  "cache_miss_rate",
+  "stall_mem_ratio",
+  "ips",
+  "freq_khz_observed",
+  "cache_references_per_ki",
+  "cache_references_per_cycle",
+  "cache_misses_per_cycle",
+  "stalls_mem_per_ki",
+  "stalls_mem_per_cache_miss",
+  "log1p_mpki"
+ ],
+ "threshold": 0.85,
+ "seeds": 5,
+ "eval_rows_mean": 1296981.0,
+ "full_coverage": {
+  "cell_balanced_acc": 0.7273186704513909,
+  "recall_compute": 0.7093739532782353,
+  "recall_memory": 0.8495052158785306,
+  "pooled_f1_macro": 0.7822739368446034,
+  "pooled_accuracy": 0.7940236595601631,
+  "mean_family_accuracy": 0.8175206036482227,
+  "confusion": {
+   "compute_as_compute": 364269.2,
+   "compute_as_memory": 149238.8,
+   "memory_as_compute": 117908.60000000002,
+   "memory_as_memory": 665564.3999999999
+  },
+  "per_class": {
+   "compute_bound": {
+    "precision": 0.755466551964856,
+    "recall": 0.7093739532782353,
+    "f1": 0.731695078909431,
+    "support": 513508.0
+   },
+   "memory_bound": {
+    "precision": 0.8168406800562393,
+    "recall": 0.8495052158785306,
+    "f1": 0.8328527947797759,
+    "support": 783472.9999999999
+   }
+  }
+ },
+ "selective": {
+  "cell_balanced_acc": 0.7500249539368049,
+  "recall_compute": 0.7712630674706781,
+  "recall_memory": 0.9304970993061086,
+  "pooled_f1_macro": 0.8579882787483264,
+  "pooled_accuracy": 0.8669955362093532,
+  "mean_family_accuracy": 0.8680412824936031,
+  "confusion": {
+   "compute_as_compute": 292334.00000000006,
+   "compute_as_memory": 86698.80000000002,
+   "memory_as_compute": 39715.0,
+   "memory_as_memory": 531700.0000000001
+  },
+  "per_class": {
+   "compute_bound": {
+    "precision": 0.8803941586934458,
+    "recall": 0.7712630674706781,
+    "f1": 0.8222232660152461,
+    "support": 379032.80000000005
+   },
+   "memory_bound": {
+    "precision": 0.8598011509724792,
+    "recall": 0.9304970993061086,
+    "f1": 0.8937532914814066,
+    "support": 571415.0000000001
+   }
+  },
+  "coverage_pooled": 0.7328155154161857,
+  "coverage_mean_family": 0.7687948391000533,
+  "coverage_min_family": 0.3851661319728083
+ }
+}

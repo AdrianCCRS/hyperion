@@ -1,0 +1,8 @@
+{
+ "start_rows_frac_of_eval_blocks": 0.002683539788056098,
+ "periodic_rows_frac_of_eval_blocks": 0.026448394813203335,
+ "eval_rows": 627902,
+ "mixed_block_eval_rows": 157777,
+ "mixed_blocks": 50,
+ "label_change_share_in_mixed_eval": 0.41661332133327417
+}

@@ -1,0 +1,51 @@
+{
+ "n_rows": 1296981,
+ "dropped_nan_rows": 12774,
+ "n_families": 30,
+ "n_kernels": 49,
+ "memory_share_global": 0.6040743850526723,
+ "kernel_freq_cells": 490,
+ "kernel_freq_pure_2pct": 0.7857142857142857,
+ "kernel_freq_mixed_20_80": 59,
+ "pure_families": 18,
+ "mixed_families_10_90": 11,
+ "families_with_both_classes": 26,
+ "memory_share_by_freq": {
+  "F0": 0.6859,
+  "F1": 0.6826,
+  "F2": 0.6651,
+  "F3": 0.6425,
+  "F4": 0.5896,
+  "F5": 0.5833,
+  "F6": 0.5656,
+  "F7": 0.5496,
+  "F8": 0.5491,
+  "REF": 0.7104
+ },
+ "frequency_mean_khz_by_level": {
+  "F0": 3199979.0,
+  "F1": 2899978.0,
+  "F2": 2599988.0,
+  "F3": 2299996.0,
+  "F4": 1999993.0,
+  "F5": 1699971.0,
+  "F6": 1399932.0,
+  "F7": 1099991.0,
+  "F8": 800001.0,
+  "REF": 3199569.0
+ },
+ "univariate_auc_pooled": {
+  "ipc": 0.3988,
+  "mpki": 0.9068,
+  "cache_miss_rate": 0.8223,
+  "stall_mem_ratio": 0.6581,
+  "ips": 0.4191,
+  "freq_khz_observed": 0.5654,
+  "cache_references_per_ki": 0.7794,
+  "cache_references_per_cycle": 0.7611,
+  "cache_misses_per_cycle": 0.9047,
+  "stalls_mem_per_ki": 0.663,
+  "stalls_mem_per_cache_miss": 0.1601,
+  "log1p_mpki": 0.9068
+ }
+}

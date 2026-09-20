@@ -1,0 +1,280 @@
+{
+  "schema": "f1-xdev-004/feature_contract/1",
+  "device": "cpu",
+  "schema_version": 1,
+  "generated_at_utc": "2026-09-20T07:06:55.072285+00:00",
+  "n_rows_total": 1309755,
+  "n_rows_eligible": 1309755,
+  "candidate_columns": [
+    "delta_instructions",
+    "delta_cycles",
+    "delta_cache_references",
+    "delta_cache_misses",
+    "delta_stalled_cycles_mem_any",
+    "delta_running_ns",
+    "delta_enabled_ns",
+    "ipc",
+    "mpki",
+    "cache_miss_rate",
+    "stall_mem_ratio",
+    "ips",
+    "running_ratio",
+    "freq_khz_observed"
+  ],
+  "column_diagnosis": [
+    {
+      "name": "delta_instructions",
+      "n_total": 1309755,
+      "n_missing": 0,
+      "n_inf": 0,
+      "is_constant": false,
+      "std": 190494654.7940339,
+      "mean": 251546433.5143481,
+      "eligible_as_feature": true,
+      "reason_excluded": null
+    },
+    {
+      "name": "delta_cycles",
+      "n_total": 1309755,
+      "n_missing": 0,
+      "n_inf": 0,
+      "is_constant": false,
+      "std": 65245427.13536526,
+      "mean": 131489133.65448958,
+      "eligible_as_feature": true,
+      "reason_excluded": null
+    },
+    {
+      "name": "delta_cache_references",
+      "n_total": 1309755,
+      "n_missing": 0,
+      "n_inf": 0,
+      "is_constant": false,
+      "std": 3559016.641125313,
+      "mean": 3228640.0518745873,
+      "eligible_as_feature": true,
+      "reason_excluded": null
+    },
+    {
+      "name": "delta_cache_misses",
+      "n_total": 1309755,
+      "n_missing": 0,
+      "n_inf": 0,
+      "is_constant": false,
+      "std": 2736270.7473742994,
+      "mean": 2188686.158822833,
+      "eligible_as_feature": true,
+      "reason_excluded": null
+    },
+    {
+      "name": "delta_stalled_cycles_mem_any",
+      "n_total": 1309755,
+      "n_missing": 0,
+      "n_inf": 0,
+      "is_constant": false,
+      "std": 42358718.88611666,
+      "mean": 29363056.874570437,
+      "eligible_as_feature": true,
+      "reason_excluded": null
+    },
+    {
+      "name": "delta_running_ns",
+      "n_total": 1309755,
+      "n_missing": 0,
+      "n_inf": 0,
+      "is_constant": false,
+      "std": 12227009.079157902,
+      "mean": 74895187.93247744,
+      "eligible_as_feature": true,
+      "reason_excluded": null
+    },
+    {
+      "name": "delta_enabled_ns",
+      "n_total": 1309755,
+      "n_missing": 0,
+      "n_inf": 0,
+      "is_constant": false,
+      "std": 12227008.553037407,
+      "mean": 74895187.17788136,
+      "eligible_as_feature": true,
+      "reason_excluded": null
+    },
+    {
+      "name": "ipc",
+      "n_total": 1309755,
+      "n_missing": 0,
+      "n_inf": 0,
+      "is_constant": false,
+      "std": 1.1454716603332649,
+      "mean": 2.0159687567412807,
+      "eligible_as_feature": true,
+      "reason_excluded": null
+    },
+    {
+      "name": "mpki",
+      "n_total": 1309755,
+      "n_missing": 0,
+      "n_inf": 0,
+      "is_constant": false,
+      "std": 31407.15985765845,
+      "mean": 183.56532356991906,
+      "eligible_as_feature": true,
+      "reason_excluded": null
+    },
+    {
+      "name": "cache_miss_rate",
+      "n_total": 1309755,
+      "n_missing": 0,
+      "n_inf": 0,
+      "is_constant": false,
+      "std": 0.3613098480689138,
+      "mean": 0.6526354726015002,
+      "eligible_as_feature": true,
+      "reason_excluded": null
+    },
+    {
+      "name": "stall_mem_ratio",
+      "n_total": 1309755,
+      "n_missing": 0,
+      "n_inf": 0,
+      "is_constant": false,
+      "std": 0.22457308828913125,
+      "mean": 0.1966419465460564,
+      "eligible_as_feature": true,
+      "reason_excluded": null
+    },
+    {
+      "name": "ips",
+      "n_total": 1309755,
+      "n_missing": 0,
+      "n_inf": 0,
+      "is_constant": false,
+      "std": 14695871325.749582,
+      "mean": 19461393475.899345,
+      "eligible_as_feature": true,
+      "reason_excluded": null
+    },
+    {
+      "name": "running_ratio",
+      "n_total": 1309755,
+      "n_missing": 0,
+      "n_inf": 0,
+      "is_constant": false,
+      "std": 1.0414033148244704e-05,
+      "mean": 1.0000000090996375,
+      "eligible_as_feature": true,
+      "reason_excluded": null
+    },
+    {
+      "name": "freq_khz_observed",
+      "n_total": 1309755,
+      "n_missing": 0,
+      "n_inf": 0,
+      "is_constant": false,
+      "std": 840699.6237128102,
+      "mean": 1831287.602648587,
+      "eligible_as_feature": true,
+      "reason_excluded": null
+    }
+  ],
+  "high_corr_pairs": [
+    {
+      "a": "delta_instructions",
+      "b": "ips",
+      "pearson": 0.9972905072384707,
+      "spearman": 0.9986399549759407,
+      "keep": "delta_instructions",
+      "drop": "ips"
+    },
+    {
+      "a": "delta_cycles",
+      "b": "freq_khz_observed",
+      "pearson": 0.9225200350305778,
+      "spearman": 0.9200550409224869,
+      "keep": "freq_khz_observed",
+      "drop": "delta_cycles"
+    },
+    {
+      "a": "delta_cache_misses",
+      "b": "mpki",
+      "pearson": 0.0013945962174251294,
+      "spearman": 0.8647498193026871,
+      "keep": "delta_cache_misses",
+      "drop": "mpki"
+    },
+    {
+      "a": "delta_stalled_cycles_mem_any",
+      "b": "stall_mem_ratio",
+      "pearson": 0.8801966167907528,
+      "spearman": 0.9437054653049496,
+      "keep": "stall_mem_ratio",
+      "drop": "delta_stalled_cycles_mem_any"
+    },
+    {
+      "a": "delta_running_ns",
+      "b": "delta_enabled_ns",
+      "pearson": 0.99999999750568,
+      "spearman": 0.9999999996148344,
+      "keep": "delta_enabled_ns",
+      "drop": "delta_running_ns"
+    }
+  ],
+  "vif": {
+    "delta_instructions": 5.9546656311380755,
+    "delta_cache_references": 4.979069918937816,
+    "delta_cache_misses": 5.85208317347493,
+    "delta_enabled_ns": 1.1693766379842483,
+    "ipc": 5.677144320512493,
+    "cache_miss_rate": 2.017495137798011,
+    "stall_mem_ratio": 2.6847353186108998,
+    "running_ratio": 1.000004306872682,
+    "freq_khz_observed": 3.3455680810659545
+  },
+  "recommended_drops": [
+    {
+      "column": "delta_cycles",
+      "reason": "high_corr",
+      "prefer_instead": "freq_khz_observed"
+    },
+    {
+      "column": "ips",
+      "reason": "high_corr",
+      "prefer_instead": "delta_instructions"
+    },
+    {
+      "column": "mpki",
+      "reason": "high_corr",
+      "prefer_instead": "delta_cache_misses"
+    },
+    {
+      "column": "delta_stalled_cycles_mem_any",
+      "reason": "high_corr",
+      "prefer_instead": "stall_mem_ratio"
+    },
+    {
+      "column": "delta_running_ns",
+      "reason": "high_corr",
+      "prefer_instead": "delta_enabled_ns"
+    }
+  ],
+  "recommended_feature_set": [
+    "delta_instructions",
+    "delta_cache_references",
+    "delta_cache_misses",
+    "delta_enabled_ns",
+    "ipc",
+    "cache_miss_rate",
+    "stall_mem_ratio",
+    "running_ratio",
+    "freq_khz_observed"
+  ],
+  "roofline_truth_columns_seen": [
+    "i_ridge_used",
+    "operational_intensity_uncore_real",
+    "phase_label_train"
+  ],
+  "frozen": false,
+  "notes": [
+    "recommended_feature_set es una PROPUESTA: la selección final se fija revisando este reporte sobre el dataset real y congelando con freeze()."
+  ]
+}

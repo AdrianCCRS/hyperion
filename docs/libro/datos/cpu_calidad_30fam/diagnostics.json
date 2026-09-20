@@ -1,0 +1,14 @@
+{
+ "near_ridge_within_x2": {
+  "share_of_intervals": 0.12576360023778296,
+  "accuracy_near": 0.5749694996720065,
+  "accuracy_far": 0.8171744859189959,
+  "share_of_errors_near": 0.25061815868241827
+ },
+ "calibration": {
+  "ece": 0.11271933642576346,
+  "brier_memory": 0.16176221235327753,
+  "mean_conf": 0.8994333744049072,
+  "accuracy": 0.7867139148530318
+ }
+}
