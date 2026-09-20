@@ -873,6 +873,18 @@ def stage_retrain_ext(frame, families, fam_codes, args, out: Path):
     print(pd.DataFrame(res).to_string(index=False), flush=True)
 
 
+def stage_oi_feature(frame, families, fam_codes, args, out: Path):
+    """Limite superior: el mismo modelo con la intensidad operacional (log2 OI/ridge) como entrada adicional; equivale a leer la etiqueta."""
+    CONFIGS["_tmp_oi"] = ("xgb", INTER + ["margin_log2"], "cell")
+    vals = []
+    for s_ in range(args.seeds):
+        sample = capped_sample(frame, args.cap, 1000 + s_)
+        vals.append(metrics_from_counts(lofo(frame, families, fam_codes, "_tmp_oi", sample, 2000 + s_, True, args.n_jobs)))
+    res = {k: round(float(np.mean([m[k] for m in vals])), 4) for k in vals[0]}
+    (out / "oi_feature.json").write_text(json.dumps(res, indent=1))
+    print(res, flush=True)
+
+
 def stage_adaptation(frame, families, fam_codes, args, out: Path):
     """Calibracion en linea: ¿cuanto mejora si los primeros n intervalos etiquetados (uncore) de cada bloque
     kernel x frecuencia de la familia nueva se anaden al entrenamiento? Se evalua sobre el resto de esa familia.
@@ -1294,7 +1306,7 @@ def stage_latency(frame, args, out: Path):
     (out / f"latency_{platform.node()}.json").write_text(json.dumps(res, indent=1))
 
 
-STAGES = ["inventory", "final_model", "metrics_suite", "matrix", "diagnostics", "protocols", "learning_curve", "smoothing", "nested_selective", "regularization", "importance", "knn_ceiling", "twins", "nested_optuna", "adaptation", "adaptation_phases", "temporal", "oi_proxy", "power_w", "selection", "external", "retrain_ext", "cap_sensitivity", "threshold_nested", "latency"]
+STAGES = ["inventory", "final_model", "metrics_suite", "matrix", "diagnostics", "protocols", "learning_curve", "smoothing", "nested_selective", "regularization", "importance", "knn_ceiling", "twins", "nested_optuna", "adaptation", "adaptation_phases", "temporal", "oi_proxy", "power_w", "selection", "oi_feature", "external", "retrain_ext", "cap_sensitivity", "threshold_nested", "latency"]
 
 
 def main() -> None:
