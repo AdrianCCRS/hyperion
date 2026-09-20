@@ -64,7 +64,24 @@ La proporción global de intervalos \textit{compute\_bound} aumentó desde 29.0\
 \subsection{Calidad del conjunto de datos}
 \label{sec:resultados-cpu-dvfs}
 
-Toda corrida se ejecutó con turbo desactivado y con la frecuencia solicitada verificada en cada ventana, con una tolerancia de $\pm5\%$; una ventana cuya frecuencia observada no cumple ese criterio no recibe etiqueta. La comprobación excluye dos márgenes. Tras cada cambio de nivel se descartan $\sim$10~ms, porque en mediciones repetidas (dos corridas idénticas en el nodo de la campaña) un procesador delegado tardó entre 10 y 11~ms en engancharse al límite de frecuencia justo después de arrancar el kernel real, aunque el asentamiento previo ya se había confirmado. Además se descartan 0.15~s al inicio y al final de cada corrida, porque en los kernels de una sola región paralela larga un hilo que termina antes queda ocioso esperando a sus pares y diluye el promedio de frecuencia en la unión final. La actuación de frecuencia se comprobó midiendo su efecto sobre el rendimiento: al restringir solo los procesadores lógicos delegados, la razón de rendimiento entre el nivel más alto y el más bajo se mantuvo en 0.995, es decir, sin escalar; al restringir también sus hermanos de \textit{SMT}, subió a 3.78, cercana a la razón de cuatro esperada entre esos niveles. Las 1470 corridas conservaron una observación de frecuencia válida o, en el nivel nativo, el estado no aplicable a una frecuencia fija.
+Toda corrida se ejecutó con turbo desactivado y con la frecuencia solicitada verificada en cada ventana, con una tolerancia de $\pm5\%$; una ventana cuya frecuencia observada no cumple ese criterio no recibe etiqueta. La comprobación excluye dos márgenes. Tras cada cambio de nivel se descartan $\sim$10~ms, porque en mediciones repetidas (dos corridas idénticas en el nodo de la campaña) un procesador delegado tardó entre 10 y 11~ms en engancharse al límite de frecuencia justo después de arrancar el kernel real, aunque el asentamiento previo ya se había confirmado. Además se descartan 0.15~s al inicio y al final de cada corrida, porque en los kernels de una sola región paralela larga un hilo que termina antes queda ocioso esperando a sus pares y diluye el promedio de frecuencia en la unión final. La actuación de frecuencia se comprobó midiendo su efecto sobre el rendimiento: al restringir solo los procesadores lógicos delegados, la razón de rendimiento entre el nivel más alto y el más bajo se mantuvo en 0.995, es decir, sin escalar; al restringir también sus hermanos de \textit{SMT}, subió a 3.78, cercana a la razón de cuatro esperada entre esos niveles. Las 1470 corridas conservaron una observación de frecuencia válida o, en el nivel nativo, el estado no aplicable a una frecuencia fija. De los 1\,424\,531 intervalos procesados se rechazó el 8.1\%, por dos causas (Tabla \ref{tab:cpu-rechazos}): que la frecuencia observada no fuera utilizable, y que alguna ventana de origen no superara la validación de calidad (sección \ref{sec:calentamiento}).
+
+\begin{table}[H]
+\centering
+\caption{Intervalos procesados, rechazados por causa y elegibles en la campaña CPU.}
+\label{tab:cpu-rechazos}
+\small
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\textbf{Categoría} & \textbf{Intervalos} & \textbf{Proporción} \\
+\midrule
+Procesados & 1\,424\,531 & 100.0\% \\
+Rechazados por frecuencia no utilizable & 71\,658 & 5.0\% \\
+Rechazados por ventana de origen no válida & 43\,118 & 3.0\% \\
+\textbf{Elegibles} & \textbf{1\,309\,755} & \textbf{91.9\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \paragraph{Medición de bytes y etiqueta.}\label{sec:resultados-uncore}
 Los bytes movidos en memoria se leen de los contadores de \textit{uncore} del controlador de memoria (sección \ref{sec:uncore}), y son la única fuente de bytes de la etiqueta. La etiqueta de cada intervalo compara los FLOPs medidos con esos bytes contra el \textit{ridge} calibrado para su nivel de frecuencia. La Figura \ref{fig:ridge-frecuencia} presenta cómo desciende el \textit{ridge} conforme baja la frecuencia. El presupuesto simultáneo es de nueve eventos de PMU y no diez, porque el vigilante NMI del sistema operativo reserva un contador físico por núcleo. Los contadores de \textit{uncore} son de alcance de sistema, por lo que cada campaña exige el nodo en exclusiva; con esa condición, la cadencia de intervalos se sostuvo en los $\sim$10~ms esperados a lo largo de toda una corrida de prueba. Antes de la campaña completa se ejecutaron dos campañas de humo a escala reducida (18 y 21 combinaciones) que ejercitaron el mismo camino de código y se aceptaron por completo; con clasificaciones coherentes: la multiplicación densa de matrices fue \textit{compute-bound} en el 100\% de sus ventanas y los kernels de NAS resultaron predominantemente \textit{memory-bound}.\label{sec:resultados-interferencia-uncore}
@@ -99,9 +116,7 @@ El conjunto contiene 30 familias algorítmicas. El modelo se ajusta con una mues
 \toprule
 \textbf{Etapa} & \textbf{Intervalos} & \textbf{Cálculo o criterio} \\
 \midrule
-Intervalos \textit{uncore} procesados & 1\,424\,531 & Salida total del reprocesamiento de 1470 corridas \\
 Intervalos elegibles & 1\,309\,755 & Estado de entrenamiento correcto y frecuencia utilizable \\
-Intervalos rechazados & 114\,776 & Diferencia entre procesados y elegibles, equivalente a 8.1\% \\
 Intervalos evaluados & 1\,296\,981 & Elegibles con todas las tasas definidas (se excluyen 12\,774 con contadores en cero) \\
 Muestra reproducible & 42\,455 & Suma de $\min(n_{fc},1000)$ para cada celda observada \\
 Clase \textit{compute-bound} en la muestra & 21\,350 & Conteo posterior al límite por familia y clase \\
@@ -502,9 +517,23 @@ Los datos, las figuras y las tablas de esta sección se reproducen con \path{fas
 
 La tabla clase--frecuencia de menor producto energía--retardo se derivó de la campaña con la energía y el tiempo de cada corrida completa. Toda corrida de un mismo kernel ejecuta el mismo trabajo en los diez niveles, de modo que el producto energía--retardo (energía de paquete más DRAM, multiplicada por el tiempo) es comparable entre niveles. Para cada clase se tomó la mediana de las tres repeticiones de cada kernel y se comparó cada nivel fijo con la referencia nativa mediante una prueba de Wilcoxon pareada por kernel. Un nivel solo se adopta si mejora el producto agregado de forma significativa. La clase de cada kernel es la mayoritaria entre sus intervalos etiquetados; se excluyen las sondas de calibración y las cargas de duración fija.
 
-El resultado es \textit{no actuar} en ambas clases (22 kernels compute y 28 memory, estos últimos con \texttt{ptrchase}, medido solo para esta política por ser un recorrido de memoria por latencia fuera del dominio del clasificador). En compute, el nivel más alto queda 0.3\% por debajo de la referencia y el más bajo multiplica el producto por 8.5; de F1 a F8 la diferencia es significativa (p < 0.03), pero desfavorable. En memory, ningún nivel bajo mejora el producto agregado: de F3 a F8 la diferencia es significativa, también en sentido desfavorable. \texttt{ptrchase}, con $\alpha=0.22$, apenas gana 1.0\% en F1. Solo cinco kernels del tipo STREAM, con exponente de tiempo $\alpha$ entre 0.18 y 0.22, ganan entre 4 y 12\% en los niveles F1 a F3. Aquí $\alpha$ es la pendiente negativa de $\log T$ frente a $\log f$.
+El resultado es \textit{no actuar} en ambas clases (22 kernels compute y 28 memory, estos últimos con \texttt{ptrchase}, medido solo para esta política por ser un recorrido de memoria por latencia fuera del dominio del clasificador). En compute, el nivel más alto queda 0.3\% por debajo de la referencia y el más bajo multiplica el producto por 8.5; de F1 a F8 la diferencia es significativa (p < 0.03), pero desfavorable. En memory, ningún nivel bajo mejora el producto agregado: de F3 a F8 la diferencia es significativa, también en sentido desfavorable. \texttt{ptrchase}, con $\alpha=0.22$, apenas gana 1.0\% en F1. Solo cinco kernels del tipo STREAM, con exponente de tiempo $\alpha$ entre 0.18 y 0.22, ganan entre 4 y 12\% en los niveles F1 a F3. Aquí $\alpha$ es la pendiente negativa de $\log T$ frente a $\log f$. La Figura \ref{fig:cpu-energia-relativa} muestra por qué: al bajar el reloj la energía casi no disminuye (la mediana más baja es 0.983 de la referencia en memory, y en compute nunca baja de 0.998), mientras el tiempo crece, de modo que el producto energía--retardo solo empeora.
 
-La causa es el piso de potencia. Ajustando $P(f)=P_0+c\,f^{k}$ a cada kernel (error mediano de 0.35~W), $P_0$ resulta de 85~W en mediana, casi idéntico entre kernels (entre 80 y 100~W), y representa el 83\% de la potencia a 3.2~GHz; con $k\approx 2$, reducir el reloj a 0.8~GHz ahorra solo 15\% de la potencia. Con ese modelo, bajar la frecuencia mejora el producto únicamente si $\alpha$ es menor que un valor crítico, cuya mediana es 0.14 y que en ningún kernel supera 0.33. Los kernels compute densos tienen el mayor margen de potencia, pero un $\alpha$ cercano a 1. Incluso con un clasificador perfecto que eligiera el mejor nivel de cada kernel, la ganancia media sería de 2.5\% y la máxima de 12.5\%. Este desenlace es un resultado válido de la evaluación: la decisión de actuar recae en identificar la región de $\alpha$ bajo, y la clase Roofline por sí sola no la determina.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.94\textwidth]{figuras/fig_cpu_energia_relativa_20260920.png}
+    \caption[Energía, tiempo y producto energía--retardo por nivel de frecuencia]{Mediana entre kernels de la energía (paquete y DRAM), el tiempo y el producto energía--retardo de cada nivel fijo, relativos a la referencia nativa, para las dos clases. El eje vertical es logarítmico. Nota. Elaboración propia.}
+    \label{fig:cpu-energia-relativa}
+\end{figure}
+
+La causa es el piso de potencia. Ajustando $P(f)=P_0+c\,f^{k}$ a cada kernel (error mediano de 0.35~W), $P_0$ resulta de 85~W en mediana, casi idéntico entre kernels (entre 80 y 100~W), y representa el 83\% de la potencia a 3.2~GHz; con $k\approx 2$, reducir el reloj a 0.8~GHz ahorra solo 15\% de la potencia. Con ese modelo, bajar la frecuencia mejora el producto únicamente si $\alpha$ es menor que un valor crítico, cuya mediana es 0.14 y que en ningún kernel supera 0.33. Los kernels compute densos tienen el mayor margen de potencia, pero un $\alpha$ cercano a 1. Incluso con un clasificador perfecto que eligiera el mejor nivel de cada kernel, la ganancia media sería de 2.5\% y la máxima de 12.5\%. Este desenlace es un resultado válido de la evaluación: la decisión de actuar recae en identificar la región de $\alpha$ bajo, y la clase Roofline por sí sola no la determina. La Figura \ref{fig:cpu-energia-piso} muestra la potencia medida de cada kernel en función de la frecuencia: las curvas casi se aplanan sobre ese piso, y la fracción estática a 3.2~GHz es de entre 0.6 y 0.95 según el kernel.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.94\textwidth]{figuras/fig_cpu_energia_piso_20260920.png}
+    \caption[Potencia de paquete y DRAM frente a la frecuencia]{A la izquierda, potencia media de paquete y DRAM de cada kernel (líneas grises) y su mediana en cada nivel fijo, con el piso estático ajustado. A la derecha, distribución entre kernels de la fracción de la potencia a 3.2~GHz que corresponde al piso. Nota. Elaboración propia.}
+    \label{fig:cpu-energia-piso}
+\end{figure}
 
 \section{Resultados de GPU}
 \label{sec:resultados-gpu}
