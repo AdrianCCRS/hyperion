@@ -1,10 +1,10 @@
-"""Genera figuras del conjunto CPU pacca_cpu_final_20260913.
+"""Genera figuras del conjunto CPU (campañas pacca_cpu_final_20260913 y pacca_cpu_compute_sweep_20260919).
 
-Los conteos provienen de los 1290 archivos training_cpu_intervals.csv
-reprocesados en pacca el 2026-09-17. Solo incluyen intervalos con estado de
+Los conteos provienen de datos/cpu_calidad_30fam/book (fase2_clasificador/analysis/cpu_book_data.py). Solo incluyen intervalos con estado de
 entrenamiento ``ok`` y frecuencia ``valid`` o ``not_applicable_native``.
 """
 
+import json
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -13,44 +13,13 @@ import pandas as pd
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score
 
 
-KERNEL_COUNTS = {
-    "cpu_cholmod": (55323, 110991), "cpu_gap_pr": (0, 23542),
-    "cpu_hpcg": (15, 32230), "cpu_lulesh": (5, 302135),
-    "cpu_rajaperf_basic_daxpy": (95, 1882),
-    "cpu_rajaperf_basic_init3": (23, 3992),
-    "cpu_rajaperf_lcals_first_sum": (61, 10792),
-    "cpu_rajaperf_lcals_tridiag_elim": (48, 1954),
-    "cpu_rajaperf_polybench_fdtd_2d": (12, 495),
-    "cpu_rajaperf_polybench_jacobi_1d": (109, 8095),
-    "cpu_rajaperf_stream_add": (43, 4225),
-    "cpu_rajaperf_stream_mul": (67, 9594),
-    "cpu_rajaperf_stream_triad": (65, 4230), "dgemm_n2048": (10938, 0),
-    "dual_axpy_cpu_N100000": (5219, 21),
-    "dual_axpy_cpu_N10000000": (0, 3859),
-    "dual_axpy_cpu_N3162278": (0, 3674),
-    "dual_cholesky_cpu_N1024": (1875, 3098),
-    "dual_cholesky_cpu_N2048": (1103, 1976),
-    "dual_cholesky_cpu_N256": (6507, 0), "dual_fft_cpu_N1024": (0, 3836),
-    "dual_fft_cpu_N128": (4978, 0), "dual_fft_cpu_N4096": (0, 5115),
-    "dual_fft_cpu_N472": (2314, 806), "dual_gemm_cpu_N2048": (5981, 9),
-    "dual_spmv_cpu_N100000": (4085, 0), "dual_spmv_cpu_N1000000": (0, 3060),
-    "dual_stencil_cpu_N1024": (0, 3967), "dual_stencil_cpu_N1536": (0, 3839),
-    "dual_stencil_cpu_N256": (5311, 2), "dual_stencil_cpu_N512": (4629, 197),
-    "hpccg_cpu_N46": (8767, 1899), "npb_bt": (68397, 40208),
-    "npb_cg": (0, 25770), "npb_ft": (582, 15097), "npb_lu": (21194, 49563),
-    "npb_mg": (0, 1778), "npb_sp": (346, 55927),
-    "phasic_p010": (45331, 51), "phasic_p100": (25248, 20205),
-    "phasic_p1000": (22849, 22531),
-    "rajaperf_polybench_3mm_omp": (53277, 2732),
-    "rodinia_lavamd_omp": (31644, 15),
-}
-
-LEVEL_COUNTS = {
-    "REF": (19695, 67008), "F0": (19483, 58541), "F1": (20456, 61387),
-    "F2": (23100, 63718), "F3": (26744, 66256), "F4": (35034, 67203),
-    "F5": (40338, 75435), "F6": (49515, 86401), "F7": (63978, 100097),
-    "F8": (88098, 137346),
-}
+BOOK = Path(__file__).resolve().parents[1] / "datos" / "cpu_calidad_30fam" / "book"
+_kc = pd.read_csv(BOOK / "kernel_counts.csv").set_index("kernel_ref")
+KERNEL_COUNTS = {k: (int(r.compute_bound), int(r.memory_bound)) for k, r in _kc.iterrows()}
+_lc = pd.read_csv(BOOK / "level_counts.csv").set_index("freq_level_id")
+LEVEL_COUNTS = {k: (int(_lc.loc[k, "compute_bound"]), int(_lc.loc[k, "memory_bound"]))
+                for k in ["REF"] + [f"F{i}" for i in range(9)]}
+_ss = json.load(open(BOOK / "sample_summary.json"))
 
 OUT = Path(__file__).resolve().parents[1] / "figuras"
 DATA = Path(__file__).resolve().parents[1] / "datos" / "cpu_modelo_20260918"
@@ -75,7 +44,7 @@ def save_kernel_composition() -> None:
     )
     # La última barra no es un kernel. Resume la composición de la muestra
     # empleada por el clasificador y conserva sus conteos absolutos.
-    train_compute, train_memory = 15286, 21024
+    train_compute, train_memory = _ss["sample_compute"], _ss["sample_memory"]
     train_pct = train_compute / (train_compute + train_memory) * 100
     # En la página rotada, la primera fila queda al extremo final de lectura.
     rows.insert(0, ("muestra_entrenamiento", train_pct, train_compute + train_memory))
@@ -83,7 +52,7 @@ def save_kernel_composition() -> None:
     names = [row[0].replace("_cpu_", "_") for row in rows]
     compute = np.array([row[1] for row in rows])
     memory = 100 - compute
-    fig, ax = plt.subplots(figsize=(11.2, 13.2))
+    fig, ax = plt.subplots(figsize=(11.2, 14.6))
     y = np.arange(len(rows))
     # memory-bound parte del origen y compute-bound se muestra a continuación.
     ax.barh(y, memory, color=MEMORY, label="memory-bound")
@@ -137,17 +106,8 @@ def save_level_composition() -> None:
 
 
 def save_sampling_audit() -> None:
-    derived = DATA / "cpu_sample_family_counts.csv"
-    if OOF.exists():
-        source = pd.read_csv(DATA / "family_class_frequency_summary.csv")
-        source = source.groupby("family", as_index=False)[["n_compute_bound", "n_memory_bound"]].sum()
-        source["elegibles"] = source.n_compute_bound + source.n_memory_bound
-        sampled = pd.read_csv(OOF).groupby("kernel_family").size().rename("muestra")
-        rows = source.set_index("family").join(sampled).sort_values("elegibles")
-        rows.reset_index().to_csv(derived, index=False)
-    else:
-        rows = pd.read_csv(derived).set_index("family").sort_values("elegibles")
-    fig, ax = plt.subplots(figsize=(9.2, 8.2))
+    rows = pd.read_csv(BOOK / "family_counts.csv").set_index("family").sort_values("elegibles")
+    fig, ax = plt.subplots(figsize=(9.2, 9.4))
     y = np.arange(len(rows))
     ax.barh(y - 0.18, rows.elegibles, height=0.34, color=LIGHT, label="Intervalos elegibles")
     ax.barh(y + 0.18, rows.muestra, height=0.34, color=COMPUTE, label="Intervalos seleccionados")
@@ -177,12 +137,7 @@ def save_input_correlation() -> None:
         "Ref./kI", "Ref./ciclo", "Fallos/ciclo", "Stall/kI",
         "Stall/fallo", "log(1+MPKI)",
     ]
-    derived = DATA / "cpu_final_feature_correlation.csv"
-    if OOF.exists():
-        corr = pd.read_csv(OOF, usecols=features).corr(method="pearson")
-        corr.to_csv(derived)
-    else:
-        corr = pd.read_csv(derived, index_col=0).loc[features, features]
+    corr = pd.read_csv(BOOK / "feature_correlation.csv", index_col=0).loc[features, features]
     fig, ax = plt.subplots(figsize=(8.4, 7.1))
     image = ax.imshow(corr, cmap="RdBu_r", vmin=-1, vmax=1)
     ax.set_xticks(range(len(labels)), labels, rotation=55, ha="right", fontsize=8)

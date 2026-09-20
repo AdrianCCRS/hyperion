@@ -1,6 +1,6 @@
 """Figuras del clasificador CPU (sección de resultados).
 
-Lee docs/libro/datos/cpu_calidad_20260918 y escribe docs/libro/figuras/fig_cpu_*_20260919.png.
+Lee docs/libro/datos/cpu_calidad_30fam y escribe docs/libro/figuras/fig_cpu_*_20260919.png.
 Reproduce: python3 docs/libro/scripts/generar_figuras_modelo_cpu.py
 """
 import json
@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 
 BASE = Path(__file__).resolve().parents[1]
-D = BASE / "datos" / "cpu_calidad_20260918"
+D = BASE / "datos" / "cpu_calidad_30fam"
 F = BASE / "figuras"
 COMPUTE, MEMORY, NEUTRO, REF = "#2b6cb0", "#dd6b20", "#4a5568", "#a0aec0"
 plt.rcParams.update({
@@ -75,7 +75,7 @@ def matriz_confusion() -> None:
 def por_familia() -> None:
     f = pd.read_csv(D / "final_model_by_family.csv").sort_values("accuracy")
     inv = pd.read_csv(D / "inventory_by_family.csv").set_index("family")
-    fig, ax = plt.subplots(figsize=(7.4, 5.6))
+    fig, ax = plt.subplots(figsize=(7.4, 6.9))
     y = np.arange(len(f))
     col = [COMPUTE if inv.loc[k, "mixed_10_90"] else MEMORY for k in f["family"]]
     ax.barh(y - 0.19, f["accuracy"], height=0.38, color=col)
@@ -137,11 +137,11 @@ def margen_ridge() -> None:
 
 
 def celdas() -> None:
-    """Las 44 celdas familia-clase: acierto de cada una y su tamano."""
+    """Las celdas familia-clase: acierto de cada una y su tamano."""
     c = pd.read_csv(D / "metrics_cells.csv")
     orden = (c.groupby("familia")["acierto"].mean().sort_values().index.tolist())
     y = {f: i for i, f in enumerate(orden)}
-    fig, ax = plt.subplots(figsize=(7.4, 5.8))
+    fig, ax = plt.subplots(figsize=(7.4, 8.6))
     for _, r in c.iterrows():
         col = MEMORY if r["clase_memory"] else COMPUTE
         size = 18 + 26 * np.log10(max(r["n_intervalos"], 1))
