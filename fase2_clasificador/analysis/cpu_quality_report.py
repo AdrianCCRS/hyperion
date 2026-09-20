@@ -790,6 +790,31 @@ def stage_power_w(frame, families, fam_codes, args, out: Path):
     pd.DataFrame(rows).to_csv(out / "power_w.csv", index=False)
 
 
+def stage_selection(frame, families, fam_codes, args, out: Path):
+    """Seleccion 6 vs 12 variables: diferencia pareada de exactitud balanceada por celda (bootstrap de familias)."""
+    cnt = {c: [] for c in ("xgb_base", "xgb_inter")}
+    for s_ in range(args.seeds):
+        sample = capped_sample(frame, args.cap, 1000 + s_)
+        for c in cnt:
+            cnt[c].append(lofo(frame, families, fam_codes, c, sample, 2000 + s_, True, args.n_jobs))
+        print("[selection] seed", s_, flush=True)
+    mean_cnt = {c: np.sum(v, axis=0) for c, v in cnt.items()}
+    rng = np.random.default_rng(0)
+    F = len(families)
+    diffs = []
+    for _ in range(4000):
+        d = rng.integers(0, F, F)
+        diffs.append(metrics_from_counts(mean_cnt["xgb_inter"][d])["cell_balanced_acc"]
+                     - metrics_from_counts(mean_cnt["xgb_base"][d])["cell_balanced_acc"])
+    diffs = np.array(diffs)
+    res = {"cell_bal": {c: metrics_from_counts(v)["cell_balanced_acc"] for c, v in mean_cnt.items()},
+           "diff_inter_minus_base": float(metrics_from_counts(mean_cnt["xgb_inter"])["cell_balanced_acc"]
+                                          - metrics_from_counts(mean_cnt["xgb_base"])["cell_balanced_acc"]),
+           "diff_ci95": ci(diffs), "p_diff_le_0": float((diffs <= 0).mean())}
+    (out / "selection_6_vs_12.json").write_text(json.dumps(res, indent=1))
+    print(json.dumps(res, indent=1))
+
+
 def stage_adaptation(frame, families, fam_codes, args, out: Path):
     """Calibracion en linea: ¿cuanto mejora si los primeros n intervalos etiquetados (uncore) de cada bloque
     kernel x frecuencia de la familia nueva se anaden al entrenamiento? Se evalua sobre el resto de esa familia.
@@ -1188,7 +1213,7 @@ def stage_latency(frame, args, out: Path):
     y = frame["y"].to_numpy()[sample]
     fam_codes = pd.Categorical(frame["family"]).codes
     res = {}
-    for cfg in ("stump_base", "logistic_inter", "xgb_inter", "xgb_inter_shallow", "rf_inter", "et_inter"):
+    for cfg in ("stump_base", "logistic_inter", "xgb_base", "xgb_inter", "xgb_inter_shallow", "rf_inter", "et_inter"):
         name_model, features, weighting = CONFIGS[cfg]
         model = make_model(name_model, 0, y, features)
         X = frame[features].to_numpy(dtype=np.float32)[sample]
@@ -1211,7 +1236,7 @@ def stage_latency(frame, args, out: Path):
     (out / f"latency_{platform.node()}.json").write_text(json.dumps(res, indent=1))
 
 
-STAGES = ["inventory", "final_model", "metrics_suite", "matrix", "diagnostics", "protocols", "learning_curve", "smoothing", "nested_selective", "regularization", "importance", "knn_ceiling", "twins", "nested_optuna", "adaptation", "adaptation_phases", "temporal", "oi_proxy", "power_w", "cap_sensitivity", "threshold_nested", "latency"]
+STAGES = ["inventory", "final_model", "metrics_suite", "matrix", "diagnostics", "protocols", "learning_curve", "smoothing", "nested_selective", "regularization", "importance", "knn_ceiling", "twins", "nested_optuna", "adaptation", "adaptation_phases", "temporal", "oi_proxy", "power_w", "selection", "cap_sensitivity", "threshold_nested", "latency"]
 
 
 def main() -> None:
