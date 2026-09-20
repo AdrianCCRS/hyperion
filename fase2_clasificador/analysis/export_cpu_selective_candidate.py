@@ -22,15 +22,18 @@ def main() -> None:
     parser.add_argument("--max-per-family-class", type=int, default=1000)
     parser.add_argument("--n-jobs", type=int, default=1)
     parser.add_argument("--min-coverage", type=float, default=0.60)
+    parser.add_argument("--threshold", type=float, default=None,
+                        help="Fija el umbral operativo en lugar del elegido por el LOFO interno (se registra el elegido)")
     args = parser.parse_args()
     features = production_variants()["pmu_interactions"]
     frame = _prepare(pd.read_csv(args.dataset, low_memory=False), args.max_per_family_class, args.seed)
     frame = frame.dropna(subset=features).reset_index(drop=True)
     # El umbral se selecciona mediante familias retenidas. La variante está
     # fijada por la hipótesis de producción, no se consulta la prueba final.
-    _, threshold, inner_f1, inner_coverage = _inner_choice(
+    _, selected_threshold, inner_f1, inner_coverage = _inner_choice(
         frame, {"pmu_interactions": features}, args.seed, args.n_jobs, args.min_coverage
     )
+    threshold = args.threshold if args.threshold is not None else selected_threshold
     X = frame[features].to_numpy(dtype=np.float32)
     y = frame["_class"].to_numpy(dtype=bool)
     model = _prototype("xgboost", args.seed, y, args.n_jobs, scale_pos_weight=1.0)
@@ -47,7 +50,8 @@ def main() -> None:
         "xgboost_scale_pos_weight": 1.0,
         "decision": {"threshold": threshold, "automatic": "confidence >= threshold", "otherwise": "revisar"},
         "threshold_selection": {"scheme": "LOFO interno", "f1_macro_mean": inner_f1,
-                                "coverage_mean": inner_coverage, "minimum_coverage": args.min_coverage},
+                                "coverage_mean": inner_coverage, "minimum_coverage": args.min_coverage,
+                                "selected_threshold": selected_threshold, "threshold_fixed_by_user": args.threshold is not None},
         "n_rows": len(frame), "n_families": int(frame.kernel_family.nunique()),
         "source": str(args.dataset), "seed": args.seed,
     }, indent=2, ensure_ascii=False) + "\n")

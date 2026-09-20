@@ -1084,13 +1084,13 @@ def stage_nested_optuna(frame, families, fam_codes, args, out: Path):
     (out / "nested_optuna.json").write_text(json.dumps({"trials_xgboost": args.optuna_trials, "results": results}, indent=1))
 
 
-FINAL_THRESHOLD = 0.90
+FINAL_THRESHOLD = 0.85
 
 
 def stage_final_model(frame, families, fam_codes, args, out: Path):
     """Cifras del modelo final en una sola poblacion y una sola configuracion.
 
-    Configuracion congelada: XGBoost, 12 entradas, pesos por celda familia x clase, umbral 0.90.
+    Configuracion congelada: XGBoost, 12 entradas, pesos por celda familia x clase, umbral 0.85.
     Protocolo: LOFO, entrenamiento sobre la muestra con tope por celda, evaluacion sobre TODOS los
     intervalos elegibles de la familia retenida. Promedio de ``seeds`` semillas de muestreo para los
     conteos (se redondean al reportar). Todo lo que el capitulo cita sale de aqui.
