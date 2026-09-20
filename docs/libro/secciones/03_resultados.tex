@@ -1,381 +1,106 @@
 \chapter{Resultados}
-%Hay que hacer alguna especie de division entre los resultados CPU y GPU
-(Cambiar este parrafo, esta mal para la version final)
-Este capítulo reporta los resultados de la Fase 1: la construcción y validación del instrumento de medición, la campaña CPU solicitada en múltiples niveles --- junto con la verificación posterior que demostró que estos no constituyeron frecuencias físicas distintas ---, la caracterización de precisión aritmética del catálogo de GPU, y la ampliación del catálogo con kernels de patrón de acceso irregular. Incluye también un primer entrenamiento y análisis del clasificador GPU (Fase 2, secciones \ref{sec:resultados-gpu-separabilidad} en adelante), posible porque el conjunto de entrenamiento de GPU ya quedó definido dentro de esta misma fase; el resto de la Fase 2 (clasificador CPU), la Fase 3 (implementación del agente) y la Fase 4 (evaluación de EDP frente a los gobernadores nativos) están fuera del alcance de estos resultados y se reportarán al cerrarse el desarrollo completo del proyecto.
 
-%Este pedazo tambien está desactualizado....
-\section{Descripción del conjunto de datos experimental}
+Este capítulo organiza la evidencia por dispositivo. Primero se presentan los resultados de la campaña final de CPU. Después se reportan la validación del instrumento GPU, el diagnóstico exploratorio de su primer conjunto de entrenamiento y el cambio posterior de la estrategia de medición. Esta distinción evita presentar resultados intermedios como conclusiones finales.
 
-El catálogo experimental final está compuesto por 9 cargas de CPU (7 de conjunto de datos y 2 de calibración) y 12 cargas de GPU (8 de conjunto de datos y 4 de calibración). Todas las cargas de CPU operan en doble precisión, verificado empíricamente para las 9 sobre el catálogo completo, no solo sobre las empleadas en la validación principal (sección \ref{sec:validacion-flops}). El conjunto de datos GPU combina siete kernels de la suite Rodinia y una multiplicación densa de matrices sobre cuBLAS. Las cuatro cargas de calibración corresponden a tres microbenchmarks propios que sostienen los techos Roofline --- ancho de banda, pico FP32 y pico FP64 --- y una DGEMM de cuBLAS conservada como referencia informativa independiente.
+\section{Resultados de CPU}
+\label{sec:resultados-cpu}
 
-La auditoría de precisión aritmética de la sección \ref{sec:resultados-precision-gpu} excluyó del catálogo GPU un kernel de simulación térmica cuya intensidad operacional real, con precisión mixta, cae demasiado cerca del punto de inflexión para clasificarlo con confianza; se reemplazó por una eliminación gaussiana de la misma suite, confirmada empíricamente pura en la precisión declarada.
+La campaña \texttt{pacca\_cpu\_final\_20260913} cubrió 43 configuraciones de kernel en el nivel nativo y nueve niveles fijos de frecuencia, con tres repeticiones por combinación. Las 1290 corridas finalizaron aceptadas. El warmup se calibró a partir de las ventanas medidas para cada kernel y el conjunto se reprocesó con esos valores. Los transitorios fueron pequeños, con un máximo de 4.8\% de la duración de corrida y valores inferiores a 2\% en la mayoría de los kernels.
 
-%%Resumir todo esto, o alguna tabla o figura que lo condense<<
-\section{Validación de la actuación DVFS en CPU}
-\label{sec:resultados-cpu-dvfs}
-
-\subsubsection*{Metodología de actuación verificada}
-
-La actuación de frecuencia por núcleo se verifica en tres niveles, no solo por el código de retorno de la escritura. Primero, la escritura restringe siempre, junto con cada procesador lógico delegado, a sus hermanos de \textit{SMT} según la topología real de la plataforma --- de lo contrario los hermanos sin restringir permiten que el planificador entregue ciclos adicionales al núcleo físico compartido, diluyendo el límite solicitado sobre el procesador delegado. Segundo, la confirmación de que el nuevo límite se hizo efectivo se realiza generando actividad de cómputo real sobre los mismos procesadores mientras se lee el reloj reportado por el sistema operativo --- esa lectura deriva de la proporción entre ciclos reales y de referencia acumulados, una cantidad que solo es representativa bajo carga activa. Tercero, la verificación por ventana excluye un margen de $\sim$10~ms inmediatamente posterior a cada transición de nivel, correspondiente al tiempo físico de asentamiento del reloj entregado.
-
-Verificado experimentalmente: restringiendo únicamente los procesadores lógicos delegados, la razón de rendimiento entre el nivel más alto y el más bajo del barrido se mantiene en 0.995 (sin escalar); restringiendo además sus hermanos de \textit{SMT}, la razón sube a 3.78, cercana a la razón de cuatro esperada entre los niveles comparados. El ancho de banda calibrado, limitado por memoria y no por reloj de núcleo, no depende de esta verificación: 58.0~GB/s bajo el nivel más alto del barrido frente a 57.45~GB/s en estado nativo sin restricción, dentro del margen de ruido de medición.
-
-\subsubsection*{Resultado de la campaña}
-
-Sobre la plataforma descrita en la Tabla \ref{tab:plataforma}: 7 kernels de conjunto de datos, 6 niveles solicitados (REF y F0--F4, Tabla \ref{tab:frecuencias}), 3 repeticiones por combinación --- 126 combinaciones, 126 aceptadas, 4.67 horas-núcleo, 1,355,352 ventanas (95.4\% con estado de calidad \texttt{ok}). Para cada nivel fijo, \texttt{scaling\_max\_freq}/\texttt{scaling\_min\_freq} conservan exactamente el valor solicitado (3.6, 2.9, 2.2, 1.5 y 0.8~GHz para F0--F4) y la restauración final devuelve el sistema a su estado anterior.
-
-Esta aceptación confirma la integridad de la adquisición y el etiquetado, pero los seis niveles solicitados no corresponden a seis frecuencias físicas distintas: la plataforma mantiene el turbo activo bajo \texttt{intel\_pstate}/HWP, y los controles globales capaces de limitarlo (\texttt{no\_turbo}, \texttt{max\_perf\_pct}) no son escribibles con los permisos actuales --- una carga solicitada a 2.2~GHz sostiene $\sim$3.5~GHz reales bajo carga, confirmado con 40 lecturas periódicas de sysfs independientes del instrumento. La campaña no se presenta, en consecuencia, como un barrido DVFS válido: sus intensidades y etiquetas describen las cargas en el único punto de operación realmente observado, pero las repeticiones F0--F4 no son estados DVFS independientes hasta resolver el control de turbo.
-
-%Texto amplio y confuso que se puede presentar en figura o tabla (creo)
-\section{Caracterización de precisión aritmética en el catálogo de GPU}
-\label{sec:resultados-precision-gpu}
-
-Como se argumentó en la sección \ref{sec:gpu-calibracion}, la intensidad operacional de cada carga de GPU se determina perfilando con Nsight Compute \textbf{ambas} precisiones aritméticas simultáneamente, nunca solo la declarada por el catálogo --- el único método capaz de detectar que un kernel ejecuta una fracción real de su trabajo en una precisión distinta de la nominal. Se reperfiló bajo este criterio el catálogo completo de siete kernels de Rodinia.
-
-Tres kernels resultaron empíricamente puros en la precisión declarada: una simulación de N-cuerpos (100\% doble precisión, intensidad operacional dentro de 0.1\% del valor declarado), una descomposición LU (100\% simple precisión, convergencia verificada hasta 200 lanzamientos de kernel) y una transformada de \textit{wavelets} (100\% simple precisión, dentro de 0.5\%).
-
-Los otros cuatro mostraron mezcla de precisión no trivial. Un kernel de simulación térmica ejecuta 30.4\% de sus operaciones en doble precisión pese a declararse de precisión simple, con intensidad operacional real de 7.21 FLOP/byte --- justo en el borde del punto de inflexión de simple precisión (7.28--7.98 FLOP/byte) ---, sin base metodológica sólida para clasificarlo contra un único techo; se retiró del catálogo. Dos kernels adicionales (retropropagación y un solucionador de ecuaciones diferenciales ordinarias) resultan mayoritariamente de doble precisión (82.3\% y 71.3\%) pese a declararse de precisión simple; la clasificación \textit{memory-bound} no cambia en ninguno de los dos --- la intensidad operacional real permanece órdenes de magnitud por debajo de cualquier techo posible en esta plataforma ---, y la precisión declarada en el catálogo se corrigió para reflejar lo medido.
-
-El cuarto caso, la multiplicación densa de matrices sobre cuBLAS, ejecuta sobre unidades Tensor Core. Su intensidad operacional declarada (68.0 FLOP/byte) proviene del conteo analítico del propio algoritmo, contrastado independientemente contra la tasa que el binario reporta al finalizar (discrepancia menor a 0.2\%) --- las instrucciones Tensor Core no incrementan los contadores clásicos de multiplicación--suma fusionada, así que el conteo por instrucciones de los demás kernels de Rodinia no es aplicable a este caso.
-
-\section{Estado del control de frecuencia en GPU}
-\label{sec:resultados-gpu-dvfs}
-
-La actuación de frecuencia de GPU se implementa mediante el bloqueo de reloj de \textit{streaming multiprocessor} (\texttt{nvidia-smi -lgc}), delegado mediante privilegios restringidos de \texttt{sudo}, y se verificó bajo carga real y no solo por el código de retorno del comando: dentro de una asignación exclusiva, con un microbenchmark FP64 propio como carga y restauración automática del estado al finalizar, un objetivo de 600~MHz produjo 305 lecturas con utilización activa, todas exactamente a 600~MHz; un objetivo de 1200~MHz produjo 174 lecturas activas, todas exactamente a 1200~MHz. El actuador retiene el reloj solicitado bajo carga real en los dos niveles probados (NVIDIA 610.57.04/CUDA 13.3).
-
-El resto del \textit{plumbing} que una campaña DVFS de GPU exige --- verificación de actividad ajena antes de cada combinación, piso mínimo de utilización de 5\% para superar el ruido del sensor, y desacoplamiento completo de los ejes de frecuencia CPU y GPU mediante su producto cartesiano --- cuenta con pruebas unitarias, pero el producto cartesiano y el \textit{pipeline} completo multi-frecuencia aún no se han ejercitado como una campaña GPU de producción; la recolección y aceptación del conjunto multi-frecuencia permanecen como el siguiente paso experimental.
-
-\section{Medición directa de bytes movidos en memoria (\textit{uncore})}
-\label{sec:resultados-uncore}
-
-La lectura de los contadores de \textit{uncore} del controlador de memoria (sección \ref{sec:uncore}) usa la capacidad \texttt{CAP\_PERFMON} asignada al binario \texttt{perf}, sin reducir la restricción de \texttt{perf\_event\_paranoid} para todo el sistema. El instrumento invoca a \texttt{perf} como subproceso, fijado a un núcleo reservado para telemetría --- nunca a los núcleos donde corre la carga medida, para no contaminar los contadores por proceso que allí se miden ---, y procesa en vivo su salida periódica en vez de abrir los contadores directamente. El presupuesto simultáneo de eventos de PMU es de nueve, no diez: la vigilancia por interrupción no enmascarable del sistema operativo (ajena a este proyecto, presente en cualquier despliegue de servidor típico) reserva de forma permanente un contador de hardware por núcleo; el evento descartado es el \textit{proxy} de tráfico de caché de segundo nivel, sin papel en la clasificación desde que \textit{uncore} lo reemplaza como fuente admitida.
-
-La medición directa de \textit{uncore} reemplaza por completo al \textit{proxy} de fallos de caché en la clasificación por ventana --- no como respaldo, sino como única fuente admitida --- aunque no a la granularidad fina de una ventana individual: \texttt{perf stat} reporta en intervalos de al menos $\sim$10~ms, mientras que una ventana de CPU dura $\sim$1~ms. El instrumento agrega los FLOPs de todas las ventanas cubiertas por cada intervalo de \textit{uncore} y calcula la intensidad operacional real a esa granularidad más gruesa, difundida a cada una de esas ventanas como \texttt{operational\_intensity}/\texttt{phase\_label\_train}. Una ventana que ningún intervalo real llega a cubrir queda deliberadamente indefinida, nunca recurre al \textit{proxy} como alternativa. \texttt{bytes\_moved\_window} (el \textit{proxy}) se sigue calculando y reportando en su propia columna, únicamente como referencia de comparación --- nunca alimenta la clasificación.
-
-Verificado de extremo a extremo con una carga de tráfico de memoria real: de 332 ventanas de una corrida de referencia, 322 quedaron cubiertas por al menos un intervalo real de \textit{uncore}, con conteos de lectura/escritura variables y coherentes entre intervalos consecutivos --- nunca en cero, la señal esperada de una medición genuina bajo carga activa. De esas 322, 301 quedaron efectivamente clasificadas con el valor real; las 21 restantes tenían cobertura de bytes pero al menos una ventana del grupo sin FLOPs medidos válidos, y quedaron correctamente indefinidas en vez de calcular una intensidad con un numerador incompleto.
-
-\subsection{Validación de esfuerzo y aislamiento de la campaña}
-\label{sec:resultados-interferencia-uncore}
-
-Antes de comprometer una campaña real de varias horas, se ejecutó una prueba de esfuerzo dirigida a las condiciones que una corrida aislada no expone: cinco repeticiones consecutivas del patrón de arranque/cierre del subproceso de medición, una carga de duración extrema por debajo del piso práctico de intervalo, y una carga más prolongada para observar la cadencia de intervalos de principio a fin. Las cinco repeticiones consecutivas completaron con datos reales y sin procesos remanentes; el espaciado mínimo entre intervalos consecutivos se sostiene en los $\sim$10~ms esperados de manera consistente a lo largo de toda la corrida, incluidos sus primeros instantes.
-
-Los contadores de \textit{uncore}, de alcance de sistema, exigen reserva exclusiva del nodo --- verificada como precondición bloqueante antes de iniciar cualquier campaña que los solicite, para que ningún proceso ajeno pueda contaminar una lectura que, por diseño, no puede atribuirse a un proceso concreto. Antes de comprometer una campaña real, una prueba de humo a escala reducida ejercita el mismo camino de código de principio a fin --- verificación previa, calibración, escritura de frecuencia, \textit{uncore}, post-procesamiento y validación de ventanas --- sobre una única carga, antes de repetir el mismo procedimiento contra la campaña completa.
-
-Verificado con dos campañas de humo completas: la razón mínima de tiempo contando sobre tiempo habilitado se sostiene en 1.0 a lo largo de toda una corrida de prueba, sin ningún delta negativo en los cuatro sub-eventos de punto flotante; una campaña de humo con barrido completo de frecuencia (REF y F0--F4, dieciocho combinaciones) acepta la totalidad; y una segunda, sobre los siete kernels reales del catálogo a frecuencia nativa (veintiuna combinaciones), acepta también la totalidad, con clasificaciones físicamente coherentes: la multiplicación densa de matrices resulta \textit{compute-bound} en el 100\% de sus ventanas válidas, con intensidad operacional entre 15.0 y 29.6 FLOP/byte, muy por encima del punto de inflexión corregido (sección \ref{sec:resultados-ppico}); los seis kernels de la suite NAS Parallel Benchmarks resultan predominantemente \textit{memory-bound}, con la excepción de una fracción minoritaria de ventanas \textit{compute-bound} en el kernel de resolución de sistemas por métodos implícitos, consistente con el desplazamiento del punto de inflexión documentado en esa misma sección.
-
-\section{Validación cruzada de los techos Roofline con una herramienta independiente}
-\label{sec:resultados-ppico}
-
-Los techos del modelo Roofline se determinan, como se explicó en la sección \ref{sec:roofline}, mediante calibración empírica sobre la propia plataforma. Verificar el resultado de esa calibración exige una vía independiente del mecanismo de calibración: se empleó Intel Advisor, que construye su propio análisis Roofline mediante instrumentación binaria directa del bucle más costoso de un programa --- contabilizando FLOPs y bytes ejecutados realmente, sin pasar por contadores de PMU ---, un mecanismo de medición genuinamente distinto y por tanto una validación cruzada real \cite{Advisor2026}.
-
-Los microbenchmarks de calibración solicitan explícitamente el ancho vectorial máximo de la plataforma (AVX-512, ocho elementos de doble precisión por instrucción) en el microbenchmark de densidad aritmética --- no en el de ancho de banda, limitado por memoria y no por ejecución vectorial, donde el ancho vectorial máximo produce una regresión de rendimiento medible. El mismo criterio se aplica a la cadena de construcción de los seis kernels de conjunto de datos de la suite NAS Parallel Benchmarks, sin la bandera de ancho vectorial máximo por combinar regímenes \textit{memory-bound} y \textit{compute-bound} bajo una configuración de compilación compartida.
-
-Contrastado sobre una multiplicación de matrices densas de referencia, Advisor midió 577.7~GFLOP/s con una intensidad operacional de 1.091~FLOP/byte sobre los mismos seis núcleos de la calibración de producción --- coherente con el punto de inflexión propio del catálogo. El ancho de banda calibrado valida contra Advisor dentro de 12--15\% (58.4--58.8~GB/s frente a 64.0--66.8~GB/s), y el techo de cómputo calibrado por este instrumento (417.8--555~GFLOP/s) es consistente con la referencia independiente de Advisor. El punto de inflexión final queda en el rango \textbf{7.0--9.3~FLOP/byte}, la referencia empleada en el resto de este capítulo para clasificar el catálogo de conjunto de datos (sección \ref{sec:resultados-interferencia-uncore}).
-
-\section{Evolución del catálogo GPU: del DGEMM de referencia a un reemplazo verificable}
-\label{sec:resultados-gpu-gemm-evolucion}
-
-Los envoltorios de cuBLAS para multiplicación densa de matrices (\texttt{cublasDgemm}) resultan, en esta combinación de GPU/controlador, inutilizables como ancla \textit{compute-bound} del catálogo: el binario enruta internamente a un kernel de unidades Tensor Core (\texttt{cutlass\_80\_tensorop\_d884gemm}, confirmado por el nombre de kernel en el CSV crudo de Nsight Compute) sin que se le solicite explícitamente, y las instrucciones Tensor Core no incrementan los contadores clásicos de multiplicación--suma fusionada que este instrumento usa para calcular la intensidad operacional --- 0 instrucciones DFMA contadas para una carga que, por su escalamiento $O(N^3)$ de cómputo frente a $O(N^2)$ de memoria, debería ser de las más \textit{compute-bound} del catálogo. El \textit{pipeline} excluye esta ruta mediante un guardarraíl explícito (\texttt{fase1\_telemetria/ncu\_convergence.py}, condición \texttt{tensor\_instructions\_observed > 0}) sobre el formato de salida de Nsight Compute usado en producción; auditados los 37 kernels del catálogo con este criterio, 17 muestran actividad Tensor Core no nula (umbral de fracción calibrado en 10\%, sobre un hueco real observado entre 3.3\% de ruido y 20.8\% de actividad genuina).
-
-El reemplazo verificado es CUTLASS con la clase de operación \texttt{OpClassSimt} --- que fuerza explícitamente unidades de cómputo escalares, nunca Tensor Core ---: un programa \textit{standalone} instanciando \texttt{cutlass::gemm::device::Gemm<double, \ldots, OpClassSimt, Sm50, \ldots>} mide una intensidad operacional de \textbf{26.73~FLOP/byte}, confirmada con conteo exacto de instrucciones DFMA igual a $N^3=4096^3$, muy por encima del ridge de doble precisión en el nivel de referencia ($6.898$~FLOP/byte, sección \ref{sec:resultados-gpu-dataset-final}) y sin ninguna actividad Tensor Core detectada. Este kernel (\textit{gpu\_cutlass\_simt\_dgemm\_n4096}) es la ancla \textit{compute-bound} de multiplicación densa del catálogo final, que queda en 18 kernels y 540 corridas planificadas; \textit{gpu\_rajaperf\_gemm} (\textit{Polybench\_GEMM} de RAJAPerf, 2.81~FLOP/byte, cerca del ridge) se conserva como segunda referencia de suite de terceros, más cercana al punto de inflexión.
-
-\section{Barrido de memoria real y calibración de warmup: composición final del dataset}
-\label{sec:resultados-gpu-dataset-final}
-
-\subsection{Techos Roofline de referencia para GPU}
-
-Siguiendo el mismo principio de calibración empírica descrito para CPU (sección \ref{sec:resultados-ppico}), el ridge de GPU se determina por precisión aritmética y nivel de frecuencia, mediante un microbenchmark propio de densidad aritmética pura (bucle de multiplicación-suma fusionada en registros, sin \texttt{cuBLAS}) y un microbenchmark compartido de ancho de banda equivalente a STREAM Triad. En el nivel de referencia (\texttt{REF}, reloj nativo sin restricción), el ridge resultante es de \textbf{14.965852~FLOP/byte en simple precisión} y \textbf{6.898377~FLOP/byte en doble precisión} --- ambos calculados como $P_{\text{pico,precisión}}/BW_{\text{pico}}$ a partir del rendimiento y ancho de banda pico medidos en ese mismo nivel. Estos valores, y no una aproximación previa citada informalmente durante el desarrollo de este trabajo (del orden de 3.4--3.7 y 7.3--8.0~FLOP/byte, correspondientes a un nivel de frecuencia distinto de \texttt{REF}), son los empleados en la Tabla \ref{tab:gpu-catalogo-final-18} y en la Figura \ref{fig:gpu-roofline-18kernels} para posicionar cada kernel del catálogo final frente al techo de su propia precisión.
-
-\subsection{Barrido de memoria a escala real de VRAM}
-
-El catálogo incluye, para las cinco familias \textit{dual\_*} de GPU, tamaños que ocupan una fracción significativa de la memoria física del acelerador (A100, 40~GB de VRAM) --- el mismo principio ya aplicado en CPU mediante un barrido de tamaños sobre \textit{dual\_fft\_cpu} --- además de sus variantes de escala pequeña ya validadas. Los tamaños se verifican con ejecución real antes de comprometer tiempo de perfilado, contra la memoria medida en vivo con \texttt{nvidia-smi} (no contra una estimación por fórmula). La Tabla \ref{tab:gpu-memoria-barrido} y la Figura \ref{fig:gpu-memoria-barrido} resumen los cinco tamaños verificados y perfilados, apuntando a $\sim$50\% de VRAM.
+La unidad que alimenta el conjunto de entrenamiento CPU es el intervalo real de \textit{uncore}, no la ventana de muestreo de aproximadamente 1~ms. La Tabla \ref{tab:cpu-cobertura-conjunto} resume la cobertura obtenida después del filtrado de calidad. De 1\,281\,515 intervalos procesados, 1\,169\,833 cumplieron simultáneamente los criterios de telemetría y de frecuencia. Los restantes se conservaron para auditoría, pero no recibieron una etiqueta de entrenamiento.
 
 \begin{table}[H]
 \centering
-\caption{Resultado del barrido de memoria a escala real de VRAM para las cinco familias \textit{dual\_*} de GPU.}
-\label{tab:gpu-memoria-barrido}
+\caption{Cobertura y composición del conjunto de intervalos CPU.}
+\label{tab:cpu-cobertura-conjunto}
 \small
-\begin{tabular}{@{}lrrr>{\raggedright\arraybackslash}p{4.3cm}@{}}
+\begin{tabular}{@{}lr@{}}
 \toprule
-\textbf{Familia} & \textbf{$N$ final} & \textbf{Memoria real} & \textbf{\% VRAM} & \textbf{Resultado / decisión} \\
+\textbf{Medida} & \textbf{Valor} \\
 \midrule
-\textit{dual\_fft\_gpu} & 25600 & 20.43~GB & 49.9\% & Excluido: precisión mixta detectada \\
-\textit{dual\_cholesky\_gpu} & 32768 & 8.64~GB & 21.1\% & Excluido: no converge (cache-residencia) \\
-\textit{dual\_axpy\_gpu} & 1\,280\,000\,000 & 19.50~GB & 48.8\% & En campaña final \\
-\textit{dual\_spmv\_gpu} & 200\,000\,000 & 19.80~GB & 49.5\% & En campaña final \\
-\textit{dual\_stencil\_gpu} & 36864 & 20.66~GB & 51.7\% & En campaña final \\
+Configuraciones de kernel & 43 \\
+Niveles de frecuencia & 10 \\
+Corridas aceptadas & 1290 de 1290 \\
+Intervalos procesados & 1\,281\,515 \\
+Intervalos elegibles & 1\,169\,833 \;(91.3\%) \\
+Intervalos \textit{compute\_bound} & 386\,441 \;(33.0\%) \\
+Intervalos \textit{memory\_bound} & 783\,392 \;(67.0\%) \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-De las cinco familias, tres (\textit{dual\_axpy\_gpu}, \textit{dual\_spmv\_gpu}, \textit{dual\_stencil\_gpu}) entran a la campaña final a escala de VRAM real. \textit{dual\_cholesky\_gpu\_N32768} y \textit{dual\_fft\_gpu\_N25600} quedan excluidos: el primero no converge dentro del criterio de estabilidad del 1\% a esta escala (efecto de residencia en caché que se diluye al crecer $N$, intensidad operacional de 0.217 FLOP/byte); el segundo mezcla precisión simple y doble a partir de este tamaño (Nsight Compute), a diferencia de \textit{dual\_fft\_gpu\_N4096} (en campaña, precisión pura confirmada). A la escala de memoria que efectivamente usa un acelerador grande, las cinco familias \textit{dual\_*} se confirman o profundizan hacia el régimen \textit{memory-bound}.
+\subsection{Composición de fase por kernel}
+\label{sec:resultados-cpu-composicion}
+
+La Figura \ref{fig:cpu-composicion-clase-kernel} muestra que el conjunto cubre ambos regímenes y conserva configuraciones próximas al \textit{ridge}. Las cargas de cómputo denso, como \textit{dgemm\_n2048}, \textit{dual\_gemm\_cpu\_N2048}, \textit{rodinia\_lavamd\_omp} y \textit{rajaperf\_polybench\_3mm\_omp}, concentran sus intervalos en \textit{compute\_bound}. En el extremo opuesto, las configuraciones grandes de AXPY, FFT, stencil y SpMV permanecen \textit{memory\_bound}.
+
+La composición intermedia no se concentra en un solo algoritmo. \textit{npb\_bt}, \textit{npb\_lu}, \textit{cpu\_cholmod}, \textit{hpccg\_cpu\_N46}, las variantes \textit{phasic} y los tamaños dirigidos de FFT y Cholesky aportan intervalos de ambos regímenes. Estas configuraciones evitan que el conjunto quede limitado a ejemplos alejados del punto de inflexión.
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.72\textwidth]
-        {figuras/fig_gpu_memoria_barrido_20260915.png}
-    \caption[Barrido de memoria real de GPU]{Porcentaje de VRAM del A100 (40~GB) alcanzado por cada tamaño perfilado en el barrido de memoria. Los tres tamaños que entraron a la campaña final se distinguen de los dos que quedaron documentados pero excluidos. Fuente: elaboración propia.}
-    \label{fig:gpu-memoria-barrido}
+    \includegraphics[width=0.60\textheight]
+        {figuras/fig_cpu_composicion_clase_por_kernel_20260917.png}
+    \caption[Composición de fase por kernel en CPU]{Porcentaje de intervalos elegibles clasificados \textit{compute\_bound} y \textit{memory\_bound} para cada configuración de kernel de la campaña CPU. La barra final resume la muestra usada por el clasificador, con 15\,286 intervalos \textit{compute\_bound} y 21\,024 intervalos \textit{memory\_bound}. Fuente: Elaboración propia.}
+    \label{fig:cpu-composicion-clase-kernel}
 \end{figure}
 
-\subsection{Calibración de warmup y su efecto sobre el conjunto de entrenamiento}
+\subsection{Variación de la composición con la frecuencia}
+\label{sec:resultados-cpu-frecuencia}
 
-El transitorio de arranque de cada kernel se calibra con evidencia real, no se declara a mano: el detector de estado estable (método \texttt{cv\_threshold}) exige dos ventanas móviles consecutivas con coeficiente de variación menor o igual a 5\% sobre IPC/\texttt{gpu\_util\_pct}, y el warmup adoptado es $1.2\times$ el instante detectado, tomando el máximo observado entre repeticiones y niveles de frecuencia por kernel. Los 18 kernels de \texttt{gpu\_final.yaml} dan \texttt{status=measured} sobre 28--30 corridas analizadas cada uno (Tabla \ref{tab:gpu-warmup-calibrado}).
-
-\begin{table}[H]
-\centering
-\caption{Warmup calibrado con evidencia real para los 18 kernels de la campaña final GPU.}
-\label{tab:gpu-warmup-calibrado}
-\small
-\renewcommand{\arraystretch}{1.15}
-\begin{tabular}{@{}>{\raggedright\arraybackslash}p{6.5cm}rr@{}}
-\toprule
-\textbf{Kernel} & \textbf{Warmup calibrado (s)} & \textbf{Corridas} \\
-\midrule
-\textit{rodinia\_\allowbreak lavamd} & 6.51 & 30 \\
-\textit{rodinia\_\allowbreak dwt2d} & 6.41 & 30 \\
-\textit{gpu\_\allowbreak cutlass\_\allowbreak simt\_\allowbreak dgemm\_\allowbreak n4096} & 6.64 & 30 \\
-\textit{gpu\_\allowbreak rajaperf\_\allowbreak gemm} & 6.81 & 30 \\
-\textit{gpu\_\allowbreak rajaperf\_\allowbreak heat\_\allowbreak 3d} & 5.41 & 30 \\
-\textit{dual\_\allowbreak axpy\_\allowbreak gpu\_\allowbreak N10000000} & 5.69 & 30 \\
-\textit{dual\_\allowbreak axpy\_\allowbreak gpu\_\allowbreak N1280000000} & 5.44 & 30 \\
-\textit{dual\_\allowbreak stencil\_\allowbreak gpu\_\allowbreak N36864} & 4.47 & 30 \\
-\textit{dual\_\allowbreak cholesky\_\allowbreak gpu\_\allowbreak N2048} & 4.35 & 30 \\
-\textit{dual\_\allowbreak stencil\_\allowbreak gpu\_\allowbreak N1024} & 4.33 & 30 \\
-\textit{dual\_\allowbreak spmv\_\allowbreak gpu\_\allowbreak N1000000} & 4.34 & 30 \\
-\textit{dual\_\allowbreak spmv\_\allowbreak gpu\_\allowbreak N200000000} & 4.32 & 30 \\
-\textit{dual\_\allowbreak fft\_\allowbreak gpu\_\allowbreak N4096} & 4.11 & 30 \\
-\textit{gpu\_\allowbreak rajaperf\_\allowbreak jacobi\_\allowbreak 2d} & 4.09 & 30 \\
-\textit{rodinia\_\allowbreak heartwall} & 1.91 & 30 \\
-\textit{rodinia\_\allowbreak lud} & 1.67 & 28 \\
-\textit{rodinia\_\allowbreak gaussian} & 1.66 & 30 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-El conjunto de entrenamiento final, tras excluir el transitorio de arranque de cada corrida, queda en \textbf{334 corridas elegibles}, \textbf{16 kernels} y \textbf{11 familias algorítmicas}: \textit{rodinia\_lavamd} y \textit{rodinia\_dwt2d} quedan sin ninguna corrida con al menos 5 ventanas de estado estable, el objetivo por repetición --- su warmup calibrado (6.4--6.5~s) es largo en relación con su duración total de corrida. La Figura \ref{fig:gpu-balance-clases-final} muestra el balance de clases resultante.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.5\textwidth]
-        {figuras/fig_gpu_balance_clases_final_20260915.png}
-    \caption[Balance de clases del conjunto de entrenamiento GPU]{Distribución de las 334 corridas elegibles por clase. Fuente: elaboración propia.}
-    \label{fig:gpu-balance-clases-final}
-\end{figure}
-
-La Tabla \ref{tab:gpu-catalogo-final-18} y la Figura \ref{fig:gpu-roofline-18kernels} presentan la posición Roofline final de los 18 kernels de la campaña, usando el ridge exacto de referencia de cada precisión (sección anterior) y marcando cuáles quedan efectivamente sin datos de entrenamiento utilizables tras la calibración de warmup.
-
-\begin{table}[H]
-\centering
-\caption{Los 18 kernels de la campaña final GPU: precisión, intensidad operacional (OI) declarada, ridge de referencia de su propia precisión, $\log_2(\text{OI}/\text{ridge})$ y zona Roofline resultante.}
-\label{tab:gpu-catalogo-final-18}
-\small
-\renewcommand{\arraystretch}{1.1}
-\begin{tabular}{@{}>{\raggedright\arraybackslash}p{3.6cm}rrrr>{\raggedright\arraybackslash}p{3.3cm}@{}}
-\toprule
-\textbf{Kernel} & \textbf{Precisión} & \textbf{OI} & \textbf{Ridge REF} & \textbf{$\log_2$} & \textbf{Zona} \\
-\midrule
-\textit{rodinia\_\allowbreak lavamd} & fp64 & 708.140 & 6.898 & +6.68 & \textit{compute-bound} (sin datos) \\
-\textit{gpu\_\allowbreak cutlass\_\allowbreak simt\_\allowbreak dgemm\_\allowbreak n4096} & fp64 & 26.730 & 6.898 & +1.95 & \textit{compute-bound} \\
-\textit{rodinia\_\allowbreak heartwall} & fp32 & 35.300 & 14.966 & +1.24 & \textit{compute-bound} \\
-\textit{dual\_\allowbreak cholesky\_\allowbreak gpu\_\allowbreak N2048} & fp64 & 8.215 & 6.898 & +0.25 & cerca del ridge \\
-\textit{rodinia\_\allowbreak lud} & fp32 & 7.820 & 14.966 & $-$0.94 & cerca del ridge \\
-\textit{gpu\_\allowbreak rajaperf\_\allowbreak gemm} & fp64 & 2.810 & 6.898 & $-$1.30 & \textit{memory-bound} \\
-\textit{dual\_\allowbreak fft\_\allowbreak gpu\_\allowbreak N4096} & fp64 & 2.499 & 6.898 & $-$1.46 & \textit{memory-bound} \\
-\textit{rodinia\_\allowbreak dwt2d} & fp32 & 2.170 & 14.966 & $-$2.79 & \textit{memory-bound} (sin datos) \\
-\textit{gpu\_\allowbreak rajaperf\_\allowbreak heat\_\allowbreak 3d} & fp64 & 0.746 & 6.898 & $-$3.21 & \textit{memory-bound} \\
-\textit{dual\_\allowbreak stencil\_\allowbreak gpu\_\allowbreak N1024} & fp64 & 0.495 & 6.898 & $-$3.80 & \textit{memory-bound} \\
-\textit{gpu\_\allowbreak rajaperf\_\allowbreak jacobi\_\allowbreak 2d} & fp64 & 0.295 & 6.898 & $-$4.55 & \textit{memory-bound} \\
-\textit{dual\_\allowbreak spmv\_\allowbreak gpu\_\allowbreak N1000000} & fp64 & 0.274 & 6.898 & $-$4.65 & \textit{memory-bound} \\
-\textit{dual\_\allowbreak spmv\_\allowbreak gpu\_\allowbreak N200000000} & fp64 & 0.266 & 6.898 & $-$4.70 & \textit{memory-bound} \\
-\textit{dual\_\allowbreak stencil\_\allowbreak gpu\_\allowbreak N36864} & fp64 & 0.258 & 6.898 & $-$4.74 & \textit{memory-bound} \\
-\textit{rodinia\_\allowbreak gaussian} & fp32 & 0.281 & 14.966 & $-$5.73 & \textit{memory-bound} \\
-\textit{dual\_\allowbreak axpy\_\allowbreak gpu\_\allowbreak N10000000} & fp64 & 0.125 & 6.898 & $-$5.79 & \textit{memory-bound} \\
-\textit{dual\_\allowbreak axpy\_\allowbreak gpu\_\allowbreak N1280000000} & fp64 & 0.086 & 6.898 & $-$6.33 & \textit{memory-bound} \\
-\textit{gpu\_\allowbreak rajaperf\_\allowbreak stream\_\allowbreak triad} & fp64 & 0.083 & 6.898 & $-$6.38 & \textit{memory-bound} \\
-\bottomrule
-\end{tabular}
-\end{table}
+La proporción global de intervalos \textit{compute\_bound} aumentó desde 22.7\% en el nivel nativo hasta 39.1\% en F8, el nivel fijo más bajo. La Figura \ref{fig:cpu-composicion-clase-frecuencia} presenta esta variación. El resultado es consistente con un \textit{ridge} que disminuye cuando baja el techo de cómputo, de modo que una parte de los intervalos cercanos a la frontera cambia de etiqueta. La figura agrega todas las configuraciones y debe leerse junto con la composición por kernel, porque las cargas no aportan el mismo número de intervalos.
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.9\textwidth]
-        {figuras/fig_gpu_roofline_18kernels_20260915.png}
-    \caption[Posición Roofline de los 18 kernels finales de GPU]{$\log_2(\text{OI}/\text{ridge}_\text{REF})$ de cada uno de los 18 kernels de la campaña final GPU, coloreado por zona Roofline respecto al ridge de su propia precisión aritmética. Fuente: elaboración propia.}
-    \label{fig:gpu-roofline-18kernels}
+        {figuras/fig_cpu_composicion_clase_por_frecuencia_20260917.png}
+    \caption[Composición de fase por nivel de frecuencia en CPU]{Porcentaje de intervalos elegibles clasificados \textit{compute\_bound} y \textit{memory\_bound} en cada nivel de frecuencia de la campaña CPU. Fuente: Elaboración propia.}
+    \label{fig:cpu-composicion-clase-frecuencia}
 \end{figure}
 
-Finalmente, la Figura \ref{fig:gpu-composicion-clase-por-kernel} descompone, para cada uno de los 16 kernels con corridas utilizables tras la calibración de warmup, el porcentaje de sus corridas clasificadas \textit{compute\_bound} frente a \textit{memory\_bound}. Dado que el ridge se recalibra por nivel de frecuencia (sección \ref{sec:roofline}), el veredicto de un kernel individual puede en principio oscilar entre niveles; en la práctica, 13 de los 16 kernels resultan completamente homogéneos (100\% de una sola clase en todas sus corridas elegibles), y solo \textit{gpu\_rajaperf\_gemm} (50.0\%/50.0\%) y, en menor medida, \textit{rodinia\_lud} (80.0\% \textit{compute\_bound}) y \textit{dual\_fft\_gpu\_N4096} (16.7\% \textit{compute\_bound}) muestran una composición mixta --- consistente con su posición cercana al ridge en la Tabla \ref{tab:gpu-catalogo-final-18}, donde un desplazamiento pequeño del techo entre niveles de frecuencia puede efectivamente cruzar el punto de inflexión.
+\subsection{Actuación DVFS, telemetría y techos Roofline de CPU}
+\label{sec:resultados-cpu-dvfs}
 
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.85\textwidth]
-        {figuras/fig_gpu_composicion_clase_por_kernel_20260915.png}
-    \caption[Composición de clase por kernel del conjunto de entrenamiento GPU]{Porcentaje de corridas elegibles clasificadas \textit{compute\_bound} frente a \textit{memory\_bound}, por kernel, sobre las 334 corridas elegibles tras la calibración de warmup. Fuente: elaboración propia.}
-    \label{fig:gpu-composicion-clase-por-kernel}
-\end{figure}
+La actuación de frecuencia por núcleo se verifica en tres niveles, no solo por el código de retorno de la escritura. Primero, la escritura restringe siempre, junto con cada procesador lógico delegado, a sus hermanos de \textit{SMT} según la topología real de la plataforma; de lo contrario los hermanos sin restringir permiten que el planificador entregue ciclos adicionales al núcleo físico compartido y se diluye el límite solicitado sobre el procesador delegado. Segundo, la confirmación de que el nuevo límite se hizo efectivo se realiza generando actividad de cómputo real sobre los mismos procesadores mientras se lee el reloj reportado por el sistema operativo, porque esa lectura deriva de la proporción entre ciclos reales y de referencia acumulados y solo es representativa bajo carga activa. Tercero, la verificación por ventana excluye un margen de $\sim$10~ms inmediatamente posterior a cada transición de nivel, correspondiente al tiempo físico de asentamiento del reloj entregado.
 
-\section{Análisis exploratorio y clasificador diagnóstico del dataset GPU}
-\label{sec:resultados-gpu-separabilidad}
+Verificado experimentalmente, al restringir únicamente los procesadores lógicos delegados la razón de rendimiento entre el nivel más alto y el más bajo del barrido se mantiene en 0.995 (sin escalar); al restringir además sus hermanos de \textit{SMT}, la razón sube a 3.78, cercana a la razón de cuatro esperada entre los niveles comparados. El ancho de banda calibrado, limitado por memoria y no por reloj de núcleo, no depende de esta verificación: 58.0~GB/s bajo el nivel más alto del barrido frente a 57.45~GB/s en estado nativo sin restricción, dentro del margen de ruido de medición.
 
-Aunque el entrenamiento del clasificador de fase corresponde formalmente a la Fase 2 de este proyecto, los resultados obtenidos hasta este punto de la Fase 1 --- el conjunto de entrenamiento GPU ya definido y depurado (sección \ref{sec:resultados-gpu-dataset-final}) --- permiten un primer análisis diagnóstico real sobre datos reales, que se reporta aquí íntegramente por su valor directo para entender la calidad del propio conjunto de datos de Fase 1, independientemente de cualquier desarrollo posterior del agente de decisión.
+La campaña final exige turbo desactivado como precondición de cada corrida y valida la frecuencia observada en cada ventana con una tolerancia de $\pm5\%$ respecto del nivel solicitado, con márgenes de gracia de 0.15~s al inicio y al final. La aceptación completa de la matriz confirma que cada corrida conservó una observación de frecuencia válida o, en el nivel nativo, el estado no aplicable a una frecuencia fija. La etiqueta se obtuvo comparando los FLOPs medidos con los bytes de DRAM observados por \textit{uncore} contra el \textit{ridge} calibrado para cada nivel. El \textit{ridge} calibrado toma los valores 8.63, 8.20, 7.31, 6.58, 5.74, 5.03, 4.33, 3.64 y 2.92~FLOP/byte para F0 a F8 y 8.69~FLOP/byte para el nivel nativo.
 
-\subsection{Contrato de \textit{features} y granularidad de entrenamiento}
+\subsubsection{Medición directa de bytes movidos en memoria (\textit{uncore})}
+\label{sec:resultados-uncore}
 
-Cada corrida real de la campaña GPU (kernel $\times$ nivel de frecuencia $\times$ repetición) se resume en una única fila de \texttt{training\_gpu\_phases.csv}, agregando sus muestras NVML mediante estadísticos robustos (mediana, media recortada, desviación estándar, rango intercuartílico, mínimo, máximo y fracción válida) sobre cinco señales: utilización de \textit{streaming multiprocessors}, utilización de memoria, potencia, reloj de \textit{SM} y temperatura. El entrenamiento no opera sobre muestras NVML crudas sino sobre estas corridas ya resumidas, por dos razones directamente vinculadas al diseño del instrumento: primero, el propio pipeline de post-procesamiento etiqueta y agrega a esta granularidad como parte de su contrato de salida, de modo que una fila de este archivo es la unidad experimental que efectivamente atraviesa las verificaciones de calidad y warmup descritas en la sección anterior; segundo, entrenar sobre muestras NVML individuales trataría observaciones altamente correlacionadas dentro de una misma corrida (decenas de muestras consecutivas del mismo proceso físico) como si fueran independientes, inflando artificialmente el tamaño efectivo de la muestra y sesgando cualquier validación cruzada que no las agrupe explícitamente por corrida.
+La lectura de los contadores de \textit{uncore} del controlador de memoria (sección \ref{sec:uncore}) usa la capacidad \texttt{CAP\_PERFMON} asignada al binario \texttt{perf}, sin reducir la restricción de \texttt{perf\_event\_paranoid} para todo el sistema. El instrumento invoca a \texttt{perf} como subproceso, fijado a un núcleo reservado para telemetría (nunca a los núcleos donde corre la carga medida, para no contaminar los contadores por proceso que allí se miden), y procesa en vivo su salida periódica en vez de abrir los contadores directamente. El presupuesto simultáneo de eventos de PMU es de nueve, no diez: la vigilancia por interrupción no enmascarable del sistema operativo, ajena a este proyecto y presente en cualquier despliegue de servidor típico, reserva de forma permanente un contador de hardware por núcleo; el evento descartado es el \textit{proxy} de tráfico de caché de segundo nivel, sin papel en la clasificación desde que \textit{uncore} lo reemplaza como fuente admitida.
 
-El contrato de \textit{features} se determinó con evidencia real, no por diseño asumido: un análisis de correlación de Pearson y Spearman, más el factor de inflación de varianza (VIF), sobre las 540 filas de la campaña completa. La temperatura de GPU (\texttt{gpu\_temperature\_c}) se descartó de las cuatro variantes evaluadas de agregación estadística porque las ocho variantes agregadas de esta señal correlacionan con \texttt{gpu\_power\_mw} por encima de 0.85 en todos los pares evaluados --- consistente con que la temperatura observada es, en este régimen de operación, principalmente una consecuencia térmica de la potencia disipada y no una señal adicional independiente. El contrato final retiene cuatro \textit{features}: la mediana de utilización de \textit{SM}, la mediana de utilización de memoria, la mediana de potencia y la mediana de reloj de \textit{SM}, con VIF entre 2.5 y 6.5 --- sin colinealidad severa entre ellas. Ninguna variable derivada del propio proceso de etiquetado (intensidad operacional, ridge aplicado, o cualquier variante de la etiqueta de fase) se admite como \textit{feature}, verificado mediante un guardarraíl explícito en el código de entrenamiento que aborta la ejecución si alguna de ellas aparece en el conjunto de columnas de entrada --- evitando por construcción una fuga de información desde la propia variable objetivo.
+La medición directa de \textit{uncore} reemplaza por completo al \textit{proxy} de fallos de caché en la clasificación, como única fuente admitida, aunque no a la granularidad fina de una ventana individual: \texttt{perf stat} reporta en intervalos de al menos $\sim$10~ms, mientras que una ventana de CPU dura $\sim$1~ms. El instrumento agrega los FLOPs de todas las ventanas cubiertas por cada intervalo de \textit{uncore} y calcula la intensidad operacional real a esa granularidad más gruesa, difundida a cada una de esas ventanas como \texttt{operational\_intensity} y \texttt{phase\_label\_train}. Una ventana que ningún intervalo real llega a cubrir queda deliberadamente indefinida y nunca recurre al \textit{proxy} como alternativa; \texttt{bytes\_moved\_window} (el \textit{proxy}) se sigue calculando en su propia columna, únicamente como referencia de comparación.
 
-La Figura \ref{fig:gpu-matriz-correlacion} muestra la matriz de correlación de Pearson entre la variante mediana de las cinco señales NVML, recalculada sobre las 522 corridas con muestras NVML válidas de la campaña final ya reprocesada con warmup corregido (sección \ref{sec:resultados-gpu-dataset-final}) --- un conjunto distinto al de 540 filas sobre el que se ejecutó originalmente el análisis de contrato de \textit{features}, pero que reproduce el mismo patrón que motivó la decisión: la correlación entre \texttt{gpu\_temperature\_c\_median} y \texttt{gpu\_power\_mw\_median} es 0.91, la más alta de toda la matriz y muy por encima del resto de pares entre las señales retenidas (0.50 a 0.53 entre utilización de \textit{SM} y las demás, 0.82 entre utilización de memoria y potencia). El reloj de \textit{SM} es la señal más independiente del grupo, con correlación negativa y cercana a cero frente a la utilización de \textit{SM} ($-$0.09) --- consistente con que el reloj depende del nivel de frecuencia solicitado por la campaña y no del comportamiento del kernel en ese nivel, mientras que la utilización sí refleja directamente ese comportamiento.
+Verificado de extremo a extremo con una carga de tráfico de memoria real, de 332 ventanas de una corrida de referencia, 322 quedaron cubiertas por al menos un intervalo real de \textit{uncore}, con conteos de lectura y escritura variables y coherentes entre intervalos consecutivos, nunca en cero, la señal esperada de una medición genuina bajo carga activa. De esas 322, 301 quedaron clasificadas con el valor real; las 21 restantes tenían cobertura de bytes pero al menos una ventana del grupo sin FLOPs medidos válidos, y quedaron indefinidas en vez de calcular una intensidad con un numerador incompleto.
 
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.55\textwidth]
-        {figuras/fig_gpu_matriz_correlacion_features_20260915.png}
-    \caption[Matriz de correlación de las señales NVML del contrato de \textit{features}]{Correlación de Pearson entre la variante mediana de las cinco señales NVML disponibles, sobre las 522 corridas con NVML válido de la campaña final reprocesada. Fuente: elaboración propia.}
-    \label{fig:gpu-matriz-correlacion}
-\end{figure}
+\subsubsection{Validación de esfuerzo y aislamiento de la campaña}
+\label{sec:resultados-interferencia-uncore}
 
-\subsection{Balanceo de clases y validación}
+Antes de comprometer una campaña real de varias horas se ejecutó una prueba de esfuerzo dirigida a las condiciones que una corrida aislada no expone: cinco repeticiones consecutivas del patrón de arranque y cierre del subproceso de medición, una carga de duración extrema por debajo del piso práctico de intervalo, y una carga más prolongada para observar la cadencia de intervalos de principio a fin. Las cinco repeticiones completaron con datos reales y sin procesos remanentes, y el espaciado mínimo entre intervalos consecutivos se sostuvo en los $\sim$10~ms esperados a lo largo de toda la corrida, incluidos sus primeros instantes.
 
-El conjunto de entrenamiento final (334 corridas, 16 kernels, 11 familias algorítmicas) está desbalanceado: 73 corridas \textit{compute\_bound} frente a 261 \textit{memory\_bound} (21.9\%/78.1\%). Se aplicó \texttt{class\_weight="balanced"} de \textit{scikit-learn} a todos los modelos salvo el clasificador de referencia (mayoritaria, sin balanceo por diseño) y XGBoost, que en su lugar recibe \texttt{scale\_pos\_weight} calculado una sola vez sobre la razón global negativa/positiva del conjunto completo (0.2797) --- simplificación documentada: el valor correcto se recalcularía por pliegue, no una sola vez.
+Los contadores de \textit{uncore}, de alcance de sistema, exigen reserva exclusiva del nodo, verificada como precondición bloqueante antes de iniciar cualquier campaña que los solicite, para que ningún proceso ajeno pueda contaminar una lectura que, por diseño, no puede atribuirse a un proceso concreto. Una prueba de humo a escala reducida ejercita el mismo camino de código de principio a fin (verificación previa, calibración, escritura de frecuencia, \textit{uncore}, posprocesamiento y validación de ventanas) sobre una única carga, antes de repetir el procedimiento contra la campaña completa.
 
-La validación es \textit{leave-one-familia-out}: cada pliegue retiene como prueba todas las corridas de una familia algorítmica completa, nunca solo una repetición o nivel de frecuencia suyo. La Tabla \ref{tab:gpu-clasificador-tres-etapas} resume el resultado del clasificador final sobre el conjunto de entrenamiento (334 corridas, 11 familias).
+Con dos campañas de humo completas, la razón mínima de tiempo contando sobre tiempo habilitado se sostuvo en 1.0 a lo largo de toda una corrida de prueba, sin ningún delta negativo en los cuatro sub-eventos de punto flotante; una campaña con barrido de frecuencia (dieciocho combinaciones) aceptó la totalidad, y una segunda, sobre siete kernels reales del catálogo a frecuencia nativa (veintiuna combinaciones), aceptó también la totalidad con clasificaciones físicamente coherentes: la multiplicación densa de matrices resultó \textit{compute-bound} en el 100\% de sus ventanas válidas, con intensidad operacional entre 15.0 y 29.6~FLOP/byte, muy por encima del punto de inflexión (sección \ref{sec:resultados-ppico}); los seis kernels de la suite NAS Parallel Benchmarks resultaron predominantemente \textit{memory-bound}, con una fracción minoritaria de ventanas \textit{compute-bound} en el kernel de resolución de sistemas por métodos implícitos, consistente con el desplazamiento del punto de inflexión.
 
-\begin{table}[H]
-\centering
-\caption{Resultado del clasificador diagnóstico GPU final (\textit{leave-one-familia-out}, 334 corridas, 11 familias).}
-\label{tab:gpu-clasificador-tres-etapas}
-\small
-\begin{tabular}{@{}lr@{}}
-\toprule
-\textbf{Métrica} & \textbf{Valor} \\
-\midrule
-F1 macro & 0.617 \\
-F1 \textit{compute\_bound} & 0.197 \\
-F1 \textit{memory\_bound} & 0.583 \\
-\bottomrule
-\end{tabular}
-\end{table}
+\subsubsection{Validación cruzada de los techos Roofline con una herramienta independiente}
+\label{sec:resultados-ppico}
 
-\subsection{Selección de modelo y búsqueda de hiperparámetros}
-\label{sec:resultados-gpu-hiperparam}
+Los techos del modelo Roofline se determinan, como se explicó en la sección \ref{sec:roofline}, mediante calibración empírica sobre la propia plataforma. Verificar el resultado de esa calibración exige una vía independiente del mecanismo de calibración: se empleó Intel Advisor, que construye su propio análisis Roofline mediante instrumentación binaria directa del bucle más costoso de un programa, contabilizando FLOPs y bytes ejecutados realmente sin pasar por contadores de PMU, un mecanismo de medición distinto y por tanto una validación cruzada real \cite{Advisor2026}.
 
-\subsubsection*{Resultados}
+Los microbenchmarks de calibración solicitan explícitamente el ancho vectorial máximo de la plataforma (AVX-512, ocho elementos de doble precisión por instrucción) en el microbenchmark de densidad aritmética, y no en el de ancho de banda, limitado por memoria y no por ejecución vectorial, donde el ancho vectorial máximo produce una regresión de rendimiento medible. El mismo criterio se aplica a la cadena de construcción de los kernels de la suite NAS Parallel Benchmarks, sin la bandera de ancho vectorial máximo, por combinar regímenes \textit{memory-bound} y \textit{compute-bound} bajo una configuración de compilación compartida.
 
-Se compararon siete modelos bajo el mismo protocolo \textit{leave-one-familia-out}: dos árboles fijos (profundidad 1 y 6), el clasificador de referencia (mayoritaria), y cuatro modelos con hiperparámetros ajustables (regresión logística, \textit{random forest}, \textit{extra trees}, XGBoost) afinados con Optuna (muestreador TPE, 30 intentos por modelo) anidado dentro de cada pliegue externo --- la búsqueda de un pliegue nunca ve la familia retenida para prueba, y el modelo final se reoptimiza una última vez sobre las 11 familias completas antes de servirlo. La Figura \ref{fig:gpu-hiperparam-f1} compara los siete por F1 macro.
+Contrastado sobre una multiplicación de matrices densas de referencia, Advisor midió 577.7~GFLOP/s con una intensidad operacional de 1.091~FLOP/byte sobre los mismos seis núcleos de la calibración de producción, coherente con el punto de inflexión propio del catálogo. El ancho de banda calibrado valida contra Advisor dentro de 12 a 15\% (58.4 a 58.8~GB/s frente a 64.0 a 66.8~GB/s), y el techo de cómputo calibrado por este instrumento (417.8 a 555~GFLOP/s) es consistente con la referencia independiente de Advisor. El punto de inflexión del nivel nativo queda en el rango de \textbf{7.0 a 9.3~FLOP/byte}, coherente con el valor de 8.69~FLOP/byte usado por la campaña final en ese nivel, y desciende con el reloj de núcleo hasta 2.92~FLOP/byte en F8 al bajar el techo de cómputo mientras el ancho de banda permanece limitado por memoria.
 
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.72\textwidth]
-        {figuras/fig_gpu_hiperparam_f1_por_modelo_20260915.png}
-    \caption[F1 macro de los siete modelos comparados]{F1 macro (\textit{leave-one-familia-out}) de los siete modelos comparados para el clasificador diagnóstico GPU. Fuente: elaboración propia.}
-    \label{fig:gpu-hiperparam-f1}
-\end{figure}
-
-El modelo serializado es el árbol de profundidad 1 (\texttt{arbol\_prof1}): mejor F1 macro del conjunto (0.617) y menor latencia de inferencia (p99 $=118$~\textmu s), seleccionado mediante una puntuación compuesta $\text{Score} = (1 - \overline{F1}_{\text{macro}}) + 0.2 \times (p_{99}/\max(p_{99}))$ que penaliza la latencia relativa al modelo más lento del conjunto comparado.
-
-\subsubsection*{Discusión}
-
-Ningún modelo con hiperparámetros ajustables superó a la línea base fija, pese a una búsqueda real de 30 intentos por modelo. \textit{Random forest} y \textit{extra trees} obtienen el mejor F1 macro del grupo optimizado (0.470 y 0.463) a un costo de inferencia p99 de $\sim$29~ms y $\sim$88~ms --- 250--750$\times$ mayor que el árbol elegido --- consistente con evaluar cientos de árboles internos por predicción frente a una sola comparación de umbral. La Figura \ref{fig:gpu-pareto-calidad-latencia} sitúa a los siete modelos en el plano calidad--latencia.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.72\textwidth]
-        {figuras/fig_gpu_pareto_calidad_latencia_20260915.png}
-    \caption[Frente de calidad frente a latencia de inferencia]{F1 macro frente a latencia de inferencia p99 por fila (escala logarítmica), para los siete modelos comparados. El modelo serializado se marca con una estrella. Fuente: elaboración propia.}
-    \label{fig:gpu-pareto-calidad-latencia}
-\end{figure}
-
-La lectura más consistente con el tamaño del conjunto de datos: con 11 familias y una búsqueda anidada que subdivide aún más el entrenamiento de cada pliegue externo, cada evaluación interna de un candidato ve muy pocas familias --- el régimen exacto en el que un modelo de alta varianza (bosques, \textit{gradient boosting}) sobreajusta la partición en vez de generalizar, mientras que la simplicidad forzada de un árbol de profundidad 1 actúa como una regularización más fuerte que cualquier hiperparámetro que la búsqueda pueda encontrarle a un modelo más flexible.
-
-\subsection{Matriz de confusión y limitaciones del resultado}
-
-\subsubsection*{Resultados}
-
-La Figura \ref{fig:gpu-matriz-confusion} muestra la matriz de confusión acumulada sobre los 11 pliegues \textit{leave-one-familia-out} del modelo final. De 73 corridas reales \textit{compute\_bound}, el modelo predice correctamente 33 (45.2\%); de 261 \textit{memory\_bound}, predice correctamente 234 (89.7\%).
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.5\textwidth]
-        {figuras/fig_gpu_matriz_confusion_20260915.png}
-    \caption[Matriz de confusión del clasificador diagnóstico GPU]{Matriz de confusión acumulada sobre los 11 pliegues de validación \textit{leave-one-familia-out} (334 corridas). Fuente: elaboración propia.}
-    \label{fig:gpu-matriz-confusion}
-\end{figure}
-
-La Tabla \ref{tab:gpu-metricas-tradicionales} reporta las métricas de clasificación estándar derivadas directamente de esa matriz acumulada.
-
-\begin{table}[H]
-\centering
-\caption{Métricas de clasificación estándar del modelo final, calculadas sobre la matriz de confusión acumulada (334 corridas).}
-\label{tab:gpu-metricas-tradicionales}
-\small
-\begin{tabular}{@{}lr@{}}
-\toprule
-\textbf{Métrica} & \textbf{Valor} \\
-\midrule
-Exactitud (\textit{accuracy}) & 0.799 \\
-Exactitud balanceada (\textit{balanced accuracy}) & 0.674 \\
-Coeficiente de correlación de Matthews (MCC) & 0.375 \\
-Precisión \textit{compute\_bound} & 0.550 \\
-Sensibilidad (\textit{recall}) \textit{compute\_bound} & 0.452 \\
-Precisión \textit{memory\_bound} & 0.854 \\
-Sensibilidad (\textit{recall}) \textit{memory\_bound} & 0.897 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-La exactitud simple (0.799) es engañosamente alta dado el desbalance de clase (261 \textit{memory\_bound} frente a 73 \textit{compute\_bound}): un clasificador que siempre predijera \textit{memory\_bound} ya alcanzaría 0.781. La exactitud balanceada (0.674) y el MCC (0.375, sobre una escala de $-1$ a $+1$) son las métricas apropiadas bajo este desbalance y confirman una capacidad de discriminación real pero moderada.
-
-El F1 por clase reportado en la Tabla \ref{tab:gpu-clasificador-tres-etapas} (\textit{compute\_bound}$=0.197$) es el promedio simple sobre los 11 pliegues, distinto del F1 derivado de la matriz acumulada de la Tabla \ref{tab:gpu-metricas-tradicionales} (precision$=0.550$, recall$=0.452$, F1$\approx0.496$). No es un error de cómputo: solo 5 de los 16 kernels utilizables son \textit{compute\_bound}, así que en la mayoría de los pliegues la familia excluida no contiene ninguna observación de esa clase, y el F1 de \textit{compute\_bound} en esos pliegues no aporta evidencia sobre la capacidad predictiva del modelo --- bajo la convención de agregación empleada recibe valor cero, por lo que el promedio simple entre los 11 pliegues resulta sensiblemente inferior al F1 obtenido sobre las predicciones acumuladas. El 0.197 depende, en consecuencia, tanto del método de agregación como del desempeño real del modelo; se reportan ambas cifras para no sugerir, con una sola, una precisión distinta de la que el modelo realmente exhibe.
-
-La Tabla \ref{tab:gpu-lofo-por-familia} desglosa los 67 errores (20.1\% de las 334 corridas) por familia algorítmica, en el mismo protocolo \textit{leave-one-familia-out}.
-
-\begin{table}[H]
-\centering
-\caption{Errores del clasificador final por familia algorítmica (\textit{leave-one-familia-out}, 334 corridas). Familias con 0 errores omitidas.}
-\label{tab:gpu-lofo-por-familia}
-\small
-\begin{tabular}{@{}>{\raggedright\arraybackslash}p{3.3cm}>{\raggedright\arraybackslash}p{2.4cm}rrrr@{}}
-\toprule
-\textbf{Familia} & \textbf{Clase real predom.} & \textbf{$n$} & \textbf{Errores} & \textbf{comp.$\to$mem.} & \textbf{mem.$\to$comp.} \\
-\midrule
-\textit{dual\_cholesky} & \textit{compute\_bound} & 16 & 16 & 16 & 0 \\
-\textit{rodinia\_gaussian} & \textit{memory\_bound} & 18 & 15 & 0 & 15 \\
-\textit{rajaperf\_cuda} & \textit{memory\_bound} & 66 & 12 & 0 & 12 \\
-\textit{rodinia\_lud} & \textit{compute\_bound} & 15 & 12 & 12 & 0 \\
-\textit{rodinia\_heartwall} & \textit{compute\_bound} & 15 & 9 & 9 & 0 \\
-\textit{dual\_fft} & \textit{memory\_bound} & 18 & 3 & 3 & 0 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-Los errores no se reparten uniformemente: se concentran en 6 de las 11 familias, y las 5 restantes (\textit{dual\_axpy}, \textit{dual\_spmv}, \textit{dual\_stencil}, \textit{gpu\_cutlass\_simt\_dgemm\_n4096}, \textit{rajaperf\_stream}) se clasifican sin ningún error. De las cuatro familias \textit{compute\_bound} del conjunto de entrenamiento, tres (\textit{dual\_cholesky}, \textit{rodinia\_lud}, \textit{rodinia\_heartwall}) fallan predominante o totalmente hacia \textit{memory\_bound}, y solo \textit{gpu\_cutlass\_simt\_dgemm\_n4096} --- la ancla \textit{compute\_bound} más profunda entre las que sí tienen datos de entrenamiento (Tabla \ref{tab:gpu-catalogo-final-18}) --- se clasifica sin ningún error. \textit{dual\_cholesky} y \textit{rodinia\_lud} están, en efecto, cerca del ridge (Tabla \ref{tab:gpu-catalogo-final-18}), consistente con el patrón esperado; pero \textit{rodinia\_gaussian} es la familia \textit{memory\_bound} más alejada del ridge del catálogo ($\log_2(\text{OI}/\text{ridge})=-5.73$) y aun así falla en 15 de sus 18 corridas, en dirección contraria (predicho \textit{compute\_bound}) --- una falla que la cercanía al ridge no explica.
-
-Esta falla sí es diagnosticable, dado que el árbol de profundidad 1 se reduce a una única regla de umbral. En el pliegue que excluye a \textit{rodinia\_gaussian} para prueba, el árbol entrenado sobre las 10 familias restantes queda como: \texttt{gpu\_util\_pct\_median <= 77.5 -> memory\_bound; > 77.5 -> compute\_bound}. Las 18 corridas de \textit{rodinia\_gaussian} tienen \texttt{gpu\_util\_pct\_median} entre 76 y 93 --- las 3 corridas con 76 caen del lado correcto, las 15 restantes (79--93) caen del lado \textit{compute\_bound} pese a ser, por Roofline, profundamente \textit{memory\_bound}. La causa es física, no un defecto del árbol: la utilización de \textit{SM} que reporta NVML mide ocupación/actividad del \textit{scheduler}, no densidad de FLOPs por byte --- un kernel \textit{memory\_bound} que mantiene los \textit{streaming multiprocessors} ocupados emitiendo y esperando accesos a memoria (sin quedar nunca ocioso) produce la misma señal alta de utilización que un kernel genuinamente saturado de cómputo. La comparación con dos familias correctamente clasificadas en sus propios pliegues lo confirma: \textit{gpu\_cutlass\_simt\_dgemm\_n4096} (\textit{compute\_bound} real) satura en 100\% de utilización, muy por encima de su propio umbral (93.5); \textit{dual\_axpy} (\textit{memory\_bound} real) queda entre 25\% y 67\%, muy por debajo. El umbral mismo tampoco es estable: 77.5 en el pliegue de \textit{rodinia\_gaussian} frente a 93.5 en el de \textit{gpu\_cutlass\_simt\_dgemm\_n4096} --- un desplazamiento de 16 puntos porcentuales según qué familias componen el entrenamiento, evidencia adicional de que la regla de un solo umbral no generaliza como una frontera Roofline universal, sino que se reajusta a la composición específica de cada pliegue.
-
-\subsubsection*{Discusión}
-
-El F1 bajo de \textit{compute\_bound} tiene, además del desbalance de clase, una causa estructural en la composición del catálogo frente al propio protocolo de validación. La Figura \ref{fig:gpu-composicion-clase-por-kernel} ya muestra que 13 de los 16 kernels utilizables resultan homogéneos (100\% de una sola clase en todas sus corridas): la intensidad operacional de un kernel es, en la práctica, una propiedad casi fija del algoritmo, mientras que el ridge solo se desplaza levemente entre niveles de frecuencia (sección \ref{sec:roofline}), así que solo los kernels cuya posición cae muy cerca del ridge (\textit{rodinia\_lud}, \textit{dual\_fft}, \textit{gpu\_rajaperf\_gemm}) llegan a cruzarlo alguna vez. Como \textit{leave-one-familia-out} retiene familias completas para prueba, esa homogeneidad se traduce en que 8 de los 11 pliegues quedan con soporte cero para una de las dos clases: el modelo no puede acertar ni fallar ahí una clase que simplemente no aparece en ese examen. La convención de \textit{scikit-learn} le asigna F1$=0$ a la clase ausente en cada uno de esos pliegues (sección anterior), así que el promedio de 11 pliegues queda dominado por ceros que no reflejan ningún error real del modelo, sino la estructura del catálogo. Esta característica es del protocolo y del catálogo, no de un modelo en particular: los 11 pliegues son idénticos para los 7 modelos comparados (Tabla \ref{tab:gpu-clasificador-tres-etapas}), así que los siete cargan con la misma penalización mecánica sobre su F1 de \textit{compute\_bound}.
-
-Sobre esa base común, hay un factor adicional que sí distingue a XGBoost del resto: mientras los demás modelos recalculan \texttt{class\_weight="balanced"} automáticamente en cada ajuste (y por tanto en cada uno de los 11 pliegues, con una proporción de clase que varía entre ellos porque cada pliegue excluye una familia distinta), XGBoost usa un \texttt{scale\_pos\_weight} fijo, calculado una sola vez sobre las 334 filas completas (0.2797). El balance real de entrenamiento por pliegue oscila entre 0.211 y 0.363 según qué familia queda afuera, así que ese peso fijo se aleja hasta un 30\% del valor que le correspondería a cada pliegue. Es consistente con que XGBoost obtenga el F1 \textit{compute\_bound} más bajo de los cuatro modelos con \texttt{class\_weight} o equivalente (0.151, frente a 0.229 de \textit{Random Forest} y \textit{Extra Trees}), aunque no explica por sí solo la brecha completa frente a esos dos modelos, que comparten el mismo peso de clase dinámico que \textit{arbol\_prof1}.
-
-Ninguna de las dos causas anteriores explica, sin embargo, por qué los modelos de mayor capacidad (\textit{Random Forest}, \textit{Extra Trees}, XGBoost, regresión logística) terminan con F1 macro \textit{peor} que el árbol de profundidad 1: eso responde a un mecanismo distinto, discutido a continuación.
-
-La debilidad de \textit{compute\_bound} tiene también una explicación directa más allá del desbalance ya corregido: solo 73 corridas de esa clase, repartidas entre 5 kernels (frente a 261 corridas / 11 kernels de \textit{memory\_bound}), y un criterio de validación que retiene familias completas fuera del entrenamiento en cada pliegue dejan al modelo con muy pocos ejemplos independientes sobre los cuales generalizar. Perder la ancla \textit{compute\_bound} más profunda del catálogo (\textit{rodinia\_lavamd}, sin corridas utilizables tras la calibración de warmup) agrava directamente esa escasez; \textit{rodinia\_dwt2d} se pierde en la misma corrección pero es \textit{memory-bound} (Tabla \ref{tab:gpu-catalogo-final-18}), así que su ausencia no afecta a la clase minoritaria.
-
-Un F1 macro de 0.617 supera al clasificador de referencia (0.553) pero permanece débil en términos absolutos. No se investigó todavía si alargar la duración de corrida de \textit{rodinia\_lavamd}/\textit{rodinia\_dwt2d} --- mismo criterio ya aplicado a otros kernels (sección \ref{sec:resultados-gpu-gemm-evolucion}) --- recuperaría ventanas de estado estable suficientes tras su warmup real (6.4--6.5~s); sería el paso natural para recuperar la representación \textit{compute\_bound} profunda perdida con \textit{rodinia\_lavamd}.
-
-\section{Ampliación del catálogo con kernels de patrón de acceso irregular}
+\subsection{Kernels CPU de patrón de acceso irregular}
 \label{sec:resultados-kernels-irregulares}
 
-\subsubsection*{Resultados}
-
-El plan de trabajo exige, junto a los kernels de acceso regular (\textit{dual\_*}) ya documentados, kernels de patrón de acceso irregular de la suite Rodinia. Se compilaron 9 binarios nuevos: 4 CPU (\textit{kmeans}, \textit{srad}, \textit{nw}, \textit{particlefilter}) y 5 GPU (\textit{kmeans}, \textit{srad}, \textit{nw}, \textit{b+tree}, \textit{cfd} --- \textit{particlefilter} no tiene variante GPU en este catálogo) con scripts de \textit{build} reproducibles que fijan el commit de origen y el hash de cada archivo fuente, siguiendo el mismo patrón ya empleado para \textit{rodinia\_lavamd} (\texttt{old/scripts/pacca/build\_rodinia\_lavamd\_omp.sh}). Los cuatro binarios CPU (\texttt{gcc}) resultaron además reproducibles a nivel de binario --- mismo hash \texttt{sha256} en dos compilaciones independientes desde la misma fuente ---; los cinco binarios GPU (\texttt{nvcc}) no lo son (metadatos de depuración con rutas temporales aleatorias, aunque el código ejecutable es idéntico), así que su reproducibilidad se fija únicamente a nivel de fuente. Los 4 kernels CPU se calibraron al piso de duración de corrida de la campaña (criterio F1-CPU-006, $\sim$25--30~s de ventana de estado estable); la Tabla \ref{tab:kernels-irregulares-cpu} resume sus parámetros finales.
+El plan de trabajo exige, junto a los kernels de acceso regular (\textit{dual\_*}), kernels de patrón de acceso irregular de la suite Rodinia. Se compilaron cuatro binarios de CPU (\textit{kmeans}, \textit{srad}, \textit{nw} y \textit{particlefilter}) con \textit{scripts} de construcción reproducibles que fijan el \textit{commit} de origen y el \textit{hash} de cada archivo fuente; los cuatro resultaron reproducibles a nivel de binario, con el mismo \textit{hash} \texttt{sha256} en dos compilaciones independientes. Los cuatro se calibraron al piso de duración de corrida de la campaña ($\sim$25 a 30~s de ventana de estado estable); la Tabla \ref{tab:kernels-irregulares-cpu} resume sus parámetros finales. La compilación de \textit{nw} (Needleman--Wunsch) requirió retipar a \texttt{long} las dos variables de dimensión del código original, cuyo producto desborda enteros de 32 bits para $N\gtrsim46\,000$, sin otro cambio al algoritmo y sin diferencia de rendimiento medible frente al binario original ($N=46\,000$: 3.72~s original frente a 3.68~s parcheado).
 
 \begin{table}[H]
 \centering
-\caption{Parámetros finales calibrados de los 4 kernels CPU de patrón de acceso irregular.}
+\caption{Parámetros finales calibrados de los cuatro kernels CPU de patrón de acceso irregular.}
 \label{tab:kernels-irregulares-cpu}
 \small
 \begin{tabular}{@{}>{\raggedright\arraybackslash}p{3.2cm}>{\raggedright\arraybackslash}p{7.0cm}r@{}}
@@ -390,6 +115,721 @@ El plan de trabajo exige, junto a los kernels de acceso regular (\textit{dual\_*
 \end{tabular}
 \end{table}
 
-\subsubsection*{Discusión}
+Tres de estos kernels (\textit{srad}, \textit{particlefilter} y \textit{kmeans}) se midieron en una campaña independiente (\texttt{pacca\_cpu\_new\_families\_20260918\_r2}: nivel nativo y nueve niveles fijos, tres repeticiones, 90 corridas aceptadas) sobre el mismo nodo y la misma CPU de la campaña final, con turbo desactivado. La Tabla \ref{tab:cpu-familias-nuevas} resume los intervalos que superan el filtro de calidad. Los tres resultaron casi puramente \textit{memory-bound}, de modo que amplían la diversidad de algoritmos de esa clase pero no aportan ejemplos \textit{compute-bound}. \textit{particlefilter} conserva frecuencia válida en todos los niveles; \textit{kmeans} y \textit{srad} sostienen la frecuencia solicitada solo desde F5 (y F4 en \textit{srad}) hasta F8 y en el nivel nativo, de modo que en los niveles de mayor frecuencia casi todas sus ventanas quedan rechazadas por frecuencia no verificable. \textit{nw} está compilado y calibrado, pero no se ha medido.
 
-La compilación de \textit{nw} (Needleman--Wunsch) expuso un desbordamiento real de enteros de 32 bits en el código fuente original de Rodinia (2010): \texttt{malloc(max\_rows*max\_cols*sizeof(int))} con dimensiones declaradas \texttt{int} desborda para $N\gtrsim46\,000$, produciendo un tamaño de asignación corrupto y un fallo de segmento en tiempo de ejecución --- confirmado que no es un límite físico de memoria del nodo (240~GB libres). Se corrigió retipando las dos variables de dimensión a \texttt{long} (con los \texttt{malloc} correspondientes convertidos a \texttt{size\_t}), sin ningún otro cambio al algoritmo; verificado que el parche no introduce ninguna regresión de rendimiento frente al binario sin parchear ($N=46\,000$: 3.72~s original frente a 3.68~s parcheado).
+\begin{table}[H]
+\centering
+\caption{Intervalos de las familias CPU nuevas tras el filtro de calidad (campaña \texttt{pacca\_cpu\_new\_families\_20260918\_r2}).}
+\label{tab:cpu-familias-nuevas}
+\small
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+\textbf{Familia} & \textbf{Intervalos totales} & \textbf{Elegibles} & \textbf{\textit{compute\_bound}} & \textbf{\textit{memory\_bound}} \\
+\midrule
+\textit{rodinia\_kmeans\_omp} & 150\,379 & 78\,413 (52.1\%) & 0 & 78\,413 \\
+\textit{rodinia\_particlefilter\_omp} & 66\,406 & 65\,798 (99.1\%) & 1\,025 & 64\,773 \\
+\textit{rodinia\_srad\_omp} & 135\,615 & 72\,800 (53.7\%) & 0 & 72\,800 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Clasificador de fase en CPU}
+\label{sec:resultados-cpu-clasificador}
+
+Esta sección reporta la configuración final del clasificador de CPU y su desempeño. El procedimiento está descrito en las secciones \ref{sec:metodologia-features-cpu} a \ref{sec:metodologia-congelacion-cpu}. Cuando una decisión de diseño se tomó comparando alternativas se reporta la comparación completa, no solo la opción elegida, porque en varios casos el resultado relevante es que las alternativas no se distinguen entre sí.
+
+\subsubsection{Qué mide la evaluación}
+\label{sec:resultados-cpu-protocolo}
+
+El conjunto contiene 24 familias algorítmicas. Un \emph{pliegue} consiste en retirar una familia completa, ajustar el modelo con las 23 restantes y clasificar después los intervalos de la familia retirada. El procedimiento se repite 24 veces, una por familia, y ningún intervalo de la familia evaluada interviene en el ajuste ni en ninguna decisión de diseño. Este esquema responde a la pregunta operativa pertinente: si el agente encuentra un algoritmo que nunca vio, ¿acierta su régimen?
+
+La pregunta alternativa, más débil, es si el modelo acierta sobre otra ejecución de un algoritmo ya conocido. La diferencia entre ambas no es menor y se midió con el mismo modelo y los mismos datos (Tabla \ref{tab:cpu-protocolos}). Repartir intervalos al azar produce 0.894, porque dos intervalos consecutivos de una misma corrida son casi idénticos y el modelo reconoce la carga en lugar de su régimen. Dejar fuera un kernel completo baja a 0.723 y dejar fuera una familia completa, a 0.709. Todas las cifras de este capítulo corresponden al último esquema.
+
+\begin{table}[H]
+\centering
+\caption{Efecto del esquema de partición sobre el resultado, con el mismo modelo y los mismos datos.}
+\label{tab:cpu-protocolos}
+\small
+\begin{tabular}{@{}p{6.4cm}p{4.6cm}r@{}}
+\toprule
+\textbf{Esquema de partición} & \textbf{Qué mide} & \textbf{Exactitud balanceada} \\
+\midrule
+Intervalos repartidos al azar (80/20) & Memorización de la carga & 0.894 $\pm$ 0.015 \\
+Dejar un kernel fuera (43 pliegues) & Otro tamaño o variante & 0.723 $\pm$ 0.004 \\
+Dejar una familia fuera (24 pliegues) & Algoritmo nunca visto & \textbf{0.709 $\pm$ 0.004} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+El modelo se ajusta con la muestra estratificada de 36\,310 intervalos descrita en la Tabla \ref{tab:cpu-flujo-modelo} y se evalúa sobre \emph{todos} los intervalos elegibles de la familia retirada. El tope de 1000 intervalos por celda de familia y clase responde al costo de la validación anidada, y se verificó que no descarta información útil: al repetir la evaluación con topes entre 100 y 30\,000, es decir, entre 4044 y 593\,643 intervalos de ajuste, el resultado se mantiene entre 0.692 y 0.710 sin tendencia creciente (Tabla \ref{tab:cpu-tope-muestreo}). Un millón de intervalos no equivale a un millón de ejemplos independientes: son observaciones repetidas de 24 algoritmos.
+
+\begin{table}[H]
+\centering
+\caption{Flujo de observaciones desde la campaña CPU hasta la evaluación del modelo.}
+\label{tab:cpu-flujo-modelo}
+\small
+\begin{tabular}{@{}p{7.1cm}r p{5.0cm}@{}}
+\toprule
+\textbf{Etapa} & \textbf{Intervalos} & \textbf{Cálculo o criterio} \\
+\midrule
+Intervalos \textit{uncore} procesados & 1\,281\,515 & Salida total del reprocesamiento de 1290 corridas \\
+Intervalos elegibles & 1\,169\,833 & Estado de entrenamiento correcto y frecuencia utilizable \\
+Intervalos rechazados & 111\,682 & Diferencia entre procesados y elegibles, equivalente a 8.7\% \\
+Muestra reproducible & 36\,310 & Suma de $\min(n_{fc},1000)$ para cada celda observada \\
+Clase \textit{compute-bound} en la muestra & 15\,286 & Conteo posterior al límite por familia y clase \\
+Clase \textit{memory-bound} en la muestra & 21\,024 & Conteo posterior al límite por familia y clase \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.92\textwidth]{figuras/fig_cpu_muestreo_familia_20260918.png}
+    \caption[Muestreo estratificado del conjunto CPU]{Intervalos elegibles y seleccionados por familia algorítmica. El eje logarítmico permite comparar familias cuyo volumen original difiere en varios órdenes de magnitud. Nota. Elaboración propia a partir de \texttt{family\_class\_frequency\_summary.csv} y las predicciones fuera de muestra.}
+    \label{fig:cpu-muestreo-familia}
+\end{figure}
+
+\begin{longtable}{@{}lrrrr@{}}
+\caption{Intervalos elegibles y seleccionados por familia y clase.}\label{tab:cpu-muestreo-familia}\\
+\toprule
+\textbf{Familia} & \multicolumn{2}{c}{\textbf{Elegibles}} & \multicolumn{2}{c}{\textbf{Seleccionados}} \\
+\cmidrule(lr){2-3}\cmidrule(l){4-5}
+& \textbf{Cómputo} & \textbf{Memoria} & \textbf{Cómputo} & \textbf{Memoria} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Familia} & \multicolumn{2}{c}{\textbf{Elegibles}} & \multicolumn{2}{c}{\textbf{Seleccionados}} \\
+\cmidrule(lr){2-3}\cmidrule(l){4-5}
+& \textbf{Cómputo} & \textbf{Memoria} & \textbf{Cómputo} & \textbf{Memoria} \\
+\midrule
+\endhead
+\texttt{cpu\_cholmod} & 55\,323 & 110\,991 & 1000 & 1000 \\
+\texttt{cpu\_hpcg} & 15 & 32\,230 & 15 & 1000 \\
+\texttt{cpu\_lulesh} & 5 & 302\,135 & 5 & 1000 \\
+\texttt{dgemm} & 10\,938 & 0 & 1000 & 0 \\
+\texttt{dual\_axpy} & 5219 & 7554 & 1000 & 1000 \\
+\texttt{dual\_cholesky} & 9485 & 5074 & 1000 & 1000 \\
+\texttt{dual\_fft} & 7292 & 9757 & 993 & 1000 \\
+\texttt{dual\_gemm} & 5981 & 9 & 1000 & 9 \\
+\texttt{dual\_spmv} & 4085 & 3060 & 987 & 1000 \\
+\texttt{dual\_stencil} & 9940 & 8005 & 994 & 1000 \\
+\texttt{gap\_pr} & 0 & 23\,542 & 0 & 1000 \\
+\texttt{hpccg\_cpu\_N46} & 8767 & 1899 & 1000 & 1000 \\
+\texttt{npb\_bt} & 68\,397 & 40\,208 & 1000 & 1000 \\
+\texttt{npb\_cg} & 0 & 25\,770 & 0 & 1000 \\
+\texttt{npb\_ft} & 582 & 15\,097 & 582 & 1000 \\
+\texttt{npb\_lu} & 21\,194 & 49\,563 & 1000 & 1000 \\
+\texttt{npb\_mg} & 0 & 1778 & 0 & 1000 \\
+\texttt{npb\_sp} & 346 & 55\,927 & 346 & 1000 \\
+\texttt{phasic} & 93\,428 & 42\,787 & 962 & 1000 \\
+\texttt{rajaperf\_basic} & 118 & 5874 & 118 & 1000 \\
+\texttt{rajaperf\_lcals} & 109 & 12\,746 & 109 & 1000 \\
+\texttt{rajaperf\_polybench} & 53\,398 & 11\,322 & 1000 & 1000 \\
+\texttt{rajaperf\_stream} & 175 & 18\,049 & 175 & 1000 \\
+\texttt{rodinia\_lavamd} & 31\,644 & 15 & 1000 & 15 \\
+\bottomrule
+\end{longtable}
+
+\begin{table}[H]
+\centering
+\caption{Sensibilidad del resultado al tope de intervalos por celda de familia y clase.}
+\label{tab:cpu-tope-muestreo}
+\small
+\begin{tabular}{@{}rrr@{}}
+\toprule
+\textbf{Tope por celda} & \textbf{Intervalos de ajuste} & \textbf{Exactitud balanceada} \\
+\midrule
+100 & 4\,044 & 0.692 \\
+300 & 11\,546 & 0.710 \\
+1000 & 36\,310 & 0.707 \\
+3000 & 104\,051 & 0.703 \\
+10\,000 & 294\,985 & 0.700 \\
+30\,000 & 593\,643 & 0.703 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Métricas de evaluación}
+\label{sec:resultados-cpu-metricas}
+
+El modelo emite una clase para cada uno de los 1\,165\,382 intervalos evaluados. Resumir esas decisiones en una cifra exige promediar, y cada forma de promediar responde a una pregunta distinta. Esta sección define las métricas empleadas, explica cuál se adopta como principal y por qué, y muestra que las demás cuentan una historia compatible.
+
+\paragraph{Qué es una celda.} Una \emph{celda} es la combinación de una familia algorítmica y una clase de fase. Por ejemplo, los intervalos \textit{compute-bound} de \texttt{cpu\_cholmod} forman una celda y sus intervalos \textit{memory-bound} forman otra. El conjunto tiene 44 celdas: 24 familias por dos clases son 48 combinaciones posibles, de las cuales cuatro están vacías porque esa familia nunca presenta esa clase (por ejemplo, \texttt{dgemm} no tiene intervalos \textit{memory-bound}). Cada celda tiene su propio tamaño, que varía desde 5 hasta más de 300\,000 intervalos, y su propia fracción de aciertos. La Figura \ref{fig:cpu-celdas} muestra las 44 celdas del modelo final con su acierto y su tamaño.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.94\textwidth]{figuras/fig_cpu_celdas_20260919.png}
+    \caption[Acierto del modelo final en cada celda de familia y clase]{Fracción de aciertos del modelo final en cada una de las 44 celdas de familia y clase, con evaluación sobre todos los intervalos de la familia retirada. Las familias con una sola celda son las de una sola clase. Nota. Elaboración propia.}
+    \label{fig:cpu-celdas}
+\end{figure}
+
+\paragraph{Métricas empleadas.} La Tabla \ref{tab:cpu-metricas-definicion} define las nueve métricas. Para una clase $c$, $\mathrm{VP}_c$ son los intervalos de esa clase correctamente clasificados, $\mathrm{FP}_c$ los intervalos de otra clase clasificados como $c$ y $\mathrm{FN}_c$ los intervalos de $c$ clasificados como otra clase. Las ocho primeras agrupan todos los intervalos y por ello pesan cada familia según su volumen. La última pesa cada celda por igual.
+
+\begin{table}[H]
+\centering
+\caption{Métricas de evaluación empleadas y pregunta que responde cada una.}
+\label{tab:cpu-metricas-definicion}
+\footnotesize
+\begin{tabular}{@{}p{3.3cm}p{4.6cm}p{6.6cm}@{}}
+\toprule
+\textbf{Métrica} & \textbf{Definición} & \textbf{Pregunta que responde y límite} \\
+\midrule
+Exactitud & $\dfrac{\sum_c \mathrm{VP}_c}{N}$ & ¿Qué fracción de todos los intervalos se clasifica bien? Premia predecir la clase mayoritaria y la dominan las familias con más intervalos \\[6pt]
+Precisión de la clase $c$ & $\dfrac{\mathrm{VP}_c}{\mathrm{VP}_c+\mathrm{FP}_c}$ & Cuando el modelo dice $c$, ¿cuántas veces acierta? \\[6pt]
+Sensibilidad de la clase $c$ & $\dfrac{\mathrm{VP}_c}{\mathrm{VP}_c+\mathrm{FN}_c}$ & De los intervalos que son $c$, ¿cuántos detecta? \\[6pt]
+F1 de la clase $c$ & $\dfrac{2\,P_cS_c}{P_c+S_c}$ & Media armónica de precisión y sensibilidad de esa clase \\[6pt]
+F1 macro agrupada & $\tfrac{1}{2}(F1_{\mathrm{compute}}+F1_{\mathrm{memory}})$ & Promedio de las F1 de las dos clases, calculadas sobre todos los intervalos concatenados \\[6pt]
+Exactitud balanceada clásica & $\tfrac{1}{2}(S_{\mathrm{compute}}+S_{\mathrm{memory}})$ & Promedio de las dos sensibilidades; corrige el desbalance entre clases pero no el volumen entre familias \\[6pt]
+AUC-ROC & Área bajo la curva sensibilidad frente a tasa de falsos positivos & ¿Ordena el modelo los intervalos \textit{memory-bound} por encima de los \textit{compute-bound}? No depende del umbral de decisión \\[6pt]
+Coeficiente de Matthews (MCC) & Correlación de Pearson entre la clase predicha y la clase real & Vale 0 para un modelo sin información y 1 para uno perfecto; usa las cuatro casillas de la matriz de confusión \\[6pt]
+\textbf{Exactitud balanceada por celda} & $\dfrac{1}{|\mathcal{C}|}\sum_{(f,c)\in\mathcal{C}}\dfrac{a_{fc}}{n_{fc}}$ & ¿Con qué fracción de aciertos se resuelve una celda típica de familia y clase? Ecuación \eqref{eq:exactitud-balanceada-celda} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Un ejemplo con cifras reales.} La Tabla \ref{tab:cpu-ejemplo-celdas} toma cuatro celdas del modelo final. La exactitud, que pesa por intervalos, da 0.855: casi todos los intervalos pertenecen a \texttt{cpu\_lulesh} \textit{memory-bound} y se clasifican bien. La exactitud por celda da 0.607, porque cada celda cuenta una vez, y muestra que el modelo falla por completo en la celda \textit{compute-bound} de \texttt{cpu\_lulesh} y solo acierta 65\% en la de \texttt{cpu\_cholmod}. Ambas cifras son correctas y responden preguntas diferentes: la primera dice qué fracción del tráfico de intervalos se clasifica bien; la segunda, qué tan bien se resuelve cada situación distinta.
+
+\begin{table}[H]
+\centering
+\caption{Ejemplo de cálculo con cuatro celdas reales del modelo final.}
+\label{tab:cpu-ejemplo-celdas}
+\small
+\begin{tabular}{@{}llrrr@{}}
+\toprule
+\textbf{Familia} & \textbf{Clase de la celda} & \textbf{Intervalos} & \textbf{Aciertos} & \textbf{Fracción} \\
+\midrule
+\texttt{cpu\_cholmod} & \textit{compute-bound} & 55\,323 & 35\,980 & 0.650 \\
+\texttt{cpu\_cholmod} & \textit{memory-bound} & 110\,991 & 99\,888 & 0.900 \\
+\texttt{cpu\_lulesh} & \textit{compute-bound} & 5 & 0 & 0.000 \\
+\texttt{cpu\_lulesh} & \textit{memory-bound} & 302\,135 & 264\,535 & 0.876 \\
+\midrule
+\multicolumn{2}{@{}l}{Exactitud por intervalos (suma de aciertos entre suma de intervalos)} & 468\,454 & 400\,403 & \textbf{0.855} \\
+\multicolumn{2}{@{}l}{Exactitud por celda (promedio de las cuatro fracciones)} & & & \textbf{0.607} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Por qué la exactitud por celda es la métrica principal.} Hay tres razones estructurales. No depende del volumen: una corrida larga no decide el resultado. No depende de la proporción entre clases dentro de una familia. Y está definida para las 12 familias que contienen una sola clase, que son la mitad del catálogo, mientras que el F1 macro calculado dentro de cada familia queda acotado a 0.5 en ellas aunque todos sus intervalos se clasifiquen bien.
+
+Hay además una razón empírica, y es la más convincente: la métrica por celda es mucho más estable. Al repetir la evaluación completa con cinco semillas de muestreo distintas, la desviación de la exactitud por celda es 0.004, mientras que las métricas que pesan por volumen varían entre 0.019 y 0.047 (Tabla \ref{tab:cpu-metricas-valores}). Al remuestrear las 24 familias, el intervalo de confianza de la exactitud por celda tiene una amplitud de 0.15 y los de la exactitud global y de la exactitud balanceada clásica, de 0.23 y 0.27. Las métricas por volumen dependen de un puñado de familias con cientos de miles de intervalos, entre ellas \texttt{cpu\_lulesh}, \texttt{phasic}, \texttt{cpu\_cholmod} y \texttt{npb\_bt}, y por eso una pequeña variación en cuáles intervalos se muestrean para el ajuste las mueve mucho más.
+
+\begin{table}[H]
+\centering
+\caption{Valores de todas las métricas para el modelo final, sin abstención. Media de cinco semillas de muestreo, desviación entre semillas e intervalo de confianza del 95\% por remuestreo de las 24 familias.}
+\label{tab:cpu-metricas-valores}
+\small
+\begin{tabular}{@{}p{5.6cm}rrl@{}}
+\toprule
+\textbf{Métrica} & \textbf{Valor} & \textbf{Desv. semillas} & \textbf{IC95 familias} \\
+\midrule
+Exactitud & 0.747 & 0.021 & 0.605 a 0.835 \\
+Precisión \textit{compute-bound} & 0.620 & 0.035 & -- \\
+Sensibilidad \textit{compute-bound} & 0.592 & 0.040 & -- \\
+F1 \textit{compute-bound} & 0.605 & 0.033 & -- \\
+Precisión \textit{memory-bound} & 0.805 & 0.016 & -- \\
+Sensibilidad \textit{memory-bound} & 0.823 & 0.024 & -- \\
+F1 \textit{memory-bound} & 0.814 & 0.016 & -- \\
+F1 macro agrupada & 0.709 & 0.024 & -- \\
+Exactitud balanceada clásica & 0.707 & 0.024 & 0.562 a 0.831 \\
+AUC-ROC agrupada & 0.773 & 0.019 & -- \\
+Coeficiente de Matthews & 0.419 & 0.047 & -- \\
+\textbf{Exactitud balanceada por celda} & \textbf{0.709} & \textbf{0.004} & 0.633 a 0.780 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Los intervalos de las métricas por volumen se calcularon con la primera semilla de muestreo y el de la exactitud por celda con el promedio de las cinco, de modo que solo las amplitudes son comparables entre sí, no los extremos.
+
+\paragraph{Lectura conjunta.} Las métricas cuentan una historia compatible. La exactitud balanceada clásica (0.707), la F1 macro agrupada (0.709) y la exactitud por celda (0.709) coinciden con diferencias menores que 0.003, de modo que adoptar la métrica por celda no cambia el veredicto sobre el modelo. El AUC-ROC de 0.773 indica que el modelo ordena los intervalos mejor que el azar pero de forma limitada, y el coeficiente de Matthews de 0.419 confirma una correlación moderada entre predicción y clase real. La exactitud global de 0.747 es la más alta de todas, pero es la que más depende de la composición del conjunto y no debe leerse como la capacidad del modelo.
+
+La asimetría entre clases también depende de cómo se promedia. Por volumen, la sensibilidad es 0.592 para \textit{compute-bound} y 0.823 para \textit{memory-bound}. Por celdas, con cada familia pesando igual, es 0.667 y 0.747. La diferencia se debe sobre todo a \texttt{phasic}, que aporta cerca de 89\,000 intervalos \textit{compute-bound} con 4\% de aciertos y arrastra la sensibilidad por volumen. La asimetría es real pero mucho menor de lo que sugiere la cifra agrupada.
+
+\paragraph{Límite de la exactitud por celda.} La métrica asigna el mismo peso a una celda de 5 intervalos que a una de 300\,000. Cuatro de las 44 celdas tienen menos de 100 intervalos evaluados: \textit{compute-bound} de \texttt{cpu\_lulesh} (5), \textit{memory-bound} de \texttt{dual\_gemm} (9), \textit{compute-bound} de \texttt{cpu\_hpcg} (15) y \textit{memory-bound} de \texttt{rodinia\_lavamd} (15). Suman 44 intervalos y pesan, sin embargo, 9.1\% de la métrica. Tres de ellas tienen acierto casi nulo, y excluir las cuatro subiría la métrica de 0.709 a 0.757. Se conservan por dos razones: retirar celdas después de ver que fallan sería seleccionar datos por el resultado, y esos casos son informativos, porque muestran que las clases raras dentro de una familia casi pura no se reconocen. Pero implican que parte de la incertidumbre de la métrica proviene de celdas muy pequeñas, y que el intervalo de confianza debe leerse con esa cautela.
+
+\paragraph{Incertidumbre.} Se informan dos fuentes. La semilla del submuestreo se varió cinco veces. La composición del catálogo se evaluó mediante remuestreo con reemplazo de las 24 familias, con 2000 réplicas. Esta segunda fuente domina y es la que debe usarse al comparar configuraciones: con 24 familias, cualquier diferencia menor que 0.03 es indistinguible del ruido.
+
+\subsubsection{Variables de entrada y tratamiento de la correlación}
+\label{sec:resultados-cpu-entradas}
+
+El modelo final usa las 12 variables de la Tabla \ref{tab:cpu-features-modelo}. Las seis primeras son tasas normalizadas y la frecuencia física observada; las seis restantes son transformaciones de los mismos contadores.
+
+\begin{table}[H]
+\centering
+\caption{Variables de entrada del candidato CPU congelado.}
+\label{tab:cpu-features-modelo}
+\footnotesize
+\begin{tabular}{@{}p{4.0cm}p{5.0cm}p{5.5cm}@{}}
+\toprule
+\textbf{Variable} & \textbf{Cálculo} & \textbf{Interpretación} \\
+\midrule
+\texttt{ipc} & $N_{\mathrm{inst}}/N_{\mathrm{cyc}}$ & Trabajo retirado por ciclo \\
+\texttt{mpki} & $1000N_{\mathrm{miss}}/N_{\mathrm{inst}}$ & Fallos de caché por millar de instrucciones \\
+\texttt{cache\_miss\_rate} & $N_{\mathrm{miss}}/N_{\mathrm{ref}}$ & Fracción de referencias que fallan \\
+\texttt{stall\_mem\_ratio} & $N_{\mathrm{stall}}/N_{\mathrm{cyc}}$ & Fracción de ciclos detenidos por memoria \\
+\texttt{ips} & $N_{\mathrm{inst}}/\Delta t$ & Tasa de instrucciones del intervalo \\
+\texttt{freq\_khz\_observed} & Mediana de las lecturas cubiertas & Frecuencia física observada \\
+\path{cache_references_per_ki} & $1000N_{\mathrm{ref}}/N_{\mathrm{inst}}$ & Presión de referencias por instrucción \\
+\path{cache_references_per_cycle} & $N_{\mathrm{ref}}/N_{\mathrm{cyc}}$ & Presión de referencias por ciclo \\
+\path{cache_misses_per_cycle} & $N_{\mathrm{miss}}/N_{\mathrm{cyc}}$ & Fallos observados por ciclo \\
+\path{stalls_mem_per_ki} & $1000N_{\mathrm{stall}}/N_{\mathrm{inst}}$ & Espera de memoria normalizada por trabajo \\
+\path{stalls_mem_per_cache_miss} & $N_{\mathrm{stall}}/N_{\mathrm{miss}}$ & Ciclos detenidos por cada fallo observado \\
+\path{log1p_mpki} & $\log(1+\mathrm{MPKI})$ & Compresión monotónica de la cola de MPKI \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Cuatro grupos de columnas quedaron fuera, por razones distintas. El primero son los insumos de la etiqueta: FLOPs, bytes de DRAM medidos por \textit{uncore}, intensidad operacional y \textit{ridge}. Con ellos el modelo no predice la etiqueta, la calcula; el código aborta si alguno aparece en el vector de entrada. El segundo son los identificadores de kernel, nivel solicitado y repetición, que permiten reconocer la carga en lugar de su régimen. El tercero son las señales de calidad del contador (\texttt{delta\_enabled\_ns}, \texttt{delta\_running\_ns} y \texttt{running\_ratio}), que describen la adquisición y no el comportamiento de la carga, y que se usan solo como criterio de aceptación de filas. El cuarto son los deltas crudos de instrucciones, ciclos, referencias y fallos, que dependen de la duración del intervalo y que la auditoría de correlación marcó como redundantes frente a sus tasas (Tabla \ref{tab:cpu-correlaciones-altas}).
+
+\begin{table}[H]
+\centering
+\caption{Pares marcados por la auditoría de correlación sobre el conjunto CPU elegible.}
+\label{tab:cpu-correlaciones-altas}
+\footnotesize
+\begin{tabular}{@{}p{4.2cm}p{4.2cm}rr@{}}
+\toprule
+\textbf{Primera columna} & \textbf{Segunda columna} & \textbf{Pearson} & \textbf{Spearman} \\
+\midrule
+\texttt{delta\_instructions} & \texttt{ips} & 0.9977 & 0.9987 \\
+\texttt{delta\_cycles} & \texttt{freq\_khz\_observed} & 0.9163 & 0.9140 \\
+\path{delta_stalled_cycles_mem_any} & \texttt{stall\_mem\_ratio} & 0.8736 & 0.9278 \\
+\texttt{delta\_running\_ns} & \texttt{delta\_enabled\_ns} & 1.0000 & 1.0000 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Factor de inflación de la varianza posterior al filtro de correlación.}
+\label{tab:cpu-vif}
+\footnotesize
+\begin{tabular}{@{}lr lr@{}}
+\toprule
+\textbf{Columna} & \textbf{VIF} & \textbf{Columna} & \textbf{VIF} \\
+\midrule
+\texttt{delta\_instructions} & 5.608639 & \texttt{ipc} & 5.914013 \\
+\texttt{delta\_cache\_references} & 5.739436 & \texttt{mpki} & 1.000556 \\
+\texttt{delta\_cache\_misses} & 6.454681 & \texttt{cache\_miss\_rate} & 2.508419 \\
+\texttt{delta\_enabled\_ns} & 1.197268 & \texttt{stall\_mem\_ratio} & 2.789346 \\
+\texttt{running\_ratio} & 1.000005 & \texttt{freq\_khz\_observed} & 3.177318 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Por qué permanecen variables correlacionadas entre sí.} Entre las 12 entradas finales quedan pares con correlación alta. El caso extremo es $\log(1+\mathrm{MPKI})$, transformación monótona de MPKI y por tanto con correlación de rangos igual a uno con ella; el par formado por MPKI y las referencias de caché por millar de instrucciones alcanza 0.888 de correlación lineal (Figura \ref{fig:cpu-correlacion-entradas}). No se retiraron, por tres razones.
+
+Primero, el criterio de colinealidad protege la interpretación de los coeficientes de un modelo lineal, no la capacidad predictiva de un ensamble de árboles, que es invariante a transformaciones monótonas de una variable y no exige columnas mutuamente independientes. Segundo, el factor de inflación de la varianza calculado tras el filtro se mantuvo entre 1.00 y 6.45, por debajo del umbral de alerta de 10 fijado de antemano. Tercero, y de forma decisiva, se comprobó que la redundancia no cambia el resultado: ajustar el modelo solo con las seis tasas base produce 0.698 y hacerlo con las doce produce 0.709, una diferencia de 0.010 cuyo intervalo de confianza va de $-0.024$ a $+0.003$ y contiene el cero (Tabla \ref{tab:cpu-variantes-entrada}). Las seis transformaciones ni ayudan ni perjudican de forma medible, de modo que retirarlas o conservarlas es indiferente para el resultado y solo cambia el costo de calcularlas.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.88\textwidth]{figuras/fig_cpu_correlacion_entradas_20260918.png}
+    \caption[Matriz de correlación de las entradas CPU]{Correlación de Pearson entre las 12 variables del candidato congelado sobre la muestra estratificada de 36\,310 intervalos. Nota. Elaboración propia.}
+    \label{fig:cpu-correlacion-entradas}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{Variantes del vector de entrada bajo el mismo modelo y el mismo protocolo. La diferencia se calcula frente al vector de 12 variables.}
+\label{tab:cpu-variantes-entrada}
+\small
+\begin{tabular}{@{}p{5.8cm}rrl@{}}
+\toprule
+\textbf{Vector de entrada} & \textbf{Exact. bal.} & \textbf{F1 macro} & \textbf{Diferencia (IC95)} \\
+\midrule
+12 variables (configuración final) & 0.709 & 0.709 & referencia \\
+6 tasas base & 0.698 & 0.685 & $-0.010$ \;($-0.024$ a $+0.003$) \\
+12 variables sin frecuencia & 0.709 & 0.705 & $+0.000$ \;($-0.012$ a $+0.014$) \\
+7 variables con \texttt{running\_ratio} & 0.698 & 0.685 & $-0.010$ \;($-0.024$ a $+0.003$) \\
+Solo frecuencia observada & 0.569 & 0.497 & $-0.140$ \;($-0.229$ a $-0.048$) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Esa misma tabla responde otra pregunta razonable sobre la frecuencia observada. Como el \textit{ridge} depende de ella, cabía sospechar que el modelo la usara como atajo para deducir la etiqueta. No ocurre: un modelo que solo recibe la frecuencia alcanza 0.569, apenas por encima del azar, y retirarla del vector completo no cambia el resultado. La frecuencia aporta contexto, no la señal que decide.
+
+La importancia por permutación, medida sobre la familia retirada, confirma la redundancia interna del vector: solo la tasa de fallos de caché, con una caída de 0.060, y MPKI, con 0.029, producen un deterioro apreciable al permutarlas, mientras que $\log(1+\mathrm{MPKI})$, la fracción de ciclos detenidos, la tasa de instrucciones y las referencias por ciclo tienen aporte nulo o ligeramente negativo. En términos prácticos, el clasificador es un detector de presión sobre la jerarquía de memoria con contexto adicional, y las doce columnas contienen bastante menos información que doce variables independientes.
+
+\subsubsection{Selección de modelo e hiperparámetros}
+\label{sec:resultados-cpu-modelo}
+
+La comparación de modelos se ejecutó con hiperparámetros fijos, el mismo protocolo y las mismas cinco semillas de muestreo (Tabla \ref{tab:cpu-comparacion-modelos} y Figura \ref{fig:cpu-comparacion-modelos}). El resultado central es que los modelos con capacidad suficiente quedan indistinguibles entre sí: desde la regresión logística, con 0.680, hasta XGBoost, con 0.709, todas las diferencias caen dentro del intervalo de confianza. Solo se separan del grupo las dos referencias sin capacidad, la regla mayoritaria con 0.523 y el árbol de profundidad uno con 0.617. La diferencia grande entre modelos no está en la exactitud sino en la latencia: los dos bosques cuestan veinte veces más por inferencia que XGBoost o la regresión logística.
+
+\begin{table}[H]
+\centering
+\caption{Comparación de modelos con hiperparámetros fijos. La latencia corresponde a una fila, un hilo, medida en el nodo de destino.}
+\label{tab:cpu-comparacion-modelos}
+\small
+\begin{tabular}{@{}p{4.9cm}rlrr@{}}
+\toprule
+\textbf{Modelo} & \textbf{Exact. bal.} & \textbf{IC95} & \textbf{F1 macro} & \textbf{Latencia p99} \\
+\midrule
+Regla mayoritaria & 0.523 & 0.478 a 0.571 & 0.402 & -- \\
+Árbol de profundidad 1 & 0.617 & 0.528 a 0.708 & 0.716 & 103~\textmu s \\
+Regresión logística (6 var.) & 0.680 & 0.611 a 0.747 & 0.718 & -- \\
+Regresión logística (12 var.) & 0.689 & 0.629 a 0.751 & 0.765 & 275~\textmu s \\
+Extra Trees (12 var.) & 0.699 & 0.616 a 0.783 & 0.652 & 5226~\textmu s \\
+Random Forest (12 var.) & 0.703 & 0.618 a 0.787 & 0.730 & 5193~\textmu s \\
+XGBoost (6 var.) & 0.698 & 0.622 a 0.774 & 0.685 & -- \\
+\textbf{XGBoost (12 var.)} & \textbf{0.709} & 0.633 a 0.780 & 0.709 & 382~\textmu s \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.92\textwidth]{figuras/fig_cpu_comparacion_modelos_20260919.png}
+    \caption[Comparación de modelos del clasificador CPU]{Exactitud balanceada por celda de familia y clase de cada modelo, con intervalo de confianza del 95\% obtenido por remuestreo de las 24 familias. Los intervalos se solapan entre todos los modelos con capacidad suficiente. Nota. Elaboración propia.}
+    \label{fig:cpu-comparacion-modelos}
+\end{figure}
+
+\paragraph{Búsqueda de hiperparámetros.} Sobre esa base se ejecutó la búsqueda con el muestreador TPE de Optuna \cite{Akiba2019}, que propone configuraciones nuevas a partir del desempeño de las ya evaluadas en lugar de recorrer una rejilla fija. La búsqueda se ejecuta \emph{dentro} de cada pliegue externo: con la familia retirada apartada, se recorre un LOFO interno sobre las 23 familias restantes para puntuar cada configuración propuesta, se ajusta el modelo con la mejor y solo entonces se evalúa una vez sobre la familia retirada. Esta anidación es lo que impide que el resultado se infle, porque una búsqueda que puntúe sus configuraciones contra la misma familia que después se reporta escogería, entre muchas alternativas, la que mejor se ajusta a ese pliegue concreto. El espacio de búsqueda es el de la Tabla \ref{tab:cpu-espacio-busqueda}, con 15 pruebas por pliegue para XGBoost y 8 para la regresión logística, es decir, 360 y 192 configuraciones evaluadas en total.
+
+\begin{table}[H]
+\centering
+\caption{Espacio de búsqueda de hiperparámetros.}
+\label{tab:cpu-espacio-busqueda}
+\small
+\begin{tabular}{@{}llp{5.4cm}@{}}
+\toprule
+\textbf{Modelo} & \textbf{Hiperparámetro} & \textbf{Rango} \\
+\midrule
+XGBoost & Número de árboles & 50 a 300, en pasos de 25 \\
+        & Profundidad máxima & 2 a 10 \\
+        & Tasa de aprendizaje & $10^{-2}$ a 0.5, escala logarítmica \\
+        & Peso mínimo por hoja & 1 a 10 \\
+Regresión logística & Regularización $C$ & $10^{-3}$ a $10^{2}$, escala logarítmica \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+El resultado es que la búsqueda no mejora la configuración fija, y de hecho la empeora ligeramente (Tabla \ref{tab:cpu-optuna}). Para XGBoost, la configuración ajustada dentro de cada pliegue obtiene 0.682 frente a 0.708 de la configuración fija, una diferencia de $-0.025$ cuyo intervalo de confianza va de $-0.072$ a $+0.015$; la búsqueda mejora el resultado en 10 de las 24 familias y lo empeora en las otras 14. Para la regresión logística la diferencia es de $-0.014$, en la misma dirección.
+
+\begin{table}[H]
+\centering
+\caption{Búsqueda de hiperparámetros anidada frente a la configuración fija, con el mismo protocolo.}
+\label{tab:cpu-optuna}
+\small
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+\textbf{Configuración} & \textbf{Exact. bal.} & \textbf{F1 macro} & \textbf{Exactitud} \\
+\midrule
+XGBoost fijo & \textbf{0.708} & 0.691 & 0.736 \\
+XGBoost con búsqueda TPE anidada & 0.682 & 0.659 & 0.694 \\
+Regresión logística fija & 0.688 & 0.763 & 0.792 \\
+Regresión logística con búsqueda TPE anidada & 0.674 & 0.763 & 0.792 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+El motivo se ve en los datos de la propia búsqueda. El mejor puntaje interno de cada pliegue se mueve en un rango estrecho, de 0.693 a 0.746 con media 0.721, mientras el resultado externo del mismo modelo va de 0.343 a 1.000. Es decir, el criterio interno no distingue configuraciones buenas de malas para una familia nueva: escoger el máximo de 15 propuestas sobre un criterio con ese nivel de ruido equivale a ajustarse a los pliegues internos. Como consecuencia, las configuraciones elegidas cambian por completo entre pliegues, con profundidades entre 3 y 9, tasas de aprendizaje entre 0.027 y 0.317 y entre 50 y 275 árboles, sin que ninguna región del espacio se imponga. Restringir la complejidad tampoco cambia el panorama: con profundidades fijas de 2, 3, 4 y 6 el resultado va de 0.689 a 0.717, y elegir la profundidad dentro de cada pliegue produce 0.712.
+
+Por este motivo se conservó la configuración fija de XGBoost, que además es la más simple de documentar y reproducir. La conclusión de fondo, coherente con la comparación de modelos y con las variantes del vector de entrada, es que el desempeño de este problema no está limitado por la capacidad del modelo ni por el ajuste de sus hiperparámetros.
+
+\subsubsection{Resultado del modelo final}
+\label{sec:resultados-cpu-final}
+
+La configuración congelada es la de la Tabla \ref{tab:cpu-configuracion-final}. Se evaluó sobre los 1\,165\,382 intervalos elegibles, cada uno clasificado por el modelo del pliegue que no vio su familia, promediando las cinco semillas de muestreo.
+
+\begin{table}[H]
+\centering
+\caption{Configuración final del clasificador CPU.}
+\label{tab:cpu-configuracion-final}
+\small
+\begin{tabular}{@{}p{5.2cm}p{8.6cm}@{}}
+\toprule
+\textbf{Elemento} & \textbf{Valor} \\
+\midrule
+Modelo & XGBoost, 100 árboles, profundidad máxima 6, objetivo \texttt{binary:logistic} \\
+Entradas & 12 variables PMU de la Tabla \ref{tab:cpu-features-modelo} \\
+Ponderación & Peso total igual por celda de familia y clase, ecuación \eqref{eq:peso-familia-clase}, con \texttt{scale\_pos\_weight}${}=1$ \\
+Salida & Probabilidad de \textit{memory-bound}; clase con confianza $\geq 0.85$ y \textit{revisar} por debajo \\
+Semilla & 20260918 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Si el modelo debe emitir siempre una clase, la exactitud balanceada es 0.709, la F1 macro agrupada 0.709 y la exactitud global 0.747. La Tabla \ref{tab:cpu-metricas-clase} desagrega el resultado por clase y la Figura \ref{fig:cpu-matriz-confusion} muestra las matrices de confusión. El comportamiento es asimétrico: reconoce \textit{memory-bound} con sensibilidad 0.823 y \textit{compute-bound} con 0.592. Parte de esta asimetría se debe al peso de una sola familia (\texttt{phasic}) en el promedio por volumen, como se explica en la sección \ref{sec:resultados-cpu-metricas}; el resto proviene de que los intervalos \textit{compute-bound} de una familia nueva se parecen a intervalos \textit{memory-bound} de otras familias ya vistas, como se detalla en la sección \ref{sec:resultados-cpu-limite}. No proviene del desbalance del ajuste, que está corregido por la ponderación.
+
+\begin{table}[H]
+\centering
+\caption{Métricas por clase del modelo final sobre los 1\,165\,382 intervalos evaluados.}
+\label{tab:cpu-metricas-clase}
+\small
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+\textbf{Clase} & \textbf{Intervalos} & \textbf{Precisión} & \textbf{Sensibilidad} & \textbf{F1} \\
+\midrule
+\textit{compute-bound} & 381\,990 & 0.619 & 0.592 & 0.605 \\
+\textit{memory-bound} & 783\,392 & 0.805 & 0.823 & 0.814 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.94\textwidth]{figuras/fig_cpu_matriz_confusion_20260919.png}
+    \caption[Matrices de confusión del clasificador CPU]{Matrices de confusión del modelo final. A la izquierda, cuando se obliga a emitir una clase en todos los intervalos; a la derecha, solo sobre los intervalos con confianza mayor o igual a 0.85. El porcentaje está calculado por fila, es decir, respecto de la clase real. Nota. Elaboración propia.}
+    \label{fig:cpu-matriz-confusion}
+\end{figure}
+
+El resultado no es uniforme entre familias (Tabla \ref{tab:cpu-resultado-familia} y Figura \ref{fig:cpu-resultado-familia}). Nueve familias superan 0.9 de exactitud y cinco quedan por debajo de 0.55, con \textit{phasic} en 0.369, es decir, peor que responder al azar. Las familias con mejor resultado son las de comportamiento extremo y estable, mientras que las peores son aquellas cuyo perfil de contadores coincide con el de familias de la clase contraria.
+
+\begin{longtable}{@{}lrrrrr@{}}
+\caption{Resultado del modelo final por familia retirada, sobre todos sus intervalos elegibles.}\label{tab:cpu-resultado-familia}\\
+\toprule
+\textbf{Familia} & \textbf{Intervalos} & \textbf{Frac. memoria} & \textbf{Exactitud} & \textbf{Cobertura} & \textbf{Exact. cubierta} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Familia} & \textbf{Intervalos} & \textbf{Frac. memoria} & \textbf{Exactitud} & \textbf{Cobertura} & \textbf{Exact. cubierta} \\
+\midrule
+\endhead
+\texttt{dgemm} & 10\,938 & 0.000 & 1.000 & 1.000 & 1.000 \\
+\texttt{dual\_gemm} & 5\,990 & 0.002 & 0.999 & 1.000 & 1.000 \\
+\texttt{dual\_spmv} & 7\,100 & 0.431 & 0.993 & 0.926 & 1.000 \\
+\texttt{dual\_stencil} & 17\,899 & 0.447 & 0.975 & 0.895 & 0.994 \\
+\texttt{dual\_fft} & 16\,997 & 0.574 & 0.965 & 0.890 & 0.995 \\
+\texttt{npb\_cg} & 25\,770 & 1.000 & 0.956 & 0.737 & 0.997 \\
+\texttt{rajaperf\_polybench} & 64\,720 & 0.175 & 0.949 & 0.950 & 0.960 \\
+\texttt{cpu\_hpcg} & 32\,245 & 1.000 & 0.948 & 0.853 & 0.988 \\
+\texttt{dual\_cholesky} & 14\,543 & 0.349 & 0.919 & 0.776 & 0.982 \\
+\texttt{hpccg\_cpu\_N46} & 10\,666 & 0.178 & 0.879 & 0.701 & 0.940 \\
+\texttt{cpu\_lulesh} & 302\,140 & 1.000 & 0.875 & 0.772 & 0.935 \\
+\texttt{rajaperf\_basic} & 5\,992 & 0.980 & 0.864 & 0.702 & 0.957 \\
+\texttt{cpu\_cholmod} & 166\,314 & 0.667 & 0.817 & 0.778 & 0.884 \\
+\texttt{dual\_axpy} & 12\,773 & 0.591 & 0.803 & 0.741 & 0.889 \\
+\texttt{rodinia\_lavamd} & 31\,659 & 0.001 & 0.796 & 0.690 & 0.829 \\
+\texttt{rajaperf\_stream} & 18\,224 & 0.990 & 0.736 & 0.610 & 0.945 \\
+\texttt{npb\_lu} & 70\,757 & 0.701 & 0.656 & 0.436 & 0.750 \\
+\texttt{npb\_bt} & 108\,605 & 0.370 & 0.608 & 0.362 & 0.663 \\
+\texttt{npb\_sp} & 56\,273 & 0.994 & 0.563 & 0.558 & 0.658 \\
+\texttt{npb\_mg} & 1\,778 & 1.000 & 0.536 & 0.497 & 0.584 \\
+\texttt{rajaperf\_lcals} & 12\,855 & 0.992 & 0.515 & 0.524 & 0.724 \\
+\texttt{npb\_ft} & 15\,679 & 0.963 & 0.504 & 0.577 & 0.574 \\
+\texttt{gap\_pr} & 23\,542 & 1.000 & 0.439 & 0.843 & 0.497 \\
+\texttt{phasic} & 131\,923 & 0.324 & 0.369 & 0.889 & 0.379 \\
+\bottomrule
+\end{longtable}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.94\textwidth]{figuras/fig_cpu_resultado_por_familia_20260919.png}
+    \caption[Resultado del clasificador CPU por familia]{Exactitud del modelo final y cobertura de la decisión automática para cada familia retirada. El color distingue las familias que contienen ambas clases de las que contienen una sola. Nota. Elaboración propia.}
+    \label{fig:cpu-resultado-familia}
+\end{figure}
+
+Por nivel de frecuencia el resultado es estable, entre 0.706 y 0.784 (Tabla \ref{tab:cpu-resultado-frecuencia}). Los niveles intermedios, entre F4 y F7, son ligeramente peores que los extremos, lo que es consistente con que allí el \textit{ridge} sitúa a más intervalos cerca de la frontera entre clases.
+
+\begin{table}[H]
+\centering
+\caption{Resultado del modelo final por nivel de frecuencia.}
+\label{tab:cpu-resultado-frecuencia}
+\small
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+\textbf{Nivel} & \textbf{Intervalos} & \textbf{Frac. memoria} & \textbf{Exactitud} & \textbf{Cobertura} \\
+\midrule
+REF & 86\,667 & 0.773 & 0.784 & 0.801 \\
+F0 & 77\,930 & 0.751 & 0.771 & 0.796 \\
+F1 & 81\,713 & 0.751 & 0.778 & 0.792 \\
+F2 & 86\,659 & 0.735 & 0.764 & 0.763 \\
+F3 & 92\,901 & 0.713 & 0.747 & 0.742 \\
+F4 & 102\,187 & 0.658 & 0.706 & 0.713 \\
+F5 & 115\,384 & 0.654 & 0.720 & 0.685 \\
+F6 & 135\,809 & 0.636 & 0.729 & 0.690 \\
+F7 & 162\,631 & 0.616 & 0.726 & 0.675 \\
+F8 & 223\,501 & 0.615 & 0.764 & 0.712 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Decisión selectiva y costo de inferencia}
+\label{sec:resultados-cpu-selectiva}
+
+El modelo puede abstenerse cuando su confianza, definida como $\max(p,1-p)$, no alcanza un umbral. El umbral de 0.85 se eligió con un LOFO interno sobre las 23 familias de cada pliegue, exigiendo una cobertura media mínima de 0.60, y nunca observando la familia evaluada. Elegirlo de forma anidada, con un valor distinto por pliegue y una rejilla ampliada hasta 0.98, produce prácticamente lo mismo, 0.737 sobre lo decidido con 0.72 de cobertura, de modo que congelar un único valor no infla el resultado.
+
+Con ese umbral el modelo decide sobre el 72.6\% de los intervalos y responde \textit{revisar} en el resto. Sobre lo que decide, la exactitud balanceada sube de 0.709 a 0.723, la F1 macro agrupada de 0.709 a 0.772 y la sensibilidad de \textit{compute-bound} de 0.592 a 0.617 (Tabla \ref{tab:cpu-selectiva}). La ganancia es real pero modesta, y conviene dimensionarla: abstenerse al azar en la misma proporción de intervalos deja la exactitud balanceada en 0.709, es decir, sin cambio, de modo que la mejora proviene efectivamente de que la confianza identifica casos difíciles y no del simple hecho de decidir menos.
+
+\begin{table}[H]
+\centering
+\caption{Efecto de la decisión selectiva con umbral de confianza 0.85.}
+\label{tab:cpu-selectiva}
+\small
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\textbf{Medida} & \textbf{Sin abstención} & \textbf{Con umbral 0.85} \\
+\midrule
+Cobertura & 1.000 & 0.726 \\
+Cobertura media por familia & 1.000 & 0.738 \\
+Cobertura de la familia peor cubierta & 1.000 & 0.362 \\
+Exactitud balanceada & 0.709 & 0.723 \\
+F1 macro agrupada & 0.709 & 0.772 \\
+Exactitud & 0.747 & 0.811 \\
+Sensibilidad \textit{compute-bound} & 0.592 & 0.617 \\
+Sensibilidad \textit{memory-bound} & 0.823 & 0.902 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+El límite de la abstención es que la confianza del modelo está mal calibrada fuera de su familia de entrenamiento (Figura \ref{fig:cpu-umbral-calibracion}). La confianza media declarada es 0.897 frente a una exactitud observada de 0.736, con un error de calibración esperado de 0.161. En consecuencia hay familias que fallan \emph{con} confianza alta y a las que el umbral no protege: entre los intervalos con confianza mayor o igual a 0.9, \textit{npb\_ft} acierta el 32\% y \textit{phasic} el 35\%. Abstenerse es útil, pero no sustituye evidencia física cuando el modelo se equivoca con seguridad.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.96\textwidth]{figuras/fig_cpu_umbral_calibracion_20260919.png}
+    \caption[Calibración y compromiso de la abstención en CPU]{A la izquierda, confianza declarada frente a exactitud observada sobre familias no vistas; la curva por debajo de la diagonal indica sobreconfianza. A la derecha, exactitud balanceada alcanzable en función de la cobertura al variar el umbral. Nota. Elaboración propia.}
+    \label{fig:cpu-umbral-calibracion}
+\end{figure}
+
+La salida \textit{revisar} activa una política conservadora: el sistema conserva la frecuencia vigente y espera dos intervalos \textit{uncore} válidos consecutivos antes de aceptar una caracterización física. Esta regla evita forzar una clase donde el modelo no discrimina, pero todavía no selecciona la frecuencia de menor EDP, que depende del trabajo pendiente de la Fase 4.
+
+En cuanto al costo, la inferencia de una fila en el nodo de destino toma 227~\textmu s de mediana y 382~\textmu s en el percentil 99 para XGBoost, frente a 266 y 275~\textmu s de la regresión logística y 5.2~ms de los bosques. Estas cifras incluyen la sobrecarga del intérprete de Python y por tanto son una cota superior para una implementación integrada en el agente, que es donde debe hacerse la medición definitiva.
+
+\subsubsection{Dónde está el límite del resultado}
+\label{sec:resultados-cpu-limite}
+
+Cuatro resultados independientes indican que el límite proviene de la información contenida en los contadores y no del modelo.
+
+El primero es que un clasificador sin ajuste, de 25 vecinos más cercanos sobre cuatro tasas estandarizadas, alcanza 0.683 con el mismo protocolo, y 0.698 si recibe además la frecuencia. Queda a menos de 0.03 del modelo final, de modo que casi todo lo que puede extraerse de estas señales ya está extraído.
+
+El segundo es la existencia de perfiles gemelos entre familias de clase opuesta (Tabla \ref{tab:cpu-gemelos}). Tomando la mediana de las cuatro tasas principales de cada familia y clase, hay celdas cuyo vecino más parecido pertenece a la clase contraria. El caso más claro enfrenta a \textit{gap\_pr}, etiquetada \textit{memory-bound}, con la fase \textit{compute-bound} de \textit{phasic}: la primera tiene MPKI de 0.82, IPC de 1.11 y tasa de fallos de 0.76; la segunda, MPKI de 1.11, IPC de 0.96 y tasa de fallos de 0.735. Ningún modelo que reciba solo esas señales puede separarlas, y ambas están entre las familias con peor resultado.
+
+\begin{table}[H]
+\centering
+\caption{Celdas de familia y clase cuyo perfil de contadores más cercano pertenece a otra familia de la clase opuesta. La distancia es euclídea sobre las medianas estandarizadas de IPC, MPKI, tasa de fallos y fracción de ciclos detenidos.}
+\label{tab:cpu-gemelos}
+\small
+\begin{tabular}{@{}llrr@{}}
+\toprule
+\textbf{Celda} & \textbf{Vecino de clase opuesta} & \textbf{Distancia} & \textbf{Dist. misma clase} \\
+\midrule
+\texttt{gap\_pr} (memoria) & \texttt{phasic} (cómputo) & 0.371 & 0.779 \\
+\texttt{rajaperf\_lcals} (memoria) & \texttt{rajaperf\_stream} (cómputo) & 0.380 & 0.417 \\
+\texttt{cpu\_hpcg} (cómputo) & \texttt{npb\_cg} (memoria) & 0.422 & 1.307 \\
+\texttt{rajaperf\_polybench} (memoria) & \texttt{rajaperf\_basic} (cómputo) & 0.461 & 0.817 \\
+\texttt{dual\_spmv} (memoria) & \texttt{cpu\_hpcg} (cómputo) & 0.466 & 0.484 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Que el problema esté en la transferencia entre familias, y no en la señal misma, se comprueba con \textit{phasic}: al validar dentro de esa familia, separando por nivel de frecuencia, sus dos fases se distinguen con 0.999 de exactitud balanceada, porque allí las medianas de MPKI son 1.1 y 324. Esa misma regla no sirve para otras familias. El caso opuesto es \textit{npb\_ft}, donde los intervalos de una clase y otra tienen MPKI de 2.44 y 2.46: no hay señal que separarlos, ni dentro ni fuera de la familia.
+
+El tercero es la posición respecto del \textit{ridge} (Figura \ref{fig:cpu-margen-ridge}). Los intervalos situados a menos de un factor dos del punto de inflexión son el 14.0\% del total y se clasifican con 0.522 de exactitud, frente a 0.771 en el resto; concentran el 25.4\% de los errores. La ambigüedad física cerca de la frontera explica, entonces, una parte del error, pero tres cuartas partes de los fallos ocurren lejos del \textit{ridge}, donde la etiqueta no es ambigua.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.94\textwidth]{figuras/fig_cpu_margen_ridge_20260919.png}
+    \caption[Exactitud según la distancia al \textit{ridge}]{Exactitud del modelo final por franja de $\log_2(\mathrm{OI}/\mathrm{ridge})$. El porcentaje sobre cada barra indica qué fracción de los intervalos cae en esa franja. Las franjas negativas corresponden a intervalos \textit{memory-bound} y las positivas a \textit{compute-bound}. Nota. Elaboración propia.}
+    \label{fig:cpu-margen-ridge}
+\end{figure}
+
+El cuarto es la curva de aprendizaje por número de familias (Figura \ref{fig:cpu-curva-aprendizaje}). Al ajustar con subconjuntos de 3 a 23 familias, el resultado sobre la familia retirada sube de 0.616 a 0.713, con una pendiente de 0.049 por unidad de logaritmo natural del número de familias. Esto implica aproximadamente 0.034 de ganancia cada vez que se duplica el catálogo, de modo que las tres familias nuevas de la sección \ref{sec:resultados-kernels-irregulares} aportarían del orden de 0.006. La diversidad algorítmica es la variable que gobierna este resultado, y la magnitud de la mejora disponible por esa vía, dentro del alcance de este trabajo, es pequeña.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.72\textwidth]{figuras/fig_cpu_curva_aprendizaje_20260919.png}
+    \caption[Curva de aprendizaje por número de familias]{Exactitud balanceada sobre la familia retirada en función del número de familias empleadas en el ajuste. Cada punto promedia las 24 familias retiradas y tres repeticiones de la selección; las barras indican el intervalo de confianza del 95\% entre familias. Nota. Elaboración propia.}
+    \label{fig:cpu-curva-aprendizaje}
+\end{figure}
+
+Como referencia de límite superior, se evaluó el mismo modelo con la intensidad operacional medida como entrada adicional. Alcanza una exactitud balanceada por celda de 0.9955 (recuperación de 0.998 en compute y 0.997 en memory), frente a 0.709 sin ella. La diferencia no representa una mejora del modelo: la intensidad operacional es, por construcción, la cantidad con la que se define la etiqueta, de modo que incluirla equivale a leerla. Por eso queda excluida del vector de entrada y se reporta solo para mostrar que la brecha entre 0.709 y 1 es información que los contadores de rendimiento no transportan.
+
+\subsubsection{Síntesis del clasificador CPU}
+\label{sec:resultados-cpu-sintesis}
+
+El modelo disponible es un XGBoost de 100 árboles y profundidad 6 que recibe 12 tasas derivadas de los contadores de rendimiento y la frecuencia observada, se ajusta dando el mismo peso total a cada combinación de familia y clase, y responde \textit{compute-bound}, \textit{memory-bound} o \textit{revisar} según su confianza supere o no 0.85. Ante un algoritmo que nunca vio clasifica correctamente el 70.9\% de los casos en la métrica balanceada, cifra que sube a 72.3\% si se le permite abstenerse en el 27.4\% de los intervalos. La referencia sin capacidad de discriminar queda en 0.523 y la inferencia cuesta 382~\textmu s en el peor percentil medido.
+
+Tres decisiones de diseño resultaron indiferentes y conviene dejarlo escrito, porque evita atribuir al modelo un mérito que no tiene: el algoritmo de aprendizaje, el tamaño del vector de entrada y los hiperparámetros. Elegir Random Forest en lugar de XGBoost, usar seis variables en lugar de doce o ajustar los hiperparámetros con Optuna mueve el resultado menos de lo que lo mueve cambiar de conjunto de familias. Se conservó XGBoost con doce variables porque es la configuración ya serializada y auditada, y porque su costo de inferencia es dos órdenes de magnitud menor que el de los bosques; la variante de seis variables es igualmente defendible y quedaría preferida si el agente necesitara reducir el cálculo por intervalo.
+
+Lo que sí gobierna el resultado es la diversidad del catálogo frente a la información que contienen los contadores. La etiqueta se define por FLOPs sobre bytes de DRAM, mientras que el modelo observa fallos de caché, ciclos detenidos e instrucciones retiradas, que no guardan una relación fija con aquella razón cuando cambia el algoritmo. De ahí que existan familias con perfiles casi idénticos y clases opuestas, que un clasificador sin ajuste llegue casi tan lejos como el modelo final y que la mejora disponible al añadir familias sea de unas tres centésimas por duplicación del catálogo.
+
+Quedan cuatro líneas de trabajo, en orden de rendimiento esperado. La primera es la calibración en línea: si el agente puede medir la etiqueta física de unos pocos intervalos de la carga en ejecución, e incorporarlos al ajuste, la exactitud balanceada sobre bloques con cambios de fase reales pasa de 0.623 a 0.851 etiquetando el 2.6\% de los intervalos. Es, con diferencia, la palanca más grande medida hasta ahora, y convierte la salida \textit{revisar} en una acción concreta en lugar de una espera. La segunda es ampliar el catálogo con familias elegidas por su distancia a los perfiles ya cubiertos, en lugar de por volumen, y reservar algunas sin usarlas en ninguna decisión, para disponer de una prueba externa sellada; las tres familias medidas hasta ahora resultaron casi puramente \textit{memory-bound} y no atacan la clase débil. La tercera es medir la latencia dentro del agente y no en el intérprete, que es el criterio que falta para cerrar formalmente la elección entre la variante de seis y la de doce variables. La cuarta es la política de frecuencia de menor EDP, que no depende del clasificador sino del trabajo de la Fase 4.
+
+Los datos, las figuras y las tablas de esta sección se reproducen con \path{fase2_clasificador/analysis/cpu_quality_report.py} y \path{docs/libro/scripts/generar_figuras_modelo_cpu.py}, sobre los artefactos depositados en \path{docs/libro/datos/cpu_calidad_20260918}.
+
+\subsection{Política de frecuencia por clase en CPU}
+\label{sec:resultados-cpu-politica}
+
+La tabla clase--frecuencia de menor producto energía--retardo se derivó de la campaña final con la energía y el tiempo de cada corrida completa. Toda corrida de un mismo kernel ejecuta el mismo trabajo en los diez niveles, de modo que el producto energía--retardo (energía de paquete más DRAM, multiplicada por el tiempo) es comparable entre niveles. Para cada clase se tomó la mediana de las tres repeticiones de cada kernel y se comparó cada nivel fijo con la referencia nativa mediante una prueba de Wilcoxon pareada por kernel. Un nivel solo se adopta si mejora el producto agregado de forma significativa. La clase de cada kernel es la mayoritaria entre sus intervalos etiquetados; se excluyen las sondas de calibración y las cargas de duración fija.
+
+El resultado es \textit{no actuar} en ambas clases (16 kernels compute y 27 memory). En compute, el nivel más alto queda 0.3\% por debajo de la referencia y el más bajo multiplica el producto por 8. En memory, ningún nivel bajo mejora el producto agregado: de F2 a F8 la diferencia es significativa, pero en sentido desfavorable. Solo cinco kernels del tipo STREAM, con exponente de tiempo $\alpha$ entre 0.18 y 0.22, ganan entre 4 y 12\% en los niveles F1 a F3. Aquí $\alpha$ es la pendiente negativa de $\log T$ frente a $\log f$.
+
+La causa es el piso de potencia. Ajustando $P(f)=P_0+c\,f^{k}$ a cada kernel (error mediano de 0.34~W), $P_0$ resulta de 85~W en mediana, casi idéntico entre kernels, y representa el 84\% de la potencia a 3.2~GHz; con $k\approx 2$, reducir el reloj a 0.8~GHz ahorra solo 15\% de la potencia. Con ese modelo, bajar la frecuencia mejora el producto únicamente si $\alpha$ es menor que un valor crítico, cuya mediana es 0.14 y que en ningún kernel supera 0.33. Los kernels compute densos tienen el mayor margen de potencia, pero un $\alpha$ cercano a 1. Incluso con un clasificador perfecto que eligiera el mejor nivel de cada kernel, la ganancia media sería de 2.9\% y la máxima de 12.5\%. Este desenlace es un resultado válido de la evaluación: la decisión de actuar recae en identificar la región de $\alpha$ bajo, y la clase Roofline por sí sola no la determina.
+
+\section{Resultados de GPU}
+\label{sec:resultados-gpu}
+
+\subsection{Validación de control y etiquetado}
+\label{sec:resultados-gpu-dvfs}
+\label{sec:resultados-precision-gpu}
+
+El actuador de GPU sostuvo el bloqueo del reloj de \textit{streaming multiprocessors} bajo carga. Las pruebas con objetivos de 600 y 1200~MHz registraron, respectivamente, 305 y 174 lecturas activas coincidentes con el valor solicitado. La restauración de frecuencia se verificó al finalizar las campañas dedicadas.
+
+La etiqueta Roofline se construyó con la precisión observada mediante Nsight Compute. Este control excluyó kernels con precisión mixta cuya intensidad operacional no admite comparación con un único techo y evitó atribuir a los contadores convencionales el trabajo ejecutado por Tensor Cores. En el nivel de referencia, los puntos de inflexión medidos fueron 14.965852~FLOP/byte para FP32 y 6.898377~FLOP/byte para FP64.
+
+\subsection{Diagnóstico del primer conjunto GPU}
+\label{sec:resultados-gpu-dataset-final}
+\label{sec:resultados-gpu-separabilidad}
+
+La primera campaña GPU reunió 540 corridas planificadas para 18 kernels. Después de calibrar el warmup, 334 corridas de 16 kernels y 11 familias quedaron disponibles para el diagnóstico inicial. El conjunto estaba desbalanceado, con 73 corridas \textit{compute\_bound} y 261 \textit{memory\_bound}, y la mayoría de las familias era homogénea respecto de su etiqueta.
+
+El árbol de profundidad 1 obtuvo un F1 macro de 0.617 bajo validación \textit{leave-one-familia-out}, frente a 0.553 del clasificador mayoritario. Este valor no se adopta como resultado final. La evaluación mostró que, al retirar familias completas, muchos pliegues quedaban sin ejemplos de una clase. Además, la utilización de SM no separó de forma universal los dos regímenes. \textit{rodinia\_gaussian}, por ejemplo, fue \textit{memory\_bound} según Roofline, pero alcanzó utilizaciones de SM suficientemente altas para que el modelo lo confundiera con una carga \textit{compute\_bound}.
+
+La evidencia no indicó que bastara ajustar el modelo sobre el mismo conjunto. Mostró que faltaban familias \textit{compute\_bound} variadas y alejadas del punto de inflexión. Por esta razón se cambió la estrategia desde la búsqueda de hiperparámetros hacia la ampliación experimental del catálogo y la revisión del protocolo de validación.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.5\textwidth]
+        {figuras/fig_gpu_balance_clases_final_20260915.png}
+    \caption[Balance de clases del conjunto GPU inicial]{Distribución de las 334 corridas elegibles del conjunto GPU empleado en el diagnóstico exploratorio. Fuente: elaboración propia.}
+    \label{fig:gpu-balance-clases-final}
+\end{figure}
+
+\subsection{Reanálisis de campañas históricas con NVML}
+\label{sec:resultados-gpu-oi-ventana}
+\label{sec:resultados-gpu-gemm-evolucion}
+
+El bloqueo de la nueva campaña multi-frecuencia impidió incorporar observaciones nuevas. Se reanalizaron entonces campañas ya aceptadas, cuya etiqueta Roofline fue construida fuera de línea y cuya inferencia potencial dependía exclusivamente de NVML. El conjunto A, formado por las campañas modernas, contiene 394 corridas de 13 familias luego de excluir \textit{minibude\_cuda\_bm1}. Esta familia aportó solo tres corridas nativas con bloqueo de reloj válido y no constituye evidencia suficiente para generalización. La composición es de 133 corridas \textit{compute\_bound} y 261 \textit{memory\_bound}. El conjunto B es una campaña histórica independiente de agosto, con las ocho familias DGEMM, Rodinia Backprop, DWT2D, Gaussian, Heartwall, LavaMD, LUD y Myocyte. Se mantuvo sellado hasta la evaluación final.
+
+En estas campañas históricas, \texttt{ncu} aportó una intensidad operacional fuera de línea por kernel. El posproceso comparó esa intensidad con el \textit{ridge} y difundió la misma etiqueta a las lecturas NVML de la corrida. No se registraron eventos CUPTI de lanzamiento ni contadores Roofline por lanzamiento que permitieran identificar qué kernel originó cada muestra NVML. Por esta razón, cada corrida se transformó en una sola observación mediante agregados robustos. Esta decisión conserva la correspondencia real entre el intervalo etiquetado y sus entradas, y evita convertir lecturas repetidas del dispositivo en ejemplos aparentemente independientes. Se compararon medianas, medias ponderadas por tiempo, IQR, percentiles altos, medias recortadas y razones derivadas entre potencia, utilización, reloj y actividad de memoria. También se extrajeron variables temporales, tales como ráfagas, cambios y correlaciones entre utilización, memoria y potencia. Las decisiones de representación y modelo se hicieron dentro de los datos de entrenamiento, con familias completas fuera de la partición de evaluación. Se aplicaron pesos de clase y pesos inversos al número de corridas por familia, sin duplicar ni sintetizar observaciones.
+
+La representación que permaneció estable fue la mediana y el IQR de utilización GPU, utilización de memoria, potencia y reloj SM. Una regresión logística regularizada con esta representación, pesos de clase y ponderación por familia alcanzó F1 macro agrupado de 0.713 en las predicciones fuera de muestra del conjunto moderno. Su exactitud agrupada fue 0.749. La exactitud media por familia fue 0.636, lo que muestra que el desempeño no es uniforme entre algoritmos. El umbral de decisión se mantuvo en 0.5. Los umbrales ajustados con el mismo conjunto produjeron cifras aparentes mayores, pero no se conservaron porque no superaron una selección anidada.
+
+Las variables temporales merecieron una prueba separada. Un árbol de profundidad uno con la representación temporal obtuvo F1 macro de 0.755 dentro de la campaña moderna. Al aplicarlo a una campaña anterior, sin modificar sus parámetros, el F1 macro descendió a 0.294. La diferencia de cadencia y de condiciones de adquisición entre campañas domina esas variables. Por este motivo, la dinámica temporal se conserva como ablación diagnóstica y no se utiliza en el candidato final.
+
+La evaluación externa se reservó para el conjunto B. DGEMM se excluyó por equivalencia algorítmica y Gaussian, Heartwall y LUD se excluyeron porque ya estaban representadas en A. Las cuatro familias inéditas, Rodinia Backprop, DWT2D, LavaMD y Myocyte, aportaron 140 corridas, 36 \textit{compute\_bound} y 104 \textit{memory\_bound}. Sin ajustar nuevamente el modelo ni el umbral, el candidato estático obtuvo F1 macro de 0.663 y exactitud de 0.743. La regla constante que predice siempre \textit{memory\_bound} alcanzó la misma exactitud por el desbalance del conjunto, pero solo F1 macro de 0.426. La matriz de confusión del modelo reportó 18 de 36 corridas \textit{compute\_bound} y 86 de 104 corridas \textit{memory\_bound} correctamente clasificadas. La mejora de F1 macro representa discriminación de ambas clases, no un aumento de la exactitud favorecido por la clase mayoritaria.
+
+Se evaluó además una decisión selectiva para uso operativo. La clase se entrega cuando la probabilidad mayor del modelo supera un umbral de confianza elegido exclusivamente mediante particiones internas por familia. En caso contrario, la salida es \textit{revisar}. Con una cobertura mínima interna de 60\%, esta política cubrió 93.9\% de las corridas de A y alcanzó F1 macro agrupado de 0.734 sobre las predicciones cubiertas. El 6.1\% restante no se contabiliza como acierto ni como error de clasificación. La mejora surge porque la política no fuerza una clase en la región donde las señales NVML agregadas son ambiguas. Esta cifra describe una opción de abstención dentro de A y no modifica el resultado externo del conjunto B.
+
+\begin{table}[H]
+\centering
+\caption{Resultados del candidato GPU congelado y de sus referencias.}
+\label{tab:gpu-reanalisis-nvml}
+\small
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{5.3cm}cc@{}}
+\toprule
+\textbf{Evaluación} & \textbf{Exactitud} & \textbf{F1 macro} \\
+\midrule
+Predicciones agrupadas por familia del conjunto moderno & 0.749 & 0.713 \\
+Validación externa estricta en el conjunto B & 0.743 & 0.663 \\
+Regla constante \textit{memory\_bound} en B & 0.743 & 0.426 \\
+Representación temporal en el conjunto B & 0.314 & 0.294 \\
+Decisión selectiva en el conjunto moderno & 0.764 & 0.734 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+La Figura \ref{fig:gpu-separabilidad-nvml} permite interpretar estas métricas. La proyección PCA conserva la estructura global y t-SNE aproxima los vecindarios locales de las ocho variables estáticas del candidato. Ambas vistas contienen regiones dominadas por una clase, pero también regiones con etiquetas mezcladas. La separación por clase, calculada en el espacio original estandarizado, tuvo un coeficiente de silueta de 0.092. Este valor describe separación débil. Un clasificador de tres vecinos que nunca observa ejemplos de la familia evaluada alcanzó F1 macro de 0.616, coherente con una señal transferible parcial.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]
+        {figuras/fig_gpu_separabilidad_nvml_20260918.png}
+    \caption[Separabilidad de las clases GPU con señales NVML]{Proyecciones PCA y t-SNE de las medianas e IQR de utilización GPU, utilización de memoria, potencia y reloj SM. La proyección t-SNE es diagnóstica y no se utiliza para medir generalización. Nota. Elaboración propia.}
+    \label{fig:gpu-separabilidad-nvml}
+\end{figure}
+
+\subsection{Continuidad de la ruta CUPTI}
+\label{sec:resultados-gpu-hiperparam}
+
+La limitación observada no invalida el uso de NVML como proxy ligero. NVML mide efectos agregados de toda la GPU y no expone FLOPs, bytes movidos, ocupación o causas de espera por kernel. Sus lecturas tampoco contienen la identidad del kernel activo. Un sondeo más frecuente solo produce más lecturas del mismo estado agregado y no reconstruye los límites de los lanzamientos ya ausentes. Por ello, cargas con regímenes Roofline distintos pueden presentar telemetría similar. El resultado externo demuestra que existe señal útil para inferir parcialmente la clase, pero también delimita la capacidad de generalización que puede esperarse de estos agregados.
+
+CUPTI mantiene dos funciones futuras diferenciadas. Su perfilado de contadores puede construir una intensidad operacional y una etiqueta Roofline por kernel en una campaña controlada. Su API de actividades puede registrar los límites temporales de lanzamientos y transferencias, necesarios para asociar esa etiqueta con el segmento NVML de la misma fase \cite{CUPTI2026}. La granularidad fina requiere ambas fuentes en la misma campaña. Sin el perfilado, no se conoce la clase física de cada fase; sin la traza, no se sabe qué parte de la telemetría corresponde a esa fase. Asignar una etiqueta más fina después de capturar solo NVML inventaría esa correspondencia. Ninguna de estas funciones convierte automáticamente a CUPTI en una entrada del clasificador en producción. El perfilado de métricas puede requerir pasadas adicionales o repetición de kernels, mientras que el modelo desplegable debe conservar únicamente señales ligeras de NVML. La nueva campaña y la validación de intrusión de CUPTI quedan pendientes de resolver el bloqueo de frecuencia GPU.

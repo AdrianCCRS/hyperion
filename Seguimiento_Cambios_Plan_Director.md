@@ -37,6 +37,18 @@ de fase y alcance. Esta convención mantiene el formato propuesto
 | `F1-XDEV-005` | Orquestar el cribado hasta un informe de utilidad, con `ncu` obligatorio antes de GPU | Implementado; pendiente ejecución real en paccaA100 |
 | `F1-GPU-005` | Corregir 6 wrappers `gpu_rajaperf_*` que rechazaban corridas correctas por una etiqueta de tuning inexistente | Corregido y validado en pacca; catálogo actualizado |
 | `F2-XDEV-001` | Diagnosticar cobertura Roofline y calidad antes de seleccionar/balancear entrenamiento | Implementado (sin datos de campaña aún) |
+| `F2-CPU-001` | Evaluar representación PMU y abstención con validación LOFO anidada | Implementado y ejecutado; sus cifras (0.664, 68.9 %) fueron sustituidas por `F2-CPU-002` y `F2-CPU-003` (población y métrica finales) |
+| `F1-CPU-004` | `cpu_gap_bfs`/`ptrchase` fuera del dominio del clasificador (latency-bound) | Cerrado (`ptrchase` reaparece solo como sonda de alfa en `F2-CPU-004`, nunca en el dataset del clasificador) |
+| `F1-CPU-005` | Barrido de tamaño en NPB (`npb_ft`) | Cerrado, negativo |
+| `F1-CPU-006` | `--repfact` resuelve `lcals_tridiag_elim` e `init3` | Cerrado, re-incluidos |
+| `F1-CPU-007` | Segundo punto cerca del ridge en `dual_*` | Cerrado: éxito en `stencil`, negativo en `axpy`/`spmv`/`fft` |
+| `F1-CPU-008` | `lbm_cpu` (LBM D2Q9) | Cerrado, negativo |
+| `F1-CPU-009` | `hpccg_cpu` (CG 3D) | Cerrado, éxito (`N46`, 66.3 % cerca del ridge) |
+| `F1-CPU-010` | Segundo intento en `dual_fft` | Cerrado, éxito (`N472`, 97.1 %) |
+| `F1-CPU-011` | Revisión del set final de 43 kernels | Cerrado, sin cambios |
+| `F2-CPU-002` | Informe de calidad y batería de pruebas del clasificador CPU | Implementado y ejecutado |
+| `F2-CPU-003` | Sección de resultados CPU y modelo final (XGBoost, 12 variables, umbral 0.85) | Implementado |
+| `F2-CPU-004` | Tabla de política CPU (EDP por corrida), modelo de potencia P(f), candidatas compute nuevas | Tabla y modelo ejecutados (resultado: no actuar); barrido de candidatas en curso |
 | `H` (gate) | Auditoría única de readiness pre-entrenamiento (PASS/FAIL/BLOCKED por gate) | Implementada y validada; a la espera de un dataset real para dictaminar |
 
 ---
@@ -4178,6 +4190,170 @@ entre las 11 familias) se registra en una entrada de seguimiento aparte una
 vez complete. No se ha ejecutado ninguna búsqueda para CPU todavía -- la
 campaña final CPU sigue sin confirmarse terminada.
 
+## F2-CPU-001 — Selección anidada corta y abstención para el clasificador CPU
+
+**Fecha de registro:** 2026-09-18
+**Estado:** ejecutado y documentado. Job `7459` en `pacca01`, 14 min 12 s,
+sin ejecutar una búsqueda Optuna adicional.
+
+### Motivación
+
+La campaña CPU final aporta 1\,169\,833 intervalos elegibles, pero solo 24
+familias algorítmicas independientes. La evaluación preliminar con XGBoost,
+interacciones PMU y ponderación por familia alcanzó F1 macro medio LOFO de
+0.653. La diferencia grande frente a un split aleatorio mostró que el límite
+principal es la transferencia entre algoritmos, no la cantidad de intervalos.
+
+Se descartó eliminar retrospectivamente la familia `gap_pr`. Su exclusión
+elevó la F1 macro de la evaluación preliminar de 0.653 a 0.658, una variación
+insuficiente y metodológicamente inválida como solución. Se confirmó además
+que `freq_khz_observed` es una covariable de producción válida porque el
+techo de cómputo y el ridge dependen de la frecuencia física observada. En
+cambio, `delta_enabled_ns`, `delta_running_ns` y `running_ratio` quedaron
+reservados para aceptación de calidad de los contadores y se excluyeron del
+vector de entrada.
+
+### Diseño
+
+El experimento compara dos candidatos XGBoost con ponderación inversa por
+familia y clase. El candidato base usa IPC, MPKI, tasa de fallos de caché,
+proporción de ciclos detenidos por memoria, instrucciones por segundo y
+frecuencia observada. El segundo añade razones PMU calculables en línea entre
+referencias de caché, fallos, instrucciones, ciclos y ciclos detenidos.
+
+Cada familia externa se reserva por completo. Dentro de sus familias de
+entrenamiento se ejecuta otra validación LOFO para escoger la representación
+y el umbral de confianza. Los umbrales candidatos son 0.50 a 0.90 en pasos
+de 0.05 y la selección exige cobertura interna media de al menos 60\%. La
+salida operativa es `compute_bound` o `memory_bound` cuando
+`max(p, 1-p)` alcanza el umbral y `revisar` en caso contrario. La etiqueta
+Roofline y sus insumos, FLOPs, bytes `uncore`, intensidad y ridge, nunca
+ingresan al modelo.
+
+El cálculo utiliza un límite reproducible de 1000 intervalos por celda
+familia--clase, que produjo 36\,310 filas. Este límite reduce el costo de la
+validación anidada y evita que las familias largas dominen la selección. No
+convierte las filas de una misma familia en unidades independientes.
+
+### Resultado inicial descartado por doble balance
+
+Los valores de esta subsección corresponden al job `7459` y se conservan
+solo como registro histórico. No deben citarse como resultado del modelo,
+porque combinaban pesos por familia--clase con `scale_pos_weight`. El resultado
+corregido y vigente se encuentra en la subsección de actualización del balance.
+
+| Medida | Resultado |
+|---|---:|
+| Familias externas | 24 |
+| Representación con interacciones elegida | 17 de 24 pliegues |
+| Umbral 0.90 elegido | 21 de 24 pliegues |
+| Cobertura automática | 63.1\% |
+| Salida `revisar` | 36.9\% |
+| F1 macro agrupada dentro de la cobertura | 0.871 |
+| Exactitud agrupada dentro de la cobertura | 0.874 |
+| F1 macro media por familia dentro de la cobertura | 0.664 |
+| Desviación estándar entre familias | 0.231 |
+| Peor familia, `gap_pr` | 0.308 |
+
+La F1 agrupada de 0.871 no es una F1 de cobertura total ni sustituye la F1
+media por familia. Los casos cubiertos están concentrados en familias donde
+la confianza es alta, mientras que varias familias difíciles conservan baja
+cobertura o baja F1. La abstención mejora la calidad de las decisiones que el
+sistema emite, pero no resuelve la falta de identificabilidad universal de la
+etiqueta Roofline a partir de las señales PMU disponibles.
+
+### Decisión operativa
+
+Se conserva XGBoost con interacciones PMU y ponderación por familia como
+candidato de producción. La abstención se incorpora como una tercera salida
+operativa. Una salida `revisar` debe conducir a una microcaracterización
+ligera o mantener una frecuencia conservadora, nunca a forzar una clase. El
+siguiente aumento de capacidad debe priorizar nuevas familias independientes
+con acceso irregular o comportamiento intermedio, y evaluar eventos PMU
+adicionales solo después de verificar que caben sin degradar la calidad de los
+contadores.
+
+### Artefactos
+
+- `fase2_clasificador/analysis/evaluate_cpu_selective_nested.py`
+- `scripts/pacca/hyp_cpu_selective_nested.sbatch`
+- `/home/latorresn/hyperion-results/final/training/cpu_selective_nested_20260918/cpu_selective_nested_lofo.json`
+- `docs/libro/secciones/03_resultados.tex`
+- `docs/libro/secciones/04_discusion.tex`
+
+### Actualización de balance y auditoría de abstención
+
+**Fecha de registro:** 2026-09-18
+
+La primera evaluación selectiva combinaba pesos explícitos por familia--clase
+con `scale_pos_weight` de XGBoost. Esa combinación corregía dos veces el
+desbalance de clase. Se corrigió fijando `scale_pos_weight=1.0` cuando los
+pesos familia--clase están presentes y se repitió la evaluación como job
+`7461`.
+
+El resultado corregido cubre 68.9\% de los intervalos y devuelve `revisar`
+en 31.1\%. La F1 macro agrupada dentro de la cobertura es 0.860, mientras la
+F1 macro media por familia es 0.664, con desviación estándar 0.242. El peor
+pliegue externo es `npb_mg`, con F1 0.240. La representación con
+interacciones PMU se seleccionó en 15 de las 24 familias externas.
+
+La auditoría LOFO del candidato congelado se ejecutó como job `7463`. Las
+familias con menor cobertura fueron `npb_lu` (31.4\%), `npb_bt` (34.5\%) y
+`rodinia_lavamd` (35.2\%). Los mayores errores entre decisiones automáticas
+ocurrieron en `rodinia_lavamd` (56.3\%), `npb_mg` (55.2\%), `npb_ft`
+(51.1\%) y `gap_pr` (49.8\%). Los rangos de frecuencia observada más bajos
+concentraron más abstenciones y errores. Esto confirma que una probabilidad
+alta no garantiza transferencia a una familia no vista.
+
+La regla operativa provisional es emitir `compute_bound` o `memory_bound`
+solo cuando la confianza sea al menos 0.85. En otro caso se emite `revisar`,
+se conserva la frecuencia actual o nativa y se esperan dos intervalos
+`uncore` válidos consecutivos. Si ambos permiten una caracterización física
+consistente se usa esa evidencia; de lo contrario se mantiene la política
+conservadora. Esta regla no asigna todavía una frecuencia de menor EDP.
+
+Artefactos adicionales:
+
+- `fase2_clasificador/analysis/audit_cpu_selective_errors.py`
+- `/home/latorresn/hyperion-results/final/training/cpu_error_audit_20260918/`
+- `/home/latorresn/hyperion-results/final/models/cpu_selective_candidate_20260918/`
+
+### Documentación exhaustiva y trazabilidad numérica
+
+**Fecha de registro:** 2026-09-18
+
+El libro se amplió para separar el procedimiento reproducible, los resultados
+observados y su interpretación. La metodología ahora documenta las fórmulas de
+las 12 entradas, la auditoría Pearson/Spearman/VIF, el muestreo con semilla
+20260918, el peso por celda familia--clase, la validación LOFO anidada y las
+fórmulas de cobertura, confianza y F1 macro. Los resultados incorporan tablas
+completas de muestreo y auditoría para las 24 familias, matriz de correlación,
+curva de selección del umbral, matriz de confusión, desempeño por familia y
+resultado por cuartil de frecuencia.
+
+Se dejó explícita la diferencia entre los dos porcentajes de cobertura. La
+evaluación anidada corregida del job `7461` cubre 25 020 de 36 310 intervalos,
+equivalentes a 68.9066 %, porque selecciona representación y umbral dentro de
+cada pliegue externo. La auditoría congelada del job `7463` cubre 25 111,
+equivalentes a 69.1573 %, porque aplica interacciones PMU y umbral 0.85 a todos
+los pliegues. La diferencia de 91 intervalos no procede de otro dataset.
+
+La documentación también registra los requisitos todavía abiertos del plan.
+Falta medir latencia p95/p99 en el nodo objetivo, cerrar la selección conjunta
+entre error y latencia, y realizar una prueba externa única con familias nuevas
+selladas. La política de frecuencia de menor EDP continúa bloqueada hasta
+obtener niveles CPU físicamente distintos bajo carga.
+
+Artefactos incorporados al repositorio:
+
+- `docs/libro/datos/cpu_modelo_20260918/`
+- `docs/libro/scripts/generar_figuras_resultados_cpu.py`
+- seis figuras de auditoría CPU con fecha `20260918` bajo `docs/libro/figuras/`
+- `docs/libro/secciones/02_metodologia.tex`
+- `docs/libro/secciones/03_resultados.tex`
+- `docs/libro/secciones/04_discusion.tex`
+- `docs/libro/secciones/05_conclusiones.tex`
+
 ## F2-XDEV-004 — Resultado real de la búsqueda de hiperparámetros GPU: ningún modelo optimizado supera al árbol de profundidad 1
 
 **Fecha de registro:** 2026-09-15
@@ -4260,3 +4436,30 @@ reales), sección §3.9.2.
 - Los 10 kernels de patrón irregular de §2.1.1 y el wireado de
   `T_transición_gpu` siguen pendientes (ver mensaje de seguimiento directo
   al usuario).
+
+## F2-CPU-002 - Informe de calidad del clasificador CPU y batería de pruebas (2026-09-18)
+
+- **Qué se hizo:** batería reproducible `fase2_clasificador/analysis/cpu_quality_report.py` sobre `feature_contract_source.csv` (1 169 833 intervalos, 24 familias): matriz de 14 configuraciones con IC95 por bootstrap de familias y 5 semillas, protocolos de validación, curva de aprendizaje, calibración, abstención, distancia al ridge, techo k-vecinos, perfiles gemelos, sensibilidad al tope de muestreo, variables temporales, regresor de OI, umbral y complejidad anidados, calibración en línea y latencia en pacca01.
+- **Resultado:** exactitud balanceada por celda 0.709 (IC95 0.633 a 0.780) para el candidato; todas las variantes razonables empatan (0.68 a 0.71); techo de información (k-vecinos 0.68 a 0.70); brecha aleatorio contra familia 0.894 contra 0.709; +0.034 estimado por duplicar el catálogo; abstención +0.03 con mala calibración (ECE 0.161).
+- **Corrección de métrica:** el F1 macro medio por familia (0.664) queda sustituido como cifra de calidad por la exactitud balanceada por celda con IC95 (definición y motivo en el informe).
+- **Documento y artefactos:** `docs/general/Informe_Calidad_Modelo_CPU_20260918.md`, datos en `docs/libro/datos/cpu_calidad_20260918/`, figuras `docs/libro/figuras/fig_cpu_calidad_*_20260918.png` (script `docs/libro/scripts/generar_figuras_calidad_cpu.py`).
+- **Libro:** el árbol de trabajo de `03_resultados.tex` había eliminado respecto de `HEAD` secciones de instrumento, GPU anterior y catálogo (sección 7 del informe). Restauradas las partes CPU vigentes (DVFS verificado, uncore, aislamiento, techos Roofline con Advisor, kernels irregulares con la campaña de 3 familias nuevas); lo GPU queda pendiente.
+- **Calibración en línea causal con cambios de fase:** con 2.6 % de intervalos etiquetados en la primera mitad, exactitud balanceada 0.85 en bloques mixtos (0.62 sin adaptar; repetir la última etiqueta 0.51).
+- **Familias nuevas:** verificado nodo paccaA100, turbo desactivado; solo `particlefilter` completa, `kmeans` y `srad` parciales; las tres casi 100 % memory.
+- **Pendiente:** reejecutar el cribado `7455` con `scale_pos_weight=1` confirmado; auditar ruido de etiquetas; verificar turbo y nodo de la campaña de 3 familias nuevas antes de incorporarlas.
+
+## F2-CPU-003 - Reescritura de la sección de resultados CPU y cierre del modelo final (2026-09-19)
+
+- **Búsqueda de hiperparámetros anidada (Optuna TPE) sobre la representación final:** no mejora. XGBoost 0.682 frente a 0.708 fijo (diferencia pareada -0.025, IC95 -0.072 a +0.015); logística 0.674 frente a 0.688. El criterio interno no discrimina (mejor puntaje interno 0.693 a 0.746 frente a resultado externo 0.343 a 1.000) y las configuraciones elegidas no convergen entre pliegues.
+- **Cifras finales unificadas** (una población, una configuración, 5 semillas): exactitud balanceada 0.709, F1 macro agrupada 0.709, exactitud 0.747; con umbral 0.85, cobertura 0.726 y exactitud balanceada 0.723. Sustituyen a las cifras de cobertura 68.9 % / 69.2 % y F1 por familia 0.664.
+- **Libro:** subsección del clasificador CPU reescrita completa (seis apartados más síntesis), sin números de job, sin *proxy* de L2 y sin relato de configuraciones descartadas; métrica principal definida en metodología; discusión y conclusiones actualizadas; guion largo eliminado de la prosa de ambas. 144 páginas, compila limpio.
+- **Artefactos:** `docs/libro/datos/cpu_calidad_20260918/` (43 archivos), `docs/libro/scripts/generar_figuras_modelo_cpu.py`, informe en `docs/general/Informe_Calidad_Modelo_CPU_20260918.md`.
+- **Métricas de evaluación (F2-CPU-003, ampliación):** apartado nuevo con definición de celda, nueve métricas definidas, ejemplo numérico, tabla de valores con desviación entre semillas e IC95, comparación de estabilidad (0.004 frente a 0.019 a 0.047) y declaración del límite de las celdas de soporte mínimo (4 celdas, 44 intervalos, 9.1 % del peso). Cifras de una sola semilla dadas antes quedan sustituidas por las de cinco.
+
+## F2-CPU-004 - Tabla de política CPU, modelo de potencia y familias compute nuevas (2026-09-19)
+
+- **Tabla clase -> frecuencia (plan §3.4/§3.5).** EDP por corrida completa (RAPL paquete + DRAM por tiempo), con trabajo fijo entre niveles; Wilcoxon pareado por kernel contra REF. Resultado: no actuar en compute (16 kernels) ni en memory (27). El EDP por ventana de 1 ms de `derive_policy_table.py` no es comparable entre niveles y no se usó. `phasic` se excluye (duración fija, alfa 0.005). Script `fase2_clasificador/analysis/cpu_policy_table.py`.
+- **Modelo de potencia.** P(f) = P0 + c f^k: P0 mediana 85 W, 84 % de la potencia a 3.2 GHz; bajar a 0.8 GHz ahorra 15 %. Alfa crítico mediano 0.14. Solo 5 kernels tipo STREAM (alfa 0.18-0.22) ganan 4-12 %. Script `cpu_power_model.py`.
+- **Techo con clasificador perfecto por kernel:** 2.9 % medio de EDP, 12.5 % máximo.
+- **Familias compute nuevas.** Nueve adaptadores RAJAPerf; tamizaje (REF/F0/F8): edge3d, fir, mass3dpa, mat_mat_shared, pi_reduce y trap_int salen compute (~100 %); convection3dpa, diffusion3dpa y ltimes salen memory. Barrido completo (10 niveles x 3 rep) de las seis más `ptrchase` en curso (`cpu_compute_sweep_20260919`).
+- Detalle en `docs/general/Informe_Calidad_Modelo_CPU_20260918.md` secciones 14 a 16.
