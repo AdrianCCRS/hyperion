@@ -389,10 +389,14 @@ Resultado: **no actuar en ambas clases.** Ningún nivel fijo mejora el EDP agreg
 - Compute: F0 0.3 %, F1 -2.9 %, F8 -443 % (EDP crece hasta 8x). Sin diferencia significativa.
 - Memory: F1 -5.4 %, F4 -44 %; de F2 a F8 la prueba es significativa pero en sentido contrario (empeora).
 - Nivel óptimo por kernel: F0 para 13 de 16 compute y 15 de 27 memory. Solo los kernels tipo STREAM (init3, first_sum, stream_add/triad, daxpy, tridiag_elim, jacobi_1d, hpcg) ganan 4 a 12 % en F1 a F4. Son casi puros memory, y el clasificador no distingue "memory de streaming" de "memory con reutilización de caché".
-- Los tres `phasic` son la excepción: F8 da 0.83 del EDP de REF. Esto es evidencia de que las cargas por fases sí pueden beneficiarse, y es lo que motiva la política `revisar` (Fase 3, no tocada).
+- **Corrección:** los tres `phasic` (F8 = 0.83 del EDP de REF) NO son evidencia a favor de DVFS. Su tiempo es casi constante entre niveles (alfa 0.005, 20.6 s en todos), porque son cargas de duración fija y no de trabajo fijo: el "ahorro" es solo menor potencia durante el mismo tiempo. Deben excluirse del análisis de EDP por corrida (y de la tabla de política).
 
 Lectura: con RAPL de paquete completo (incluye potencia estática y otros núcleos) y trabajo fijo, la potencia dinámica ahorrada al bajar la frecuencia no compensa el alargamiento del tiempo. Es coherente con el hallazgo previo de alfa (ARC-176): pocas cargas están en la zona donde DVFS ayuda. El plan acepta "no actuar" como resultado legítimo (§3.4/§3.5).
 
 ## 16. Candidatas compute-bound nuevas (preparadas, sin medir aún)
 
 Motivo: solo 3 familias casi puras compute. `ep` (NPB) descartada antes (cuenta números aleatorios, no FLOPs). `particlefilter`, `kmeans`, `srad` son ~100 % memory. Se prepararon 9 adaptadores RAJAPerf Base_OpenMP (MASS3DPA, DIFFUSION3DPA, CONVECTION3DPA, EDGE3D, TRAP_INT, PI_REDUCE, MAT_MAT_SHARED, LTIMES, FIR) en `scripts/pacca/rajaperf_compute_adapters/`, ya instalados en `~/hyperion-kernels/bin` de pacca (checksum idéntico al local), con `--repfact` ajustado por tiempo nativo (1 a 8 s). Todos corren y pasan su verificación. Entradas añadidas al catálogo (`cpu_rajaperf_*`, hint "intermedio"). Tamizaje: `scripts/pacca/final_campaign/cpu_compute_screen_20260919.yaml` (REF, F0, F8, 1 repetición). Pendiente: sincronizar el catálogo al clúster (git) y lanzarlo.
+
+### 15.1 Sensibilidad al reloj (alfa) por kernel
+
+Alfa = -pendiente de log(tiempo) contra log(frecuencia), sobre los 9 niveles fijos. Potencia media de paquete: de 105-138 W en F0 a 80-100 W en F8, es decir, 4x menos reloj ahorra solo 15-25 % de potencia (la potencia estática domina). Consecuencia: bajar reloj solo compensa con alfa <= ~0.22 (umbral de ARC-176 ya medido). Solo cinco kernels caen ahí: stream_mul 0.178, stream_triad 0.220, stream_add 0.220, first_sum 0.222, tridiag_elim 0.223; son los que ganan 4-12 % en F1-F3. Los demás memory tienen alfa 0.24-0.90; los compute 0.73-1.0. `ptrchase` (latencia pura de DRAM, alfa esperado cercano a 0) existe en el catálogo pero no está en la campaña final.
