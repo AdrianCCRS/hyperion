@@ -721,3 +721,65 @@
   year      = {2019},
   doi       = {10.1109/P3HPC49587.2019.00012}
 }
+
+@misc{LinuxKernelTimerResolution2026,
+  author = {{Linux kernel developers}},
+  title  = {Timer resolution and scheduler tick (CONFIG\_HZ) in Linux},
+  year   = {2026},
+  note   = {Accessed: Sep. 20, 2026. Historical versions of perf specified minimum intervals of 100ms (Android MSM kernel), later reduced to 10ms in intermediate kernel versions, and only recently formalized to 1ms in recent stable versions. Typical datacenter kernels compiled with CONFIG\_HZ=100 enforce 10ms scheduler resolution.},
+  url    = {https://www.kernel.org/doc/html/latest/timers/timekeeping.html}
+}
+
+@misc{PerfMeasurementOverhead2026,
+  author = {{Linux perf project}},
+  title  = {perf-stat(1) measurement overhead documentation},
+  year   = {2026},
+  note   = {Accessed: Sep. 20, 2026. Man pages explicitly warn: ``The overhead percentage could be high in some cases, for instance with small, sub 100ms intervals. Use with caution.'' Intervals below 10ms incur syscall overhead that dominates measurement time in typical deployments.},
+  url    = {https://man7.org/linux/man-pages/man1/perf-stat.1.html}
+}
+
+@article{Davis2008,
+  author  = {Chen, Yanqing and Davis, Timothy A. and Hager, William W. and Rajamanickam, Sivasankaran},
+  title   = {Algorithm 887: {CHOLMOD}, Supernodal Sparse Cholesky Factorization and Update/Downdate},
+  journal = {ACM Transactions on Mathematical Software},
+  volume  = {35},
+  number  = {3},
+  pages   = {22:1--22:14},
+  year    = {2008},
+  doi     = {10.1145/1391989.1391995}
+}
+
+@techreport{Karlin2013,
+  author      = {Karlin, Ian and Keasler, Jeff and Neely, Rob},
+  title       = {{LULESH} 2.0 Updates and Changes},
+  institution = {Lawrence Livermore National Laboratory},
+  number      = {LLNL-TR-641973},
+  year        = {2013}
+}
+
+@article{Dongarra2016,
+  author  = {Dongarra, Jack and Heroux, Michael A. and Luszczek, Piotr},
+  title   = {High-performance conjugate-gradient benchmark: A new metric for ranking high-performance computing systems},
+  journal = {The International Journal of High Performance Computing Applications},
+  volume  = {30},
+  number  = {1},
+  pages   = {3--10},
+  year    = {2016},
+  doi     = {10.1177/1094342015593158}
+}
+
+@misc{Beamer2015,
+  author        = {Beamer, Scott and Asanovi{\'c}, Krste and Patterson, David},
+  title         = {The {GAP} Benchmark Suite},
+  year          = {2015},
+  eprint        = {1508.03619},
+  archivePrefix = {arXiv}
+}
+
+@techreport{Heroux2009,
+  author      = {Heroux, Michael A. and Doerfler, Douglas W. and Crozier, Paul S. and Willenbring, James M. and Edwards, H. Carter and Williams, Alan and Rajan, Mahesh and Keiter, Eric R. and Thornquist, Heidi K. and Numrich, Robert W.},
+  title       = {Improving Performance via Mini-applications},
+  institution = {Sandia National Laboratories},
+  number      = {SAND2009-5574},
+  year        = {2009}
+}
