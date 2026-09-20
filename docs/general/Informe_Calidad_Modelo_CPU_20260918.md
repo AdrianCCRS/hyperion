@@ -28,7 +28,7 @@ Las cifras de esta sección **reemplazan como cifras de calidad** a las del crib
 | Cifra | Qué es | Problema |
 |---|---|---|
 | 0.600 | XGBoost con Optuna, representación anterior con `running_ratio`, sin pesos por familia | Experimento distinto; no comparable como "antes/después" |
-| 0.653 | Mejor celda de una rejilla de cribado (modelos × variantes × pesos), una muestra | Máximo de varias combinaciones; posible doble balanceo en el evaluador `7455` (no reejecutado) |
+| 0.653 | Mejor celda de una rejilla de cribado (modelos × variantes × pesos), una muestra | Máximo de varias combinaciones; posible doble balanceo en el evaluador `7455`. Cifra DESCARTADA (2026-09-19): no se cita en ningún documento; la reemplaza la matriz de la sección 4 (balanceo una sola vez, 5 semillas, IC95) |
 | 0.664 | Media de F1 macro por familia, selección anidada de variante y umbral | Métrica degenerada (abajo); rejilla de umbral truncada en 0.90 (21 de 24 pliegues la eligieron) |
 | 0.860 / 0.871 | F1 sobre decisiones aceptadas | Condicionada a cobertura 69 % / 63 %; no comparable con métricas de cobertura total |
 
@@ -202,7 +202,7 @@ Ordenadas por relación beneficio/costo. Ninguna requiere cientos de familias.
 1. **Fijar el reporte de calidad con esta línea base** (sección 1 y 4.1): exactitud balanceada 0.71 (IC95 0.63 a 0.78) con F1 agrupado y recall por clase; mostrar el empate entre variantes como resultado (el modelo no depende de la elección de algoritmo) y el techo de información (k-vecinos 0.68 a 0.70).
 2. **Declarar el alcance de generalización con datos, no con adjetivos:** curva de aprendizaje (+0.034 por duplicar el catálogo) y brecha aleatorio contra familia (0.89 contra 0.71). Es una conclusión defendible: el clasificador transfiere a algoritmos nuevos con exactitud balanceada de 0.71 y está limitado por la ambigüedad PMU-etiqueta entre familias, no por el modelo ni por el volumen de intervalos.
 3. **Política de decisión con abstención y microcaracterización, evaluada como sistema:** la ganancia de la abstención sola es pequeña (+0.03), pero combinada con microcaracterización uncore de pocos intervalos la cota llega a F1 agregado 0.89 con 5 intervalos por bloque (sección 4.13). La sección 4.13 lo probó de forma causal sobre bloques con cambios de fase reales: 0.85 de exactitud balanceada con 2.6 % de intervalos etiquetados. Falta definir el criterio de disparo real (cuándo pedir la caracterización) y probarlo sobre una carga distinta de la usada para calibrar; requiere el mismo dispositivo y no medir kernels nuevos.
-4. **Decisión de variante por parsimonia y costo, no por el máximo:** como interacciones y frecuencia no aportan diferencia medible, la variante con menos dependencias (XGBoost base de 6 variables, o la logística por su latencia estable) es tan defendible como el candidato con 12 variables. La decisión final debe apoyarse en la latencia medida en el daemon y no en una décima de F1.
+4. **Decisión de variante por parsimonia y costo, no por el máximo:** como interacciones y frecuencia no aportan diferencia medible, la variante con menos dependencias (XGBoost base de 6 variables, o la logística por su latencia estable) es tan defendible como el candidato con 12 variables. Medido después (sección 15.4): 0.703 frente a 0.710, IC95 de la diferencia [-0.014, +0.029], latencia idéntica; se conservan las 12 variables.
 5. **Ampliar datos solo con criterio:** cada familia nueva debe elegirse por su distancia a los gemelos actuales (sección 4.6), no por volumen. Las tres familias Rodinia de la campaña `pacca_cpu_new_families_20260918_r2` esperan un aumento del orden de +0.006 en conjunto (extrapolación de la curva de aprendizaje) y son casi puramente memory (sección 9), así que no atacan la clase débil (compute).
 6. **No perseguir:** más búsqueda de hiperparámetros, más interacciones PMU, suavizado, regresión de OI, ajuste de umbral. Todo probado con resultado nulo.
 
@@ -211,7 +211,7 @@ Ordenadas por relación beneficio/costo. Ninguna requiere cientos de familias.
 - Reemplazar 0.664 (F1 medio por familia) como resultado principal por la exactitud balanceada por celda con IC95, F1 agrupado y recall por clase (sección 2). Mantener 0.860/0.871 solo como métrica condicionada a cobertura.
 - Retirar o matizar las afirmaciones que esta batería no sostiene: "no es ambigüedad cerca del ridge (5.1 %)" (medido: 14 % de los intervalos a menos de un factor 2, 25 % de los errores); "el split aleatorio confirma memorización" (ahora medido: +0.18); "Extra Trees 27 ms de latencia" (5.2 ms en la configuración fija).
 - Añadir figuras y tablas de esta batería (seis figuras ya generadas con `docs/libro/scripts/generar_figuras_calidad_cpu.py`: matriz de modelos, protocolos, por familia, curva de aprendizaje, calibración y riesgo-cobertura, margen al ridge).
-- Antes de citar el 0.653 en cualquier parte, reejecutar `7455` con `scale_pos_weight=1` confirmado o descartar la cifra.
+- El 0.653 queda descartado (decisión 2026-09-19); no se reejecuta `7455`.
 - Estilo: `04_discusion.tex` contiene 7 usos de `---` y `05_conclusiones.tex` 1; el resto del libro pide no usar el guion largo en prosa.
 
 ## 7. Auditoría de contenido perdido en el libro (git HEAD `bb2cbf7` contra el árbol de trabajo)
@@ -370,12 +370,12 @@ Etapa `metrics_suite` de `cpu_quality_report.py`, modelo final, cinco semillas, 
 
 **Fase 2 (objetivo 2), CPU.**
 - Cumplido: comparación de mayoritaria, árbol, regresión logística, Random Forest, Extra Trees y XGBoost; LOFO por familia; búsqueda de hiperparámetros anidada (TPE); exactitud, F1 por clase y matriz de confusión; latencia p95 y p99 en el nodo de destino; modelo serializado (`.joblib` y metadatos, en el clúster); XGBoost añadido; chequeo de fuga que aborta si entra una columna de la etiqueta.
-- Variante con intensidad operacional como entrada (plan §3.3 punto 2, límite superior de desempeño): medida ahora, exactitud balanceada por celda **0.9955** frente a 0.709 sin ella. Confirma que incluirla equivale a leer la etiqueta; falta añadirla al libro como diagnóstico.
-- Sin cerrar: tabla clase a frecuencia (plan §3.4 y §3.5) para CPU. El derivador existe (`fase3_daemon/policy/derive_policy_table.py`) y `common/stats.py` tiene la prueba pareada, pero no hay ninguna tabla generada en los resultados; los datos necesarios (energía y tiempo por corrida, 10 niveles) ya están en la campaña. Función de selección que combine error y latencia (§3.3 punto 5): no formalizada. Prueba externa con familias selladas: no existe para CPU.
+- Variante con intensidad operacional como entrada (plan §3.3 punto 2, límite superior de desempeño): medida ahora, exactitud balanceada por celda **0.9955** frente a 0.709 sin ella. Confirma que incluirla equivale a leer la etiqueta; ya incluida en el libro como diagnóstico de límite superior.
+- [Actualización 2026-09-19: tabla de política, `power_w` y selección 6 vs 12 quedaron cerrados en las secciones 15.1 a 15.4; queda abierta la prueba externa con familias nuevas.] Estado al redactar esta sección: tabla clase a frecuencia (plan §3.4 y §3.5) para CPU sin generar. El derivador existe (`fase3_daemon/policy/derive_policy_table.py`) y `common/stats.py` tiene la prueba pareada, pero no hay ninguna tabla generada en los resultados; los datos necesarios (energía y tiempo por corrida, 10 niveles) ya están en la campaña. Función de selección que combine error y latencia (§3.3 punto 5): no formalizada. Prueba externa con familias selladas: no existe para CPU.
 
 **Incoherencias documentales detectadas.**
-- `05_conclusiones.tex` afirma que el control del turbo sigue bloqueado y pide repetir la campaña; la campaña final exige turbo desactivado y registra `no_turbo = 1` antes de cada corrida, con niveles físicos distintos de 3.2 a 0.8 GHz.
-- La tabla resumen del seguimiento no incluye las entradas F1-CPU-004 a F1-CPU-011 ni F2-CPU-002 y 003, y `F2-CPU-001` conserva cifras (0.664, 68.9 %) sustituidas por las de la sección 12.
+- (Corregido el 2026-09-19) `05_conclusiones.tex` afirmaba que el control del turbo seguía bloqueado y pide repetir la campaña; la campaña final exige turbo desactivado y registra `no_turbo = 1` antes de cada corrida, con niveles físicos distintos de 3.2 a 0.8 GHz.
+- (Corregido el 2026-09-19) La tabla resumen del seguimiento no incluía las entradas F1-CPU-004 a F1-CPU-011 ni F2-CPU-002 y 003, y `F2-CPU-001` conserva cifras (0.664, 68.9 %) sustituidas por las de la sección 12.
 - La lista de verificación del plan (§8) está sin marcar.
 - El trabajo `7390` (búsqueda global de hiperparámetros en `pacca05`, más de dos días) usa la representación anterior y la métrica descartada; su resultado no decide nada.
 

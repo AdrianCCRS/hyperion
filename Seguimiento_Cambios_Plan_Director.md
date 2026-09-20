@@ -4201,7 +4201,7 @@ sin ejecutar una búsqueda Optuna adicional.
 La campaña CPU final aporta 1\,169\,833 intervalos elegibles, pero solo 24
 familias algorítmicas independientes. La evaluación preliminar con XGBoost,
 interacciones PMU y ponderación por familia alcanzó F1 macro medio LOFO de
-0.653. La diferencia grande frente a un split aleatorio mostró que el límite
+0.653 (cifra descartada el 2026-09-19 por posible doble balanceo; ver `F2-CPU-002`). La diferencia grande frente a un split aleatorio mostró que el límite
 principal es la transferencia entre algoritmos, no la cantidad de intervalos.
 
 Se descartó eliminar retrospectivamente la familia `gap_pr`. Su exclusión
@@ -4446,7 +4446,7 @@ reales), sección §3.9.2.
 - **Libro:** el árbol de trabajo de `03_resultados.tex` había eliminado respecto de `HEAD` secciones de instrumento, GPU anterior y catálogo (sección 7 del informe). Restauradas las partes CPU vigentes (DVFS verificado, uncore, aislamiento, techos Roofline con Advisor, kernels irregulares con la campaña de 3 familias nuevas); lo GPU queda pendiente.
 - **Calibración en línea causal con cambios de fase:** con 2.6 % de intervalos etiquetados en la primera mitad, exactitud balanceada 0.85 en bloques mixtos (0.62 sin adaptar; repetir la última etiqueta 0.51).
 - **Familias nuevas:** verificado nodo paccaA100, turbo desactivado; solo `particlefilter` completa, `kmeans` y `srad` parciales; las tres casi 100 % memory.
-- **Pendiente:** reejecutar el cribado `7455` con `scale_pos_weight=1` confirmado; auditar ruido de etiquetas; verificar turbo y nodo de la campaña de 3 familias nuevas antes de incorporarlas.
+- **Decisión (2026-09-19):** la cifra 0.653 del cribado `7455` se descarta y no se reejecuta; la reemplaza la batería con balanceo único. Turbo y nodo de las 3 familias nuevas ya verificados (arriba). **Pendiente:** auditar ruido de etiquetas.
 
 ## F2-CPU-003 - Reescritura de la sección de resultados CPU y cierre del modelo final (2026-09-19)
 
