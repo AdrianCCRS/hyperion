@@ -48,6 +48,7 @@ de fase y alcance. Esta convención mantiene el formato propuesto
 | `F1-CPU-011` | Revisión del set final de 43 kernels | Cerrado, sin cambios |
 | `F2-CPU-002` | Informe de calidad y batería de pruebas del clasificador CPU | Implementado y ejecutado |
 | `F2-CPU-003` | Sección de resultados CPU y modelo final (XGBoost, 12 variables, umbral 0.85) | Implementado |
+| `F2-CPU-005` | Población final del clasificador CPU: 30 familias (24 más seis compute RAJAPerf); batería completa y libro regenerados | Implementado |
 | `F2-CPU-004` | Tabla de política CPU (EDP por corrida), modelo de potencia P(f), candidatas compute nuevas | Tabla y modelo ejecutados (resultado: no actuar); barrido de candidatas en curso |
 | `H` (gate) | Auditoría única de readiness pre-entrenamiento (PASS/FAIL/BLOCKED por gate) | Implementada y validada; a la espera de un dataset real para dictaminar |
 
@@ -4463,3 +4464,10 @@ reales), sección §3.9.2.
 - **Techo con clasificador perfecto por kernel:** 2.9 % medio de EDP, 12.5 % máximo.
 - **Familias compute nuevas.** Nueve adaptadores RAJAPerf; tamizaje (REF/F0/F8): edge3d, fir, mass3dpa, mat_mat_shared, pi_reduce y trap_int salen compute (~100 %); convection3dpa, diffusion3dpa y ltimes salen memory. Barrido completo (10 niveles x 3 rep) de las seis más `ptrchase` en curso (`cpu_compute_sweep_20260919`).
 - Detalle en `docs/general/Informe_Calidad_Modelo_CPU_20260918.md` secciones 14 a 16.
+
+## F2-CPU-005 - Población final de 30 familias (2026-09-20)
+
+- **Decisión:** las seis familias compute añadidas (`apps_edge3d`, `apps_fir`, `apps_mass3dpa`, `basic_mat_mat_shared`, `basic_pi_reduce`, `basic_trap_int`) pasan a formar parte del conjunto; cada una es su propia familia (`protocol.derive_kernel_family`). `ptrchase` queda fuera del clasificador.
+- **Resultado:** LOFO en 30 pliegues, exactitud balanceada por celda 0.727 (IC95 0.670 a 0.803); con abstención 0.85, 0.750 con cobertura 0.733. Detalle en el informe, sección 18, y datos en `docs/libro/datos/cpu_calidad_30fam/`.
+- **Libro:** sección de resultados CPU, metodología, discusión y conclusiones actualizadas a esta población.
+- **Pendiente:** reexportar el modelo serializado con las 30 familias (el exportado en el clúster se ajustó con 24).

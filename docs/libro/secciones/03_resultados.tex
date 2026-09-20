@@ -32,7 +32,7 @@ Intervalos \textit{memory\_bound} & 783\,473 \;(60.4\%) \\
 \subsection{Composición de fase por kernel}
 \label{sec:resultados-cpu-composicion}
 
-La Figura \ref{fig:cpu-composicion-clase-kernel} muestra que el conjunto cubre ambos regímenes y conserva configuraciones próximas al \textit{ridge}. Las cargas de cómputo denso, como \textit{dgemm\_n2048}, \textit{dual\_gemm\_cpu\_N2048}, \textit{rodinia\_lavamd\_omp} y \textit{rajaperf\_polybench\_3mm\_omp}, concentran sus intervalos en \textit{compute\_bound}. En el extremo opuesto, las configuraciones grandes de AXPY, FFT, stencil y SpMV permanecen \textit{memory\_bound}.
+La Figura \ref{fig:cpu-composicion-clase-kernel} muestra que el conjunto cubre ambos regímenes y conserva configuraciones próximas al \textit{ridge}. Las cargas de cómputo denso, como \textit{dgemm\_n2048}, \textit{dual\_gemm\_cpu\_N2048}, \textit{rodinia\_lavamd\_omp}, \textit{rajaperf\_polybench\_3mm\_omp} y las seis cargas RAJAPerf añadidas (\textit{apps\_edge3d}, \textit{apps\_fir}, \textit{apps\_mass3dpa}, \textit{basic\_mat\_mat\_shared}, \textit{basic\_pi\_reduce} y \textit{basic\_trap\_int}), concentran sus intervalos en \textit{compute\_bound}. En el extremo opuesto, las configuraciones grandes de AXPY, FFT, stencil y SpMV permanecen \textit{memory\_bound}.
 
 La composición intermedia no se concentra en un solo algoritmo. \textit{npb\_bt}, \textit{npb\_lu}, \textit{cpu\_cholmod}, \textit{hpccg\_cpu\_N46}, las variantes \textit{phasic} y los tamaños dirigidos de FFT y Cholesky aportan intervalos de ambos regímenes. Estas configuraciones evitan que el conjunto quede limitado a ejemplos alejados del punto de inflexión.
 
@@ -40,14 +40,14 @@ La composición intermedia no se concentra en un solo algoritmo. \textit{npb\_bt
     \centering
     \includegraphics[width=0.60\textheight]
         {figuras/fig_cpu_composicion_clase_por_kernel_20260917.png}
-    \caption[Composición de fase por kernel en CPU]{Porcentaje de intervalos elegibles clasificados \textit{compute\_bound} y \textit{memory\_bound} para cada configuración de kernel de la campaña CPU. La barra final resume la muestra usada por el clasificador, con 15\,286 intervalos \textit{compute\_bound} y 21\,024 intervalos \textit{memory\_bound}. Fuente: Elaboración propia.}
+    \caption[Composición de fase por kernel en CPU]{Porcentaje de intervalos elegibles clasificados \textit{compute\_bound} y \textit{memory\_bound} para cada configuración de kernel de la campaña CPU. La barra final resume la muestra usada por el clasificador, con 21\,350 intervalos \textit{compute\_bound} y 21\,105 intervalos \textit{memory\_bound}. Fuente: Elaboración propia.}
     \label{fig:cpu-composicion-clase-kernel}
 \end{figure}
 
 \subsection{Variación de la composición con la frecuencia}
 \label{sec:resultados-cpu-frecuencia}
 
-La proporción global de intervalos \textit{compute\_bound} aumentó desde 22.7\% en el nivel nativo hasta 39.1\% en F8, el nivel fijo más bajo. La Figura \ref{fig:cpu-composicion-clase-frecuencia} presenta esta variación. El resultado es consistente con un \textit{ridge} que disminuye cuando baja el techo de cómputo, de modo que una parte de los intervalos cercanos a la frontera cambia de etiqueta. La figura agrega todas las configuraciones y debe leerse junto con la composición por kernel, porque las cargas no aportan el mismo número de intervalos.
+La proporción global de intervalos \textit{compute\_bound} aumentó desde 29.0\% en el nivel nativo hasta 45.1\% en F8, el nivel fijo más bajo. La Figura \ref{fig:cpu-composicion-clase-frecuencia} presenta esta variación. El resultado es consistente con un \textit{ridge} que disminuye cuando baja el techo de cómputo, de modo que una parte de los intervalos cercanos a la frontera cambia de etiqueta. La figura agrega todas las configuraciones y debe leerse junto con la composición por kernel, porque las cargas no aportan el mismo número de intervalos.
 
 \begin{figure}[H]
     \centering
