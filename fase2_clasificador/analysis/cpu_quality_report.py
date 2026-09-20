@@ -849,6 +849,30 @@ def stage_external(frame, families, fam_codes, args, out: Path):
     print(t.to_string(index=False), flush=True)
 
 
+def stage_retrain_ext(frame, families, fam_codes, args, out: Path):
+    """LOFO con las familias inéditas añadidas al conjunto (cada kernel nuevo es una familia; se excluye ptrchase)."""
+    ext = load(args.external)
+    ext = ext[ext["kernel_ref"] != "ptrchase"].copy()
+    ext["family"] = ext["kernel_ref"]
+    comb = pd.concat([frame, ext], ignore_index=True)
+    fams = sorted(comb["family"].unique())
+    codes = pd.Categorical(comb["family"], categories=fams).codes
+    old = [i for i, f in enumerate(fams) if f in set(families)]
+    new = [i for i, f in enumerate(fams) if f not in set(families)]
+    rows = {"all": [], "old24": [], "new6": []}
+    for s_ in range(args.seeds):
+        sample = capped_sample(comb, args.cap, 1000 + s_)
+        c = lofo(comb, fams, codes, "xgb_inter", sample, 2000 + s_, True, args.n_jobs)
+        for k, idx in (("all", list(range(len(fams)))), ("old24", old), ("new6", new)):
+            rows[k].append(metrics_from_counts(c[idx]))
+        print("[retrain_ext] seed", s_, {k: round(v[-1]["cell_balanced_acc"], 4) for k, v in rows.items()}, flush=True)
+    res = [{"subset": k, "n_families": len(idx), **{m: round(float(np.mean([r[m] for r in v])), 4) for m in v[0]},
+            "sd_cell_bal": round(float(np.std([r["cell_balanced_acc"] for r in v], ddof=1)), 4)}
+           for (k, v), idx in zip(rows.items(), (range(len(fams)), old, new))]
+    pd.DataFrame(res).to_csv(out / "retrain_with_new_families.csv", index=False)
+    print(pd.DataFrame(res).to_string(index=False), flush=True)
+
+
 def stage_adaptation(frame, families, fam_codes, args, out: Path):
     """Calibracion en linea: ¿cuanto mejora si los primeros n intervalos etiquetados (uncore) de cada bloque
     kernel x frecuencia de la familia nueva se anaden al entrenamiento? Se evalua sobre el resto de esa familia.
@@ -1270,7 +1294,7 @@ def stage_latency(frame, args, out: Path):
     (out / f"latency_{platform.node()}.json").write_text(json.dumps(res, indent=1))
 
 
-STAGES = ["inventory", "final_model", "metrics_suite", "matrix", "diagnostics", "protocols", "learning_curve", "smoothing", "nested_selective", "regularization", "importance", "knn_ceiling", "twins", "nested_optuna", "adaptation", "adaptation_phases", "temporal", "oi_proxy", "power_w", "selection", "external", "cap_sensitivity", "threshold_nested", "latency"]
+STAGES = ["inventory", "final_model", "metrics_suite", "matrix", "diagnostics", "protocols", "learning_curve", "smoothing", "nested_selective", "regularization", "importance", "knn_ceiling", "twins", "nested_optuna", "adaptation", "adaptation_phases", "temporal", "oi_proxy", "power_w", "selection", "external", "retrain_ext", "cap_sensitivity", "threshold_nested", "latency"]
 
 
 def main() -> None:
