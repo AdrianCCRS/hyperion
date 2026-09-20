@@ -84,11 +84,11 @@ def por_familia() -> None:
     ax.set_yticks(y); ax.set_yticklabels(f["family"].str.replace("_", r"\_", regex=False).str.replace(r"\_", "_", regex=False))
     ax.set_xlabel("Proporción")
     ax.set_xlim(0, 1.02)
-    ax.legend(handles=[Patch(color=COMPUTE, label="Exactitud, familia mixta"),
-                       Patch(color=MEMORY, label="Exactitud, familia de una sola clase"),
+    ax.legend(handles=[Patch(color=COMPUTE, label="Exactitud, familia mixta (10 a 90 % memory)"),
+                       Patch(color=MEMORY, label="Exactitud, familia casi pura (una clase domina)"),
                        Patch(color="#cbd5e0", label="Cobertura (confianza ≥ 0.85)")],
-              loc="upper center", bbox_to_anchor=(0.5, -0.09), ncol=3, frameon=False, fontsize=8.5)
-    fig.tight_layout(rect=(0, 0.04, 1, 1)); fig.savefig(F / "fig_cpu_resultado_por_familia_20260919.png"); plt.close(fig)
+              loc="upper center", bbox_to_anchor=(0.5, -0.07), ncol=1, frameon=False, fontsize=8.5)
+    fig.tight_layout(rect=(0, 0.07, 1, 1)); fig.savefig(F / "fig_cpu_resultado_por_familia_20260919.png"); plt.close(fig)
 
 
 def umbral_y_calibracion() -> None:
