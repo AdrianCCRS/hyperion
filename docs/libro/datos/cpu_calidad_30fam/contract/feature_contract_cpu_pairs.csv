@@ -1,0 +1,6 @@
+a,b,pearson,spearman,keep,drop
+delta_instructions,ips,0.9972905072384707,0.9986399549759407,delta_instructions,ips
+delta_cycles,freq_khz_observed,0.9225200350305778,0.9200550409224869,freq_khz_observed,delta_cycles
+delta_cache_misses,mpki,0.0013945962174251294,0.8647498193026871,delta_cache_misses,mpki
+delta_stalled_cycles_mem_any,stall_mem_ratio,0.8801966167907528,0.9437054653049496,stall_mem_ratio,delta_stalled_cycles_mem_any
+delta_running_ns,delta_enabled_ns,0.99999999750568,0.9999999996148344,delta_enabled_ns,delta_running_ns

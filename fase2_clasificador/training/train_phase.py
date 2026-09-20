@@ -82,6 +82,36 @@ READ_COLS = [
 ]
 
 
+def _progress_reporter(path: Path | None):
+    """Devuelve un emisor durable de progreso, o un no-op si no se solicitó.
+
+    El JSON describe el último evento de forma fácil de consultar desde un
+    monitor; el JSONL conserva el historial completo. Ambos se actualizan al
+    terminar cada trial, por lo que una búsqueda larga deja evidencia de
+    avance incluso si el proceso se interrumpe antes de serializar el modelo.
+    """
+    if path is None:
+        return lambda _event, **_fields: None
+    path.parent.mkdir(parents=True, exist_ok=True)
+    journal = path.with_suffix(path.suffix + ".jsonl")
+
+    def emit(event: str, **fields) -> None:
+        record = {
+            "updated_at_utc": datetime.now(timezone.utc).isoformat(),
+            "event": event,
+            **fields,
+        }
+        with journal.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+            handle.flush()
+        temporary = path.with_suffix(path.suffix + ".tmp")
+        temporary.write_text(json.dumps(record, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        temporary.replace(path)
+        print("[progress] " + json.dumps(record, ensure_ascii=False), flush=True)
+
+    return emit
+
+
 def load(
     per_run_sample: int,
     seed: int,
@@ -273,10 +303,29 @@ def main() -> None:
              "scale_pos_weight, que solo toca xgboost) sin repetir la "
              "búsqueda completa de los otros 6. Default: los 7.",
     )
+    parser.add_argument(
+        "--n-jobs", type=int, default=-1,
+        help="Máximo de workers de RF/ExtraTrees/XGBoost (-1 conserva el comportamiento legado).",
+    )
+    parser.add_argument(
+        "--optuna-storage", type=Path, default=None,
+        help="Archivo SQLite para persistir y reanudar cada estudio Optuna.",
+    )
+    parser.add_argument(
+        "--progress-file", type=Path, default=None,
+        help="JSON de estado; también genera <archivo>.jsonl con un evento por trial.",
+    )
     args = parser.parse_args()
+    if args.n_jobs == 0 or args.n_jobs < -1:
+        raise SystemExit("--n-jobs debe ser -1 o un entero positivo")
     kernels = args.kernels.split(",") if args.kernels else None
     levels = args.levels.split(",") if args.levels else None
     only_models = set(args.only_models.split(",")) if args.only_models else None
+    progress = _progress_reporter(args.progress_file)
+    storage_url = None
+    if args.optuna_storage is not None:
+        args.optuna_storage.parent.mkdir(parents=True, exist_ok=True)
+        storage_url = f"sqlite:///{args.optuna_storage.resolve()}"
 
     from sklearn.base import clone
     from sklearn.metrics import confusion_matrix, f1_score
@@ -293,6 +342,11 @@ def main() -> None:
         campaign_dir=args.campaign_dir, campaign_id=args.campaign_id, levels=levels,
     )
     familias = sorted(df["kernel_ref"].map(protocol.derive_kernel_family).unique())
+    progress(
+        "started", rows=len(df), kernels=int(df["kernel_ref"].nunique()),
+        families=len(familias), n_trials=args.n_trials, n_jobs=args.n_jobs,
+        storage=storage_url,
+    )
     print(f"matriz: {len(df):,} intervalos uncore | {df['kernel_ref'].nunique()} kernels | {len(familias)} familias algorítmicas")
     print(f"features ({len(FEATURES)}): {', '.join(FEATURES)}")
     print(f"distribución de fase: {dict(df[LABEL].value_counts())}\n")
@@ -317,7 +371,7 @@ def main() -> None:
     KERNEL_COL = "kernel_ref"
     FOLD_FN = protocol.leave_one_familia_out  # familia derivada de kernel_ref
 
-    tunable_names = list(model_specs.tunable_specs(args.seed, scale_pos_weight_global).keys())
+    tunable_names = list(model_specs.tunable_specs(args.seed, scale_pos_weight_global, n_jobs=args.n_jobs).keys())
     if only_models is not None:
         tunable_names = [n for n in tunable_names if n in only_models]
     results: dict[str, dict[str, float]] = {}
@@ -333,6 +387,7 @@ def main() -> None:
     n_search_omitida = 0
 
     for idx_train, idx_test, familia in FOLD_FN(df, kernel_col=KERNEL_COL):
+        progress("outer_fold_started", family=familia)
         protocol.assert_no_familia_leak(df, idx_train, idx_test)
         df_train_outer = df.iloc[idx_train]
 
@@ -341,7 +396,7 @@ def main() -> None:
         n_neg_fold = int(len(y_train_fold) - n_pos_fold)
         scale_pos_weight_fold = (n_neg_fold / n_pos_fold) if n_pos_fold > 0 else 1.0
         scale_pos_weight_por_pliegue[familia] = scale_pos_weight_fold
-        tunable = model_specs.tunable_specs(args.seed, scale_pos_weight_fold)
+        tunable = model_specs.tunable_specs(args.seed, scale_pos_weight_fold, n_jobs=args.n_jobs)
         if only_models is not None:
             tunable = {k: v for k, v in tunable.items() if k in only_models}
 
@@ -367,11 +422,16 @@ def main() -> None:
                 >= hyperparam_search.MIN_FAMILIAS_PARA_BUSQUEDA
             )
             if can_search:
+                study_name = f"cpu__{name}__outer__{familia}"
+                progress("search_started", family=familia, model=name, study_name=study_name)
                 best_params, _ = hyperparam_search.search_best_params(
                     build_fn, space_fn, df_train_outer, X[idx_train], y[idx_train],
                     kernel_col=KERNEL_COL, seed=args.seed, n_trials=args.n_trials,
-                    fold_fn=FOLD_FN,
+                    fold_fn=FOLD_FN, storage=storage_url, study_name=study_name,
+                    on_trial_complete=lambda record, fold=familia, model_name=name: progress(
+                        "trial_completed", family=fold, model=model_name, **record),
                 )
+                progress("search_completed", family=familia, model=name, study_name=study_name)
             else:
                 n_search_omitida += 1
                 best_params = dict(model_specs.FALLBACK_PARAMS.get(name, {}))
@@ -386,6 +446,8 @@ def main() -> None:
             cm_by_model[name] += confusion_matrix(y[idx_test], pred, labels=[False, True])
             if familia == familias[0]:
                 latencies[name] = measure_latency(model, X[idx_test])
+            progress("outer_model_completed", family=familia, model=name)
+        progress("outer_fold_completed", family=familia)
 
     if n_search_omitida:
         print(
@@ -454,15 +516,21 @@ def main() -> None:
         # El modelo final se entrena sobre TODO el dataset, así que su
         # scale_pos_weight es el global -- no queda ningún pliegue que
         # aporte una razón distinta, a diferencia del bucle de arriba.
-        tunable_final = model_specs.tunable_specs(args.seed, scale_pos_weight_global)
+        tunable_final = model_specs.tunable_specs(args.seed, scale_pos_weight_global, n_jobs=args.n_jobs)
         final_best_params: dict = {}
         if best_name in tunable_final:
             build_fn, space_fn = tunable_final[best_name]
             if hyperparam_search.n_groups(df, kernel_col=KERNEL_COL, fold_fn=FOLD_FN) >= hyperparam_search.MIN_FAMILIAS_PARA_BUSQUEDA and args.n_trials > 0:
+                study_name = f"cpu__{best_name}__final"
+                progress("search_started", family="__final__", model=best_name, study_name=study_name)
                 final_best_params, _ = hyperparam_search.search_best_params(
                     build_fn, space_fn, df, X, y, kernel_col=KERNEL_COL,
                     seed=args.seed, n_trials=args.n_trials, fold_fn=FOLD_FN,
+                    storage=storage_url, study_name=study_name,
+                    on_trial_complete=lambda record, model_name=best_name: progress(
+                        "trial_completed", family="__final__", model=model_name, **record),
                 )
+                progress("search_completed", family="__final__", model=best_name, study_name=study_name)
             else:
                 final_best_params = dict(model_specs.FALLBACK_PARAMS.get(best_name, {}))
             final_model = build_fn(**final_best_params)
@@ -532,6 +600,7 @@ def main() -> None:
         metadata_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False))
         print(f"\nModelo serializado en {model_path}")
         print(f"Metadata en {metadata_path}")
+    progress("completed", selected_model=best_name)
 
 
 if __name__ == "__main__":

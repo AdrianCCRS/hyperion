@@ -86,6 +86,35 @@ def test_search_best_params_encuentra_hiperparametros_razonables():
     assert 1 <= best_params["max_depth"] <= 15
 
 
+def test_search_best_params_reanuda_desde_sqlite_sin_repetir_trials(tmp_path):
+    df = _synthetic_df(n_familias=4, n_por_familia=20, seed=4)
+    X = df[["feature_1"]].to_numpy(dtype=np.float32)
+    y = (df["phase_label_train"] == "memory_bound").to_numpy()
+
+    def build_fn(**params):
+        from sklearn.tree import DecisionTreeClassifier
+        return DecisionTreeClassifier(random_state=0, **params)
+
+    def space_fn(trial):
+        return {"max_depth": trial.suggest_int("max_depth", 1, 4)}
+
+    storage = f"sqlite:///{tmp_path / 'optuna.db'}"
+    first_events = []
+    hyperparam_search.search_best_params(
+        build_fn, space_fn, df, X, y, kernel_col="kernel_family", seed=0,
+        n_trials=3, fold_fn=protocol.leave_one_kernel_out, storage=storage,
+        study_name="resume_test", on_trial_complete=first_events.append,
+    )
+    second_events = []
+    hyperparam_search.search_best_params(
+        build_fn, space_fn, df, X, y, kernel_col="kernel_family", seed=0,
+        n_trials=3, fold_fn=protocol.leave_one_kernel_out, storage=storage,
+        study_name="resume_test", on_trial_complete=second_events.append,
+    )
+    assert len(first_events) == 3
+    assert second_events == []
+
+
 def test_search_best_params_nunca_toca_la_familia_de_prueba_externa():
     """La búsqueda interna recibe SOLO el df ya recortado a la partición de
     entrenamiento del pliegue externo -- este test confirma que el

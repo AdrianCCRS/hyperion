@@ -1,11 +1,10 @@
 """Entrena y evalúa el clasificador de fase GPU (compute_bound/memory_bound).
 
-Espejo de ``train_phase.py`` (CPU), adaptado a la granularidad GPU: una fila
-de ``training_gpu_phases.csv`` es una CORRIDA completa (kernel_ref x
-gpu_freq_level_id x repetición), ya agregada con estadísticos robustos sobre
-las muestras NVML de esa corrida (F1-GPU-003) -- nunca una muestra NVML
-aislada. No hace falta submuestrear por corrida como en CPU: cada corrida ya
-aporta exactamente una fila.
+Espejo de ``train_phase.py`` (CPU), adaptado a GPU: una fila de
+``training_gpu_phases.csv`` es una ventana temporal de 120 ms. Sus señales
+NVML se agregan dentro de esa ventana y su verdad viene de CUPTI Activity +
+trabajo analítico por lanzamiento; nunca de una muestra NVML aislada ni de
+una etiqueta ncu propagada a toda la corrida.
 
 FUGA DE ETIQUETA -- igual de importante que en CPU. `phase_label_train` se
 deriva de `operational_intensity` (medida offline con `ncu`) contra
@@ -49,7 +48,7 @@ _SIGNALS = ("gpu_util_pct", "gpu_mem_util_pct", "gpu_power_mw", "gpu_sm_clock_mh
 FEATURES = [f"{sig}_median" for sig in _SIGNALS]
 LABEL = "phase_label_train"
 TRAINING_INPUT_FILENAME = GPU_PHASE_DATASET_FILENAME
-TRAINING_GRANULARITY = "gpu_run"
+TRAINING_GRANULARITY = "gpu_time_window_120ms"
 
 # Columnas prohibidas: la etiqueta se deriva de ellas, o identifican la
 # corrida/calibración sin ser una medición física reutilizable como feature.
@@ -60,7 +59,7 @@ FORBIDDEN = {
 
 READ_COLS = [
     *FEATURES, LABEL, "kernel_ref", "kernel_family", "gpu_freq_level_id",
-    "training_eligible", "phase_quality_status", "gpu_frequency_quality_status",
+    "training_eligible", "phase_quality_status", "gpu_frequency_quality_status", "granularity",
 ]
 
 
@@ -71,13 +70,9 @@ def load(
 ) -> pd.DataFrame:
     """Carga todas las ``training_gpu_phases.csv`` bajo ``campaign_dir``.
 
-    A diferencia de CPU (que reconstruye la ruta por combinación
-    kernel×nivel×repetición porque cada corrida es una carpeta con miles de
-    ventanas de 1 ms a submuestrear), aquí cada corrida ya es UNA fila
-    agregada -- se listan directamente todos los CSV existentes con
-    ``rglob``, sin necesitar la lista completa de niveles/repeticiones de
-    antemano ni arriesgar construir una ruta que no coincida con el sufijo
-    real del directorio (p. ej. ``__baseline``).
+    Se listan todos los CSV existentes con ``rglob``. No se mezcla el
+    dataset histórico por corrida con el nuevo por ventana: eso alteraría el
+    peso relativo de familias sin una decisión experimental explícita.
     """
     campaign_dir = Path(campaign_dir)
     paths = sorted(campaign_dir.rglob(TRAINING_INPUT_FILENAME))
@@ -97,6 +92,14 @@ def load(
             )
         frames.append(frame)
     df = pd.concat(frames, ignore_index=True)
+
+    granularities = set(df["granularity"].dropna().astype(str))
+    if granularities != {"time_window"}:
+        raise ValueError(
+            "el entrenamiento GPU nuevo exige granularidad time_window; "
+            f"se encontraron {sorted(granularities) or ['ausente']}. "
+            "No mezclar CSVs históricos por corrida con la campaña CUPTI."
+        )
 
     df = df[
         (df["training_eligible"] == True)  # noqa: E712 -- bool real de pandas, no numpy
@@ -201,7 +204,13 @@ def main() -> None:
              "externo, para la búsqueda anidada de hiperparámetros (plan "
              "§3.3 punto 1). 0 desactiva la búsqueda: usa la configuración "
              "fija de build_models() en todos los pliegues -- útil para "
-             "iterar rápido, nunca el modo por defecto.",
+                    "iterar rápido, nunca el modo por defecto.",
+    )
+    parser.add_argument(
+        "--cv-scheme", choices=("mixed-families", "lofo"), default="mixed-families",
+        help=("Esquema de validación externa. 'mixed-families' retiene grupos "
+              "completos de familias con ambas clases presentes en cada test; "
+              "'lofo' conserva el protocolo histórico de una familia por pliegue."),
     )
     args = parser.parse_args()
     kernels = args.kernels.split(",") if args.kernels else None
@@ -221,7 +230,7 @@ def main() -> None:
     # kernel_family ya viene calculada por gpu_phases.py con la misma
     # protocol.derive_kernel_family que usa CPU (no se recalcula aquí).
     familias = sorted(df["kernel_family"].unique())
-    print(f"matriz: {len(df):,} corridas | {df['kernel_ref'].nunique()} kernels | {len(familias)} familias algorítmicas")
+    print(f"matriz: {len(df):,} ventanas | {df['kernel_ref'].nunique()} kernels | {len(familias)} familias algorítmicas")
     print(f"features ({len(FEATURES)}): {', '.join(FEATURES)}")
     print(f"distribución de fase: {dict(df[LABEL].value_counts())}\n")
 
@@ -245,7 +254,16 @@ def main() -> None:
 
     fixed_models = model_specs.build_fixed_models(args.seed)
     KERNEL_COL = "kernel_family"
-    FOLD_FN = protocol.leave_one_kernel_out  # kernel_family ya es la familia
+    if args.cv_scheme == "mixed-families":
+        def FOLD_FN(frame, kernel_col=KERNEL_COL):
+            yield from protocol.leave_mixed_families_out(
+                frame,
+                kernel_col=kernel_col,
+                label_col=LABEL,
+                seed=args.seed,
+            )
+    else:
+        FOLD_FN = protocol.leave_one_kernel_out  # kernel_family ya es la familia
 
     tunable_names = list(model_specs.tunable_specs(args.seed, scale_pos_weight_global).keys())
     results: dict[str, dict[str, float]] = {}
@@ -427,6 +445,7 @@ def main() -> None:
             "features": FEATURES,
             "label": LABEL,
             "training_granularity": TRAINING_GRANULARITY,
+            "cv_scheme": args.cv_scheme,
             "training_input_filename": TRAINING_INPUT_FILENAME,
             "feature_aggregation": {sig: "median_of_nvml_samples_in_run" for sig in _SIGNALS},
             "campaign_dir": str(args.campaign_dir),

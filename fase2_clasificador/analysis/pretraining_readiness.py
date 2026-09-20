@@ -206,19 +206,20 @@ def _g_gpu_rows_not_independent(gpu: pd.DataFrame | None, contract: dict | None)
     r = GateResult("filas_gpu_no_son_muestras_independientes")
     if gpu is None:
         return r
-    # F1-GPU-003: el dataset GPU debe ser por corrida/fase, declarado en el contrato
+    # F1-GPU-004: el dataset GPU debe usar ventanas NVML agregadas, no samples.
     if contract is None:
         r.gpu = FAIL
         r.detail = "sin training_gpu_phases_contract.json"
         return r
-    if contract.get("nvml_sample_is_independent_example") is True or contract.get("row_unit") not in ("run", "phase"):
+    if contract.get("nvml_sample_is_independent_example") is True or contract.get("row_unit") not in ("time_window", "phase"):
         r.gpu = FAIL
-        r.detail = "el contrato no declara granularidad por corrida/fase"
+        r.detail = "el contrato no declara granularidad GPU por ventana/fase"
         return r
-    # además: una fila por run_id (no varias)
-    if "run_id" in gpu.columns and gpu["run_id"].duplicated().any():
+    # En la vía actual hay varias ventanas por corrida; la identidad debe ser
+    # (run_id, window_start_ns), no run_id aislado.
+    if {"run_id", "window_start_ns"} <= set(gpu.columns) and gpu.duplicated(["run_id", "window_start_ns"]).any():
         r.gpu = FAIL
-        r.detail = "run_id duplicado en training_gpu_phases.csv"
+        r.detail = "(run_id, window_start_ns) duplicado en training_gpu_phases.csv"
         return r
     r.gpu = PASS
     return r
@@ -345,7 +346,7 @@ def _g_granularity_declared(inp: ReadinessInputs, cpu: pd.DataFrame | None, gpu:
         r.cpu = PASS if {"uncore_interval_id", "uncore_delta_t_ns"} <= set(cpu.columns) else FAIL
     if gpu is not None:
         c = _load_json(inp.gpu_contract_file)
-        r.gpu = PASS if (c and c.get("row_unit") in ("run", "phase") and "granularity" in gpu.columns) else FAIL
+        r.gpu = PASS if (c and c.get("row_unit") in ("time_window", "phase") and "granularity" in gpu.columns) else FAIL
     return r
 
 

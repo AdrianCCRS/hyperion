@@ -16,6 +16,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from fase2_clasificador.training import train_phase
 
 
+def test_progress_reporter_persiste_estado_y_journal(tmp_path):
+    status = tmp_path / "progress.json"
+    emit = train_phase._progress_reporter(status)
+    emit("trial_completed", model="xgboost", trial_number=3)
+
+    assert status.exists()
+    assert status.with_suffix(".json.jsonl").exists()
+    payload = __import__("json").loads(status.read_text())
+    assert payload["event"] == "trial_completed"
+    assert payload["trial_number"] == 3
+
+
 def test_build_models_incluye_xgboost():
     modelos = train_phase.build_models(seed=0)
     assert "xgboost" in modelos
@@ -192,6 +204,7 @@ def test_main_serializa_modelo_y_metadata_reales(fake_campaign, monkeypatch, tmp
         "--seed", "0",
         "--output-dir", str(output_dir),
         "--n-trials", "3",  # rápido: solo exercita la ruta de búsqueda, no busca a fondo
+        "--n-jobs", "1",
     ]
     monkeypatch.setattr(sys, "argv", argv)
     train_phase.main()

@@ -99,11 +99,11 @@ def _space_arbol_prof6(trial) -> dict:
     }
 
 
-def _build_random_forest(seed: int, **params):
+def _build_random_forest(seed: int, n_jobs: int = -1, **params):
     from sklearn.ensemble import RandomForestClassifier
 
     return RandomForestClassifier(
-        class_weight="balanced", n_jobs=-1, random_state=seed, **params
+        class_weight="balanced", n_jobs=n_jobs, random_state=seed, **params
     )
 
 
@@ -115,11 +115,11 @@ def _space_random_forest(trial) -> dict:
     }
 
 
-def _build_extra_trees(seed: int, **params):
+def _build_extra_trees(seed: int, n_jobs: int = -1, **params):
     from sklearn.ensemble import ExtraTreesClassifier
 
     return ExtraTreesClassifier(
-        class_weight="balanced", n_jobs=-1, random_state=seed, **params
+        class_weight="balanced", n_jobs=n_jobs, random_state=seed, **params
     )
 
 
@@ -134,11 +134,11 @@ def _space_extra_trees(trial) -> dict:
     }
 
 
-def _build_xgboost(seed: int, scale_pos_weight: float, **params):
+def _build_xgboost(seed: int, scale_pos_weight: float, n_jobs: int = -1, **params):
     from xgboost import XGBClassifier
 
     return XGBClassifier(
-        n_jobs=-1, random_state=seed, eval_metric="logloss",
+        n_jobs=n_jobs, random_state=seed, eval_metric="logloss",
         scale_pos_weight=scale_pos_weight, **params,
     )
 
@@ -168,7 +168,7 @@ FALLBACK_PARAMS: dict[str, dict] = {
 }
 
 
-def tunable_specs(seed: int, scale_pos_weight: float) -> dict[str, tuple]:
+def tunable_specs(seed: int, scale_pos_weight: float, n_jobs: int = -1) -> dict[str, tuple]:
     """``nombre -> (build_fn, space_fn)`` para los modelos CON búsqueda de
     hiperparámetros. ``build_fn(**params)`` ya tiene ``seed``/
     ``scale_pos_weight`` fijados por clausura -- el caller (
@@ -181,9 +181,9 @@ def tunable_specs(seed: int, scale_pos_weight: float) -> dict[str, tuple]:
         "arbol_prof6": (
             lambda **p: _build_arbol_prof6(seed, **p), _space_arbol_prof6),
         "random_forest": (
-            lambda **p: _build_random_forest(seed, **p), _space_random_forest),
+            lambda **p: _build_random_forest(seed, n_jobs=n_jobs, **p), _space_random_forest),
         "extra_trees": (
-            lambda **p: _build_extra_trees(seed, **p), _space_extra_trees),
+            lambda **p: _build_extra_trees(seed, n_jobs=n_jobs, **p), _space_extra_trees),
         "xgboost": (
-            lambda **p: _build_xgboost(seed, scale_pos_weight, **p), _space_xgboost),
+            lambda **p: _build_xgboost(seed, scale_pos_weight, n_jobs=n_jobs, **p), _space_xgboost),
     }

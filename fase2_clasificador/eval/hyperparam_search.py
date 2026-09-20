@@ -101,6 +101,9 @@ def search_best_params(
     seed: int,
     n_trials: int,
     fold_fn: FoldFn = protocol.leave_one_familia_out,
+    storage: str | None = None,
+    study_name: str | None = None,
+    on_trial_complete: Callable[[dict], None] | None = None,
 ) -> tuple[dict, float]:
     """Busca hiperparámetros maximizando el F1 macro medio de un split
     agrupado interno (``fold_fn``) sobre ``df``.
@@ -123,6 +126,37 @@ def search_best_params(
         return _inner_cv_score(build_fn, params, df, X, y, kernel_col, fold_fn)
 
     sampler = optuna.samplers.TPESampler(seed=seed)
-    study = optuna.create_study(direction="maximize", sampler=sampler)
-    study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
+    if storage is not None:
+        if not study_name:
+            raise ValueError("study_name es obligatorio cuando se usa almacenamiento Optuna")
+        study = optuna.create_study(
+            direction="maximize", sampler=sampler, storage=storage,
+            study_name=study_name, load_if_exists=True,
+        )
+    else:
+        study = optuna.create_study(direction="maximize", sampler=sampler)
+
+    # ``n_trials`` es el presupuesto total de este estudio, no un número
+    # adicional en cada reanudación. Así, una nueva ejecución recupera los
+    # trials ya guardados en SQLite en vez de repetirlos.
+    remaining_trials = max(0, n_trials - len(study.trials))
+
+    def _trial_completed(completed_study, trial) -> None:
+        if on_trial_complete is None:
+            return
+        on_trial_complete({
+            "study_name": completed_study.study_name,
+            "trial_number": trial.number,
+            "state": trial.state.name,
+            "value": trial.value,
+            "params": dict(trial.params),
+            "completed_trials": len(completed_study.trials),
+            "target_trials": n_trials,
+        })
+
+    if remaining_trials:
+        study.optimize(
+            objective, n_trials=remaining_trials, show_progress_bar=False,
+            callbacks=[_trial_completed],
+        )
     return study.best_params, study.best_value

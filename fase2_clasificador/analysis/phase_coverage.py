@@ -215,7 +215,7 @@ def analyze_campaign(
     semantics = (
         "one_uncore_interval_per_row"
         if device == "cpu"
-        else "one_gpu_run_or_aligned_phase_per_row"
+        else "one_gpu_time_window_or_aligned_phase_per_row"
     )
     report = {
         "schema_version": 1,

@@ -1,0 +1,6 @@
+n_first_intervals_per_block,mean_labeled_rows_per_family,cell_balanced_acc,recall_compute,recall_memory,pooled_f1_macro,pooled_accuracy,mean_family_accuracy
+0,0.0,0.7178,0.6819,0.8525,0.7711,0.7874,0.7763
+5,80.0,0.7664,0.8711,0.9459,0.9117,0.9173,0.918
+20,320.0,0.7636,0.9209,0.9527,0.937,0.9406,0.9292
+100,1582.4,0.7836,0.9445,0.9551,0.9484,0.9511,0.9362
+500,6863.7,0.7902,0.9593,0.963,0.9595,0.9616,0.9342

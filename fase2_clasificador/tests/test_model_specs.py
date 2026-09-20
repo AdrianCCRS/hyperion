@@ -29,6 +29,13 @@ def test_tunable_specs_cubre_exactamente_los_modelos_sintonizables():
     assert set(tunable) == _TUNABLES
 
 
+def test_tunable_specs_propaga_el_limite_de_workers():
+    tunable = model_specs.tunable_specs(seed=0, scale_pos_weight=1.0, n_jobs=7)
+    for name in ("random_forest", "extra_trees", "xgboost"):
+        build_fn, _ = tunable[name]
+        assert build_fn(**model_specs.FALLBACK_PARAMS[name]).n_jobs == 7
+
+
 def test_fallback_params_cubre_todos_los_sintonizables():
     assert set(model_specs.FALLBACK_PARAMS) == _TUNABLES
 
