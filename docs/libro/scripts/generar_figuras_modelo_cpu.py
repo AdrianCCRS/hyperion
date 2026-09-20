@@ -55,7 +55,7 @@ def matriz_confusion() -> None:
     d = json.load(open(D / "final_model.json"))
     fig, axes = plt.subplots(1, 2, figsize=(7.6, 3.3))
     for ax, clave, titulo in ((axes[0], "full_coverage", "Todas las decisiones"),
-                              (axes[1], "selective", "Solo confianza ≥ 0.85")):
+                              (axes[1], "selective", "Solo confianza ≥ 0.90")):
         c = d[clave]["confusion"]
         mat = np.array([[c["compute_as_compute"], c["compute_as_memory"]],
                         [c["memory_as_compute"], c["memory_as_memory"]]])
@@ -86,7 +86,7 @@ def por_familia() -> None:
     ax.set_xlim(0, 1.02)
     ax.legend(handles=[Patch(color=COMPUTE, label="Exactitud, familia mixta (10 a 90 % memory)"),
                        Patch(color=MEMORY, label="Exactitud, familia casi pura (una clase domina)"),
-                       Patch(color="#cbd5e0", label="Cobertura (confianza ≥ 0.85)")],
+                       Patch(color="#cbd5e0", label="Cobertura (confianza ≥ 0.90)")],
               loc="upper center", bbox_to_anchor=(0.5, -0.07), ncol=1, frameon=False, fontsize=8.5)
     fig.tight_layout(rect=(0, 0.07, 1, 1)); fig.savefig(F / "fig_cpu_resultado_por_familia_20260919.png"); plt.close(fig)
 
@@ -100,7 +100,7 @@ def umbral_y_calibracion() -> None:
     a.set_title("Calibración fuera de familia", fontsize=10); a.legend(frameon=False, fontsize=8.5)
     b.plot(rc["coverage_pooled"], rc["cell_balanced_acc"], "o-", color=COMPUTE, lw=2, ms=5)
     for _, r in rc.iterrows():
-        if r["threshold"] in (0.5, 0.85, 0.99):
+        if r["threshold"] in (0.5, 0.9, 0.99):
             b.annotate(f"τ={r['threshold']:.2f}", (r["coverage_pooled"], r["cell_balanced_acc"]),
                        textcoords="offset points", xytext=(6, -11), fontsize=8.5, color="#333")
     b.axhline(rc.loc[rc["threshold"] == 0.5, "cell_balanced_acc"].iloc[0], color=MEMORY, ls="--", lw=1)

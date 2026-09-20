@@ -621,7 +621,7 @@ La normalización del denominador hace que el peso medio sea uno y no altera la 
 \subsection{Validación anidada por familia}
 \label{sec:metodologia-lofo-cpu}
 
-La partición externa siguió un esquema \textit{leave-one-family-out} con 30 pliegues. En cada pliegue se retiró por completo una familia algorítmica y se impidió que participara en el ajuste, la selección de representación o la elección del umbral. Sobre las 23 familias restantes se ejecutó otro LOFO para comparar la representación base con la representación de interacciones y los umbrales $\{0.50,0.55,\ldots,0.90\}$. El modelo utilizado en esta selección corta fue XGBoost con 100 árboles, profundidad máxima 6, semilla 20260918 y los pesos de la ecuación \eqref{eq:peso-familia-clase}. No se inició una nueva búsqueda masiva de hiperparámetros.
+La partición externa siguió un esquema \textit{leave-one-family-out} con 30 pliegues. En cada pliegue se retiró por completo una familia algorítmica y se impidió que participara en el ajuste, la selección de representación o la elección del umbral. Sobre las 29 familias restantes se ejecutó otro LOFO para comparar la representación base con la representación de interacciones y los umbrales $\{0.50,0.55,\ldots,0.90\}$. El modelo utilizado en esta selección corta fue XGBoost con 100 árboles, profundidad máxima 6, semilla 20260918 y los pesos de la ecuación \eqref{eq:peso-familia-clase}. No se inició una nueva búsqueda masiva de hiperparámetros.
 
 Sea $p_i$ la probabilidad estimada de \textit{memory-bound}. La confianza y la regla selectiva se definieron como:
 
@@ -661,7 +661,7 @@ La incertidumbre se informa por dos vías. La variabilidad debida al submuestreo
 \subsection{Congelación y auditoría del candidato CPU}
 \label{sec:metodologia-congelacion-cpu}
 
-Terminada la evaluación anidada se fijó la representación con interacciones y se repitió el LOFO interno sobre las 30 familias para obtener un único umbral operativo. El umbral se congeló antes de auditar errores por familia y frecuencia. El modelo serializado se ajustó sobre los 42\,455 intervalos con el mismo vector de 12 entradas, ponderación y semilla. Para producir predicciones fuera de muestra, la auditoría reajustó el mismo XGBoost en las 23 familias restantes de cada pliegue y predijo la familia retenida. La representación, los hiperparámetros y el umbral permanecieron fijos y no se modificaron a partir de esos resultados.
+Terminada la evaluación anidada se fijó la representación con interacciones y se repitió el LOFO interno sobre las 30 familias para obtener un único umbral operativo. El umbral se congeló antes de auditar errores por familia y frecuencia. El modelo serializado se ajustó sobre 42\,014 intervalos (la muestra de 42\,455 tras retirar los de tasas indefinidas) con el mismo vector de 12 entradas, ponderación y semilla. Para producir predicciones fuera de muestra, la auditoría reajustó el mismo XGBoost en las 29 familias restantes de cada pliegue y predijo la familia retenida. La representación, los hiperparámetros y el umbral permanecieron fijos y no se modificaron a partir de esos resultados.
 
 En GPU se aplicó el mismo principio de separación por familia, pero la unidad de observación fue una corrida completa resumida mediante estadísticos de NVML. Esta diferencia responde a la granularidad disponible para construir la etiqueta y no convierte las lecturas repetidas de una misma corrida en ejemplos independientes.
 
