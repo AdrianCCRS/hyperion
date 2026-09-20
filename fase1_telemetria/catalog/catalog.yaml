@@ -6043,7 +6043,7 @@ kernels:
     phase_label_hint: intermedio  # MASS3DPA (elementos finitos de alto orden, ensamblaje parcial); sin etiqueta previa
     size_variant: repfact150
     expected_runtime_seconds: 25
-    warmup_seconds: 0.05  # provisional; la campana usa warmup_seconds_override
+    warmup_seconds: 0.1465  # F1-XDEV-002 (2026-09-20): calibrado con warmup_calibration.py sobre windows.csv de la campana compute_sweep (30/30 corridas)
     estimated_memory_bytes: 268435456
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -6085,7 +6085,7 @@ kernels:
     phase_label_hint: intermedio  # EDGE3D (elementos finitos de arista); sin etiqueta previa
     size_variant: repfact2
     expected_runtime_seconds: 25
-    warmup_seconds: 0.05  # provisional; la campana usa warmup_seconds_override
+    warmup_seconds: 0.1681  # F1-XDEV-002 (2026-09-20): calibrado con warmup_calibration.py sobre windows.csv de la campana compute_sweep (30/30 corridas)
     estimated_memory_bytes: 268435456
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -6099,7 +6099,7 @@ kernels:
     phase_label_hint: intermedio  # integracion trapezoidal con funcion transcendente; sin etiqueta previa
     size_variant: repfact200
     expected_runtime_seconds: 25
-    warmup_seconds: 0.05  # provisional; la campana usa warmup_seconds_override
+    warmup_seconds: 0.1357  # F1-XDEV-002 (2026-09-20): calibrado con warmup_calibration.py sobre windows.csv de la campana compute_sweep (30/30 corridas)
     estimated_memory_bytes: 268435456
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -6113,7 +6113,7 @@ kernels:
     phase_label_hint: intermedio  # calculo de pi por reduccion; sin etiqueta previa
     size_variant: repfact400
     expected_runtime_seconds: 25
-    warmup_seconds: 0.05  # provisional; la campana usa warmup_seconds_override
+    warmup_seconds: 0.1453  # F1-XDEV-002 (2026-09-20): calibrado con warmup_calibration.py sobre windows.csv de la campana compute_sweep (30/30 corridas)
     estimated_memory_bytes: 268435456
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -6127,7 +6127,7 @@ kernels:
     phase_label_hint: intermedio  # multiplicacion de matrices por teselas; sin etiqueta previa
     size_variant: repfact20
     expected_runtime_seconds: 25
-    warmup_seconds: 0.05  # provisional; la campana usa warmup_seconds_override
+    warmup_seconds: 0.1489  # F1-XDEV-002 (2026-09-20): calibrado con warmup_calibration.py sobre windows.csv de la campana compute_sweep (30/30 corridas)
     estimated_memory_bytes: 268435456
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
@@ -6155,7 +6155,7 @@ kernels:
     phase_label_hint: intermedio  # filtro FIR; sin etiqueta previa
     size_variant: repfact25
     expected_runtime_seconds: 25
-    warmup_seconds: 0.05  # provisional; la campana usa warmup_seconds_override
+    warmup_seconds: 0.1465  # F1-XDEV-002 (2026-09-20): calibrado con warmup_calibration.py sobre windows.csv de la campana compute_sweep (30/30 corridas)
     estimated_memory_bytes: 268435456
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
