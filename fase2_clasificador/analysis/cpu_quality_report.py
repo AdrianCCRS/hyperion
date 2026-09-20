@@ -815,6 +815,40 @@ def stage_selection(frame, families, fam_codes, args, out: Path):
     print(json.dumps(res, indent=1))
 
 
+def stage_external(frame, families, fam_codes, args, out: Path):
+    """Prueba externa: modelo final entrenado en las 24 familias, evaluado UNA vez en familias inéditas (`--external`)."""
+    ext = load(args.external)
+    ext["family"] = ext["kernel_ref"]
+    n0 = len(frame)
+    comb = pd.concat([frame, ext], ignore_index=True)
+    codes = pd.Categorical(comb["family"]).codes
+    y = comb["y"].to_numpy()
+    ext_fams = sorted(ext["family"].unique())
+    rows = []
+    per_seed = {f: [] for f in ext_fams}
+    for s_ in range(args.seeds):
+        sample = capped_sample(frame, args.cap, 1000 + s_)
+        test = np.arange(n0, len(comb))
+        p = fit_predict("xgb", INTER, "cell", comb, sample, test, 2000 + s_, codes)
+        for f in ext_fams:
+            m = (comb["family"].to_numpy()[test] == f)
+            pf, yf = p[m], y[test][m]
+            pred = pf >= 0.5
+            conf = np.maximum(pf, 1 - pf)
+            keep = conf >= FINAL_THRESHOLD
+            per_seed[f].append(dict(n=int(m.sum()), true_memory_share=float(yf.mean()),
+                                    acc=float((pred == yf).mean()),
+                                    coverage=float(keep.mean()),
+                                    sel_acc=float((pred[keep] == yf[keep]).mean()) if keep.any() else float("nan"),
+                                    pred_compute_share=float((~pred).mean())))
+    for f, v in per_seed.items():
+        rows.append({"family": f, **{k: round(float(np.nanmean([r[k] for r in v])), 4) for k in v[0]},
+                     "sd_acc": round(float(np.std([r["acc"] for r in v], ddof=1)), 4)})
+    t = pd.DataFrame(rows)
+    t.to_csv(out / "external_families.csv", index=False)
+    print(t.to_string(index=False), flush=True)
+
+
 def stage_adaptation(frame, families, fam_codes, args, out: Path):
     """Calibracion en linea: ¿cuanto mejora si los primeros n intervalos etiquetados (uncore) de cada bloque
     kernel x frecuencia de la familia nueva se anaden al entrenamiento? Se evalua sobre el resto de esa familia.
@@ -1236,7 +1270,7 @@ def stage_latency(frame, args, out: Path):
     (out / f"latency_{platform.node()}.json").write_text(json.dumps(res, indent=1))
 
 
-STAGES = ["inventory", "final_model", "metrics_suite", "matrix", "diagnostics", "protocols", "learning_curve", "smoothing", "nested_selective", "regularization", "importance", "knn_ceiling", "twins", "nested_optuna", "adaptation", "adaptation_phases", "temporal", "oi_proxy", "power_w", "selection", "cap_sensitivity", "threshold_nested", "latency"]
+STAGES = ["inventory", "final_model", "metrics_suite", "matrix", "diagnostics", "protocols", "learning_curve", "smoothing", "nested_selective", "regularization", "importance", "knn_ceiling", "twins", "nested_optuna", "adaptation", "adaptation_phases", "temporal", "oi_proxy", "power_w", "selection", "external", "cap_sensitivity", "threshold_nested", "latency"]
 
 
 def main() -> None:
@@ -1250,6 +1284,7 @@ def main() -> None:
     ap.add_argument("--lc-reps", type=int, default=3)
     ap.add_argument("--optuna-trials", type=int, default=15)
     ap.add_argument("--n-jobs", type=int, default=10)
+    ap.add_argument("--external", default=None, help="CSV de familias inéditas para la etapa external")
     args = ap.parse_args()
     out = Path(args.out); out.mkdir(parents=True, exist_ok=True)
     frame = load(args.source)
