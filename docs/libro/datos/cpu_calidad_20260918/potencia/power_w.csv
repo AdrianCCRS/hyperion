@@ -1,0 +1,3 @@
+variant,cell_balanced_acc,recall_compute,recall_memory,pooled_f1_macro,pooled_accuracy,mean_family_accuracy,sd_cell_bal
+inter_only,0.7096,0.5896,0.8249,0.7094,0.7478,0.7684,0.0073
+inter_plus_power_w,0.7048,0.5876,0.8244,0.7083,0.7468,0.773,0.0047
