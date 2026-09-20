@@ -1,4 +1,4 @@
-# Tamizaje corto (REF, F0, F8, 1 repeticion) de nueve candidatas compute-bound.
+# Tamizaje corto (REF, F0, F8, 3 repeticiones) de nueve candidatas compute-bound.
 # Decide cuales merecen el barrido completo de 10 niveles.
 campaign_id: pacca_cpu_compute_screen_20260919
 warmup_seconds_override: 0.0
@@ -24,8 +24,8 @@ frequency_levels:
 - {id: REF, mode: native_governor}
 - {id: F0, mode: fixed, fraction: 1.0}
 - {id: F8, mode: fixed, fraction: 0.0}
-repetitions_per_combination: 1
-baseline_repetition_indices: []
+repetitions_per_combination: 3
+baseline_repetition_indices: [1]
 target_windows_per_repetition: 50
 interval_ns: 1000000
 running_ratio_min: 0.90
