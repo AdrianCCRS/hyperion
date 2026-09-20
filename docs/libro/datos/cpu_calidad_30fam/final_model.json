@@ -15,7 +15,7 @@
   "stalls_mem_per_cache_miss",
   "log1p_mpki"
  ],
- "threshold": 0.9,
+ "threshold": 0.85,
  "seeds": 5,
  "eval_rows_mean": 1296981.0,
  "full_coverage": {
@@ -47,34 +47,34 @@
   }
  },
  "selective": {
-  "cell_balanced_acc": 0.7547501964499513,
-  "recall_compute": 0.785788272860652,
-  "recall_memory": 0.9471422884197669,
-  "pooled_f1_macro": 0.874347685197425,
-  "pooled_accuracy": 0.8821389455460377,
-  "mean_family_accuracy": 0.8824713133468689,
+  "cell_balanced_acc": 0.7500249539368049,
+  "recall_compute": 0.7712630674706781,
+  "recall_memory": 0.9304970993061086,
+  "pooled_f1_macro": 0.8579882787483264,
+  "pooled_accuracy": 0.8669955362093532,
+  "mean_family_accuracy": 0.8680412824936031,
   "confusion": {
-   "compute_as_compute": 273253.0,
-   "compute_as_memory": 74490.79999999997,
-   "memory_as_compute": 27244.999999999996,
-   "memory_as_memory": 488195.4000000001
+   "compute_as_compute": 292334.00000000006,
+   "compute_as_memory": 86698.80000000002,
+   "memory_as_compute": 39715.0,
+   "memory_as_memory": 531700.0000000001
   },
   "per_class": {
    "compute_bound": {
-    "precision": 0.9093338391603272,
-    "recall": 0.785788272860652,
-    "f1": 0.8430588709336547,
-    "support": 347743.8
+    "precision": 0.8803941586934458,
+    "recall": 0.7712630674706781,
+    "f1": 0.8222232660152461,
+    "support": 379032.80000000005
    },
    "memory_bound": {
-    "precision": 0.8676157332452795,
-    "recall": 0.9471422884197669,
-    "f1": 0.905636499461195,
-    "support": 515440.4000000001
+    "precision": 0.8598011509724792,
+    "recall": 0.9304970993061086,
+    "f1": 0.8937532914814066,
+    "support": 571415.0000000001
    }
   },
-  "coverage_pooled": 0.6655334195335166,
-  "coverage_mean_family": 0.708376113168648,
-  "coverage_min_family": 0.27739163616320645
+  "coverage_pooled": 0.7328155154161857,
+  "coverage_mean_family": 0.7687948391000533,
+  "coverage_min_family": 0.3851661319728083
  }
 }

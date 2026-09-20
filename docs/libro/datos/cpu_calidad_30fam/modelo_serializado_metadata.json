@@ -1,4 +1,3 @@
- 10 files changed, 128 insertions(+), 127 deletions(-)
 {
   "schema": "cpu_selective_candidate/1",
   "model": "xgboost",
@@ -25,7 +24,7 @@
   "training_weight": "equal total weight per observed family×class cell",
   "xgboost_scale_pos_weight": 1.0,
   "decision": {
-    "threshold": 0.9,
+    "threshold": 0.85,
     "automatic": "confidence >= threshold",
     "otherwise": "revisar"
   },
@@ -33,7 +32,9 @@
     "scheme": "LOFO interno",
     "f1_macro_mean": 0.6788380918094169,
     "coverage_mean": 0.671782828281682,
-    "minimum_coverage": 0.6
+    "minimum_coverage": 0.6,
+    "selected_threshold": 0.9,
+    "threshold_fixed_by_user": true
   },
   "n_rows": 42014,
   "n_families": 30,
