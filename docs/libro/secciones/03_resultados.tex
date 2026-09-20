@@ -5,9 +5,9 @@ Este capítulo organiza la evidencia por dispositivo. Primero se presentan los r
 \section{Resultados de CPU}
 \label{sec:resultados-cpu}
 
-El conjunto de CPU procede de dos campañas con el mismo protocolo de medición. La campaña \texttt{pacca\_cpu\_final\_20260913} cubrió 43 configuraciones de kernel en el nivel nativo y nueve niveles fijos de frecuencia, con tres repeticiones por combinación, y sus 1290 corridas finalizaron aceptadas. Una campaña posterior, \texttt{pacca\_cpu\_compute\_sweep\_20260919}, añadió seis cargas de cómputo denso (seis configuraciones más, con los mismos diez niveles y tres repeticiones, 180 corridas aceptadas) para reforzar la clase con menos representación. En total son 49 configuraciones y 1470 corridas. En la campaña final el warmup se calibró a partir de las ventanas medidas para cada kernel y el conjunto se reprocesó con esos valores; los transitorios fueron pequeños, con un máximo de 4.8\% de la duración de corrida y valores inferiores a 2\% en la mayoría de los kernels. En las seis cargas añadidas no se descartó un arranque calibrado, y solo se excluyen los transitorios de frecuencia mediante la validación por ventana.
+El conjunto de CPU procede de una campaña la cual cubrió 49 configuraciones de kernel en el nivel nativo y nueve niveles fijos de frecuencia, con tres repeticiones por combinación, y sus 1470 corridas finalizaron aceptadas. En esta campaña, el warmup se calibró a partir de las ventanas medidas para cada kernel y el conjunto se reprocesó con esos valores; los transitorios fueron pequeños, con un máximo de 4.8\% de la duración de corrida y valores inferiores a 2\% en la mayoría de los kernels. 
 
-La unidad que alimenta el conjunto de entrenamiento CPU es el intervalo real de \textit{uncore}, no la ventana de muestreo de aproximadamente 1~ms. La Tabla \ref{tab:cpu-cobertura-conjunto} resume la cobertura obtenida después del filtrado de calidad. De 1\,424\,531 intervalos procesados, 1\,309\,755 cumplieron simultáneamente los criterios de telemetría y de frecuencia. Los restantes se conservaron para auditoría, pero no recibieron una etiqueta de entrenamiento.
+La unidad que alimenta el conjunto de entrenamiento CPU es el intervalo real de \textit{uncore} ($\sim10$ ms), no la ventana de muestreo de aproximadamente 1~ms. La Tabla \ref{tab:cpu-cobertura-conjunto} resume la cobertura obtenida después del filtrado de calidad. De 1\,424\,531 intervalos procesados, 1\,309\,755 cumplieron simultáneamente los criterios de telemetría y de frecuencia. Los restantes se conservaron para auditoría, pero no recibieron una etiqueta de entrenamiento.
 
 \begin{table}[H]
 \centering
@@ -32,7 +32,7 @@ Intervalos \textit{memory\_bound} & 783\,473 \;(60.4\%) \\
 \subsection{Composición de fase por kernel}
 \label{sec:resultados-cpu-composicion}
 
-La Figura \ref{fig:cpu-composicion-clase-kernel} muestra que el conjunto cubre ambos regímenes y conserva configuraciones próximas al \textit{ridge}. Las cargas de cómputo denso, como \textit{dgemm\_n2048}, \textit{dual\_gemm\_cpu\_N2048}, \textit{rodinia\_lavamd\_omp}, \textit{rajaperf\_polybench\_3mm\_omp} y las seis cargas RAJAPerf añadidas (\textit{apps\_edge3d}, \textit{apps\_fir}, \textit{apps\_mass3dpa}, \textit{basic\_mat\_mat\_shared}, \textit{basic\_pi\_reduce} y \textit{basic\_trap\_int}), concentran sus intervalos en \textit{compute\_bound}. En el extremo opuesto, las configuraciones grandes de AXPY, FFT, stencil y SpMV permanecen \textit{memory\_bound}.
+La Figura \ref{fig:cpu-composicion-clase-kernel} muestra que el conjunto cubre ambos regímenes y conserva configuraciones próximas al \textit{ridge}. Las cargas de cómputo denso, como \textit{dgemm\_n2048}, \textit{dual\_gemm\_cpu\_N2048}, \textit{rodinia\_lavamd\_omp}, \textit{rajaperf\_polybench\_3mm\_omp} y seis cargas RAJAPerf (\textit{apps\_edge3d}, \textit{apps\_fir}, \textit{apps\_mass3dpa}, \textit{basic\_mat\_mat\_shared}, \textit{basic\_pi\_reduce} y \textit{basic\_trap\_int}), concentran sus intervalos en \textit{compute\_bound}. En el extremo opuesto, las configuraciones grandes de AXPY, FFT, stencil y SpMV permanecen \textit{memory\_bound}.
 
 La composición intermedia no se concentra en un solo algoritmo. \textit{npb\_bt}, \textit{npb\_lu}, \textit{cpu\_cholmod}, \textit{hpccg\_cpu\_N46}, las variantes \textit{phasic} y los tamaños dirigidos de FFT y Cholesky aportan intervalos de ambos regímenes. Estas configuraciones evitan que el conjunto quede limitado a ejemplos alejados del punto de inflexión.
 
@@ -351,7 +351,7 @@ Los intervalos de las métricas por volumen se calcularon con la primera semilla
 
 La asimetría entre clases también depende de cómo se promedia. Por volumen, la sensibilidad es 0.709 para \textit{compute-bound} y 0.850 para \textit{memory-bound}. Por celdas, con cada celda pesando igual, es 0.738 y 0.718: por volumen la clase compute es la más débil, por celdas no. La diferencia se debe a que las clases raras dentro de familias casi puras (celdas de menos de 30 intervalos) son en su mayoría \textit{memory-bound} y varias se reconocen mal, mientras que las familias con más intervalos \textit{compute-bound}, como \texttt{npb\_bt}, \texttt{phasic} y \texttt{cpu\_cholmod}, se clasifican con 0.37 a 0.59 de acierto en esa clase. La asimetría es real pero cambia de signo según el promedio.
 
-\paragraph{Límite de la exactitud por celda.} La métrica asigna el mismo peso a una celda de 5 intervalos que a una de 300\,000. Diez de las 56 celdas tienen menos de 100 intervalos evaluados: \textit{compute-bound} de \texttt{cpu\_lulesh} (5) y de \texttt{cpu\_hpcg} (15), \textit{memory-bound} de \texttt{dual\_gemm} (9), de \texttt{rodinia\_lavamd} (15) y de las seis familias de cómputo añadidas (entre 6 y 25 intervalos cada una). Suman 125 intervalos y pesan, sin embargo, 17.9\% de la métrica. Excluirlas subiría la métrica de 0.727 a 0.785. Se conservan por dos razones: retirar celdas después de ver que fallan sería seleccionar datos por el resultado, y esos casos son informativos, porque muestran que las clases raras dentro de una familia casi pura no se reconocen. Pero implican que parte de la incertidumbre de la métrica proviene de celdas muy pequeñas, y que el intervalo de confianza debe leerse con esa cautela.
+\paragraph{Límite de la exactitud por celda.} La métrica asigna el mismo peso a una celda de 5 intervalos que a una de 300\,000. Diez de las 56 celdas tienen menos de 100 intervalos evaluados: \textit{compute-bound} de \texttt{cpu\_lulesh} (5) y de \texttt{cpu\_hpcg} (15), \textit{memory-bound} de \texttt{dual\_gemm} (9), de \texttt{rodinia\_lavamd} (15) y de las seis familias de cómputo denso de RAJAPerf (entre 6 y 25 intervalos cada una). Suman 125 intervalos y pesan, sin embargo, 17.9\% de la métrica. Excluirlas subiría la métrica de 0.727 a 0.785. Se conservan por dos razones: retirar celdas después de ver que fallan sería seleccionar datos por el resultado, y esos casos son informativos, porque muestran que las clases raras dentro de una familia casi pura no se reconocen. Pero implican que parte de la incertidumbre de la métrica proviene de celdas muy pequeñas, y que el intervalo de confianza debe leerse con esa cautela.
 
 \paragraph{Incertidumbre.} Se informan dos fuentes. La semilla del submuestreo se varió cinco veces. La composición del catálogo se evaluó mediante remuestreo con reemplazo de las 30 familias, con 2000 réplicas. Esta segunda fuente domina y es la que debe usarse al comparar configuraciones: con 30 familias, cualquier diferencia menor que 0.03 es indistinguible del ruido.
 
@@ -549,7 +549,7 @@ La configuración congelada es la de la Tabla \ref{tab:cpu-configuracion-final}.
 Modelo & XGBoost, 100 árboles, profundidad máxima 6, objetivo \texttt{binary:logistic} \\
 Entradas & 12 variables PMU de la Tabla \ref{tab:cpu-features-modelo} \\
 Ponderación & Peso total igual por celda de familia y clase, ecuación \eqref{eq:peso-familia-clase}, con \texttt{scale\_pos\_weight}${}=1$ \\
-Salida & Probabilidad de \textit{memory-bound}; clase con confianza $\geq 0.85$ y \textit{revisar} por debajo \\
+Salida & Probabilidad de \textit{memory-bound}; clase con confianza $\geq 0.90$ y \textit{revisar} por debajo \\
 Semilla & 20260918 \\
 \bottomrule
 \end{tabular}
@@ -575,7 +575,7 @@ Si el modelo debe emitir siempre una clase, la exactitud balanceada por celda es
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.94\textwidth]{figuras/fig_cpu_matriz_confusion_20260919.png}
-    \caption[Matrices de confusión del clasificador CPU]{Matrices de confusión del modelo final. A la izquierda, cuando se obliga a emitir una clase en todos los intervalos; a la derecha, solo sobre los intervalos con confianza mayor o igual a 0.85. El porcentaje está calculado por fila, es decir, respecto de la clase real. Nota. Elaboración propia.}
+    \caption[Matrices de confusión del clasificador CPU]{Matrices de confusión del modelo final. A la izquierda, cuando se obliga a emitir una clase en todos los intervalos; a la derecha, solo sobre los intervalos con confianza mayor o igual a 0.90. El porcentaje está calculado por fila, es decir, respecto de la clase real. Nota. Elaboración propia.}
     \label{fig:cpu-matriz-confusion}
 \end{figure}
 
@@ -591,36 +591,36 @@ El resultado no es uniforme entre familias (Tabla \ref{tab:cpu-resultado-familia
 \textbf{Familia} & \textbf{Intervalos} & \textbf{Frac. memoria} & \textbf{Exactitud} & \textbf{Cobertura} & \textbf{Exact. cubierta} \\
 \midrule
 \endhead
-\texttt{dgemm} & 10\,938 & 0.000 & 1.000 & 1.000 & 1.000 \\
-\texttt{rajaperf\_basic\_trap\_int} & 18\,125 & 0.001 & 1.000 & 0.994 & 1.000 \\
-\texttt{dual\_gemm} & 5990 & 0.002 & 0.999 & 1.000 & 0.999 \\
-\texttt{rodinia\_lavamd} & 31\,659 & 0.001 & 0.993 & 0.962 & 0.997 \\
-\texttt{rajaperf\_basic\_pi\_reduce} & 16\,559 & 0.001 & 0.993 & 0.977 & 0.999 \\
-\texttt{dual\_spmv} & 7100 & 0.431 & 0.990 & 0.908 & 1.000 \\
-\texttt{rajaperf\_basic\_mat\_mat\_shared} & 24\,916 & 0.001 & 0.990 & 0.604 & 0.999 \\
-\texttt{dual\_stencil} & 17\,899 & 0.447 & 0.990 & 0.906 & 0.997 \\
-\texttt{rajaperf\_apps\_fir} & 18\,124 & 0.001 & 0.984 & 0.952 & 1.000 \\
-\texttt{rajaperf\_apps\_mass3dpa} & 21\,114 & 0.000 & 0.981 & 0.844 & 1.000 \\
-\texttt{cpu\_hpcg} & 32\,245 & 1.000 & 0.966 & 0.894 & 0.992 \\
-\texttt{npb\_cg} & 25\,770 & 1.000 & 0.964 & 0.809 & 0.996 \\
-\texttt{dual\_fft} & 16\,997 & 0.574 & 0.958 & 0.851 & 0.994 \\
-\texttt{rajaperf\_polybench} & 64\,720 & 0.175 & 0.949 & 0.938 & 0.959 \\
-\texttt{dual\_cholesky} & 14\,543 & 0.349 & 0.931 & 0.796 & 0.978 \\
-\texttt{cpu\_lulesh} & 302\,140 & 1.000 & 0.912 & 0.737 & 0.976 \\
-\texttt{hpccg\_cpu\_N46} & 10\,666 & 0.178 & 0.844 & 0.822 & 0.910 \\
-\texttt{rajaperf\_basic} & 5992 & 0.980 & 0.825 & 0.658 & 0.953 \\
-\texttt{cpu\_cholmod} & 166\,314 & 0.667 & 0.810 & 0.798 & 0.869 \\
-\texttt{rajaperf\_stream} & 18\,224 & 0.990 & 0.738 & 0.595 & 0.934 \\
-\texttt{dual\_axpy} & 12\,773 & 0.591 & 0.726 & 0.835 & 0.785 \\
-\texttt{npb\_lu} & 70\,757 & 0.701 & 0.677 & 0.385 & 0.832 \\
-\texttt{gap\_pr} & 23\,542 & 1.000 & 0.624 & 0.629 & 0.714 \\
-\texttt{phasic} & 131\,923 & 0.324 & 0.617 & 0.906 & 0.639 \\
-\texttt{rajaperf\_apps\_edge3d} & 32\,761 & 0.000 & 0.600 & 0.424 & 0.666 \\
-\texttt{npb\_sp} & 56\,273 & 0.994 & 0.582 & 0.526 & 0.750 \\
-\texttt{npb\_mg} & 1778 & 1.000 & 0.551 & 0.569 & 0.593 \\
-\texttt{rajaperf\_lcals} & 12\,855 & 0.992 & 0.536 & 0.550 & 0.703 \\
-\texttt{npb\_bt} & 108\,605 & 0.370 & 0.515 & 0.411 & 0.534 \\
-\texttt{npb\_ft} & 15\,679 & 0.963 & 0.279 & 0.784 & 0.265 \\
+\texttt{dgemm} & 10\,938 & 0.000 & 1.000 & 0.999 & 1.000 \\
+\texttt{rajaperf\_basic\_trap\_int} & 18\,125 & 0.001 & 1.000 & 0.991 & 1.000 \\
+\texttt{dual\_gemm} & 5990 & 0.002 & 0.999 & 1.000 & 1.000 \\
+\texttt{rodinia\_lavamd} & 31\,659 & 0.001 & 0.993 & 0.935 & 0.997 \\
+\texttt{rajaperf\_basic\_pi\_reduce} & 16\,559 & 0.001 & 0.993 & 0.969 & 1.000 \\
+\texttt{dual\_spmv} & 7100 & 0.431 & 0.990 & 0.895 & 1.000 \\
+\texttt{rajaperf\_basic\_mat\_mat\_shared} & 24\,916 & 0.001 & 0.990 & 0.503 & 0.997 \\
+\texttt{dual\_stencil} & 17\,899 & 0.447 & 0.990 & 0.843 & 0.998 \\
+\texttt{rajaperf\_apps\_fir} & 18\,124 & 0.001 & 0.984 & 0.938 & 1.000 \\
+\texttt{rajaperf\_apps\_mass3dpa} & 21\,114 & 0.000 & 0.981 & 0.718 & 1.000 \\
+\texttt{cpu\_hpcg} & 32\,245 & 1.000 & 0.966 & 0.853 & 0.996 \\
+\texttt{npb\_cg} & 25\,770 & 1.000 & 0.964 & 0.711 & 0.999 \\
+\texttt{dual\_fft} & 16\,997 & 0.574 & 0.958 & 0.814 & 0.997 \\
+\texttt{rajaperf\_polybench} & 64\,720 & 0.175 & 0.949 & 0.909 & 0.959 \\
+\texttt{dual\_cholesky} & 14\,543 & 0.349 & 0.931 & 0.739 & 0.987 \\
+\texttt{cpu\_lulesh} & 302\,140 & 1.000 & 0.912 & 0.659 & 0.989 \\
+\texttt{hpccg\_cpu\_N46} & 10\,666 & 0.178 & 0.844 & 0.733 & 0.928 \\
+\texttt{rajaperf\_basic} & 5992 & 0.980 & 0.825 & 0.592 & 0.961 \\
+\texttt{cpu\_cholmod} & 166\,314 & 0.667 & 0.810 & 0.743 & 0.886 \\
+\texttt{rajaperf\_stream} & 18\,224 & 0.990 & 0.738 & 0.525 & 0.976 \\
+\texttt{dual\_axpy} & 12\,773 & 0.591 & 0.726 & 0.793 & 0.810 \\
+\texttt{npb\_lu} & 70\,757 & 0.701 & 0.677 & 0.277 & 0.894 \\
+\texttt{gap\_pr} & 23\,542 & 1.000 & 0.624 & 0.574 & 0.748 \\
+\texttt{phasic} & 131\,923 & 0.324 & 0.617 & 0.878 & 0.649 \\
+\texttt{rajaperf\_apps\_edge3d} & 32\,761 & 0.000 & 0.600 & 0.310 & 0.656 \\
+\texttt{npb\_sp} & 56\,273 & 0.994 & 0.582 & 0.421 & 0.817 \\
+\texttt{npb\_mg} & 1778 & 1.000 & 0.551 & 0.462 & 0.623 \\
+\texttt{rajaperf\_lcals} & 12\,855 & 0.992 & 0.536 & 0.437 & 0.801 \\
+\texttt{npb\_bt} & 108\,605 & 0.370 & 0.515 & 0.304 & 0.519 \\
+\texttt{npb\_ft} & 15\,679 & 0.963 & 0.279 & 0.728 & 0.266 \\
 \bottomrule
 \end{longtable}
 
@@ -631,7 +631,7 @@ El resultado no es uniforme entre familias (Tabla \ref{tab:cpu-resultado-familia
     \label{fig:cpu-resultado-familia}
 \end{figure}
 
-Por nivel de frecuencia el resultado va de 0.872 en el nivel nativo a 0.749 en F7 (Tabla \ref{tab:cpu-resultado-frecuencia}) y decrece al bajar el reloj. En los niveles bajos el \textit{ridge} desplaza más intervalos hacia la clase de cómputo (la fracción \textit{memory-bound} baja de 0.71 a 0.55) y la cobertura de la decisión automática cae de 0.83 a 0.67, lo que es consistente con que allí más intervalos quedan cerca de la frontera entre clases.
+Por nivel de frecuencia el resultado va de 0.872 en el nivel nativo a 0.749 en F7 (Tabla \ref{tab:cpu-resultado-frecuencia}) y decrece al bajar el reloj. En los niveles bajos el \textit{ridge} desplaza más intervalos hacia la clase de cómputo (la fracción \textit{memory-bound} baja de 0.71 a 0.55) y la cobertura de la decisión automática cae de 0.79 a 0.59, lo que es consistente con que allí más intervalos quedan cerca de la frontera entre clases.
 
 \begin{table}[H]
 \centering
@@ -642,16 +642,16 @@ Por nivel de frecuencia el resultado va de 0.872 en el nivel nativo a 0.749 en F
 \toprule
 \textbf{Nivel} & \textbf{Intervalos} & \textbf{Frac. memoria} & \textbf{Exactitud} & \textbf{Cobertura} \\
 \midrule
-REF & 94\,376 & 0.710 & 0.872 & 0.833 \\
-F0 & 85\,343 & 0.686 & 0.863 & 0.828 \\
-F1 & 89\,926 & 0.683 & 0.839 & 0.817 \\
-F2 & 95\,825 & 0.665 & 0.834 & 0.801 \\
-F3 & 103\,128 & 0.642 & 0.816 & 0.768 \\
-F4 & 113\,974 & 0.590 & 0.771 & 0.710 \\
-F5 & 129\,321 & 0.583 & 0.771 & 0.714 \\
-F6 & 152\,766 & 0.566 & 0.764 & 0.717 \\
-F7 & 182\,126 & 0.550 & 0.749 & 0.670 \\
-F8 & 250\,196 & 0.549 & 0.773 & 0.667 \\
+REF & 94\,376 & 0.710 & 0.872 & 0.793 \\
+F0 & 85\,343 & 0.686 & 0.863 & 0.788 \\
+F1 & 89\,926 & 0.683 & 0.839 & 0.766 \\
+F2 & 95\,825 & 0.665 & 0.834 & 0.734 \\
+F3 & 103\,128 & 0.642 & 0.816 & 0.699 \\
+F4 & 113\,974 & 0.590 & 0.771 & 0.646 \\
+F5 & 129\,321 & 0.583 & 0.771 & 0.630 \\
+F6 & 152\,766 & 0.566 & 0.764 & 0.648 \\
+F7 & 182\,126 & 0.550 & 0.749 & 0.598 \\
+F8 & 250\,196 & 0.549 & 0.773 & 0.587 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -659,27 +659,27 @@ F8 & 250\,196 & 0.549 & 0.773 & 0.667 \\
 \subsubsection{Decisión selectiva y costo de inferencia}
 \label{sec:resultados-cpu-selectiva}
 
-El modelo puede abstenerse cuando su confianza, definida como $\max(p,1-p)$, no alcanza un umbral. El procedimiento de selección, un LOFO interno sobre las 29 familias de cada pliegue que exige una cobertura media mínima de 0.60 y nunca observa la familia evaluada, propuso 0.90 con el conjunto de 30 familias. Se congeló 0.85 en su lugar, y conviene explicar por qué. La confianza de un intervalo es $\max(p,1-p)$, y un umbral más bajo acepta más intervalos: con 0.85 el modelo decide también sobre los intervalos de confianza entre 0.85 y 0.90, que con 0.90 pasan a \textit{revisar}. Esa franja es el 6.7\% del total y su exactitud es menor que la del resto (alrededor de 0.7), de modo que subir el umbral a 0.90 eleva la exactitud sobre lo decidido, de 0.750 a 0.755 en la métrica por celda y de 0.858 a 0.874 en la F1 macro agrupada, a costa de bajar la cobertura de 0.733 a 0.666. La mejora en la métrica por celda queda dentro del ruido (Sección \ref{sec:resultados-cpu-metricas}), mientras que la pérdida de cobertura es de siete puntos, de modo que 0.85 conserva prácticamente el mismo desempeño sobre lo decidido con más intervalos resueltos sin intervención. Es una decisión posterior al resultado y se declara como tal; el criterio de selección con una rejilla ampliada hasta 0.98 y elección anidada por pliegue produce prácticamente lo mismo, 0.761 sobre lo decidido con 0.72 de cobertura, de modo que congelar un único valor no infla el resultado.
+El modelo puede abstenerse cuando su confianza, definida como $\max(p,1-p)$, no alcanza un umbral. El umbral de 0.90 se eligió con un LOFO interno sobre las 29 familias de cada pliegue, exigiendo una cobertura media mínima de 0.60, y nunca observando la familia evaluada. Elegirlo de forma anidada, con un valor distinto por pliegue y una rejilla ampliada hasta 0.98, produce prácticamente lo mismo, 0.761 sobre lo decidido con 0.72 de cobertura, de modo que congelar un único valor no infla el resultado.
 
-Con ese umbral el modelo decide sobre el 73.3\% de los intervalos y responde \textit{revisar} en el resto. Sobre lo que decide, la exactitud balanceada por celda sube de 0.727 a 0.750, la F1 macro agrupada de 0.782 a 0.858 y la sensibilidad de \textit{compute-bound} de 0.709 a 0.771 (Tabla \ref{tab:cpu-selectiva}). La ganancia es real pero modesta, y conviene dimensionarla: abstenerse al azar en una proporción equivalente de intervalos deja la exactitud balanceada en 0.732, es decir, sin cambio, de modo que la mejora proviene efectivamente de que la confianza identifica casos difíciles y no del simple hecho de decidir menos.
+Con ese umbral el modelo decide sobre el 66.6\% de los intervalos y responde \textit{revisar} en el resto. Sobre lo que decide, la exactitud balanceada por celda sube de 0.727 a 0.755, la F1 macro agrupada de 0.782 a 0.874 y la sensibilidad de \textit{compute-bound} de 0.709 a 0.786 (Tabla \ref{tab:cpu-selectiva}). La ganancia es real pero modesta, y conviene dimensionarla: abstenerse al azar en una proporción equivalente de intervalos deja la exactitud balanceada en 0.724, es decir, sin cambio, de modo que la mejora proviene efectivamente de que la confianza identifica casos difíciles y no del simple hecho de decidir menos.
 
 \begin{table}[H]
 \centering
-\caption{Efecto de la decisión selectiva con umbral de confianza 0.85.}
+\caption{Efecto de la decisión selectiva con umbral de confianza 0.90.}
 \label{tab:cpu-selectiva}
 \small
 \begin{tabular}{@{}lrr@{}}
 \toprule
-\textbf{Medida} & \textbf{Sin abstención} & \textbf{Con umbral 0.85} \\
+\textbf{Medida} & \textbf{Sin abstención} & \textbf{Con umbral 0.90} \\
 \midrule
-Cobertura & 1.000 & 0.733 \\
-Cobertura media por familia & 1.000 & 0.769 \\
-Cobertura de la familia peor cubierta & 1.000 & 0.385 \\
-Exactitud balanceada por celda & 0.727 & 0.750 \\
-F1 macro agrupada & 0.782 & 0.858 \\
-Exactitud & 0.794 & 0.867 \\
-Sensibilidad \textit{compute-bound} & 0.709 & 0.771 \\
-Sensibilidad \textit{memory-bound} & 0.850 & 0.930 \\
+Cobertura & 1.000 & 0.666 \\
+Cobertura media por familia & 1.000 & 0.708 \\
+Cobertura de la familia peor cubierta & 1.000 & 0.277 \\
+Exactitud balanceada por celda & 0.727 & 0.755 \\
+F1 macro agrupada & 0.782 & 0.874 \\
+Exactitud & 0.794 & 0.882 \\
+Sensibilidad \textit{compute-bound} & 0.709 & 0.786 \\
+Sensibilidad \textit{memory-bound} & 0.850 & 0.947 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -749,20 +749,20 @@ Como referencia de límite superior, se evaluó el mismo modelo con la intensida
 \subsubsection{Síntesis del clasificador CPU}
 \label{sec:resultados-cpu-sintesis}
 
-El modelo disponible es un XGBoost de 100 árboles y profundidad 6 que recibe 12 tasas derivadas de los contadores de rendimiento y la frecuencia observada, se ajusta dando el mismo peso total a cada combinación de familia y clase, y responde \textit{compute-bound}, \textit{memory-bound} o \textit{revisar} según su confianza supere o no 0.85. Ante un algoritmo que nunca vio clasifica correctamente el 72.7\% de los casos en la métrica balanceada por celda, cifra que sube a 75.0\% si se le permite abstenerse en el 26.7\% de los intervalos. La referencia sin capacidad de discriminar queda en 0.464 y la inferencia cuesta 383~\textmu s en el peor percentil medido.
+El modelo disponible es un XGBoost de 100 árboles y profundidad 6 que recibe 12 tasas derivadas de los contadores de rendimiento y la frecuencia observada, se ajusta dando el mismo peso total a cada combinación de familia y clase, y responde \textit{compute-bound}, \textit{memory-bound} o \textit{revisar} según su confianza supere o no 0.90. Ante un algoritmo que nunca vio clasifica correctamente el 72.7\% de los casos en la métrica balanceada por celda, cifra que sube a 75.5\% si se le permite abstenerse en el 33.4\% de los intervalos. La referencia sin capacidad de discriminar queda en 0.464 y la inferencia cuesta 383~\textmu s en el peor percentil medido.
 
 Tres decisiones de diseño resultaron indiferentes y conviene dejarlo escrito, porque evita atribuir al modelo un mérito que no tiene: el algoritmo de aprendizaje, el tamaño del vector de entrada y los hiperparámetros. Elegir Random Forest en lugar de XGBoost, usar seis variables en lugar de doce o ajustar los hiperparámetros con Optuna mueve el resultado menos de lo que lo mueve cambiar de conjunto de familias. La comparación entre seis y doce variables se midió de forma pareada, con el mismo protocolo y remuestreando familias: la exactitud balanceada por celda es 0.738 con seis y 0.727 con doce, una diferencia de 0.011 cuyo intervalo de confianza del 95\% ([$-0.028$, $+0.003$]) incluye el cero, y la latencia de inferencia de una fila es idéntica (mediana de 232~\textmu s en ambos casos, percentil 99 de 0.38~ms). Al no existir diferencia medible ni en error ni en costo, se conservó XGBoost con doce variables, que es la configuración ya serializada y auditada, y cuyo costo de inferencia es dos órdenes de magnitud menor que el de los bosques.
 
 Lo que sí gobierna el resultado es la diversidad del catálogo frente a la información que contienen los contadores. La etiqueta se define por FLOPs sobre bytes de DRAM, mientras que el modelo observa fallos de caché, ciclos detenidos e instrucciones retiradas, que no guardan una relación fija con aquella razón cuando cambia el algoritmo. De ahí que existan familias con perfiles casi idénticos y clases opuestas, que un clasificador sin ajuste llegue casi tan lejos como el modelo final y que la mejora disponible al añadir familias sea de unas cuatro centésimas por duplicación del catálogo.
 
-Quedan cuatro líneas de trabajo, en orden de rendimiento esperado. La primera es la calibración en línea: si el agente puede medir la etiqueta física de unos pocos intervalos de la carga en ejecución, e incorporarlos al ajuste, la exactitud balanceada sobre bloques con cambios de fase reales pasa de 0.673 a 0.849 etiquetando el 2.6\% de los intervalos. Es, con diferencia, la palanca más grande medida hasta ahora, y convierte la salida \textit{revisar} en una acción concreta en lugar de una espera. La segunda es ampliar el catálogo con familias elegidas por su distancia a los perfiles ya cubiertos, en lugar de por volumen, y reservar algunas sin usarlas en ninguna decisión, para disponer de una prueba externa sellada. Las seis familias de cómputo denso añadidas provienen de una misma suite, de modo que su independencia entre sí es menor que la de familias de suites distintas. La tercera es medir la latencia dentro del agente y no en el intérprete, que es el criterio que falta para cerrar formalmente la elección entre la variante de seis y la de doce variables. La cuarta es la política de frecuencia de menor EDP, que no depende del clasificador sino del trabajo de la Fase 4.
+Quedan cuatro líneas de trabajo, en orden de rendimiento esperado. La primera es la calibración en línea: si el agente puede medir la etiqueta física de unos pocos intervalos de la carga en ejecución, e incorporarlos al ajuste, la exactitud balanceada sobre bloques con cambios de fase reales pasa de 0.673 a 0.849 etiquetando el 2.6\% de los intervalos. Es, con diferencia, la palanca más grande medida hasta ahora, y convierte la salida \textit{revisar} en una acción concreta en lugar de una espera. La segunda es ampliar el catálogo con familias elegidas por su distancia a los perfiles ya cubiertos, en lugar de por volumen, y reservar algunas sin usarlas en ninguna decisión, para disponer de una prueba externa sellada. Las seis familias de cómputo denso de RAJAPerf provienen de una misma suite, de modo que su independencia entre sí es menor que la de familias de suites distintas. La tercera es medir la latencia dentro del agente y no en el intérprete, que es el criterio que falta para cerrar formalmente la elección entre la variante de seis y la de doce variables. La cuarta es la política de frecuencia de menor EDP, que no depende del clasificador sino del trabajo de la Fase 4.
 
 Los datos, las figuras y las tablas de esta sección se reproducen con \path{fase2_clasificador/analysis/cpu_quality_report.py} y \path{docs/libro/scripts/generar_figuras_modelo_cpu.py}, sobre los artefactos depositados en \path{docs/libro/datos/cpu_calidad_30fam}.
 
 \subsection{Política de frecuencia por clase en CPU}
 \label{sec:resultados-cpu-politica}
 
-La tabla clase--frecuencia de menor producto energía--retardo se derivó de las dos campañas con la energía y el tiempo de cada corrida completa. Toda corrida de un mismo kernel ejecuta el mismo trabajo en los diez niveles, de modo que el producto energía--retardo (energía de paquete más DRAM, multiplicada por el tiempo) es comparable entre niveles. Para cada clase se tomó la mediana de las tres repeticiones de cada kernel y se comparó cada nivel fijo con la referencia nativa mediante una prueba de Wilcoxon pareada por kernel. Un nivel solo se adopta si mejora el producto agregado de forma significativa. La clase de cada kernel es la mayoritaria entre sus intervalos etiquetados; se excluyen las sondas de calibración y las cargas de duración fija.
+La tabla clase--frecuencia de menor producto energía--retardo se derivó de la campaña con la energía y el tiempo de cada corrida completa. Toda corrida de un mismo kernel ejecuta el mismo trabajo en los diez niveles, de modo que el producto energía--retardo (energía de paquete más DRAM, multiplicada por el tiempo) es comparable entre niveles. Para cada clase se tomó la mediana de las tres repeticiones de cada kernel y se comparó cada nivel fijo con la referencia nativa mediante una prueba de Wilcoxon pareada por kernel. Un nivel solo se adopta si mejora el producto agregado de forma significativa. La clase de cada kernel es la mayoritaria entre sus intervalos etiquetados; se excluyen las sondas de calibración y las cargas de duración fija.
 
 El resultado es \textit{no actuar} en ambas clases (22 kernels compute y 28 memory, estos últimos con \texttt{ptrchase}, medido solo para esta política por ser un recorrido de memoria por latencia fuera del dominio del clasificador). En compute, el nivel más alto queda 0.3\% por debajo de la referencia y el más bajo multiplica el producto por 8.5; de F1 a F8 la diferencia es significativa (p < 0.03), pero desfavorable. En memory, ningún nivel bajo mejora el producto agregado: de F3 a F8 la diferencia es significativa, también en sentido desfavorable. \texttt{ptrchase}, con $\alpha=0.22$, apenas gana 1.0\% en F1. Solo cinco kernels del tipo STREAM, con exponente de tiempo $\alpha$ entre 0.18 y 0.22, ganan entre 4 y 12\% en los niveles F1 a F3. Aquí $\alpha$ es la pendiente negativa de $\log T$ frente a $\log f$.
 
