@@ -1,0 +1,8 @@
+{
+ "cell_balanced_acc": 0.9989,
+ "recall_compute": 0.9996,
+ "recall_memory": 0.9995,
+ "pooled_f1_macro": 0.9996,
+ "pooled_accuracy": 0.9996,
+ "mean_family_accuracy": 0.9998
+}

@@ -1,0 +1,18 @@
+{
+ "criterion": "exactitud balanceada por celda sobre lo decidido, cobertura media por celda >= minimo",
+ "min_cell_coverage": 0.6,
+ "seeds": 5,
+ "chosen": 0.9,
+ "at_chosen": {
+  "cell_balanced_acc": 0.752280542403661,
+  "cell_coverage": 0.648573328812723
+ },
+ "features": [
+  "ipc",
+  "mpki",
+  "cache_miss_rate",
+  "stall_mem_ratio",
+  "ips",
+  "freq_khz_observed"
+ ]
+}

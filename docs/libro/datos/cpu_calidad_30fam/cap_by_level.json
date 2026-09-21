@@ -1,0 +1,16 @@
+{
+ "per_level_cap": 100,
+ "n_levels": 10,
+ "cell_bal": {
+  "simple": 0.728235343621259,
+  "by_level": 0.7248209112536886
+ },
+ "diff_by_level_minus_simple": {
+  "point": -0.0034144323675703303,
+  "ci95": [
+   -0.02644660127481433,
+   0.016878991717106828
+  ]
+ },
+ "simple_cap_level_ratio_median": 4.056603773584905,
+ "cells_where_cap_acts": 205

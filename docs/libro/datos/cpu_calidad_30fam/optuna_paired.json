@@ -1,0 +1,25 @@
+{
+ "xgboost": {
+  "tuned_mean": 0.74791,
+  "fixed_mean_over_seeds": 0.7285147497410256,
+  "diff_mean": 0.019395250258974515,
+  "ci95": [
+   -0.006944877467187693,
+   0.04968383137601588
+  ],
+  "families_improved": 14,
+  "families_worse": 8,
+  "families": 30
+ },
+ "logistic": {
+  "tuned_mean": 0.6834799999999999,
+  "fixed_mean_over_seeds": 0.6813659064403352,
+  "diff_mean": 0.0021140935596648423,
+  "ci95": [
+   0.0003588176943700354,
+   0.004152460719110763
+  ],
+  "families_improved": 5,
+  "families_worse": 2,
+  "families": 30
+ }

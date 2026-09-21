@@ -1,0 +1,24 @@
+{
+ "n_intervals": 1309755,
+ "features": [
+  "ipc",
+  "mpki",
+  "cache_miss_rate",
+  "stall_mem_ratio",
+  "ips",
+  "freq_khz_observed"
+ ],
+ "pair_threshold": 0.85,
+ "vif_alert": 10.0,
+ "pairs_above_threshold": 0,
+ "max_abs_pair": {
+  "a": "ipc",
+  "b": "stall_mem_ratio",
+  "pearson": -0.7368812307380818,
+  "spearman": -0.7410987938975608,
+  "max_abs": 0.7410987938975608
+ },
+ "max_vif_pearson": 5.54539934182737,
+ "max_vif_spearman": 7.275480892499961,
+ "vif_above_alert": 0
+}
