@@ -23,6 +23,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from joblib import Parallel, delayed
+from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
@@ -44,7 +45,10 @@ BASE_NOFREQ = [f for f in BASE if f != "freq_khz_observed"]
 # Vector final: las seis tasas base. El de doce (INTER) se conserva solo como referencia
 # de la comparacion 6 vs 12 (stage_selection y filas *_inter de CONFIGS).
 CAND = BASE
-ALL_FEATURES = sorted(set(INTER) | set(LEGACY))
+# Filas con columnas definidas para el vector final. Las seis variables extra de INTER pueden quedar
+# indefinidas (stalls_mem_per_cache_miss con cero fallos); esas filas siguen siendo evaluables por el
+# modelo final y por eso no se descartan: las referencias de 12 variables las imputan con la mediana.
+ALL_FEATURES = sorted(set(CAND) | set(LEGACY))
 # Restricciones monotonas fijadas a priori (hipotesis fisica, no ajustadas):
 # mas fallos/stalls de memoria -> mas probable memory_bound (+1).
 MONO = {"mpki": 1, "cache_miss_rate": 1, "stall_mem_ratio": 1, "log1p_mpki": 1,
@@ -91,9 +95,9 @@ def make_model(name: str, seed: int, y_train: np.ndarray, features: list[str]):
     if name == "stump":
         return DecisionTreeClassifier(max_depth=1, random_state=seed)
     if name == "logistic":
-        return make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000, random_state=seed))
+        return make_pipeline(SimpleImputer(strategy="median"), StandardScaler(), LogisticRegression(max_iter=2000, random_state=seed))
     if name == "logistic_class_only":
-        return make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000, class_weight="balanced", random_state=seed))
+        return make_pipeline(SimpleImputer(strategy="median"), StandardScaler(), LogisticRegression(max_iter=2000, class_weight="balanced", random_state=seed))
     if name == "rf":
         return RandomForestClassifier(n_estimators=100, max_depth=12, n_jobs=1, random_state=seed)
     if name == "et":
@@ -1034,7 +1038,7 @@ def stage_nested_optuna(frame, families, fam_codes, args, out: Path):
     def build(kind, params):
         if kind == "xgboost":
             return XGBClassifier(n_jobs=1, random_state=0, eval_metric="logloss", verbosity=0, scale_pos_weight=1.0, **params)
-        return make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000, random_state=0, **params))
+        return make_pipeline(SimpleImputer(strategy="median"), StandardScaler(), LogisticRegression(max_iter=2000, random_state=0, **params))
 
     def space(kind, trial):
         if kind == "xgboost":
@@ -1349,7 +1353,8 @@ def stage_inventory(frame, families, args, out: Path):
     inv["frequency_mean_khz_by_level"] = frame.groupby("freq_level_id")["freq_khz_observed"].mean().round(0).to_dict()
     # ¿cuanto separa cada variable por si sola? AUC univariado agrupado (referencia)
     from sklearn.metrics import roc_auc_score
-    inv["univariate_auc_pooled"] = {f: round(float(roc_auc_score(frame["y"], frame[f])), 4) for f in INTER}
+    inv["univariate_auc_pooled"] = {f: round(float(roc_auc_score(frame.loc[frame[f].notna(), "y"], frame[f].dropna())), 4)
+                                    for f in INTER}
     # que se pierde al retirar filas con NaN (miss=0): son casi siempre compute
     nan_mask = frame.attrs.get("dropped_nan_rows", 0)
     (out / "inventory.json").write_text(json.dumps(inv, indent=1))

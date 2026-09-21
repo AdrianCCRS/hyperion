@@ -27,9 +27,9 @@ NOMBRES = {
     "majority": "Regla mayoritaria", "stump_base": "Árbol de profundidad 1",
     "logistic_base": "Regresión logística (6 var.)", "logistic_inter": "Regresión logística (12 var.)",
     "xgb_base": "XGBoost (6 var.)", "xgb_inter": "XGBoost (12 var.)",
-    "rf_inter": "Random Forest (12 var.)", "et_inter": "Extra Trees (12 var.)",
+    "rf_base": "Random Forest (6 var.)", "et_base": "Extra Trees (6 var.)",
 }
-ORDEN = ["majority", "stump_base", "logistic_base", "logistic_inter", "et_inter", "rf_inter", "xgb_base", "xgb_inter"]
+ORDEN = ["majority", "stump_base", "logistic_base", "logistic_inter", "et_base", "rf_base", "xgb_base", "xgb_inter"]
 
 
 def comparacion_modelos() -> None:
