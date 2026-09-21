@@ -1,0 +1,26 @@
+#!/bin/bash
+# Adaptador de RSBench (ANL-CESAR/RSBench, openmp-threading, commit 34b644787ea9af4fb188e1253da72e09bbed9989) para el catalogo:
+# comprueba el checksum del binario compilado en paccaA100 y convierte la verificacion nativa
+# ("Verification checksum: N (Valid)") en el success_check del catalogo.
+set -euo pipefail
+
+binary="/home/latorresn/hyperion-kernels/libexec/rsbench/rsbench"
+expected_binary_sha256="172b7278ab217e54503c5c5132cf0022bef7e5123b1feb11d311cb0afcc32eb5"
+
+actual_binary_sha256="$(sha256sum "$binary" | awk '{print $1}')"
+if [[ "$actual_binary_sha256" != "$expected_binary_sha256" ]]; then
+  echo "RSBench binary checksum mismatch" >&2
+  exit 1
+fi
+
+export OMP_NUM_THREADS=6
+export OMP_PROC_BIND=true
+export OMP_PLACES=cores
+
+out="$("$binary" "$@" 2>&1)"
+echo "$out"
+if ! grep -Eq 'Verification checksum: [0-9]+ \(Valid\)' <<<"$out"; then
+  echo "RSBench verificacion fallo" >&2
+  exit 1
+fi
+echo "Verification = SUCCESSFUL"

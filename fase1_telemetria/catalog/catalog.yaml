@@ -6160,3 +6160,35 @@ kernels:
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
       pacca-a100: "sha256:2867a9f5d986a9570bb74059a7ec022c30389fdcf93763295d8c63386a5392a3"
+
+  # Prueba EXTERNA sellada del clasificador CPU (2026-09-21): estos kernels NO entran a entrenamiento.
+  # role: dataset es obligatorio para que el arnes los acepte; la separacion la garantizan la campana
+  # (pacca_cpu_external_*) y que los constructores del dataset reciben campanas explicitas.
+  # Compilados en paccaA100 con scripts/pacca/build_external_test_kernels.sh; la clase real la deriva
+  # el pipeline Roofline, phase_label_hint es solo una hipotesis.
+  - id: cpu_xsbench_omp
+    suite: XSBench-OpenMP
+    role: dataset
+    exec_path: bin/cpu_xsbench_omp
+    exec_args: "-t 6 -s large -m history -l 34 -p 1500000"
+    phase_label_hint: memory_bound
+    size_variant: large_history_p1500000
+    expected_runtime_seconds: 22
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 6442450944
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:133da49b1281f05b9729f9ed844ffbb4e9a65102664e30791610bf572095f481"
+  - id: cpu_rsbench_omp
+    suite: RSBench-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rsbench_omp
+    exec_args: "-t 6 -s large -m history -l 34 -p 100000"
+    phase_label_hint: compute_bound
+    size_variant: large_history_p100000
+    expected_runtime_seconds: 15
+    warmup_seconds: 0.05
+    estimated_memory_bytes: 67108864
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:92407b3e24a654e4ec2dea072f1215ac1d7a7f3b7496fc5cd58504a9e2e5fe9d"
