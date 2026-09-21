@@ -1,7 +1,7 @@
 """Informe de calidad del clasificador CPU (compute/memory) por intervalo.
 
 Bateria de pruebas reproducible sobre ``feature_contract_source.csv`` (1.17 M
-intervalos elegibles, 24 familias). Todas las pruebas retienen una familia
+intervalos elegibles, 24 familias en la fuente original; 30 en la vigente). Todas las pruebas retienen una familia
 completa (LOFO) y ninguna elige nada mirando la familia de prueba, salvo las
 etiquetadas explicitamente como "exploratorias" (rejilla completa reportada).
 
@@ -40,6 +40,10 @@ VARIANTS = production_variants()
 BASE = VARIANTS["baseline_pmu"]
 INTER = VARIANTS["pmu_interactions"]
 NOFREQ = VARIANTS["without_frequency"]
+BASE_NOFREQ = [f for f in BASE if f != "freq_khz_observed"]
+# Vector final: las seis tasas base. El de doce (INTER) se conserva solo como referencia
+# de la comparacion 6 vs 12 (stage_selection y filas *_inter de CONFIGS).
+CAND = BASE
 ALL_FEATURES = sorted(set(INTER) | set(LEGACY))
 # Restricciones monotonas fijadas a priori (hipotesis fisica, no ajustadas):
 # mas fallos/stalls de memoria -> mas probable memory_bound (+1).
@@ -113,19 +117,20 @@ CONFIGS = {
     "majority": ("majority", BASE, "none"),
     "stump_base": ("stump", BASE, "cell"),
     "logistic_base": ("logistic", BASE, "cell"),
-    "logistic_inter": ("logistic", INTER, "cell"),
-    "xgb_base": ("xgb", BASE, "cell"),
-    "xgb_inter": ("xgb", INTER, "cell"),          # candidato congelado
+    "logistic_inter": ("logistic", INTER, "cell"),   # referencia de 12 variables
+    "xgb_base": ("xgb", BASE, "cell"),               # candidato congelado
+    "xgb_inter": ("xgb", INTER, "cell"),             # referencia de 12 variables
+    "xgb_base_nofreq": ("xgb", BASE_NOFREQ, "cell"),
     "xgb_inter_nofreq": ("xgb", NOFREQ, "cell"),
     "xgb_freq_only": ("xgb_d2_n50", ["freq_khz_observed"], "cell"),
     "xgb_legacy_running_ratio": ("xgb", LEGACY, "cell"),
-    "xgb_inter_class_only": ("xgb_class_only", INTER, "none"),
-    "xgb_inter_mono": ("xgb_mono", INTER, "cell"),
-    "xgb_inter_shallow": ("xgb_d2_n50", INTER, "cell"),
-    "rf_inter": ("rf", INTER, "cell"),
-    "et_inter": ("et", INTER, "cell"),
+    "xgb_base_class_only": ("xgb_class_only", BASE, "none"),
+    "xgb_base_mono": ("xgb_mono", BASE, "cell"),
+    "xgb_base_shallow": ("xgb_d2_n50", BASE, "cell"),
+    "rf_base": ("rf", BASE, "cell"),
+    "et_base": ("et", BASE, "cell"),
 }
-CANDIDATE = "xgb_inter"
+CANDIDATE = "xgb_base"
 
 
 def fit_predict(name_model: str, features: list[str], weighting: str, frame: pd.DataFrame,
@@ -182,7 +187,7 @@ def bootstrap(counts_by_cfg: dict[str, np.ndarray], reps: int, seed: int = 0) ->
     rng = np.random.default_rng(seed)
     F = next(iter(counts_by_cfg.values())).shape[0]
     draws = rng.integers(0, F, size=(reps, F))
-    keys = ["cell_balanced_acc", "pooled_f1_macro", "mean_family_accuracy"]
+    keys = ["cell_balanced_acc", "pooled_f1_macro", "mean_family_accuracy", "recall_compute", "recall_memory"]
     samples = {c: {k: np.empty(reps) for k in keys} for c in counts_by_cfg}
     for r, d in enumerate(draws):
         for c, cnt in counts_by_cfg.items():
@@ -248,7 +253,7 @@ def stage_matrix(frame, families, fam_codes, args, out: Path):
         for c in CONFIGS:
             summary[c][mode]["ci95_family_bootstrap"] = {k: ci(v) for k, v in boot[c].items()}
         # diferencias pareadas frente al candidato y frente a xgb_base
-        for ref in (CANDIDATE, "xgb_base"):
+        for ref in (CANDIDATE, "xgb_inter"):
             for c in CONFIGS:
                 if c == ref:
                     continue
@@ -353,10 +358,10 @@ def stage_protocols(frame, families, fam_codes, args, out: Path):
         sub = frame.iloc[sample].reset_index(drop=True)
         codes = fam_codes[sample]
         y = sub["y"].to_numpy()
-        X = sub[INTER].to_numpy(dtype=np.float32)
+        X = sub[CAND].to_numpy(dtype=np.float32)
         strat = pd.Series(sub["family"].astype(str) + y.astype(str)).factorize()[0]
         tr, te = next(StratifiedShuffleSplit(1, test_size=0.2, random_state=s).split(X, strat))
-        model = make_model("xgb", s, y[tr], INTER)
+        model = make_model("xgb", s, y[tr], CAND)
         model.fit(X[tr], y[tr], sample_weight=cell_weights(codes[tr], y[tr]))
         pred = model.predict_proba(X[te])[:, 1] >= 0.5
         cf = counts_from(sub["family"].to_numpy()[te], y[te], pred, families)
@@ -369,7 +374,7 @@ def stage_protocols(frame, families, fam_codes, args, out: Path):
             tr_k = np.flatnonzero(kern != k)
             if len(np.unique(y[tr_k])) < 2:
                 continue
-            m = make_model("xgb", s, y[tr_k], INTER)
+            m = make_model("xgb", s, y[tr_k], CAND)
             m.fit(X[tr_k], y[tr_k], sample_weight=cell_weights(codes[tr_k], y[tr_k]))
             pr = m.predict_proba(X[te_k])[:, 1] >= 0.5
             kc += counts_from(sub["family"].to_numpy()[te_k], y[te_k], pr, families)
@@ -387,7 +392,7 @@ def stage_learning_curve(frame, families, fam_codes, args, out: Path):
     sample = capped_sample(frame, args.cap, 1000)
     fam_arr = frame["family"].to_numpy()
     y_all = frame["y"].to_numpy()
-    X = frame[INTER].to_numpy(dtype=np.float32)
+    X = frame[CAND].to_numpy(dtype=np.float32)
     ks = [3, 6, 9, 12, 15, 18, 21, 23]
     reps = args.lc_reps
     jobs = []
@@ -403,7 +408,7 @@ def stage_learning_curve(frame, families, fam_codes, args, out: Path):
         if len(np.unique(y_all[tr])) < 2:
             return f, k, r, None
         te = sample[fam_arr[sample] == f]
-        m = make_model("xgb", r, y_all[tr], INTER)
+        m = make_model("xgb", r, y_all[tr], CAND)
         m.fit(X[tr], y_all[tr], sample_weight=cell_weights(fam_codes[tr], y_all[tr]))
         pred = m.predict_proba(X[te])[:, 1] >= 0.5
         yt = y_all[te]
@@ -428,7 +433,7 @@ def stage_nested_selective(frame, families, fam_codes, args, out: Path):
     sample = capped_sample(frame, args.cap, 1000)
     fam_arr = frame["family"].to_numpy()
     y_all = frame["y"].to_numpy()
-    X = frame[INTER].to_numpy(dtype=np.float32)
+    X = frame[CAND].to_numpy(dtype=np.float32)
 
     def cellbal(y, pred, fam):
         cells = []
@@ -447,7 +452,7 @@ def stage_nested_selective(frame, families, fam_codes, args, out: Path):
         for g in train_fams:
             a = tr[fam_arr[tr] != g]
             b = tr[fam_arr[tr] == g]
-            m = make_model("xgb", 1, y_all[a], INTER)
+            m = make_model("xgb", 1, y_all[a], CAND)
             m.fit(X[a], y_all[a], sample_weight=cell_weights(fam_codes[a], y_all[a]))
             oof_p.append(m.predict_proba(X[b])[:, 1]); oof_y.append(y_all[b]); oof_f.append(fam_arr[b])
         p, yy, ff = np.concatenate(oof_p), np.concatenate(oof_y), np.concatenate(oof_f)
@@ -464,7 +469,7 @@ def stage_nested_selective(frame, families, fam_codes, args, out: Path):
             score = cellbal(yy[keep], (p[keep] >= 0.5).astype(int), ff[keep])
             if score > best_score:
                 best, best_score = thr, score
-        m = make_model("xgb", 1, y_all[tr], INTER)
+        m = make_model("xgb", 1, y_all[tr], CAND)
         m.fit(X[tr], y_all[tr], sample_weight=cell_weights(fam_codes[tr], y_all[tr]))
         te = np.flatnonzero(fam_arr == f)
         pt = m.predict_proba(X[te])[:, 1]
@@ -494,7 +499,7 @@ def stage_regularization(frame, families, fam_codes, args, out: Path):
     sample = capped_sample(frame, args.cap, 1000)
     fam_arr = frame["family"].to_numpy()
     y_all = frame["y"].to_numpy()
-    X = frame[INTER].to_numpy(dtype=np.float32)
+    X = frame[CAND].to_numpy(dtype=np.float32)
 
     def cellbal(y, pred, fam):
         cells = [np.mean(pred[(fam == f) & (y == c)] == c) for f in np.unique(fam) for c in (0, 1) if ((fam == f) & (y == c)).any()]
@@ -508,14 +513,14 @@ def stage_regularization(frame, families, fam_codes, args, out: Path):
             preds, ys, fs = [], [], []
             for g in [g for g in families if g != f]:
                 a = tr[fam_arr[tr] != g]; b = tr[fam_arr[tr] == g]
-                m = make_model(name, 1, y_all[a], INTER)
+                m = make_model(name, 1, y_all[a], CAND)
                 m.fit(X[a], y_all[a], sample_weight=cell_weights(fam_codes[a], y_all[a]))
                 preds.append((m.predict_proba(X[b])[:, 1] >= 0.5).astype(int)); ys.append(y_all[b]); fs.append(fam_arr[b])
             inner[name] = cellbal(np.concatenate(ys), np.concatenate(preds), np.concatenate(fs))
         chosen = max(inner, key=inner.get)
         outs = {}
         for name in grid:
-            m = make_model(name, 1, y_all[tr], INTER)
+            m = make_model(name, 1, y_all[tr], CAND)
             m.fit(X[tr], y_all[tr], sample_weight=cell_weights(fam_codes[tr], y_all[tr]))
             outs[name] = (m.predict_proba(X[te])[:, 1] >= 0.5)
         return f, chosen, inner, te, outs
@@ -599,7 +604,7 @@ def stage_oi_proxy(frame, families, fam_codes, args, out: Path):
     from xgboost import XGBRegressor
     fam_arr = frame["family"].to_numpy()
     y_all = frame["y"].to_numpy()
-    X = frame[INTER].to_numpy(dtype=np.float32)
+    X = frame[CAND].to_numpy(dtype=np.float32)
     target = np.log2(frame["operational_intensity_uncore_real"].clip(lower=1e-3)).clip(-8, 12).to_numpy()
     log_ridge = np.log2(frame["i_ridge_used"].to_numpy())
     res = {"proxy": [], "clf": []}
@@ -654,7 +659,7 @@ def stage_threshold_nested(frame, families, fam_codes, args, out: Path):
     sample = capped_sample(frame, args.cap, 1000)
     fam_arr = frame["family"].to_numpy()
     y_all = frame["y"].to_numpy()
-    X = frame[INTER].to_numpy(dtype=np.float32)
+    X = frame[CAND].to_numpy(dtype=np.float32)
 
     def cellbal(y, pred, fam):
         cells = [np.mean(pred[(fam == f) & (y == c)] == c) for f in np.unique(fam) for c in (0, 1) if ((fam == f) & (y == c)).any()]
@@ -665,12 +670,12 @@ def stage_threshold_nested(frame, families, fam_codes, args, out: Path):
         ps, ys, fs = [], [], []
         for g in [g for g in families if g != f]:
             a = tr[fam_arr[tr] != g]; b = tr[fam_arr[tr] == g]
-            m = make_model("xgb", 1, y_all[a], INTER)
+            m = make_model("xgb", 1, y_all[a], CAND)
             m.fit(X[a], y_all[a], sample_weight=cell_weights(fam_codes[a], y_all[a]))
             ps.append(m.predict_proba(X[b])[:, 1]); ys.append(y_all[b]); fs.append(fam_arr[b])
         p, yy, ff = np.concatenate(ps), np.concatenate(ys), np.concatenate(fs)
         best = max(grid, key=lambda t: cellbal(yy, (p >= t).astype(int), ff))
-        m = make_model("xgb", 1, y_all[tr], INTER)
+        m = make_model("xgb", 1, y_all[tr], CAND)
         m.fit(X[tr], y_all[tr], sample_weight=cell_weights(fam_codes[tr], y_all[tr]))
         te = np.flatnonzero(fam_arr == f)
         pt = m.predict_proba(X[te])[:, 1]
@@ -756,7 +761,7 @@ def stage_temporal(frame, families, fam_codes, args, out: Path):
         variants[f"inter_hist{k}"] = cols
     variants["hist5_only_means"] = [c for c in variants["inter_hist5"] if "_rm5" in c]
     for name, extra in variants.items():
-        feats = INTER + extra
+        feats = CAND + extra
         CONFIGS[f"_tmp_{name}"] = ("xgb", feats, "cell")
     vals = {n: [] for n in variants}
     for s_ in range(3):
@@ -766,7 +771,7 @@ def stage_temporal(frame, families, fam_codes, args, out: Path):
             vals[n].append(metrics_from_counts(c))
         print("[temporal] seed", s_, {n: round(v[-1]["cell_balanced_acc"], 4) for n, v in vals.items()}, flush=True)
     for n, v in vals.items():
-        rows.append({"variant": n, "n_features": len(INTER) + len(variants[n]), **{k: round(float(np.mean([m[k] for m in v])), 4) for k in v[0]},
+        rows.append({"variant": n, "n_features": len(CAND) + len(variants[n]), **{k: round(float(np.mean([m[k] for m in v])), 4) for k in v[0]},
                      "sd_cell_bal": round(float(np.std([m["cell_balanced_acc"] for m in v], ddof=1)), 4)})
     pd.DataFrame(rows).to_csv(out / "temporal_history.csv", index=False)
 
@@ -777,7 +782,7 @@ def stage_power_w(frame, families, fam_codes, args, out: Path):
         raise SystemExit("la fuente no tiene power_w; usar build_power_source.py")
     variants = {"inter_only": [], "inter_plus_power_w": ["power_w"]}
     for n, extra in variants.items():
-        CONFIGS[f"_tmp_{n}"] = ("xgb", INTER + extra, "cell")
+        CONFIGS[f"_tmp_{n}"] = ("xgb", CAND + extra, "cell")
     vals = {n: [] for n in variants}
     for s_ in range(args.seeds):
         sample = capped_sample(frame, args.cap, 1000 + s_)
@@ -791,7 +796,11 @@ def stage_power_w(frame, families, fam_codes, args, out: Path):
 
 
 def stage_selection(frame, families, fam_codes, args, out: Path):
-    """Seleccion 6 vs 12 variables: diferencia pareada de exactitud balanceada por celda (bootstrap de familias)."""
+    """Seleccion 6 vs 12 variables por remuestreo pareado de familias.
+
+    Metrica primaria: exactitud balanceada por celda. Se reportan tambien, con el mismo remuestreo,
+    la F1 macro agrupada y el recall de cada clase (el costo de un error es asimetrico).
+    """
     cnt = {c: [] for c in ("xgb_base", "xgb_inter")}
     for s_ in range(args.seeds):
         sample = capped_sample(frame, args.cap, 1000 + s_)
@@ -801,22 +810,23 @@ def stage_selection(frame, families, fam_codes, args, out: Path):
     mean_cnt = {c: np.sum(v, axis=0) for c, v in cnt.items()}
     rng = np.random.default_rng(0)
     F = len(families)
-    diffs = []
-    for _ in range(4000):
-        d = rng.integers(0, F, F)
-        diffs.append(metrics_from_counts(mean_cnt["xgb_inter"][d])["cell_balanced_acc"]
-                     - metrics_from_counts(mean_cnt["xgb_base"][d])["cell_balanced_acc"])
-    diffs = np.array(diffs)
-    res = {"cell_bal": {c: metrics_from_counts(v)["cell_balanced_acc"] for c, v in mean_cnt.items()},
-           "diff_inter_minus_base": float(metrics_from_counts(mean_cnt["xgb_inter"])["cell_balanced_acc"]
-                                          - metrics_from_counts(mean_cnt["xgb_base"])["cell_balanced_acc"]),
-           "diff_ci95": ci(diffs), "p_diff_le_0": float((diffs <= 0).mean())}
+    keys = ("cell_balanced_acc", "pooled_f1_macro", "recall_compute", "recall_memory")
+    draws = rng.integers(0, F, size=(4000, F))
+    boot = {k: np.array([metrics_from_counts(mean_cnt["xgb_base"][d])[k] - metrics_from_counts(mean_cnt["xgb_inter"][d])[k]
+                         for d in draws]) for k in keys}
+    point = {c: metrics_from_counts(v) for c, v in mean_cnt.items()}
+    res = {"cell_bal": {c: point[c]["cell_balanced_acc"] for c in point},
+           "metrics": {c: {k: point[c][k] for k in keys} for c in point},
+           # diferencia = 6 variables menos 12 variables (positivo favorece a las 6)
+           "diff_base_minus_inter": {k: {"point": point["xgb_base"][k] - point["xgb_inter"][k], "ci95": ci(boot[k]),
+                                         "p_base_better": float((boot[k] > 0).mean())} for k in keys}}
     (out / "selection_6_vs_12.json").write_text(json.dumps(res, indent=1))
     print(json.dumps(res, indent=1))
 
 
 def stage_external(frame, families, fam_codes, args, out: Path):
-    """Prueba externa: modelo final entrenado en las 24 familias, evaluado UNA vez en familias inéditas (`--external`)."""
+    """Prueba externa: modelo final entrenado en las familias de la fuente, evaluado UNA vez en familias inéditas (`--external`)."""
+    threshold = resolve_threshold(args, out)
     ext = load(args.external)
     ext["family"] = ext["kernel_ref"]
     n0 = len(frame)
@@ -829,13 +839,13 @@ def stage_external(frame, families, fam_codes, args, out: Path):
     for s_ in range(args.seeds):
         sample = capped_sample(frame, args.cap, 1000 + s_)
         test = np.arange(n0, len(comb))
-        p = fit_predict("xgb", INTER, "cell", comb, sample, test, 2000 + s_, codes)
+        p = fit_predict("xgb", CAND, "cell", comb, sample, test, 2000 + s_, codes)
         for f in ext_fams:
             m = (comb["family"].to_numpy()[test] == f)
             pf, yf = p[m], y[test][m]
             pred = pf >= 0.5
             conf = np.maximum(pf, 1 - pf)
-            keep = conf >= FINAL_THRESHOLD
+            keep = conf >= threshold
             per_seed[f].append(dict(n=int(m.sum()), true_memory_share=float(yf.mean()),
                                     acc=float((pred == yf).mean()),
                                     coverage=float(keep.mean()),
@@ -862,7 +872,7 @@ def stage_retrain_ext(frame, families, fam_codes, args, out: Path):
     rows = {"all": [], "old24": [], "new6": []}
     for s_ in range(args.seeds):
         sample = capped_sample(comb, args.cap, 1000 + s_)
-        c = lofo(comb, fams, codes, "xgb_inter", sample, 2000 + s_, True, args.n_jobs)
+        c = lofo(comb, fams, codes, CANDIDATE, sample, 2000 + s_, True, args.n_jobs)
         for k, idx in (("all", list(range(len(fams)))), ("old24", old), ("new6", new)):
             rows[k].append(metrics_from_counts(c[idx]))
         print("[retrain_ext] seed", s_, {k: round(v[-1]["cell_balanced_acc"], 4) for k, v in rows.items()}, flush=True)
@@ -875,7 +885,7 @@ def stage_retrain_ext(frame, families, fam_codes, args, out: Path):
 
 def stage_oi_feature(frame, families, fam_codes, args, out: Path):
     """Limite superior: el mismo modelo con la intensidad operacional (log2 OI/ridge) como entrada adicional; equivale a leer la etiqueta."""
-    CONFIGS["_tmp_oi"] = ("xgb", INTER + ["margin_log2"], "cell")
+    CONFIGS["_tmp_oi"] = ("xgb", CAND + ["margin_log2"], "cell")
     vals = []
     for s_ in range(args.seeds):
         sample = capped_sample(frame, args.cap, 1000 + s_)
@@ -891,7 +901,7 @@ def stage_adaptation(frame, families, fam_codes, args, out: Path):
     Es una cota de lo que podria aportar la microcaracterizacion de la politica 'revisar'."""
     fam_arr = frame["family"].to_numpy()
     y_all = frame["y"].to_numpy()
-    X = frame[INTER].to_numpy(dtype=np.float32)
+    X = frame[CAND].to_numpy(dtype=np.float32)
     block = ((frame["kernel_ref"] != frame["kernel_ref"].shift()) | (frame["freq_level_id"] != frame["freq_level_id"].shift())).cumsum().to_numpy()
     pos_in_block = frame.groupby(block).cumcount().to_numpy()
     rows = []
@@ -912,7 +922,7 @@ def stage_adaptation(frame, families, fam_codes, args, out: Path):
                 train = np.concatenate([tr, adapt])
                 w = cell_weights(fam_codes[train], y_all[train])
                 # el bloque adaptado pesa como una familia mas (peso de celda propio), sin sobreponderar
-                m = make_model("xgb", s_, y_all[train], INTER)
+                m = make_model("xgb", s_, y_all[train], CAND)
                 m.fit(X[train], y_all[train], sample_weight=w)
                 pred = m.predict_proba(X[test])[:, 1] >= 0.5
                 return counts_from(fam_arr[test], y_all[test], pred, [f])[0], len(adapt)
@@ -937,7 +947,7 @@ def stage_adaptation_phases(frame, families, fam_codes, args, out: Path):
     """
     fam_arr = frame["family"].to_numpy()
     y_all = frame["y"].to_numpy()
-    X = frame[INTER].to_numpy(dtype=np.float32)
+    X = frame[CAND].to_numpy(dtype=np.float32)
     block = ((frame["kernel_ref"] != frame["kernel_ref"].shift()) | (frame["freq_level_id"] != frame["freq_level_id"].shift())).cumsum().to_numpy()
     pos = frame.groupby(block).cumcount().to_numpy()
     length = frame.groupby(block)["y"].transform("size").to_numpy()
@@ -968,7 +978,7 @@ def stage_adaptation_phases(frame, families, fam_codes, args, out: Path):
                 return f, te, {k: np.zeros(0, bool) for k in ("base", "adapt_start", "adapt_periodic", "sticky_start", "sticky_periodic")}
             for name, lab in (("base", None), ("adapt_start", lab_start), ("adapt_periodic", lab_periodic)):
                 train = tr if lab is None else np.concatenate([tr, idx[lab[idx]]])
-                m = make_model("xgb", s_, y_all[train], INTER)
+                m = make_model("xgb", s_, y_all[train], CAND)
                 m.fit(X[train], y_all[train], sample_weight=cell_weights(fam_codes[train], y_all[train]))
                 outp[name] = m.predict_proba(X[te])[:, 1] >= 0.5
             outp["sticky_start"] = st_start[te]
@@ -1014,7 +1024,7 @@ def stage_nested_optuna(frame, families, fam_codes, args, out: Path):
 
     fam_arr = frame["family"].to_numpy()
     y_all = frame["y"].to_numpy()
-    X = frame[INTER].to_numpy(dtype=np.float32)
+    X = frame[CAND].to_numpy(dtype=np.float32)
     sample = capped_sample(frame, args.cap, 1000)
 
     def cellbal(y, pred, fam):
@@ -1079,22 +1089,90 @@ def stage_nested_optuna(frame, families, fam_codes, args, out: Path):
         print(f"[optuna] {kind}", {k: round(v, 4) for k, v in results[kind].items()}, flush=True)
 
     # referencia: configuracion fija, mismo muestreo y mismos pliegues
-    for cfg in ("xgb_inter", "logistic_inter"):
+    for cfg in ("xgb_base", "logistic_base"):
         results[f"fixed_{cfg}"] = metrics_from_counts(lofo(frame, families, fam_codes, cfg, sample, 2000, True, args.n_jobs))
     (out / "nested_optuna.json").write_text(json.dumps({"trials_xgboost": args.optuna_trials, "results": results}, indent=1))
 
 
-FINAL_THRESHOLD = 0.85
+THRESHOLD_GRID = [0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.93, 0.95, 0.97, 0.98]
+MIN_CELL_COVERAGE = 0.60
+
+
+def resolve_threshold(args, out: Path) -> float:
+    """Umbral operativo: el fijado con --threshold o el elegido por la etapa threshold_final."""
+    if args.threshold is not None:
+        return args.threshold
+    path = out / "threshold_final.json"
+    if not path.exists():
+        raise SystemExit("falta umbral: ejecutar la etapa threshold_final antes o pasar --threshold")
+    return float(json.loads(path.read_text())["chosen"])
+
+
+def stage_threshold_final(frame, families, fam_codes, args, out: Path):
+    """Umbral operativo unico, elegido por LOFO interno sobre todas las familias.
+
+    Criterio: exactitud balanceada por celda familia x clase sobre lo decidido, con cobertura media
+    por celda >= MIN_CELL_COVERAGE. Las predicciones fuera de muestra del LOFO interno son las mismas
+    del ajuste final (un pliegue por familia), promediadas sobre las semillas de muestreo. Se reporta la
+    rejilla completa: la eleccion la fija la regla, el margen entre vecinos se ve en la tabla.
+    """
+    fam_arr = frame["family"].to_numpy()
+    y_all = frame["y"].to_numpy()
+    X = frame[CAND].to_numpy(dtype=np.float32)
+    per_seed = []
+    for s_ in range(args.seeds):
+        sample = capped_sample(frame, args.cap, 1000 + s_)
+
+        def one(f):
+            tr = sample[fam_arr[sample] != f]
+            te = sample[fam_arr[sample] == f]
+            m = make_model("xgb", 2000 + s_, y_all[tr], CAND)
+            m.fit(X[tr], y_all[tr], sample_weight=cell_weights(fam_codes[tr], y_all[tr]))
+            return te, m.predict_proba(X[te])[:, 1]
+
+        res = Parallel(n_jobs=args.n_jobs, prefer="threads")(delayed(one)(f) for f in families)
+        idx = np.concatenate([r[0] for r in res])
+        p = np.concatenate([r[1] for r in res])
+        y, fam = y_all[idx], fam_arr[idx]
+        conf = np.maximum(p, 1 - p)
+        rows = []
+        for thr in THRESHOLD_GRID:
+            keep = conf >= thr
+            recalls, covs = [], []
+            for f in families:
+                for c in (0, 1):
+                    cell = (fam == f) & (y == c)
+                    if not cell.any():
+                        continue
+                    covs.append(keep[cell].mean())
+                    dec = cell & keep
+                    if dec.any():
+                        recalls.append(float(((p[dec] >= 0.5) == c).mean()))
+            rows.append({"threshold": thr, "cell_balanced_acc": float(np.mean(recalls)), "cell_coverage": float(np.mean(covs))})
+        per_seed.append(pd.DataFrame(rows))
+        print("[threshold_final] seed", s_, flush=True)
+    grid = sum(per_seed) / len(per_seed)
+    ok = grid[grid["cell_coverage"] >= MIN_CELL_COVERAGE]
+    best = ok.sort_values(["cell_balanced_acc", "cell_coverage", "threshold"], ascending=[False, False, True]).iloc[0]
+    grid.round(4).to_csv(out / "threshold_final_grid.csv", index=False)
+    (out / "threshold_final.json").write_text(json.dumps({
+        "criterion": "exactitud balanceada por celda sobre lo decidido, cobertura media por celda >= minimo",
+        "min_cell_coverage": MIN_CELL_COVERAGE, "seeds": args.seeds, "chosen": float(best["threshold"]),
+        "at_chosen": {"cell_balanced_acc": float(best["cell_balanced_acc"]), "cell_coverage": float(best["cell_coverage"])},
+        "features": CAND}, indent=1))
+    print(grid.round(4).to_string(index=False)); print("[threshold_final] elegido", float(best["threshold"]), flush=True)
 
 
 def stage_final_model(frame, families, fam_codes, args, out: Path):
     """Cifras del modelo final en una sola poblacion y una sola configuracion.
 
-    Configuracion congelada: XGBoost, 12 entradas, pesos por celda familia x clase, umbral 0.85.
+    Configuracion congelada: XGBoost, 6 entradas (tasas base), pesos por celda familia x clase, umbral operativo
+    de la etapa threshold_final (o el fijado con --threshold).
     Protocolo: LOFO, entrenamiento sobre la muestra con tope por celda, evaluacion sobre TODOS los
     intervalos elegibles de la familia retenida. Promedio de ``seeds`` semillas de muestreo para los
     conteos (se redondean al reportar). Todo lo que el capitulo cita sale de aqui.
     """
+    threshold = resolve_threshold(args, out)
     fam_arr = frame["family"].to_numpy()
     y_all = frame["y"].to_numpy()
     freq = frame["freq_level_id"].to_numpy()
@@ -1106,7 +1184,7 @@ def stage_final_model(frame, families, fam_codes, args, out: Path):
         p = np.concatenate([probas[f][1] for f in families])
         pred = p >= 0.5
         conf = np.maximum(p, 1 - p)
-        keep = conf >= FINAL_THRESHOLD
+        keep = conf >= threshold
         y, fam = y_all[idx], fam_arr[idx]
         acc_counts.append(counts_from(fam, y, pred, families))
         acc_sel.append(counts_from(fam[keep], y[keep], pred[keep], families))
@@ -1145,9 +1223,9 @@ def stage_final_model(frame, families, fam_codes, args, out: Path):
     freq_tab.round(4).to_csv(out / "final_model_by_frequency.csv")
     total = float(np.mean([c.sum() for c in acc_counts]))
     cov = float(np.mean([c.sum() for c in acc_sel])) / total
-    summary = {"protocol": "LOFO 24 familias; entrenamiento en muestra con tope 1000 por celda; evaluacion en todos los intervalos elegibles de la familia retenida",
-               "model": "xgboost n_estimators=100 max_depth=6 scale_pos_weight=1", "features": INTER,
-               "threshold": FINAL_THRESHOLD, "seeds": args.seeds, "eval_rows_mean": total,
+    summary = {"protocol": f"LOFO {len(families)} familias; entrenamiento en muestra con tope 1000 por celda; evaluacion en todos los intervalos elegibles de la familia retenida",
+               "model": "xgboost n_estimators=100 max_depth=6 scale_pos_weight=1", "features": CAND,
+               "threshold": threshold, "seeds": args.seeds, "eval_rows_mean": total,
                "full_coverage": summarize(acc_counts), "selective": {**summarize(acc_sel), "coverage_pooled": cov,
                "coverage_mean_family": float(fam_tab["coverage"].mean()), "coverage_min_family": float(fam_tab["coverage"].min())}}
     (out / "final_model.json").write_text(json.dumps(summary, indent=1))
@@ -1230,11 +1308,11 @@ def stage_importance(frame, families, fam_codes, args, out: Path):
     sample = capped_sample(frame, args.cap, 1000)
     fam_arr = frame["family"].to_numpy()
     y_all = frame["y"].to_numpy()
-    X = frame[INTER].to_numpy(dtype=np.float32)
+    X = frame[CAND].to_numpy(dtype=np.float32)
 
     def one(f):
         tr = sample[fam_arr[sample] != f]; te = sample[fam_arr[sample] == f]
-        m = make_model("xgb", 2000, y_all[tr], INTER)
+        m = make_model("xgb", 2000, y_all[tr], CAND)
         m.fit(X[tr], y_all[tr], sample_weight=cell_weights(fam_codes[tr], y_all[tr]))
         yt = y_all[te]
 
@@ -1244,7 +1322,7 @@ def stage_importance(frame, families, fam_codes, args, out: Path):
         base = score(X[te])
         rng = np.random.default_rng(0)
         drops = {}
-        for j, name in enumerate(INTER):
+        for j, name in enumerate(CAND):
             Xp = X[te].copy(); Xp[:, j] = rng.permutation(Xp[:, j])
             drops[name] = base - score(Xp)
         return drops
@@ -1283,7 +1361,7 @@ def stage_latency(frame, args, out: Path):
     y = frame["y"].to_numpy()[sample]
     fam_codes = pd.Categorical(frame["family"]).codes
     res = {}
-    for cfg in ("stump_base", "logistic_inter", "xgb_base", "xgb_inter", "xgb_inter_shallow", "rf_inter", "et_inter"):
+    for cfg in ("stump_base", "logistic_base", "logistic_inter", "xgb_base", "xgb_inter", "xgb_base_shallow", "rf_base", "et_base"):
         name_model, features, weighting = CONFIGS[cfg]
         model = make_model(name_model, 0, y, features)
         X = frame[features].to_numpy(dtype=np.float32)[sample]
@@ -1306,7 +1384,7 @@ def stage_latency(frame, args, out: Path):
     (out / f"latency_{platform.node()}.json").write_text(json.dumps(res, indent=1))
 
 
-STAGES = ["inventory", "final_model", "metrics_suite", "matrix", "diagnostics", "protocols", "learning_curve", "smoothing", "nested_selective", "regularization", "importance", "knn_ceiling", "twins", "nested_optuna", "adaptation", "adaptation_phases", "temporal", "oi_proxy", "power_w", "selection", "oi_feature", "external", "retrain_ext", "cap_sensitivity", "threshold_nested", "latency"]
+STAGES = ["inventory", "threshold_final", "final_model", "metrics_suite", "matrix", "diagnostics", "protocols", "learning_curve", "smoothing", "nested_selective", "regularization", "importance", "knn_ceiling", "twins", "nested_optuna", "adaptation", "adaptation_phases", "temporal", "oi_proxy", "power_w", "selection", "oi_feature", "external", "retrain_ext", "cap_sensitivity", "threshold_nested", "latency"]
 
 
 def main() -> None:
@@ -1320,11 +1398,13 @@ def main() -> None:
     ap.add_argument("--lc-reps", type=int, default=3)
     ap.add_argument("--optuna-trials", type=int, default=15)
     ap.add_argument("--n-jobs", type=int, default=10)
+    ap.add_argument("--threshold", type=float, default=None,
+                    help="Fija el umbral operativo; por defecto se usa el elegido por la etapa threshold_final")
     ap.add_argument("--external", default=None, help="CSV de familias inéditas para la etapa external")
     args = ap.parse_args()
     out = Path(args.out); out.mkdir(parents=True, exist_ok=True)
     frame = load(args.source)
-    leak = set(INTER) & FORBIDDEN_FEATURES
+    leak = (set(CAND) | set(INTER)) & FORBIDDEN_FEATURES
     assert not leak, leak
     families = sorted(frame["family"].unique())
     fam_codes = pd.Categorical(frame["family"], categories=families).codes

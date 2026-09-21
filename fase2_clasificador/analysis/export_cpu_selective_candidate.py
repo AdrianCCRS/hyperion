@@ -25,13 +25,14 @@ def main() -> None:
     parser.add_argument("--threshold", type=float, default=None,
                         help="Fija el umbral operativo en lugar del elegido por el LOFO interno (se registra el elegido)")
     args = parser.parse_args()
-    features = production_variants()["pmu_interactions"]
+    variant = "baseline_pmu"  # vector final: las seis tasas base
+    features = production_variants()[variant]
     frame = _prepare(pd.read_csv(args.dataset, low_memory=False), args.max_per_family_class, args.seed)
     frame = frame.dropna(subset=features).reset_index(drop=True)
     # El umbral se selecciona mediante familias retenidas. La variante está
     # fijada por la hipótesis de producción, no se consulta la prueba final.
-    _, selected_threshold, inner_f1, inner_coverage = _inner_choice(
-        frame, {"pmu_interactions": features}, args.seed, args.n_jobs, args.min_coverage
+    _, selected_threshold, inner_score, inner_coverage = _inner_choice(
+        frame, {variant: features}, args.seed, args.n_jobs, args.min_coverage
     )
     threshold = args.threshold if args.threshold is not None else selected_threshold
     X = frame[features].to_numpy(dtype=np.float32)
@@ -39,17 +40,18 @@ def main() -> None:
     model = _prototype("xgboost", args.seed, y, args.n_jobs, scale_pos_weight=1.0)
     _fit(model, X, y, _weights(frame))
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    model_path = args.output_dir / "cpu_xgboost_pmu_interactions.joblib"
-    metadata_path = args.output_dir / "cpu_xgboost_pmu_interactions.metadata.json"
+    model_path = args.output_dir / "cpu_xgboost_baseline_pmu.joblib"
+    metadata_path = args.output_dir / "cpu_xgboost_baseline_pmu.metadata.json"
     joblib.dump(model, model_path)
     metadata_path.write_text(json.dumps({
-        "schema": "cpu_selective_candidate/1", "model": "xgboost",
+        "schema": "cpu_selective_candidate/2", "variant": variant, "model": "xgboost",
         "features": features, "frequency_feature": "freq_khz_observed",
         "quality_only_features": ["delta_enabled_ns", "delta_running_ns", "running_ratio"],
         "training_weight": "equal total weight per observed family×class cell",
         "xgboost_scale_pos_weight": 1.0,
         "decision": {"threshold": threshold, "automatic": "confidence >= threshold", "otherwise": "revisar"},
-        "threshold_selection": {"scheme": "LOFO interno", "f1_macro_mean": inner_f1,
+        "threshold_selection": {"scheme": "LOFO interno", "criterion": "exactitud balanceada por celda familia x clase sobre lo decidido",
+                                "cell_balanced_accuracy": inner_score,
                                 "coverage_mean": inner_coverage, "minimum_coverage": args.min_coverage,
                                 "selected_threshold": selected_threshold, "threshold_fixed_by_user": args.threshold is not None},
         "n_rows": len(frame), "n_families": int(frame.kernel_family.nunique()),

@@ -47,9 +47,20 @@ def test_muestreo_por_familia_y_clase_conserva_las_columnas_de_protocolo():
 def test_abstencion_mide_calidad_solo_sobre_la_cobertura_seleccionada():
     y = pd.Series([False, True, True]).to_numpy()
     probability = pd.Series([0.1, 0.51, 0.9]).to_numpy()
-    f1, coverage = _score(y, probability, threshold=0.8)
-    assert coverage == 2 / 3
-    assert f1 == 1.0
+    score, coverage = _score(y, probability, threshold=0.8)
+    # celda compute: 1 de 1 decidido; celda memory: 1 de 2 decidido (el de 0.51 se abstiene)
+    assert coverage == (1.0 + 0.5) / 2
+    assert score == 1.0
+
+
+def test_umbral_pesa_igual_cada_celda_familia_clase():
+    # Familia grande con 4 aciertos y familia chica con 1 error: la exactitud por celda no la domina el volumen.
+    y = pd.Series([True] * 4 + [True]).to_numpy()
+    probability = pd.Series([0.95] * 4 + [0.05]).to_numpy()
+    family = pd.Series(["grande"] * 4 + ["chica"]).to_numpy()
+    score, coverage = _score(y, probability, threshold=0.5, family=family)
+    assert score == 0.5
+    assert coverage == 1.0
 
 
 def test_xgboost_no_duplica_el_balance_cuando_recibe_pesos_explicitos():

@@ -5,13 +5,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from sklearn.metrics import f1_score
-from fase2_clasificador.analysis.cpu_feature_strategies import production_variants
 from fase2_clasificador.analysis.evaluate_cpu_feature_strategies import _fit, _prepare, _prototype, _weights
 from fase2_clasificador.eval import protocol
 
 def main():
     p=argparse.ArgumentParser(); p.add_argument('--dataset',type=Path,required=True); p.add_argument('--metadata',type=Path,required=True); p.add_argument('--output-dir',type=Path,required=True); p.add_argument('--n-jobs',type=int,default=1); p.add_argument('--seed',type=int,default=20260918); a=p.parse_args()
-    meta=json.loads(a.metadata.read_text()); features=production_variants()['pmu_interactions']; threshold=float(meta['decision']['threshold'])
+    meta=json.loads(a.metadata.read_text()); features=list(meta['features']); threshold=float(meta['decision']['threshold'])
     d=_prepare(pd.read_csv(a.dataset,low_memory=False),1000,a.seed).dropna(subset=features).reset_index(drop=True); X=d[features].to_numpy(np.float32); y=d['_class'].to_numpy(bool); prob=np.full(len(d),np.nan)
     for tr,te,family in protocol.leave_one_kernel_out(d,kernel_col='kernel_family'):
         m=_prototype('xgboost',a.seed,y[tr],a.n_jobs,scale_pos_weight=1.0); _fit(m,X[tr],y[tr],_weights(d.iloc[tr])); prob[te]=m.predict_proba(X[te])[:,1]

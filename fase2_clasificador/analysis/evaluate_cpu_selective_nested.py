@@ -22,16 +22,37 @@ from fase2_clasificador.analysis.evaluate_cpu_feature_strategies import (
 from fase2_clasificador.eval import protocol
 
 
-THRESHOLDS = (0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90)
+THRESHOLDS = (0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.93, 0.95, 0.97, 0.98)
 
 
-def _score(y: np.ndarray, probability: np.ndarray, threshold: float) -> tuple[float, float]:
+def _cell_coverage_and_balance(y: np.ndarray, prediction: np.ndarray, selected: np.ndarray,
+                               family: np.ndarray) -> tuple[float, float]:
+    """Exactitud balanceada por celda familia x clase sobre lo decidido y cobertura media por celda.
+
+    Cada celda observada pesa lo mismo, sin importar cuantos intervalos aporte; una celda sin ningun
+    intervalo decidido no tiene recall y se omite de la exactitud, pero cuenta con cobertura cero.
+    """
+    recalls: list[float] = []
+    coverages: list[float] = []
+    for name in np.unique(family):
+        in_family = family == name
+        for cls in (False, True):
+            cell = in_family & (y == cls)
+            if not cell.any():
+                continue
+            coverages.append(float(selected[cell].mean()))
+            decided = cell & selected
+            if decided.any():
+                recalls.append(float((prediction[decided] == cls).mean()))
+    return (float(np.mean(recalls)) if recalls else 0.0), float(np.mean(coverages))
+
+
+def _score(y: np.ndarray, probability: np.ndarray, threshold: float,
+           family: np.ndarray | None = None) -> tuple[float, float]:
+    """(exactitud balanceada por celda sobre lo decidido, cobertura media por celda)."""
     selected = np.maximum(probability, 1.0 - probability) >= threshold
-    coverage = float(selected.mean())
-    if not selected.any():
-        return 0.0, coverage
-    prediction = probability[selected] >= 0.5
-    return float(f1_score(y[selected], prediction, labels=[False, True], average="macro", zero_division=0)), coverage
+    labels = np.zeros(len(y), dtype=int) if family is None else np.asarray(family)
+    return _cell_coverage_and_balance(y.astype(bool), probability >= 0.5, selected, labels)
 
 
 def _probabilities(frame: pd.DataFrame, features: list[str], train_idx: np.ndarray,
@@ -48,27 +69,29 @@ def _probabilities(frame: pd.DataFrame, features: list[str], train_idx: np.ndarr
 
 def _inner_choice(train: pd.DataFrame, variants: dict[str, list[str]], seed: int,
                   n_jobs: int, min_coverage: float) -> tuple[str, float, float, float]:
-    """Elige (variante, umbral) por LOFO interno; devuelve métricas internas."""
+    """Elige (variante, umbral) por LOFO interno; devuelve (variante, umbral, exactitud por celda, cobertura).
+
+    El criterio es la exactitud balanceada por celda familia x clase sobre lo decidido, calculada con las
+    predicciones fuera de muestra de todos los pliegues internos, sujeta a una cobertura media por celda
+    minima. Es la misma metrica principal con la que se reporta el resultado.
+    """
     candidates: list[tuple[float, float, float, str]] = []
     for variant, features in variants.items():
-        fold_predictions = [
-            _probabilities(train, features, a, b, seed + number, n_jobs)
-            for number, (a, b, _) in enumerate(
-                protocol.leave_one_kernel_out(train, kernel_col="kernel_family"), start=1
-            )
-        ]
+        ys, ps, fs = [], [], []
+        for number, (a, b, name) in enumerate(protocol.leave_one_kernel_out(train, kernel_col="kernel_family"), start=1):
+            y, p = _probabilities(train, features, a, b, seed + number, n_jobs)
+            ys.append(y.astype(bool)); ps.append(p); fs.append(np.full(len(y), name))
+        y_all, p_all, f_all = np.concatenate(ys), np.concatenate(ps), np.concatenate(fs)
         for threshold in THRESHOLDS:
-            scores = [_score(y, p, threshold) for y, p in fold_predictions]
-            mean_f1 = float(np.mean([score for score, _ in scores]))
-            mean_coverage = float(np.mean([coverage for _, coverage in scores]))
-            if mean_coverage >= min_coverage:
-                candidates.append((mean_f1, mean_coverage, threshold, variant))
+            score, coverage = _score(y_all, p_all, threshold, f_all)
+            if coverage >= min_coverage:
+                candidates.append((score, coverage, threshold, variant))
     if not candidates:
         # El umbral 0.50 siempre cubre todo; este guardarraíl hace explícito
         # que no se alcanzó el objetivo en vez de inventar un umbral externo.
         raise RuntimeError("ninguna variante alcanzó la cobertura interna mínima")
-    f1, coverage, threshold, variant = max(candidates, key=lambda row: (row[0], row[1], -row[2], row[3]))
-    return variant, threshold, f1, coverage
+    score, coverage, threshold, variant = max(candidates, key=lambda row: (row[0], row[1], -row[2], row[3]))
+    return variant, threshold, score, coverage
 
 
 def run_nested(frame: pd.DataFrame, variants: dict[str, list[str]], seed: int,
@@ -85,7 +108,7 @@ def run_nested(frame: pd.DataFrame, variants: dict[str, list[str]], seed: int,
     ):
         protocol.assert_no_familia_leak(clean, train_idx, test_idx, kernel_col="kernel_family", family_fn=lambda value: value)
         train = clean.iloc[train_idx].reset_index(drop=True)
-        variant, threshold, inner_f1, inner_coverage = _inner_choice(
+        variant, threshold, inner_score, inner_coverage = _inner_choice(
             train, variants, seed + number * 1000, n_jobs, min_coverage
         )
         y, probability = _probabilities(clean, variants[variant], train_idx, test_idx, seed, n_jobs)
@@ -102,7 +125,7 @@ def run_nested(frame: pd.DataFrame, variants: dict[str, list[str]], seed: int,
         fold_f1[family] = f1
         fold_results[family] = {
             "selected_variant": variant, "threshold": threshold,
-            "inner_f1_macro_mean": inner_f1, "inner_coverage_mean": inner_coverage,
+            "inner_cell_balanced_accuracy": inner_score, "inner_coverage_mean": inner_coverage,
             "test_coverage": coverage, "test_selected": int(selected.sum()), "test_total": int(len(selected)),
             "test_f1_macro_selected": f1, "test_accuracy_selected": accuracy,
         }
@@ -131,7 +154,8 @@ def main() -> None:
     parser.add_argument("--max-per-family-class", type=int, default=1_000)
     parser.add_argument("--n-jobs", type=int, default=1)
     parser.add_argument("--min-coverage", type=float, default=0.60)
-    parser.add_argument("--variants", default="baseline_pmu,pmu_interactions")
+    parser.add_argument("--variants", default="baseline_pmu,pmu_interactions",
+                        help="variantes que compiten en el LOFO interno; la final es baseline_pmu (6 tasas base)")
     args = parser.parse_args()
     if not 0 < args.min_coverage <= 1:
         raise ValueError("--min-coverage debe estar entre 0 y 1")
