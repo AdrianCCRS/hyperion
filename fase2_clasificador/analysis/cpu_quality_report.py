@@ -1098,6 +1098,37 @@ def stage_nested_optuna(frame, families, fam_codes, args, out: Path):
     (out / "nested_optuna.json").write_text(json.dumps({"trials_xgboost": args.optuna_trials, "results": results}, indent=1))
 
 
+def stage_optuna_paired(frame, families, fam_codes, args, out: Path):
+    """Diferencia pareada por familia entre la busqueda TPE anidada y la configuracion fija.
+
+    Reutiliza los pliegues externos de nested_optuna (exactitud por celda de cada familia retenida) y
+    recalcula la configuracion fija con el mismo muestreo y las mismas familias, en cada semilla de
+    muestreo, para no comparar contra una sola semilla. IC95 por remuestreo de familias.
+    """
+    sample = capped_sample(frame, args.cap, 1000)
+    rng = np.random.default_rng(0)
+    draws = rng.integers(0, len(families), size=(4000, len(families)))
+    res = {}
+    for kind, cfg in (("xgboost", "xgb_base"), ("logistic", "logistic_base")):
+        folds = pd.read_csv(out / f"nested_optuna_{kind}_folds.csv").set_index("family").reindex(families)
+        tuned = folds["outer_cell_balanced_acc"].to_numpy()
+        fixed_by_seed = []
+        for s_ in range(args.seeds):
+            smp = capped_sample(frame, args.cap, 1000 + s_)
+            c = lofo(frame, families, fam_codes, cfg, smp, 2000 + s_, True, args.n_jobs)
+            tot = c.sum(axis=2)
+            rec = np.where(tot > 0, np.stack([c[:, 0, 0], c[:, 1, 1]], axis=1) / np.maximum(tot, 1), np.nan)
+            fixed_by_seed.append(np.nanmean(rec, axis=1))
+        fixed = np.mean(fixed_by_seed, axis=0)
+        d = tuned - fixed
+        boot = d[draws].mean(axis=1)
+        res[kind] = {"tuned_mean": float(np.mean(tuned)), "fixed_mean_over_seeds": float(np.mean(fixed)),
+                     "diff_mean": float(d.mean()), "ci95": ci(boot), "families_improved": int((d > 0.005).sum()),
+                     "families_worse": int((d < -0.005).sum()), "families": len(families)}
+    (out / "optuna_paired.json").write_text(json.dumps(res, indent=1))
+    print(json.dumps(res, indent=1))
+
+
 THRESHOLD_GRID = [0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.93, 0.95, 0.97, 0.98]
 MIN_CELL_COVERAGE = 0.60
 
@@ -1389,7 +1420,7 @@ def stage_latency(frame, args, out: Path):
     (out / f"latency_{platform.node()}.json").write_text(json.dumps(res, indent=1))
 
 
-STAGES = ["inventory", "threshold_final", "final_model", "metrics_suite", "matrix", "diagnostics", "protocols", "learning_curve", "smoothing", "nested_selective", "regularization", "importance", "knn_ceiling", "twins", "nested_optuna", "adaptation", "adaptation_phases", "temporal", "oi_proxy", "power_w", "selection", "oi_feature", "external", "retrain_ext", "cap_sensitivity", "threshold_nested", "latency"]
+STAGES = ["inventory", "threshold_final", "final_model", "metrics_suite", "matrix", "diagnostics", "protocols", "learning_curve", "smoothing", "nested_selective", "regularization", "importance", "knn_ceiling", "twins", "nested_optuna", "optuna_paired", "adaptation", "adaptation_phases", "temporal", "oi_proxy", "power_w", "selection", "oi_feature", "external", "retrain_ext", "cap_sensitivity", "threshold_nested", "latency"]
 
 
 def main() -> None:
