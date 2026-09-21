@@ -1,11 +1,11 @@
 # Prueba EXTERNA sellada del clasificador CPU: tamizaje corto (REF, F0, F8, 3 repeticiones) de XSBench y
 # RSBench en paccaA100. Comprueba que generan intervalos etiquetados con FLOPs double medidos antes del
 # barrido completo. Estos kernels nunca entran a entrenamiento.
-campaign_id: pacca_cpu_external_screen_20260921
+campaign_id: pacca_cpu_external_screen_20260921_r2
 warmup_seconds_override: 0.0
 environment_tier: hpc_sc3
 seed: 20260918
-output_dir: /home/latorresn/hyperion-results/final/campaigns/cpu_external_screen_20260921
+output_dir: /home/latorresn/hyperion-results/final/campaigns/cpu_external_screen_20260921_r2
 overwrite: false
 catalog_path: /home/latorresn/hyperion/fase1_telemetria/catalog/catalog.yaml
 calibration:
