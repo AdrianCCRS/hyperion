@@ -46,8 +46,17 @@ def kernel_class(df: pd.DataFrame) -> pd.DataFrame:
     return g
 
 
+def _gain_ci(ref_edp: np.ndarray, lv_edp: np.ndarray, reps: int = 4000, seed: int = 0) -> list[float]:
+    """IC95 de la ganancia agregada de EDP por bootstrap de kernels (positivo = mejora frente a REF)."""
+    rng = np.random.default_rng(seed)
+    idx = rng.integers(0, len(ref_edp), size=(reps, len(ref_edp)))
+    gains = 1 - lv_edp[idx].sum(axis=1) / ref_edp[idx].sum(axis=1)
+    return [float(np.percentile(gains, 2.5)), float(np.percentile(gains, 97.5))]
+
+
 def policy(runs: pd.DataFrame, kc: pd.DataFrame, alpha: float = 0.05) -> tuple[dict, pd.DataFrame]:
     med = runs.groupby(["kernel_ref", "level"])[["edp", "energy_j", "time_s"]].median().reset_index()
+    campaign = runs.groupby("kernel_ref")["run"].agg(lambda r: sorted({x.split("__")[0] for x in r})) if "run" in runs else None
     rows, out = [], {}
     for cls in ("compute_bound", "memory_bound"):
         ks = kc.index[kc["class"] == cls]
@@ -64,24 +73,37 @@ def policy(runs: pd.DataFrame, kc: pd.DataFrame, alpha: float = 0.05) -> tuple[d
             t = paired_significance_test(r.edp.to_numpy(), x.edp.to_numpy(), alpha=alpha)
             rel = (x.edp / r.edp)
             rows.append(dict(cls=cls, level=lv, n_kernels=len(common), gain_agg=gain,
+                             gain_ci95_lo=_gain_ci(r.edp.to_numpy(), x.edp.to_numpy())[0],
+                             gain_ci95_hi=_gain_ci(r.edp.to_numpy(), x.edp.to_numpy())[1],
                              median_ratio=float(rel.median()), frac_better=float((rel < 1).mean()),
                              energy_ratio=float((x.energy_j / r.energy_j).median()),
                              time_ratio=float((x.time_s / r.time_s).median()),
                              test=t.test_name, p=t.p_value, significant=bool(t.significant)))
             if t.significant and gain > 0 and (best is None or gain > best[1]):
                 best = (lv, gain, t)
-        out[cls] = ({"action": "no_actuar", "n_kernels": int(len(ks))} if best is None else
-                    {"action": "actuar", "level": best[0], "gain": round(float(best[1]), 4),
-                     "p": float(best[2].p_value), "n_kernels": int(len(ks))})
+        tab_cls = pd.DataFrame([r_ for r_ in rows if r_["cls"] == cls])
+        campaigns = sorted({c for k in ks for c in campaign.loc[k]}) if campaign is not None else []
+        levels_tested = {r_["level"]: {"gain_agg": round(float(r_["gain_agg"]), 4),
+                                       "gain_ci95": [round(r_["gain_ci95_lo"], 4), round(r_["gain_ci95_hi"], 4)],
+                                       "median_ratio": round(float(r_["median_ratio"]), 4), "p": round(float(r_["p"]), 4),
+                                       "significant": bool(r_["significant"])} for _, r_ in tab_cls.iterrows()}
+        base = {"n_kernels": int(len(ks)), "campaign_ids": campaigns, "reference_level": "REF",
+                "test": "wilcoxon pareado por kernel contra REF", "alpha": alpha, "levels_tested": levels_tested}
+        if best is None:
+            out[cls] = {"action": "no_actuar", "level": "REF",
+                        "reason": "ningun nivel bajo mejora el EDP agregado de forma significativa frente a REF", **base}
+        else:
+            out[cls] = {"action": "actuar", "level": best[0], "gain": round(float(best[1]), 4),
+                        "gain_ci95": levels_tested[best[0]]["gain_ci95"], "p": float(best[2].p_value), **base}
     return out, pd.DataFrame(rows)
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("runs_csv", type=Path)
+    ap.add_argument("runs_csv", type=Path, nargs="+", help="uno o mas CSV por corrida (se concatenan)")
     ap.add_argument("--out", type=Path, required=True)
     a = ap.parse_args()
-    df = pd.read_csv(a.runs_csv)
+    df = pd.concat([pd.read_csv(f) for f in a.runs_csv], ignore_index=True)
     runs = per_run(df)
     kc = kernel_class(runs)
     pol, tab = policy(runs, kc)

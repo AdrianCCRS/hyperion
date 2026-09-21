@@ -4486,4 +4486,6 @@ reales), sección §3.9.2.
 - **Comparación completa de modelos** (etapa `model_grid`, job 7513): 5 modelos x 2 representaciones, cada uno fijo y con búsqueda anidada, mismo presupuesto y criterio. Resultado pendiente.
 - **Cierre del conjunto de kernels (decisión del autor):** no se añaden más kernels de entrenamiento; no habrá prueba externa sellada y se declara como limitación.
 - **Libro:** capítulos 2 a 5 actualizados; commits `6168736`, `2a659b5`, `cd7135b`. Incidente: el commit `72547e6` incluyó por error seis archivos sin versionar del autor (se retiraron del índice en `858ebfa`, siguen en el historial).
+- **Archivos derivados (2026-09-21):** modelo CPU en el repo, `fase2_clasificador/models/xgboost_cpu.joblib` y `xgboost_cpu.metadata.json` (sha256 `48172683...bc4cb`, 6 variables, umbral 0.85); tabla de política regenerada en `docs/libro/datos/cpu_calidad_30fam/politica/policy_cpu.json` con el formato de plan §3.5 punto 6 (nivel, campañas de origen, kernels, IC95 bootstrap de la ganancia de EDP por nivel, prueba de Wilcoxon). Resultado sin cambios: no actuar en compute (22 kernels) ni en memory (28).
+- **Kernels `nw` y `npb_ep`:** no se medirán; el conjunto de 30 familias medido se da por suficiente (decisión del autor). No se reentrena añadiendo kernels; pueden proponerse kernels solo como prueba del modelo congelado.
 
