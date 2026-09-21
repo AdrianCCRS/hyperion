@@ -1,5 +1,6 @@
 {
-  "schema": "cpu_selective_candidate/1",
+  "schema": "cpu_selective_candidate/2",
+  "variant": "baseline_pmu",
   "model": "xgboost",
   "features": [
     "ipc",
@@ -7,13 +8,7 @@
     "cache_miss_rate",
     "stall_mem_ratio",
     "ips",
-    "freq_khz_observed",
-    "cache_references_per_ki",
-    "cache_references_per_cycle",
-    "cache_misses_per_cycle",
-    "stalls_mem_per_ki",
-    "stalls_mem_per_cache_miss",
-    "log1p_mpki"
+    "freq_khz_observed"
   ],
   "frequency_feature": "freq_khz_observed",
   "quality_only_features": [
@@ -30,13 +25,14 @@
   },
   "threshold_selection": {
     "scheme": "LOFO interno",
-    "f1_macro_mean": 0.6788380918094169,
-    "coverage_mean": 0.671782828281682,
+    "criterion": "exactitud balanceada por celda familia x clase sobre lo decidido",
+    "cell_balanced_accuracy": 0.7680969761452022,
+    "coverage_mean": 0.6275351390299672,
     "minimum_coverage": 0.6,
     "selected_threshold": 0.9,
     "threshold_fixed_by_user": true
   },
-  "n_rows": 42014,
+  "n_rows": 42458,
   "n_families": 30,
   "source": "/home/latorresn/hyperion-results/final/training/cpu_quality_30fam_20260920/source30.csv",
   "seed": 20260918

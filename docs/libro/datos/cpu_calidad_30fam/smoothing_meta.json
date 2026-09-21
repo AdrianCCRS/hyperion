@@ -1,7 +1,7 @@
 {
  "n_blocks": 490,
- "autocorr_lag1_in_block": 0.39056408846787233,
- "autocorr_lag1_shuffled": -0.004011601808536882,
+ "autocorr_lag1_in_block": 0.3904194656882237,
+ "autocorr_lag1_shuffled": -0.001752724508792992,
  "mixed_families": [
   "cpu_cholmod",
   "dual_axpy",

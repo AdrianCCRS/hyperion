@@ -1,8 +1,8 @@
 {
- "start_rows_frac_of_eval_blocks": 0.002683539788056098,
- "periodic_rows_frac_of_eval_blocks": 0.026448394813203335,
- "eval_rows": 627902,
- "mixed_block_eval_rows": 157777,
+ "start_rows_frac_of_eval_blocks": 0.0026565093939532485,
+ "periodic_rows_frac_of_eval_blocks": 0.026426356356940267,
+ "eval_rows": 634291,
+ "mixed_block_eval_rows": 159923,
  "mixed_blocks": 50,
- "label_change_share_in_mixed_eval": 0.41661332133327417
+ "label_change_share_in_mixed_eval": 0.41300500866041784
 }

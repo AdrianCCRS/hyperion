@@ -2,36 +2,36 @@
  "trials_xgboost": 15,
  "results": {
   "xgboost": {
-   "cell_balanced_acc": 0.6964213836794552,
-   "recall_compute": 0.6431311683557024,
-   "recall_memory": 0.7372098336509363,
-   "pooled_f1_macro": 0.6886388687926497,
-   "pooled_accuracy": 0.699961680240497,
-   "mean_family_accuracy": 0.7836644612560814
+   "cell_balanced_acc": 0.7460022824802397,
+   "recall_compute": 0.7165172845581906,
+   "recall_memory": 0.8028427163052857,
+   "pooled_f1_macro": 0.7592492590654505,
+   "pooled_accuracy": 0.7681558764807158,
+   "mean_family_accuracy": 0.7986000296047807
   },
   "logistic": {
-   "cell_balanced_acc": 0.6677935445749813,
-   "recall_compute": 0.6895666669263186,
-   "recall_memory": 0.8469966418753422,
-   "pooled_f1_macro": 0.7716634169515609,
-   "pooled_accuracy": 0.7846660822325077,
-   "mean_family_accuracy": 0.791116416197675
+   "cell_balanced_acc": 0.6816941707971207,
+   "recall_compute": 0.7100473323085283,
+   "recall_memory": 0.82257146358025,
+   "pooled_f1_macro": 0.7674164037450808,
+   "pooled_accuracy": 0.7773575974132567,
+   "mean_family_accuracy": 0.8136419880226112
   },
-  "fixed_xgb_inter": {
-   "cell_balanced_acc": 0.735556436798357,
-   "recall_compute": 0.7146607258309511,
-   "recall_memory": 0.8339393954865069,
-   "pooled_f1_macro": 0.7757818004653276,
-   "pooled_accuracy": 0.7867139148530318,
-   "mean_family_accuracy": 0.8294571975018441
+  "fixed_xgb_base": {
+   "cell_balanced_acc": 0.7171264142954118,
+   "recall_compute": 0.6763427763600676,
+   "recall_memory": 0.8229301216629482,
+   "pooled_f1_macro": 0.7519698612577568,
+   "pooled_accuracy": 0.7640291504899771,
+   "mean_family_accuracy": 0.7900867420965538
   },
-  "fixed_logistic_inter": {
-   "cell_balanced_acc": 0.6640614318430009,
-   "recall_compute": 0.6895880882089471,
-   "recall_memory": 0.8594514424874884,
-   "pooled_f1_macro": 0.7787957909241466,
-   "pooled_accuracy": 0.7921981894877411,
-   "mean_family_accuracy": 0.7900841950893422
+  "fixed_logistic_base": {
+   "cell_balanced_acc": 0.6819211887255795,
+   "recall_compute": 0.7120310709718609,
+   "recall_memory": 0.8178067994424845,
+   "pooled_f1_macro": 0.7656376392891224,
+   "pooled_accuracy": 0.7753045416890946,
+   "mean_family_accuracy": 0.8131179965012858
   }
  }
 }

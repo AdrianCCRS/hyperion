@@ -1,10 +1,10 @@
 {
- "n_eligible": 1296981,
- "n_compute": 513508,
- "n_memory": 783473,
- "sample_rows": 42455,
+ "n_eligible": 1309755,
+ "n_compute": 526279,
+ "n_memory": 783476,
+ "sample_rows": 42458,
  "sample_compute": 21350,
- "sample_memory": 21105,
+ "sample_memory": 21108,
  "n_cells": 56,
  "n_families": 30,
  "n_kernels": 49
