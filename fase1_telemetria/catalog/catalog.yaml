@@ -6170,25 +6170,25 @@ kernels:
     suite: XSBench-OpenMP
     role: dataset
     exec_path: bin/cpu_xsbench_omp
-    exec_args: "-t 6 -s large -m history -l 34 -p 1500000"
+    exec_args: "-t 6 -s large -m history -l 34 -p 500000"
     phase_label_hint: memory_bound
-    size_variant: large_history_p1500000
-    expected_runtime_seconds: 22
+    size_variant: large_history_default
+    expected_runtime_seconds: 9
     warmup_seconds: 0.05
     estimated_memory_bytes: 6442450944
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
-      pacca-a100: "sha256:133da49b1281f05b9729f9ed844ffbb4e9a65102664e30791610bf572095f481"
+      pacca-a100: "sha256:fec3f726da83548ad0d2278b16bfe92444a0ab85196487fc2b4a962492128be9"
   - id: cpu_rsbench_omp
     suite: RSBench-OpenMP
     role: dataset
     exec_path: bin/cpu_rsbench_omp
-    exec_args: "-t 6 -s large -m history -l 34 -p 100000"
+    exec_args: "-t 6 -s large -m history -l 34 -p 300000"
     phase_label_hint: compute_bound
-    size_variant: large_history_p100000
-    expected_runtime_seconds: 15
+    size_variant: large_history_default
+    expected_runtime_seconds: 44
     warmup_seconds: 0.05
     estimated_memory_bytes: 67108864
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
-      pacca-a100: "sha256:92407b3e24a654e4ec2dea072f1215ac1d7a7f3b7496fc5cd58504a9e2e5fe9d"
+      pacca-a100: "sha256:3ecdc2e032e5266ff42475fdeed39ab0c3541f4027531a0276e23db718ab65ab"

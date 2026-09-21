@@ -17,9 +17,14 @@ export OMP_NUM_THREADS=6
 export OMP_PROC_BIND=true
 export OMP_PLACES=cores
 
+# El binario sale con codigo 1 cuando su checksum de referencia no coincide (solo hay referencia para los
+# parametros por defecto); se captura el codigo para imprimir siempre la salida y no fallar en silencio.
+set +e
 out="$("$binary" "$@" 2>&1)"
+rc=$?
+set -e
 echo "$out"
-if ! grep -Eq 'Verification checksum: [0-9]+ \(Valid\)' <<<"$out"; then
+if [[ $rc -ne 0 ]] || ! grep -Eq 'Verification checksum: [0-9]+ \(Valid\)' <<<"$out"; then
   echo "XSBench verificacion fallo" >&2
   exit 1
 fi
