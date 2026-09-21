@@ -94,6 +94,8 @@ def make_model(name: str, seed: int, y_train: np.ndarray, features: list[str]):
         return "majority"
     if name == "stump":
         return DecisionTreeClassifier(max_depth=1, random_state=seed)
+    if name == "tree6":
+        return DecisionTreeClassifier(max_depth=6, random_state=seed)
     if name == "logistic":
         return make_pipeline(SimpleImputer(strategy="median"), StandardScaler(), LogisticRegression(max_iter=2000, random_state=seed))
     if name == "logistic_class_only":
@@ -133,6 +135,11 @@ CONFIGS = {
     "xgb_base_shallow": ("xgb_d2_n50", BASE, "cell"),
     "rf_base": ("rf", BASE, "cell"),
     "et_base": ("et", BASE, "cell"),
+    # comparacion completa de modelos con ambas representaciones (etapa model_grid)
+    "tree6_base": ("tree6", BASE, "cell"),
+    "tree6_inter": ("tree6", INTER, "cell"),
+    "rf_inter": ("rf", INTER, "cell"),
+    "et_inter": ("et", INTER, "cell"),
 }
 CANDIDATE = "xgb_base"
 
@@ -1140,6 +1147,136 @@ def stage_nested_optuna(frame, families, fam_codes, args, out: Path):
     for cfg in ("xgb_base", "logistic_base"):
         results[f"fixed_{cfg}"] = metrics_from_counts(lofo(frame, families, fam_codes, cfg, sample, 2000, True, args.n_jobs))
     (out / "nested_optuna.json").write_text(json.dumps({"trials_xgboost": args.optuna_trials, "results": results}, indent=1))
+
+
+GRID_KINDS = ("tree", "logistic", "rf", "et", "xgboost")
+GRID_FIXED = {  # nombre de la configuracion fija equivalente en CONFIGS, por (modelo, representacion)
+    ("tree", "base"): "tree6_base", ("tree", "inter"): "tree6_inter",
+    ("logistic", "base"): "logistic_base", ("logistic", "inter"): "logistic_inter",
+    ("rf", "base"): "rf_base", ("rf", "inter"): "rf_inter",
+    ("et", "base"): "et_base", ("et", "inter"): "et_inter",
+    ("xgboost", "base"): "xgb_base", ("xgboost", "inter"): "xgb_inter",
+}
+
+
+def _grid_space(kind, trial):
+    if kind == "tree":
+        return {"max_depth": trial.suggest_int("max_depth", 2, 14),
+                "min_samples_leaf": trial.suggest_int("min_samples_leaf", 1, 200, log=True)}
+    if kind in ("rf", "et"):
+        return {"n_estimators": trial.suggest_int("n_estimators", 50, 200, step=25),
+                "max_depth": trial.suggest_int("max_depth", 4, 16),
+                "min_samples_leaf": trial.suggest_int("min_samples_leaf", 1, 50, log=True)}
+    if kind == "xgboost":
+        return {"n_estimators": trial.suggest_int("n_estimators", 50, 300, step=25),
+                "max_depth": trial.suggest_int("max_depth", 2, 10),
+                "learning_rate": trial.suggest_float("learning_rate", 1e-2, 0.5, log=True),
+                "min_child_weight": trial.suggest_int("min_child_weight", 1, 10)}
+    return {"C": trial.suggest_float("C", 1e-3, 1e2, log=True)}
+
+
+def _grid_build(kind, params):
+    if kind == "tree":
+        return DecisionTreeClassifier(random_state=0, **params)
+    if kind == "rf":
+        return RandomForestClassifier(n_jobs=1, random_state=0, **params)
+    if kind == "et":
+        return ExtraTreesClassifier(n_jobs=1, random_state=0, **params)
+    if kind == "xgboost":
+        return XGBClassifier(n_jobs=1, random_state=0, eval_metric="logloss", verbosity=0, scale_pos_weight=1.0, **params)
+    return make_pipeline(SimpleImputer(strategy="median"), StandardScaler(), LogisticRegression(max_iter=2000, random_state=0, **params))
+
+
+def _grid_fit(model, X, y, w):
+    if hasattr(model, "steps"):
+        model.fit(X, y, **{f"{model.steps[-1][0]}__sample_weight": w})
+    else:
+        model.fit(X, y, sample_weight=w)
+    return model
+
+
+def _cell_bal(y, pred, fam):
+    cells = [np.mean(pred[(fam == f) & (y == c)] == c) for f in np.unique(fam) for c in (0, 1) if ((fam == f) & (y == c)).any()]
+    return float(np.mean(cells))
+
+
+def _grid_task(kind, rep, f, X, y_all, fam_arr, fam_codes, sample, families, n_trials):
+    """Una familia externa: busqueda TPE sobre el LOFO interno de las demas y una sola evaluacion en `f`."""
+    import optuna
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    tr = sample[fam_arr[sample] != f]
+    inner_fams = [g for g in families if g != f]
+
+    def score(params):
+        preds, ys, fs = [], [], []
+        for g in inner_fams:
+            a = tr[fam_arr[tr] != g]
+            b = tr[fam_arr[tr] == g]
+            m = _grid_fit(_grid_build(kind, params), X[a], y_all[a], cell_weights(fam_codes[a], y_all[a]))
+            preds.append(m.predict_proba(X[b])[:, 1] >= 0.5); ys.append(y_all[b]); fs.append(fam_arr[b])
+        return _cell_bal(np.concatenate(ys), np.concatenate(preds).astype(int), np.concatenate(fs))
+
+    study = optuna.create_study(direction="maximize", sampler=optuna.samplers.TPESampler(seed=20260918))
+    study.optimize(lambda t: score(_grid_space(kind, t)), n_trials=n_trials, n_jobs=1)
+    best = study.best_params
+    m = _grid_fit(_grid_build(kind, best), X[tr], y_all[tr], cell_weights(fam_codes[tr], y_all[tr]))
+    te = np.flatnonzero(fam_arr == f)
+    pred = m.predict_proba(X[te])[:, 1] >= 0.5
+    return kind, rep, f, best, float(study.best_value), counts_from(fam_arr[te], y_all[te], pred, [f])[0]
+
+
+def stage_model_grid(frame, families, fam_codes, args, out: Path):
+    """Comparacion completa y pareada: 5 modelos x 2 representaciones, cada uno fijo y con busqueda anidada.
+
+    Responde si la comparacion de modelos es justa: cada modelo se evalua con su mejor representacion
+    (6 o 12 variables) y con hiperparametros buscados con el mismo presupuesto y el mismo criterio
+    interno (exactitud por celda), sin mirar la familia externa. La referencia es XGBoost ajustado
+    con 6 variables; las diferencias son pareadas por familia (bootstrap de familias).
+    """
+    fam_arr = frame["family"].to_numpy()
+    y_all = frame["y"].to_numpy()
+    reps = {"base": frame[BASE].to_numpy(dtype=np.float32), "inter": frame[INTER].to_numpy(dtype=np.float32)}
+    sample = capped_sample(frame, args.cap, 1000)
+    tasks = [(k, r, f) for r in reps for k in GRID_KINDS for f in families]
+    results = Parallel(n_jobs=args.n_jobs, backend="loky")(
+        delayed(_grid_task)(k, r, f, reps[r], y_all, fam_arr, fam_codes, sample, families, args.optuna_trials) for k, r, f in tasks)
+    tuned = {}
+    rows = []
+    for kind, rep, f, best, inner, cnt in results:
+        tuned.setdefault((kind, rep), np.zeros((len(families), 2, 2), dtype=np.int64))[families.index(f)] = cnt
+        rows.append({"model": kind, "representation": rep, "family": f, "inner_best_score": round(inner, 4),
+                     **{f"p_{k}": v for k, v in best.items()}})
+    pd.DataFrame(rows).to_csv(out / "model_grid_folds.csv", index=False)
+    fixed = {}
+    for key, cfg in GRID_FIXED.items():
+        per_seed = [lofo(frame, families, fam_codes, cfg, capped_sample(frame, args.cap, 1000 + s_), 2000 + s_, True, args.n_jobs)
+                    for s_ in range(args.seeds)]
+        fixed[key] = np.sum(per_seed, axis=0)
+        print("[model_grid] fijo", key, round(metrics_from_counts(fixed[key])["cell_balanced_acc"], 4), flush=True)
+    rng = np.random.default_rng(0)
+    F = len(families)
+    draws = rng.integers(0, F, size=(4000, F))
+    ref = tuned[("xgboost", "base")]
+
+    def boot_diff(a, b):
+        d = np.array([metrics_from_counts(a[i])["cell_balanced_acc"] - metrics_from_counts(b[i])["cell_balanced_acc"] for i in draws])
+        return float(metrics_from_counts(a)["cell_balanced_acc"] - metrics_from_counts(b)["cell_balanced_acc"]), ci(d)
+
+    res = []
+    for (kind, rep), t in sorted(tuned.items()):
+        d_fix, ci_fix = boot_diff(t, fixed[(kind, rep)])
+        d_ref, ci_ref = boot_diff(t, ref)
+        mt, mf = metrics_from_counts(t), metrics_from_counts(fixed[(kind, rep)])
+        res.append({"model": kind, "representation": rep,
+                    "fixed_cell_bal": round(mf["cell_balanced_acc"], 4), "tuned_cell_bal": round(mt["cell_balanced_acc"], 4),
+                    "tuned_minus_fixed": round(d_fix, 4), "tuned_minus_fixed_ci95": [round(x, 4) for x in ci_fix],
+                    "tuned_vs_xgboost_base_tuned": round(d_ref, 4), "vs_ref_ci95": [round(x, 4) for x in ci_ref],
+                    "tuned_pooled_f1": round(mt["pooled_f1_macro"], 4), "tuned_recall_compute": round(mt["recall_compute"], 4),
+                    "tuned_recall_memory": round(mt["recall_memory"], 4)})
+    pd.DataFrame(res).to_csv(out / "model_grid.csv", index=False)
+    (out / "model_grid.json").write_text(json.dumps({"trials": args.optuna_trials, "seeds_fixed": args.seeds,
+                                                     "reference": "xgboost base (6 variables) ajustado", "results": res}, indent=1))
+    print(pd.DataFrame(res).to_string(index=False))
 
 
 def stage_optuna_paired(frame, families, fam_codes, args, out: Path):
