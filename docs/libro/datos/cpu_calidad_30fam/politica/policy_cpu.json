@@ -1,27 +1,35 @@
 {
  "schema_version": 1,
- "generated_at_utc": "2026-09-21T21:39:15.665094+00:00",
+ "generated_at_utc": "2026-09-21T22:01:54.581139+00:00",
  "device": "cpu",
  "reference_level": "REF",
  "inputs": {
   "runs_energy.csv": "78851a51447e6e83efef818c9ffb779c7bdad50ed474a88b9d302821309be56f",
   "runs_energy_sweep_20260919.csv": "ca74c04e66c4f5c039244935ad66f12a75dc9ef830c131cc62e23c73c3759367"
  },
+ "excluded_kernels": {
+  "motivo": "duracion fija por diseno: el trabajo no es igual entre niveles",
+  "kernels": [
+   "phasic_p010",
+   "phasic_p100",
+   "phasic_p1000"
+  ]
+ },
  "policy": {
   "cpu-compute_bound": {
    "action": "no_actuar",
-   "reason": "mejora_no_significativa",
-   "reason_detail": "algun nivel mejora el EDP agregado frente a REF pero sin significancia (Wilcoxon pareado)",
+   "reason": "efecto_bajo_minimo",
+   "reason_detail": "mejora significativa pero menor que el efecto minimo relevante declarado (1%)",
    "best_candidate": {
     "level": "F0",
-    "gain_agg": 0.0026,
+    "gain_agg": 0.0056,
     "gain_ci95": [
-     -0.0001,
-     0.0073
+     0.0027,
+     0.0138
     ],
-    "p": 0.0587
+    "p": 0.0082
    },
-   "n_kernels": 22,
+   "n_kernels": 19,
    "campaign_ids": [
     "pacca_cpu_compute_sweep_20260919",
     "pacca_cpu_final_20260913"
@@ -30,95 +38,96 @@
    "sample_unit": "kernel (mediana de sus repeticiones aceptadas)",
    "test": "wilcoxon pareado por kernel contra REF",
    "alpha": 0.05,
+   "min_effect": 0.01,
    "levels_tested": {
     "F0": {
-     "gain_agg": 0.0026,
+     "gain_agg": 0.0056,
      "gain_ci95": [
-      -0.0001,
-      0.0073
+      0.0027,
+      0.0138
      ],
-     "median_ratio": 0.9973,
-     "p": 0.0587,
-     "significant": false
+     "median_ratio": 0.9968,
+     "p": 0.0082,
+     "significant": true
     },
     "F1": {
-     "gain_agg": -0.0393,
+     "gain_agg": -0.1159,
      "gain_ci95": [
-      -0.114,
-      0.022
+      -0.1423,
+      -0.11
      ],
-     "median_ratio": 1.1105,
-     "p": 0.0229,
+     "median_ratio": 1.1152,
+     "p": 0.0,
      "significant": true
     },
     "F2": {
-     "gain_agg": -0.1261,
+     "gain_agg": -0.3068,
      "gain_ci95": [
-      -0.3028,
-      0.0207
+      -0.3472,
+      -0.2919
      ],
-     "median_ratio": 1.2275,
-     "p": 0.0229,
+     "median_ratio": 1.2702,
+     "p": 0.0,
      "significant": true
     },
     "F3": {
-     "gain_agg": -0.2587,
+     "gain_agg": -0.5802,
      "gain_ci95": [
-      -0.5707,
-      0.0004
+      -0.6664,
+      -0.546
      ],
-     "median_ratio": 1.4733,
-     "p": 0.0127,
+     "median_ratio": 1.5222,
+     "p": 0.0,
      "significant": true
     },
     "F4": {
-     "gain_agg": -0.4543,
+     "gain_agg": -0.9745,
      "gain_ci95": [
-      -0.9601,
-      -0.0356
+      -1.1122,
+      -0.9182
      ],
-     "median_ratio": 1.8208,
-     "p": 0.0127,
+     "median_ratio": 1.9044,
+     "p": 0.0,
      "significant": true
     },
     "F5": {
-     "gain_agg": -0.7734,
+     "gain_agg": -1.5993,
      "gain_ci95": [
-      -1.5729,
-      -0.1079
+      -1.8191,
+      -1.5073
      ],
-     "median_ratio": 2.2931,
-     "p": 0.0066,
+     "median_ratio": 2.4863,
+     "p": 0.0,
      "significant": true
     },
     "F6": {
-     "gain_agg": -1.331,
+     "gain_agg": -2.6828,
      "gain_ci95": [
-      -2.6384,
-      -0.2443
+      -3.058,
+      -2.5264
      ],
-     "median_ratio": 3.2064,
-     "p": 0.0025,
+     "median_ratio": 3.4007,
+     "p": 0.0,
      "significant": true
     },
     "F7": {
-     "gain_agg": -2.4181,
+     "gain_agg": -4.76,
      "gain_ci95": [
-      -4.6833,
-      -0.5337
+      -5.4103,
+      -4.4862
      ],
-     "median_ratio": 4.8863,
-     "p": 0.0022,
+     "median_ratio": 4.9842,
+     "p": 0.0,
      "significant": true
     },
     "F8": {
-     "gain_agg": -4.99,
+     "gain_agg": -9.6658,
      "gain_ci95": [
-      -9.5116,
-      -1.225
+      -10.9874,
+      -9.1125
      ],
-     "median_ratio": 8.4905,
-     "p": 0.0009,
+     "median_ratio": 8.9652,
+     "p": 0.0,
      "significant": true
     }
    },
@@ -146,6 +155,7 @@
    "sample_unit": "kernel (mediana de sus repeticiones aceptadas)",
    "test": "wilcoxon pareado por kernel contra REF",
    "alpha": 0.05,
+   "min_effect": 0.01,
    "levels_tested": {
     "F0": {
      "gain_agg": 0.0021,

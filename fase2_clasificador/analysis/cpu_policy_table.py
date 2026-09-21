@@ -36,12 +36,17 @@ if str(_ROOT) not in sys.path:
 from common.stats import paired_significance_test  # noqa: E402
 
 CALIBRATION = ("stream_official", "ert_probe")  # sondas de calibración, no kernels del dataset
+# Cargas de duración fija por diseño (phasic corre 20.6 s en los diez niveles): a frecuencia baja hacen
+# menos trabajo en el mismo tiempo, así que su EDP no compara el mismo trabajo entre niveles y no puede
+# entrar a una tabla que se apoya en esa igualdad.
+FIXED_DURATION_PREFIXES = ("phasic",)
 LEVELS = ["F0", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8"]
 
 
 def per_run(df: pd.DataFrame) -> pd.DataFrame:
     d = df[df.accepted.astype(bool) & df.level.isin(["REF"] + LEVELS)
-           & ~df.kernel_ref.isin(CALIBRATION)].copy()
+           & ~df.kernel_ref.isin(CALIBRATION)
+           & ~df.kernel_ref.str.startswith(FIXED_DURATION_PREFIXES)].copy()
     d["energy_j"] = (d.pkg_uj + d.dram_uj) / 1e6
     d["time_s"] = d.elapsed_ns / 1e9
     d["edp"] = d.energy_j * d.time_s
@@ -63,7 +68,7 @@ def _gain_ci(ref_edp: np.ndarray, lv_edp: np.ndarray, reps: int = 4000, seed: in
     return [float(np.percentile(gains, 2.5)), float(np.percentile(gains, 97.5))]
 
 
-def policy(runs: pd.DataFrame, kc: pd.DataFrame, alpha: float = 0.05) -> tuple[dict, pd.DataFrame]:
+def policy(runs: pd.DataFrame, kc: pd.DataFrame, alpha: float = 0.05, min_effect: float = 0.0) -> tuple[dict, pd.DataFrame]:
     med = runs.groupby(["kernel_ref", "level"])[["edp", "energy_j", "time_s"]].median().reset_index()
     campaign = runs.groupby("kernel_ref")["run"].agg(lambda r: sorted({x.split("__")[0] for x in r})) if "run" in runs else None
     rows, out = [], {}
@@ -71,7 +76,8 @@ def policy(runs: pd.DataFrame, kc: pd.DataFrame, alpha: float = 0.05) -> tuple[d
         ks = kc.index[kc["class"] == cls]
         sub = med[med.kernel_ref.isin(ks)]
         ref = sub[sub.level == "REF"].set_index("kernel_ref")
-        best = None
+        best = None  # mejor nivel significativo con ganancia >= min_effect
+        sig = None   # mejor nivel significativo con ganancia > 0, sin umbral de efecto
         for lv in LEVELS:
             c = sub[sub.level == lv].set_index("kernel_ref")
             common = sorted(set(ref.index) & set(c.index))
@@ -88,8 +94,9 @@ def policy(runs: pd.DataFrame, kc: pd.DataFrame, alpha: float = 0.05) -> tuple[d
                              energy_ratio=float((x.energy_j / r.energy_j).median()),
                              time_ratio=float((x.time_s / r.time_s).median()),
                              test=t.test_name, p=t.p_value, significant=bool(t.significant)))
-            if t.significant and gain > 0 and (best is None or gain > best[1]):
-                best = (lv, gain, t)
+            if t.significant and gain > 0 and (sig is None or gain > sig[1]):
+                sig = (lv, gain, t)
+        best = sig if sig is not None and sig[1] >= min_effect else None
         tab_cls = pd.DataFrame([r_ for r_ in rows if r_["cls"] == cls])
         campaigns = sorted({c for k in ks for c in campaign.loc[k]}) if campaign is not None else []
         levels_tested = {r_["level"]: {"gain_agg": round(float(r_["gain_agg"]), 4),
@@ -98,12 +105,17 @@ def policy(runs: pd.DataFrame, kc: pd.DataFrame, alpha: float = 0.05) -> tuple[d
                                        "significant": bool(r_["significant"])} for _, r_ in tab_cls.iterrows()}
         base = {"n_kernels": int(len(ks)), "campaign_ids": campaigns, "reference_level": "REF",
                 "sample_unit": "kernel (mediana de sus repeticiones aceptadas)",
-                "test": "wilcoxon pareado por kernel contra REF", "alpha": alpha, "levels_tested": levels_tested}
+                "test": "wilcoxon pareado por kernel contra REF", "alpha": alpha, "min_effect": min_effect,
+                "levels_tested": levels_tested}
         positive = [r_ for _, r_ in tab_cls.iterrows() if r_["gain_agg"] > 0]
         top = max(positive, key=lambda r_: r_["gain_agg"]) if positive else None
         base["chosen_level"] = best[0] if best else None
         if best is None:
-            if top is None:
+            if sig is not None:
+                top = tab_cls[tab_cls.level == sig[0]].iloc[0]
+                code, txt = ("efecto_bajo_minimo",
+                             f"mejora significativa pero menor que el efecto minimo relevante declarado ({min_effect:.0%})")
+            elif top is None:
                 code, txt = "ningun_nivel_mejora_edp", "ningun nivel bajo mejora el EDP agregado frente a REF"
             else:
                 code, txt = ("mejora_no_significativa",
@@ -124,17 +136,21 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("runs_csv", type=Path, nargs="+", help="uno o mas CSV por corrida (se concatenan)")
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--min-effect", type=float, default=0.01,
+                    help="ganancia minima de EDP para actuar (fraccion); decision declarada posterior al resultado")
     a = ap.parse_args()
     df = pd.concat([pd.read_csv(f) for f in a.runs_csv], ignore_index=True)
     runs = per_run(df)
     kc = kernel_class(runs)
-    pol, tab = policy(runs, kc)
+    pol, tab = policy(runs, kc, min_effect=a.min_effect)
     a.out.mkdir(parents=True, exist_ok=True)
     tab.to_csv(a.out / "policy_by_level.csv", index=False)
     kc.to_csv(a.out / "kernel_class.csv")
     doc = {"schema_version": 1, "generated_at_utc": datetime.now(timezone.utc).isoformat(),
            "device": "cpu", "reference_level": "REF",
            "inputs": {f.name: hashlib.sha256(f.read_bytes()).hexdigest() for f in a.runs_csv},
+           "excluded_kernels": {"motivo": "duracion fija por diseno: el trabajo no es igual entre niveles",
+                                "kernels": sorted(k for k in df.kernel_ref.unique() if k.startswith(FIXED_DURATION_PREFIXES))},
            "policy": pol}
     (a.out / "policy_cpu.json").write_text(json.dumps(doc, indent=1))
     pd.set_option("display.width", 200)

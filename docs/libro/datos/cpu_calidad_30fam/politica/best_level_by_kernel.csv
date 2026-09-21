@@ -43,9 +43,6 @@ npb_ft,memory_bound,F0,1.0099954342303952
 npb_lu,memory_bound,F0,0.9983738476203693
 npb_mg,memory_bound,F1,0.9769586593392477
 npb_sp,memory_bound,F0,1.0038271642656305
-phasic_p010,compute_bound,F8,0.8278168245384965
-phasic_p100,compute_bound,F8,0.8285193970976256
-phasic_p1000,compute_bound,F8,0.8267833186819855
 ptrchase,memory_bound,F1,0.989628753997557
 rajaperf_polybench_3mm_omp,compute_bound,F0,0.9819425463589848
 rodinia_lavamd_omp,compute_bound,F0,0.9910428514075407

@@ -1,6 +1,7 @@
 """Figuras de energía y potencia de la política de frecuencia CPU.
 
-Lee docs/libro/datos/cpu_calidad_20260918/{politica,potencia} y escribe
+Lee docs/libro/datos/cpu_calidad_30fam/politica (tabla de política, sin las cargas de duración fija)
+y docs/libro/datos/cpu_calidad_20260918/{politica,potencia} y escribe
 docs/libro/figuras/fig_cpu_energia_*_20260920.png.
 Reproduce: python3 docs/libro/scripts/generar_figuras_energia_cpu.py
 """
@@ -28,7 +29,7 @@ CALIBRACION = ("stream_official", "ert_probe")
 
 
 def relativos_a_referencia() -> None:
-    p = pd.read_csv(D / "politica" / "policy_by_level_con_nuevas.csv")
+    p = pd.read_csv(BASE / "datos" / "cpu_calidad_30fam" / "politica" / "policy_by_level.csv")
     fig, axes = plt.subplots(1, 2, figsize=(7.8, 3.5), sharey=True)
     for ax, cls, titulo in ((axes[0], "compute_bound", "Kernels compute-bound"),
                             (axes[1], "memory_bound", "Kernels memory-bound")):
