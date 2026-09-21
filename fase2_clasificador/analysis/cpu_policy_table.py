@@ -10,12 +10,21 @@ dram_uj, n_compute, n_memory, accepted), extraído de los metadata.json y
 windows.csv de la campaña final. La clase de un kernel es la mayoritaria entre
 sus ventanas etiquetadas (todas las frecuencias). Prueba: Wilcoxon pareado
 por kernel entre REF y cada nivel (common.stats).
+
+Salida policy_cpu.json: mismo sobre que fase3_daemon/policy/derive_policy_table.py
+(schema_version, generated_at_utc, policy con llaves "cpu-compute_bound" y
+"cpu-memory_bound"), para que el daemon la cargue sin tabla en su codigo (§3.5
+pasos 6 y 7). Cada entrada lleva accion, nivel elegido (None si no actuar),
+motivo codificado, campanas de origen, tamano de muestra, prueba y el IC95 de
+la ganancia de EDP de cada nivel probado.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -88,13 +97,26 @@ def policy(runs: pd.DataFrame, kc: pd.DataFrame, alpha: float = 0.05) -> tuple[d
                                        "median_ratio": round(float(r_["median_ratio"]), 4), "p": round(float(r_["p"]), 4),
                                        "significant": bool(r_["significant"])} for _, r_ in tab_cls.iterrows()}
         base = {"n_kernels": int(len(ks)), "campaign_ids": campaigns, "reference_level": "REF",
+                "sample_unit": "kernel (mediana de sus repeticiones aceptadas)",
                 "test": "wilcoxon pareado por kernel contra REF", "alpha": alpha, "levels_tested": levels_tested}
+        positive = [r_ for _, r_ in tab_cls.iterrows() if r_["gain_agg"] > 0]
+        top = max(positive, key=lambda r_: r_["gain_agg"]) if positive else None
+        base["chosen_level"] = best[0] if best else None
         if best is None:
-            out[cls] = {"action": "no_actuar", "level": "REF",
-                        "reason": "ningun nivel bajo mejora el EDP agregado de forma significativa frente a REF", **base}
+            if top is None:
+                code, txt = "ningun_nivel_mejora_edp", "ningun nivel bajo mejora el EDP agregado frente a REF"
+            else:
+                code, txt = ("mejora_no_significativa",
+                             "algun nivel mejora el EDP agregado frente a REF pero sin significancia (Wilcoxon pareado)")
+            out[f"cpu-{cls}"] = {"action": "no_actuar", "reason": code, "reason_detail": txt,
+                                 "best_candidate": None if top is None else {
+                                     "level": top["level"], "gain_agg": round(float(top["gain_agg"]), 4),
+                                     "gain_ci95": [round(top["gain_ci95_lo"], 4), round(top["gain_ci95_hi"], 4)],
+                                     "p": round(float(top["p"]), 4)}, **base}
         else:
-            out[cls] = {"action": "actuar", "level": best[0], "gain": round(float(best[1]), 4),
-                        "gain_ci95": levels_tested[best[0]]["gain_ci95"], "p": float(best[2].p_value), **base}
+            out[f"cpu-{cls}"] = {"action": "actuar", "gain": round(float(best[1]), 4),
+                                 "gain_ci95": levels_tested[best[0]]["gain_ci95"], "p": float(best[2].p_value),
+                                 "n_pairs": int(best[2].n_pairs), **base}
     return out, pd.DataFrame(rows)
 
 
@@ -110,11 +132,15 @@ def main() -> None:
     a.out.mkdir(parents=True, exist_ok=True)
     tab.to_csv(a.out / "policy_by_level.csv", index=False)
     kc.to_csv(a.out / "kernel_class.csv")
-    (a.out / "policy_cpu.json").write_text(json.dumps(pol, indent=1))
+    doc = {"schema_version": 1, "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+           "device": "cpu", "reference_level": "REF",
+           "inputs": {f.name: hashlib.sha256(f.read_bytes()).hexdigest() for f in a.runs_csv},
+           "policy": pol}
+    (a.out / "policy_cpu.json").write_text(json.dumps(doc, indent=1))
     pd.set_option("display.width", 200)
     print(kc["class"].value_counts().to_dict())
     print(tab.round(3).to_string(index=False))
-    print(json.dumps(pol, indent=1))
+    print(json.dumps(doc, indent=1))
     # mejor nivel por kernel
     med = runs.groupby(["kernel_ref", "level"]).edp.median().unstack()
     best = med[LEVELS].dropna(how="all").idxmin(axis=1)

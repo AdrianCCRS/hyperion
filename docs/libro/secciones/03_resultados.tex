@@ -513,9 +513,33 @@ Los datos, las figuras y las tablas de esta sección se reproducen con \path{fas
 \subsection{Política de frecuencia por clase en CPU}
 \label{sec:resultados-cpu-politica}
 
-La tabla clase--frecuencia de menor producto energía--retardo se derivó de la campaña con la energía y el tiempo de cada corrida completa. Toda corrida de un mismo kernel ejecuta el mismo trabajo en los diez niveles, de modo que el producto energía--retardo (energía de paquete más DRAM, multiplicada por el tiempo) es comparable entre niveles. Para cada clase se tomó la mediana de las tres repeticiones de cada kernel y se comparó cada nivel fijo con la referencia nativa mediante una prueba de Wilcoxon pareada por kernel. Un nivel solo se adopta si mejora el producto agregado de forma significativa. La clase de cada kernel es la mayoritaria entre sus intervalos etiquetados; se excluyen las sondas de calibración y las cargas de duración fija.
+La tabla clase--frecuencia de menor producto energía--retardo se derivó de la campaña con la energía y el tiempo de cada corrida completa. Toda corrida de un mismo kernel ejecuta el mismo trabajo en los diez niveles, de modo que el producto energía--retardo (energía de paquete más DRAM, multiplicada por el tiempo) es comparable entre niveles. Para cada clase se tomó la mediana de las tres repeticiones de cada kernel y se comparó cada nivel fijo con la referencia nativa mediante una prueba de Wilcoxon pareada por kernel ($\alpha=0.05$). Un nivel solo se adopta si mejora el producto agregado de forma significativa; en caso contrario la entrada de la clase es \textit{no actuar}, con su motivo. La clase de cada kernel es la mayoritaria entre sus intervalos etiquetados y se excluyen las sondas de calibración. Las tres variantes de \textit{phasic} tienen duración fija (20.6~s en todos los niveles), de modo que su trabajo no es constante entre niveles; permanecen en la clase compute y se excluyen del resumen del mejor nivel por kernel. La tabla \ref{tab:cpu-politica-ic} recoge, por clase y nivel, la ganancia agregada del producto (positiva si mejora la referencia) con su intervalo de confianza de 95\% por \textit{bootstrap} sobre kernels.
 
-El resultado es \textit{no actuar} en ambas clases (22 kernels compute y 28 memory, estos últimos con \texttt{ptrchase}, medido solo para esta política por ser un recorrido de memoria por latencia fuera del dominio del clasificador). En compute, el nivel más alto queda 0.3\% por debajo de la referencia y el más bajo multiplica el producto por 8.5; de F1 a F8 la diferencia es significativa (p < 0.03), pero desfavorable. En memory, ningún nivel bajo mejora el producto agregado: de F3 a F8 la diferencia es significativa, también en sentido desfavorable. \texttt{ptrchase}, con $\alpha=0.22$, apenas gana 1.0\% en F1. Solo cinco kernels del tipo STREAM, con exponente de tiempo $\alpha$ entre 0.18 y 0.22, ganan entre 4 y 12\% en los niveles F1 a F3. Aquí $\alpha$ es la pendiente negativa de $\log T$ frente a $\log f$. La Figura \ref{fig:cpu-energia-relativa} muestra por qué: al bajar el reloj la energía casi no disminuye (la mediana más baja es 0.983 de la referencia en memory, y en compute nunca baja de 0.998), mientras el tiempo crece, de modo que el producto energía--retardo solo empeora.
+El resultado es \textit{no actuar} en ambas clases (22 kernels compute y 28 memory, estos últimos con \texttt{ptrchase}, medido solo para esta política por ser un recorrido de memoria por latencia fuera del dominio del clasificador). En compute, el nivel más alto queda 0.3\% por debajo de la referencia y el más bajo multiplica el producto por 8.5; de F1 a F8 la diferencia es significativa (p < 0.03), pero desfavorable. En memory, ningún nivel bajo mejora el producto agregado: de F3 a F8 la diferencia es significativa, también en sentido desfavorable. \texttt{ptrchase}, con $\alpha=0.22$, apenas gana 1.0\% en F1. Solo cinco kernels del tipo STREAM, con exponente de tiempo $\alpha$ entre 0.18 y 0.22, ganan entre 4 y 11\% en los niveles F1 a F3. Aquí $\alpha$ es la pendiente negativa de $\log T$ frente a $\log f$. La Figura \ref{fig:cpu-energia-relativa} muestra por qué: al bajar el reloj la energía casi no disminuye (la mediana más baja es 0.983 de la referencia en memory, y en compute nunca baja de 0.998), mientras el tiempo crece, de modo que el producto energía--retardo solo empeora.
+
+\begin{table}[H]
+\centering
+\caption[Ganancia del producto energía--retardo por nivel y clase]{Ganancia agregada del producto energía--retardo frente a la referencia nativa (\%), intervalo de confianza de 95\% por \textit{bootstrap} de kernels y valor $p$ de Wilcoxon pareado. Un valor negativo indica empeoramiento. Compute: 22 kernels; memory: 28 kernels. Nota. Elaboración propia.}
+\label{tab:cpu-politica-ic}
+\small
+\begin{tabular}{@{}lrcrrcr@{}}
+\toprule
+& \multicolumn{3}{c}{\textbf{Compute}} & \multicolumn{3}{c}{\textbf{Memory}} \\
+\cmidrule(lr){2-4}\cmidrule(l){5-7}
+\textbf{Nivel} & Ganancia & IC 95\% & $p$ & Ganancia & IC 95\% & $p$ \\
+\midrule
+F0 & $0.26$ & $[-0.01;\ 0.73]$ & 0.059 & $0.21$ & $[-0.41;\ 0.39]$ & 0.938 \\
+F1 & $-3.9$ & $[-11.4;\ 2.2]$ & 0.023 & $-5.4$ & $[-6.8;\ -3.4]$ & 0.120 \\
+F2 & $-12.6$ & $[-30.3;\ 2.1]$ & 0.023 & $-13.4$ & $[-18.5;\ -11.2]$ & 0.074 \\
+F3 & $-25.9$ & $[-57.1;\ 0.0]$ & 0.013 & $-26.2$ & $[-34.0;\ -20.5]$ & 0.018 \\
+F4 & $-45.4$ & $[-96.0;\ -3.6]$ & 0.013 & $-44.0$ & $[-54.8;\ -20.9]$ & 0.009 \\
+F5 & $-77.3$ & $[-157.3;\ -10.8]$ & 0.007 & $-72.8$ & $[-91.9;\ -43.7]$ & $<0.001$ \\
+F6 & $-133.1$ & $[-263.8;\ -24.4]$ & 0.003 & $-124.6$ & $[-153.0;\ -82.3]$ & $<0.001$ \\
+F7 & $-241.8$ & $[-468.3;\ -53.4]$ & 0.002 & $-219.2$ & $[-273.5;\ -155.7]$ & $<0.001$ \\
+F8 & $-499.0$ & $[-951.2;\ -122.5]$ & $<0.001$ & $-445.9$ & $[-561.9;\ -337.3]$ & $<0.001$ \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \begin{figure}[H]
     \centering
@@ -524,7 +548,7 @@ El resultado es \textit{no actuar} en ambas clases (22 kernels compute y 28 memo
     \label{fig:cpu-energia-relativa}
 \end{figure}
 
-La causa es el piso de potencia. Ajustando $P(f)=P_0+c\,f^{k}$ a cada kernel (error mediano de 0.35~W), $P_0$ resulta de 85~W en mediana, casi idéntico entre kernels (entre 80 y 100~W), y representa el 83\% de la potencia a 3.2~GHz; con $k\approx 2$, reducir el reloj a 0.8~GHz ahorra solo 15\% de la potencia. Con ese modelo, bajar la frecuencia mejora el producto únicamente si $\alpha$ es menor que un valor crítico, cuya mediana es 0.14 y que en ningún kernel supera 0.33. Los kernels compute densos tienen el mayor margen de potencia, pero un $\alpha$ cercano a 1. Incluso con un clasificador perfecto que eligiera el mejor nivel de cada kernel, la ganancia media sería de 2.5\% y la máxima de 12.5\%. Este desenlace es un resultado válido de la evaluación: la decisión de actuar recae en identificar la región de $\alpha$ bajo, y la clase Roofline por sí sola no la determina. La Figura \ref{fig:cpu-energia-piso} muestra la potencia medida de cada kernel en función de la frecuencia: las curvas casi se aplanan sobre ese piso, y la fracción estática a 3.2~GHz es de entre 0.6 y 0.95 según el kernel.
+La causa es el piso de potencia. Ajustando $P(f)=P_0+c\,f^{k}$ a cada kernel (error mediano de 0.34~W), $P_0$ resulta de 85~W en mediana, casi idéntico entre kernels (entre 80 y 100~W), y representa el 84\% de la potencia a 3.2~GHz; con $k\approx 2$, reducir el reloj a 0.8~GHz ahorra solo 15\% de la potencia. Con ese modelo, bajar la frecuencia mejora el producto únicamente si $\alpha$ es menor que un valor crítico, cuya mediana es 0.14 y que en ningún kernel supera 0.33. Los kernels compute densos tienen el mayor margen de potencia, pero un $\alpha$ cercano a 1. Incluso con un clasificador perfecto que eligiera el mejor nivel de cada kernel, la ganancia media sería de 2.5\% y la máxima de 12.5\%. Este desenlace es un resultado válido de la evaluación: la decisión de actuar recae en identificar la región de $\alpha$ bajo, y la clase Roofline por sí sola no la determina. La Figura \ref{fig:cpu-energia-piso} muestra la potencia medida de cada kernel en función de la frecuencia: las curvas casi se aplanan sobre ese piso, y la fracción estática a 3.2~GHz es de entre 0.6 y 0.95 según el kernel.
 
 \begin{figure}[H]
     \centering

@@ -1,212 +1,244 @@
 {
- "compute_bound": {
-  "action": "no_actuar",
-  "level": "REF",
-  "reason": "ningun nivel bajo mejora el EDP agregado de forma significativa frente a REF",
-  "n_kernels": 22,
-  "campaign_ids": [
-   "pacca_cpu_compute_sweep_20260919",
-   "pacca_cpu_final_20260913"
-  ],
-  "reference_level": "REF",
-  "test": "wilcoxon pareado por kernel contra REF",
-  "alpha": 0.05,
-  "levels_tested": {
-   "F0": {
+ "schema_version": 1,
+ "generated_at_utc": "2026-09-21T21:39:15.665094+00:00",
+ "device": "cpu",
+ "reference_level": "REF",
+ "inputs": {
+  "runs_energy.csv": "78851a51447e6e83efef818c9ffb779c7bdad50ed474a88b9d302821309be56f",
+  "runs_energy_sweep_20260919.csv": "ca74c04e66c4f5c039244935ad66f12a75dc9ef830c131cc62e23c73c3759367"
+ },
+ "policy": {
+  "cpu-compute_bound": {
+   "action": "no_actuar",
+   "reason": "mejora_no_significativa",
+   "reason_detail": "algun nivel mejora el EDP agregado frente a REF pero sin significancia (Wilcoxon pareado)",
+   "best_candidate": {
+    "level": "F0",
     "gain_agg": 0.0026,
     "gain_ci95": [
      -0.0001,
      0.0073
     ],
-    "median_ratio": 0.9973,
-    "p": 0.0587,
-    "significant": false
+    "p": 0.0587
    },
-   "F1": {
-    "gain_agg": -0.0393,
-    "gain_ci95": [
-     -0.114,
-     0.022
-    ],
-    "median_ratio": 1.1105,
-    "p": 0.0229,
-    "significant": true
+   "n_kernels": 22,
+   "campaign_ids": [
+    "pacca_cpu_compute_sweep_20260919",
+    "pacca_cpu_final_20260913"
+   ],
+   "reference_level": "REF",
+   "sample_unit": "kernel (mediana de sus repeticiones aceptadas)",
+   "test": "wilcoxon pareado por kernel contra REF",
+   "alpha": 0.05,
+   "levels_tested": {
+    "F0": {
+     "gain_agg": 0.0026,
+     "gain_ci95": [
+      -0.0001,
+      0.0073
+     ],
+     "median_ratio": 0.9973,
+     "p": 0.0587,
+     "significant": false
+    },
+    "F1": {
+     "gain_agg": -0.0393,
+     "gain_ci95": [
+      -0.114,
+      0.022
+     ],
+     "median_ratio": 1.1105,
+     "p": 0.0229,
+     "significant": true
+    },
+    "F2": {
+     "gain_agg": -0.1261,
+     "gain_ci95": [
+      -0.3028,
+      0.0207
+     ],
+     "median_ratio": 1.2275,
+     "p": 0.0229,
+     "significant": true
+    },
+    "F3": {
+     "gain_agg": -0.2587,
+     "gain_ci95": [
+      -0.5707,
+      0.0004
+     ],
+     "median_ratio": 1.4733,
+     "p": 0.0127,
+     "significant": true
+    },
+    "F4": {
+     "gain_agg": -0.4543,
+     "gain_ci95": [
+      -0.9601,
+      -0.0356
+     ],
+     "median_ratio": 1.8208,
+     "p": 0.0127,
+     "significant": true
+    },
+    "F5": {
+     "gain_agg": -0.7734,
+     "gain_ci95": [
+      -1.5729,
+      -0.1079
+     ],
+     "median_ratio": 2.2931,
+     "p": 0.0066,
+     "significant": true
+    },
+    "F6": {
+     "gain_agg": -1.331,
+     "gain_ci95": [
+      -2.6384,
+      -0.2443
+     ],
+     "median_ratio": 3.2064,
+     "p": 0.0025,
+     "significant": true
+    },
+    "F7": {
+     "gain_agg": -2.4181,
+     "gain_ci95": [
+      -4.6833,
+      -0.5337
+     ],
+     "median_ratio": 4.8863,
+     "p": 0.0022,
+     "significant": true
+    },
+    "F8": {
+     "gain_agg": -4.99,
+     "gain_ci95": [
+      -9.5116,
+      -1.225
+     ],
+     "median_ratio": 8.4905,
+     "p": 0.0009,
+     "significant": true
+    }
    },
-   "F2": {
-    "gain_agg": -0.1261,
-    "gain_ci95": [
-     -0.3028,
-     0.0207
-    ],
-    "median_ratio": 1.2275,
-    "p": 0.0229,
-    "significant": true
-   },
-   "F3": {
-    "gain_agg": -0.2587,
-    "gain_ci95": [
-     -0.5707,
-     0.0004
-    ],
-    "median_ratio": 1.4733,
-    "p": 0.0127,
-    "significant": true
-   },
-   "F4": {
-    "gain_agg": -0.4543,
-    "gain_ci95": [
-     -0.9601,
-     -0.0356
-    ],
-    "median_ratio": 1.8208,
-    "p": 0.0127,
-    "significant": true
-   },
-   "F5": {
-    "gain_agg": -0.7734,
-    "gain_ci95": [
-     -1.5729,
-     -0.1079
-    ],
-    "median_ratio": 2.2931,
-    "p": 0.0066,
-    "significant": true
-   },
-   "F6": {
-    "gain_agg": -1.331,
-    "gain_ci95": [
-     -2.6384,
-     -0.2443
-    ],
-    "median_ratio": 3.2064,
-    "p": 0.0025,
-    "significant": true
-   },
-   "F7": {
-    "gain_agg": -2.4181,
-    "gain_ci95": [
-     -4.6833,
-     -0.5337
-    ],
-    "median_ratio": 4.8863,
-    "p": 0.0022,
-    "significant": true
-   },
-   "F8": {
-    "gain_agg": -4.99,
-    "gain_ci95": [
-     -9.5116,
-     -1.225
-    ],
-    "median_ratio": 8.4905,
-    "p": 0.0009,
-    "significant": true
-   }
-  }
- },
- "memory_bound": {
-  "action": "no_actuar",
-  "level": "REF",
-  "reason": "ningun nivel bajo mejora el EDP agregado de forma significativa frente a REF",
-  "n_kernels": 28,
-  "campaign_ids": [
-   "pacca_cpu_compute_sweep_20260919",
-   "pacca_cpu_final_20260913"
-  ],
-  "reference_level": "REF",
-  "test": "wilcoxon pareado por kernel contra REF",
-  "alpha": 0.05,
-  "levels_tested": {
-   "F0": {
+   "chosen_level": null
+  },
+  "cpu-memory_bound": {
+   "action": "no_actuar",
+   "reason": "mejora_no_significativa",
+   "reason_detail": "algun nivel mejora el EDP agregado frente a REF pero sin significancia (Wilcoxon pareado)",
+   "best_candidate": {
+    "level": "F0",
     "gain_agg": 0.0021,
     "gain_ci95": [
      -0.0041,
      0.0039
     ],
-    "median_ratio": 1.0009,
-    "p": 0.9375,
-    "significant": false
+    "p": 0.9375
    },
-   "F1": {
-    "gain_agg": -0.0538,
-    "gain_ci95": [
-     -0.0684,
-     -0.0343
-    ],
-    "median_ratio": 1.0104,
-    "p": 0.12,
-    "significant": false
+   "n_kernels": 28,
+   "campaign_ids": [
+    "pacca_cpu_compute_sweep_20260919",
+    "pacca_cpu_final_20260913"
+   ],
+   "reference_level": "REF",
+   "sample_unit": "kernel (mediana de sus repeticiones aceptadas)",
+   "test": "wilcoxon pareado por kernel contra REF",
+   "alpha": 0.05,
+   "levels_tested": {
+    "F0": {
+     "gain_agg": 0.0021,
+     "gain_ci95": [
+      -0.0041,
+      0.0039
+     ],
+     "median_ratio": 1.0009,
+     "p": 0.9375,
+     "significant": false
+    },
+    "F1": {
+     "gain_agg": -0.0538,
+     "gain_ci95": [
+      -0.0684,
+      -0.0343
+     ],
+     "median_ratio": 1.0104,
+     "p": 0.12,
+     "significant": false
+    },
+    "F2": {
+     "gain_agg": -0.134,
+     "gain_ci95": [
+      -0.1852,
+      -0.1119
+     ],
+     "median_ratio": 1.0186,
+     "p": 0.0735,
+     "significant": false
+    },
+    "F3": {
+     "gain_agg": -0.2621,
+     "gain_ci95": [
+      -0.3402,
+      -0.2049
+     ],
+     "median_ratio": 1.0438,
+     "p": 0.0179,
+     "significant": true
+    },
+    "F4": {
+     "gain_agg": -0.4404,
+     "gain_ci95": [
+      -0.5483,
+      -0.2089
+     ],
+     "median_ratio": 1.1047,
+     "p": 0.0089,
+     "significant": true
+    },
+    "F5": {
+     "gain_agg": -0.7284,
+     "gain_ci95": [
+      -0.9186,
+      -0.4369
+     ],
+     "median_ratio": 1.2026,
+     "p": 0.0,
+     "significant": true
+    },
+    "F6": {
+     "gain_agg": -1.2462,
+     "gain_ci95": [
+      -1.5303,
+      -0.8234
+     ],
+     "median_ratio": 1.4962,
+     "p": 0.0,
+     "significant": true
+    },
+    "F7": {
+     "gain_agg": -2.1922,
+     "gain_ci95": [
+      -2.7352,
+      -1.5566
+     ],
+     "median_ratio": 1.875,
+     "p": 0.0,
+     "significant": true
+    },
+    "F8": {
+     "gain_agg": -4.4591,
+     "gain_ci95": [
+      -5.619,
+      -3.3732
+     ],
+     "median_ratio": 2.9268,
+     "p": 0.0,
+     "significant": true
+    }
    },
-   "F2": {
-    "gain_agg": -0.134,
-    "gain_ci95": [
-     -0.1852,
-     -0.1119
-    ],
-    "median_ratio": 1.0186,
-    "p": 0.0735,
-    "significant": false
-   },
-   "F3": {
-    "gain_agg": -0.2621,
-    "gain_ci95": [
-     -0.3402,
-     -0.2049
-    ],
-    "median_ratio": 1.0438,
-    "p": 0.0179,
-    "significant": true
-   },
-   "F4": {
-    "gain_agg": -0.4404,
-    "gain_ci95": [
-     -0.5483,
-     -0.2089
-    ],
-    "median_ratio": 1.1047,
-    "p": 0.0089,
-    "significant": true
-   },
-   "F5": {
-    "gain_agg": -0.7284,
-    "gain_ci95": [
-     -0.9186,
-     -0.4369
-    ],
-    "median_ratio": 1.2026,
-    "p": 0.0,
-    "significant": true
-   },
-   "F6": {
-    "gain_agg": -1.2462,
-    "gain_ci95": [
-     -1.5303,
-     -0.8234
-    ],
-    "median_ratio": 1.4962,
-    "p": 0.0,
-    "significant": true
-   },
-   "F7": {
-    "gain_agg": -2.1922,
-    "gain_ci95": [
-     -2.7352,
-     -1.5566
-    ],
-    "median_ratio": 1.875,
-    "p": 0.0,
-    "significant": true
-   },
-   "F8": {
-    "gain_agg": -4.4591,
-    "gain_ci95": [
-     -5.619,
-     -3.3732
-    ],
-    "median_ratio": 2.9268,
-    "p": 0.0,
-    "significant": true
-   }
+   "chosen_level": null
   }
  }
 }
