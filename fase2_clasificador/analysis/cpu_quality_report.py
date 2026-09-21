@@ -657,6 +657,50 @@ def stage_cap_sensitivity(frame, families, fam_codes, args, out: Path):
     pd.DataFrame(rows).to_csv(out / "cap_sensitivity.csv", index=False)
 
 
+def stage_cap_by_level(frame, families, fam_codes, args, out: Path):
+    """Tope simple por celda frente a tope repartido por igual entre los niveles de frecuencia.
+
+    El sorteo simple no reparte las filas por nivel; aqui se compara con un tope por celda x nivel de
+    ceil(cap / n_niveles). Se reporta cuanto se desbalancea el sorteo simple (cociente entre el nivel mas
+    y el menos poblado, en las celdas donde el tope actua) y la diferencia pareada de exactitud por celda.
+    """
+    levels = frame["freq_level_id"].to_numpy()
+    n_levels = len(np.unique(levels))
+    per_level_cap = int(np.ceil(args.cap / n_levels))
+    fam_arr = frame["family"].to_numpy()
+    y_all = frame["y"].to_numpy()
+    cnt = {"simple": [], "by_level": []}
+    ratios = []
+    for s_ in range(args.seeds):
+        simple = capped_sample(frame, args.cap, 1000 + s_)
+        rng = np.random.default_rng(1000 + s_)
+        key = pd.Series(fam_arr.astype(str)) + "|" + pd.Series(y_all.astype(str)) + "|" + pd.Series(levels.astype(str))
+        rank = pd.Series(rng.random(len(frame))).groupby(key.to_numpy()).rank(method="first").to_numpy()
+        by_level = np.flatnonzero(rank <= per_level_cap)
+        cnt["simple"].append(lofo(frame, families, fam_codes, CANDIDATE, simple, 2000 + s_, True, args.n_jobs))
+        cnt["by_level"].append(lofo(frame, families, fam_codes, CANDIDATE, by_level, 2000 + s_, True, args.n_jobs))
+        cell_total = pd.Series(1, index=range(len(frame))).groupby([fam_arr, y_all]).transform("size").to_numpy()
+        acts = np.isin(np.arange(len(frame)), simple) & (cell_total > args.cap)
+        tab = pd.crosstab([fam_arr[acts], y_all[acts]], levels[acts])
+        ratios.extend((tab.max(axis=1) / tab.replace(0, np.nan).min(axis=1)).dropna().tolist())
+        print("[cap_by_level] seed", s_, flush=True)
+    mean_cnt = {k: np.sum(v, axis=0) for k, v in cnt.items()}
+    rng = np.random.default_rng(0)
+    F = len(families)
+    boot = np.array([metrics_from_counts(mean_cnt["by_level"][d])["cell_balanced_acc"]
+                     - metrics_from_counts(mean_cnt["simple"][d])["cell_balanced_acc"]
+                     for d in rng.integers(0, F, size=(4000, F))])
+    res = {"per_level_cap": per_level_cap, "n_levels": n_levels,
+           "cell_bal": {k: metrics_from_counts(v)["cell_balanced_acc"] for k, v in mean_cnt.items()},
+           "diff_by_level_minus_simple": {"point": float(metrics_from_counts(mean_cnt["by_level"])["cell_balanced_acc"]
+                                                         - metrics_from_counts(mean_cnt["simple"])["cell_balanced_acc"]),
+                                          "ci95": ci(boot)},
+           "simple_cap_level_ratio_median": float(np.median(ratios)) if ratios else None,
+           "cells_where_cap_acts": len(ratios)}
+    (out / "cap_by_level.json").write_text(json.dumps(res, indent=1))
+    print(json.dumps(res, indent=1))
+
+
 def stage_threshold_nested(frame, families, fam_codes, args, out: Path):
     """Umbral de decision (sobre P(memory)) elegido por LOFO interno para maximizar exactitud balanceada por celda."""
     grid = [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
