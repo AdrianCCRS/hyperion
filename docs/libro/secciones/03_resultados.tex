@@ -676,11 +676,65 @@ XGBoost & 0.740 & [0.634, 0.872] \\
 \end{tabular}
 \end{table}
 
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{figuras/fig_gpu_comparacion_modelos_20260922.png}
+    \caption[Comparación de modelos candidatos GPU]{Exactitud balanceada por celda familia-clase de los siete modelos candidatos, con intervalo de confianza del 95\% por \textit{bootstrap} de familias. Fuente: elaboración propia.}
+    \label{fig:gpu-comparacion-modelos}
+\end{figure}
+
+Las cinco variables del candidato final (Tabla \ref{tab:gpu-vif}) no presentan colinealidad relevante: el factor de inflación de varianza (VIF) máximo fue 2.26, muy por debajo del umbral convencional de 5 que suele usarse como señal de alerta.
+
+\begin{table}[H]
+\centering
+\caption{Factor de inflación de varianza (VIF) de las cinco variables del candidato GPU final.}
+\label{tab:gpu-vif}
+\small
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{6.5cm}c@{}}
+\toprule
+\textbf{Variable} & \textbf{VIF} \\
+\midrule
+Utilización GPU (mediana) & 1.89 \\
+Utilización de memoria (mediana) & 1.76 \\
+Potencia (mediana) & 2.26 \\
+Reloj SM (mediana) & 1.37 \\
+Desviación estándar de utilización de memoria & 1.32 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 Una búsqueda anidada de hiperparámetros con muestreador TPE (\textit{Optuna}), quince pruebas por modelo dentro de un \textit{leave-one-familia-out} interno, empeoró el resultado en cuatro de los cinco modelos ajustables respecto de la configuración fija (regresión logística de 0.792 a 0.767, \textit{random forest} de 0.807 a 0.778, \textit{extra trees} de 0.806 a 0.748, XGBoost de 0.740 a 0.724; solo el árbol de profundidad 6 mejoró, de 0.727 a 0.783). El mismo mecanismo documentado para el clasificador de fase de CPU explica esta caída: con familias limitadas, el criterio interno que Optuna maximiza no discrimina de forma confiable la configuración que generaliza mejor. La búsqueda de hiperparámetros se descarta para el candidato GPU por la misma razón que para CPU.
 
 Con el empate entre \textit{random forest}, \textit{extra trees} y regresión logística ya establecido, el criterio de desempate fue la latencia de inferencia de una sola fila, medida en \texttt{paccaA100}, el nodo de destino real. La regresión logística respondió en 400.9, 413.8 y 466.9 microsegundos (percentiles 50, 95 y 99); \textit{random forest} y \textit{extra trees} tardaron entre diez y doce veces más (percentil 99 de 5512.2 y 4989.9 microsegundos, respectivamente). El candidato final es la regresión logística, con las cuatro señales NVML de producción (utilización GPU, utilización de memoria, potencia y reloj SM, todas por mediana) más la desviación estándar intracorrida de la utilización de memoria como quinta variable. Esta última se incorporó porque las medianas por sí solas diluyen el efecto de cargas con lanzamientos cortos y repetidos, como \textit{kmeans}, cuya intensidad operacional real es alta pero cuya firma NVML agregada se asemeja a una carga poco ocupada.
 
 Dos familias no se resuelven con ninguna de las variables disponibles por una razón física, no por una limitación del modelo: el núcleo GEMM de RAJAPerf y \textit{LUD} de Rodinia cambian de régimen Roofline según el nivel de frecuencia de la corrida, porque el punto de inflexión se desplaza con el reloj mientras la intensidad operacional de cada kernel permanece fija. \textit{LUD}, por ejemplo, resultó \textit{memory\_bound} en los niveles de reloj más altos y \textit{compute\_bound} en los más bajos de la misma familia. Distinguir ese cambio exigiría una variable de distancia al \textit{ridge}, que constituye fuga de la propia etiqueta y por tanto no es admisible como entrada del clasificador.
+
+La Figura \ref{fig:gpu-resultado-por-familia} desagrega el desempeño del candidato final por familia. El resultado no es parejo: ocho de las dieciséis familias superan 0.90 de exactitud, mientras \textit{dual\_cholesky} (0.23), el núcleo GEMM de RAJAPerf (0.50, la familia con cruce de \textit{ridge} ya descrita) y \textit{rodinia\_gaussian} (0.53, la familia más cercana al \textit{ridge} del catálogo) quedan por debajo del umbral trivial de 0.5. La matriz de confusión agregada (Figura \ref{fig:gpu-matriz-confusion}, panel izquierdo) resume esto en 483 corridas: 125 de 171 \textit{compute\_bound} (73.1\%) y 247 de 312 \textit{memory\_bound} (79.2\%) correctamente clasificadas.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{figuras/fig_gpu_resultado_por_familia_20260922.png}
+    \caption[Exactitud del candidato GPU por familia]{Exactitud del candidato final (regresión logística) por familia algorítmica, LOFO. El color indica la clase predominante real de cada familia. Fuente: elaboración propia.}
+    \label{fig:gpu-resultado-por-familia}
+\end{figure}
+
+La calibración de probabilidades del candidato (Figura \ref{fig:gpu-calibracion-umbral}, panel izquierdo) tiene un error de calibración esperado (ECE, diez cubetas) de 0.057: la confianza declarada por el modelo es una guía razonablemente fiel de su exactitud real. Sobre esa base se construyó una política de abstención igual que en CPU: la clase se entrega solo si la probabilidad máxima supera un umbral, y en caso contrario la salida es \textit{revisar}. El umbral que maximiza la exactitud balanceada por celda con cobertura razonable es 0.70, que sube la exactitud de 0.792 (sin abstención) a 0.846 reteniendo el 76.7\% de las corridas (Figura \ref{fig:gpu-calibracion-umbral}, panel derecho).
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{figuras/fig_gpu_calibracion_umbral_20260922.png}
+    \caption[Calibración y abstención del candidato GPU]{Izquierda: confianza declarada contra exactitud observada, diez cubetas de igual ancho. Derecha: exactitud balanceada por celda contra cobertura, para distintos umbrales de decisión $\tau$. Fuente: elaboración propia.}
+    \label{fig:gpu-calibracion-umbral}
+\end{figure}
+
+Con el candidato ya congelado (modelo, variables y decisión) se evaluó una vez, sin ningún ajuste adicional, contra cuatro familias de Rodinia de una campaña de agosto (Backprop, DWT2D, LavaMD y Myocyte) que no participaron en ninguna decisión de esta ronda: ni en el umbral de aceptación de corridas, ni en la separación de familias de RAJAPerf, ni en la variable de variabilidad añadida, ni en la elección del modelo. Es el equivalente honesto a un conjunto de prueba sellado. Sobre 140 corridas, la exactitud global fue 0.779 (Figura \ref{fig:gpu-matriz-confusion}, panel derecho), con \textit{LavaMD} como la familia más débil (0.5) y las otras tres entre 0.81 y 0.97. Esta cifra es consistente con una validación externa independiente reportada en una versión anterior de este análisis sobre un conjunto ligeramente distinto (exactitud 0.743, misma familia más débil), lo que respalda que el resultado no es un artefacto de la partición específica de esta ronda.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{figuras/fig_gpu_matriz_confusion_20260922.png}
+    \caption[Matriz de confusión y validación externa del candidato GPU]{Izquierda: matriz de confusión agregada del candidato final bajo \textit{leave-one-familia-out} (483 corridas). Derecha: exactitud por familia en la validación externa sellada (Backprop, DWT2D, LavaMD, Myocyte; 140 corridas nunca usadas en ninguna decisión de esta ronda). Fuente: elaboración propia.}
+    \label{fig:gpu-matriz-confusion}
+\end{figure}
 
 \subsection{Continuidad de la ruta CUPTI}
 \label{sec:resultados-gpu-hiperparam}
