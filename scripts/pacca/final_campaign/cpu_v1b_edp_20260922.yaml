@@ -1,0 +1,87 @@
+# EDP de la prueba sellada V1b (politica CPU memory-bound, 2026-09-22): barrido REF/F0/F1/F2 x 3
+# repeticiones de las 15 familias RAJAPerf de V1 redimensionadas a --memory-touched 125829120 (10x LLC).
+# Regla corregida congelada ANTES de esta medicion, con el tamizaje de PMU ya cerrado
+# (docs/libro/datos/.../v1b_prueba_sellada/screening_stall_mem_ratio.csv, job 7551, 45/45 aceptadas):
+#   actuar en F2 si stall_mem_ratio(REF, mediana) >= 0.30 AND mpki(REF, mediana) >= 20
+# 4 familias caen del lado de actuar: algorithm_memcpy (stall=0.726, mpki=70.3),
+# apps_pressure (stall=0.594, mpki=45.6), algorithm_reduce_sum (stall=0.475, mpki=41.6),
+# algorithm_scan (stall=0.469, mpki=21.2). Las 11 restantes quedan como contraste del lado de no
+# actuar, incluidas dos que activaban con la regla V1 rota (algorithm_histogram, mpki=17.0 < 20;
+# apps_nodal_accumulation_3d, mpki=4.5 < 20) -- exactamente el filtro que V1b debia introducir.
+# Ninguno de estos 15 kernels entra a entrenamiento del clasificador (30 familias, decision cerrada).
+campaign_id: pacca_cpu_v1b_edp_20260922
+warmup_seconds_override: 0.0
+environment_tier: hpc_sc3
+seed: 20260922
+output_dir: /home/latorresn/hyperion-results/final/campaigns/cpu_v1b_edp_20260922
+overwrite: false
+catalog_path: /home/latorresn/hyperion/fase1_telemetria/catalog/catalog.yaml
+calibration:
+- kernel_ref: stream_official
+- kernel_ref: ert_probe
+kernels:
+- kernel_ref: cpu_rajaperf_algorithm_memcpy_llc10x
+- kernel_ref: cpu_rajaperf_apps_pressure_llc10x
+- kernel_ref: cpu_rajaperf_algorithm_reduce_sum_llc10x
+- kernel_ref: cpu_rajaperf_algorithm_scan_llc10x
+- kernel_ref: cpu_rajaperf_algorithm_histogram_llc10x
+- kernel_ref: cpu_rajaperf_apps_nodal_accumulation_3d_llc10x
+- kernel_ref: cpu_rajaperf_apps_femsweep_llc10x
+- kernel_ref: cpu_rajaperf_apps_zonal_accumulation_3d_llc10x
+- kernel_ref: cpu_rajaperf_apps_matvec_3d_stencil_llc10x
+- kernel_ref: cpu_rajaperf_comm_halo_packing_llc10x
+- kernel_ref: cpu_rajaperf_apps_intsc_hexrect_llc10x
+- kernel_ref: cpu_rajaperf_apps_intsc_hexhex_llc10x
+- kernel_ref: cpu_rajaperf_apps_del_dot_vec_2d_llc10x
+- kernel_ref: cpu_rajaperf_apps_vol3d_llc10x
+- kernel_ref: cpu_rajaperf_algorithm_memset_llc10x
+frequency_levels:
+- {id: REF, mode: native_governor}
+- {id: F0, mode: fixed, fraction: 1.0}
+- {id: F1, mode: fixed, fraction: 0.875}
+- {id: F2, mode: fixed, fraction: 0.75}
+repetitions_per_combination: 3
+baseline_repetition_indices: [1]
+target_windows_per_repetition: 50
+interval_ns: 1000000
+running_ratio_min: 0.90
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+  grace_seconds: 0.15
+  tail_grace_seconds: 0.15
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+turbo:
+  require_disabled: true
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+projected_campaign_bytes: 8589934592
+remaining_core_hours: 100000
+projected_core_hours: 2
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+smt_policy: one_thread_per_physical_core
+cgroup_path: null
+perf_enabled: true
+rapl:
+  enabled: true
+uncore:
+  enabled: true
+gpu:
+  enabled: false
+timeouts_seconds:
+  ready: 15
+  run: 360
+  shutdown: 15
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 480000000000
