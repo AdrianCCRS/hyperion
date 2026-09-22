@@ -78,6 +78,15 @@ class KernelEntry:
     # calibradores (gpu_ert_probe_fp32/fp64) es -- ninguno de los dos se
     # puede inferir del resto del catálogo, así que se declara explícito.
     gpu_precision: str | None = None
+    # F1-GPU-004: algunos `bin/*` son wrappers Bash. CUPTI Activity debe
+    # entrar al ELF CUDA real; el wrapper puede quedarse como ruta normal
+    # para campañas históricas. Ambos campos son obligatorios juntos cuando
+    # se activa el modo de actividad para esa entrada.
+    cupti_activity_exec_path: str | None = None
+    cupti_activity_binary_checksum: str | dict[str, str] | None = None
+    cupti_activity_exec_args: str | None = None
+    cupti_activity_success_check: dict | None = None
+    cupti_activity_workdir: str | None = None
 
     def __post_init__(self):
         if self.device not in ("cpu", "gpu"):
@@ -136,9 +145,15 @@ class KernelEntry:
                         "operational_intensity_flops_per_byte y gpu_precision "
                         "(medidos con ncu, ARC-80) para poder derivar phase_label_train"
                     )
-                if self.gpu_precision not in ("fp32", "fp64"):
+                # Algunas variantes de exploración documentan precisión
+                # mixta y permanecen fuera de campañas Roofline. Admitirlas
+                # permite cargar el catálogo completo; postprocess sigue
+                # exigiendo un ridge concreto (fp32/fp64) para etiquetar una
+                # corrida, de modo que ``mixed`` nunca produce una etiqueta
+                # silenciosa.
+                if self.gpu_precision not in ("fp32", "fp64", "mixed"):
                     raise ValueError(
-                        f"CAT-10: gpu_precision de {self.id!r} debe ser 'fp32' o 'fp64', "
+                        f"CAT-10: gpu_precision de {self.id!r} debe ser 'fp32', 'fp64' o 'mixed', "
                         f"no {self.gpu_precision!r}"
                     )
 
@@ -217,6 +232,11 @@ def load_catalog(catalog_path: str) -> dict[str, KernelEntry]:
             device=kernel.get("device", "cpu"),
             operational_intensity_flops_per_byte=kernel.get("operational_intensity_flops_per_byte"),
             gpu_precision=kernel.get("gpu_precision"),
+            cupti_activity_exec_path=kernel.get("cupti_activity_exec_path"),
+            cupti_activity_binary_checksum=kernel.get("cupti_activity_binary_checksum"),
+            cupti_activity_exec_args=kernel.get("cupti_activity_exec_args"),
+            cupti_activity_success_check=kernel.get("cupti_activity_success_check"),
+            cupti_activity_workdir=kernel.get("cupti_activity_workdir"),
         )
         if not isinstance(entry.exec_args, str):
             raise ValueError(f"CAT-06: exec_args de {entry.id!r} debe ser un string")
@@ -255,10 +275,35 @@ def verify_binary(entry: KernelEntry, node_id: str | None = None) -> bool:
     # CAT-02 / C02: reject a binary changed since the catalog was generated.
     return checksum == expected
 
+
+def verify_cupti_activity_binary(entry: KernelEntry, node_id: str | None = None) -> bool:
+    """Verifica el ELF directo usado solo en el modo CUPTI Activity.
+
+    No reutiliza el checksum del wrapper: verificar el script no autentica el
+    binario CUDA que realmente recibe el preload.
+    """
+    path, expected = entry.cupti_activity_exec_path, entry.cupti_activity_binary_checksum
+    if not isinstance(path, str) or not path or expected is None:
+        return False
+    if not os.path.isfile(path) or not os.access(path, os.X_OK):
+        return False
+    try:
+        with open(path, "rb") as binary_file:
+            checksum = f"sha256:{hashlib.file_digest(binary_file, 'sha256').hexdigest()}"
+    except OSError:
+        return False
+    if isinstance(expected, dict):
+        return node_id is not None and expected.get(node_id) == checksum
+    return expected == checksum
+
 def resolve_exec_command(
-    entry: KernelEntry, harness: HarnessConfig | None = None
+    entry: KernelEntry, harness: HarnessConfig | None = None, *, use_cupti_activity_target: bool = False,
 ) -> list[str]:
     """Traduce una entrada al argv del launcher, sin inferir argumentos."""
     # CAT-06: los flags vienen de la configuración de plataforma; exec_args es la única fuente de argumentos de suite.
     launcher = harness or load_config().harness
-    return [launcher.exec_flag, entry.exec_path, launcher.exec_args_flag, entry.exec_args]
+    path = entry.cupti_activity_exec_path if use_cupti_activity_target else entry.exec_path
+    if not isinstance(path, str) or not path:
+        raise ValueError(f"F1-GPU-004: {entry.id!r} no declara ejecutable CUDA directo para CUPTI Activity")
+    args = entry.cupti_activity_exec_args if use_cupti_activity_target else entry.exec_args
+    return [launcher.exec_flag, path, launcher.exec_args_flag, args if args is not None else entry.exec_args]

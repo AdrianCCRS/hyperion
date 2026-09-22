@@ -117,6 +117,16 @@ def _context(**overrides) -> postprocess.WindowContext:
     return postprocess.WindowContext(**defaults)
 
 
+def test_parsea_region_medida_gpu_de_dispatch_timing(tmp_path):
+    stdout = tmp_path / "stdout.txt"
+    stdout.write_text(
+        " Cold region t0_ns = 10\n Measured region t0_ns = 100\n"
+        " Measured region t1_ns = 900\n",
+        encoding="utf-8",
+    )
+    assert postprocess.parse_declared_gpu_measured_region(stdout) == (100, 900)
+
+
 def test_arc48_repeticion_de_campana_2_no_deja_windows_csv_vacio(tmp_path):
     # runner.py nunca pasa --repetitions al launcher, asi que
     # samples.csv SIEMPRE tiene "1" en su propia columna "repetition" --

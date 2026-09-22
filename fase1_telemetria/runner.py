@@ -13,7 +13,9 @@ import time
 from typing import Any, Callable, Iterable, Mapping
 
 from common.hpc import freqctl
-from common.hpc.catalog import KernelEntry, resolve_exec_command, verify_binary
+from common.hpc.catalog import (
+    KernelEntry, resolve_exec_command, verify_binary, verify_cupti_activity_binary,
+)
 from common.hpc.config import HarnessConfig, load_config
 from common.hpc.gpu_shim import compiled_blocking_sync_shim, cuda_lib_dirs
 from .metadata_schema import merge_metadata
@@ -120,7 +122,19 @@ def build_command(
 ) -> list[str]:
     """RUN-01: the launcher argv is always derived from the catalog entry and
     the manifest, never hardcoded for a specific kernel or campaign."""
-    exec_command = resolve_exec_command(entry, harness)
+    activity_trace = getattr(manifest, "gpu", {}).get("activity_trace", {})
+    trace_enabled = (
+        getattr(entry, "device", "cpu") == "gpu"
+        and getattr(entry, "role", "dataset") == "dataset"
+        and activity_trace.get("enabled", False)
+    )
+    # La auditoría de campaña exige el destino directo; el fallback aquí
+    # preserva las pruebas/callers unitarios que solo verifican wiring del
+    # flag antes de pasar por ese gate.
+    exec_command = resolve_exec_command(
+        entry, harness,
+        use_cupti_activity_target=trace_enabled and bool(getattr(entry, "cupti_activity_exec_path", None)),
+    )
     cores = manifest.cores
     command = [
         harness.binary_path,
@@ -232,6 +246,13 @@ def build_command(
         gpu_interval_ns = getattr(manifest, "gpu_interval_ns", None)
         if gpu_interval_ns is not None:
             command += ["--gpu-interval-ns", str(gpu_interval_ns)]
+        if trace_enabled:
+            library_path = activity_trace.get("library_path")
+            if not isinstance(library_path, str) or not library_path:
+                raise ValueError(
+                    "gpu.activity_trace.enabled=true requiere library_path no vacío"
+                )
+            command += ["--cupti-activity-lib", library_path]
     return command
 
 
@@ -307,10 +328,12 @@ def _wait_process_group_gone(
     return not _process_group_alive(pgid)
 
 
-def _check_success(entry: KernelEntry, exit_code: int, stdout_path: Path) -> bool:
+def _check_success(
+    entry: KernelEntry, exit_code: int, stdout_path: Path, *, override: Mapping[str, Any] | None = None,
+) -> bool:
     """RUN-05: apply entry.success_check against the real result. catalog.py
     already validated the check's shape (CAT-03/C03) when the catalog loaded."""
-    check = entry.success_check
+    check = override if override is not None else entry.success_check
     check_type = check.get("type")
     if check_type == "exit_code":
         return exit_code == check.get("expected", 0)
@@ -445,6 +468,16 @@ def run_single(
     # only once during preflight.
     if not verify_binary(entry, node_id):
         raise ValueError(f"C02: checksum de {entry.exec_path!r} no coincide antes de ejecutar")
+    activity_trace = getattr(manifest, "gpu", {}).get("activity_trace", {})
+    if (
+        getattr(entry, "device", "cpu") == "gpu"
+        and getattr(entry, "role", "dataset") == "dataset"
+        and activity_trace.get("enabled")
+    ):
+        if not verify_cupti_activity_binary(entry, node_id):
+            raise ValueError(
+                f"F1-GPU-004: ejecutable CUDA directo de {entry.id!r} ausente o con checksum inválido"
+            )
 
     applied_frequency = None
     if apply_frequency is not None:
@@ -565,8 +598,16 @@ def run_single(
     # start_new_session=True makes the child its own process group leader, so
     # os.killpg(child.pid, ...) also reaches everything it forks (RUN-03/04).
     with open(stdout_path, "wb") as stdout_file, open(stderr_path, "wb") as stderr_file:
+        activity_trace = getattr(manifest, "gpu", {}).get("activity_trace", {})
+        trace_enabled = (
+            getattr(entry, "device", "cpu") == "gpu"
+            and getattr(entry, "role", "dataset") == "dataset"
+            and activity_trace.get("enabled", False)
+        )
+        trace_cwd = run_dir if trace_enabled and getattr(entry, "cupti_activity_workdir", None) == "run_dir" else None
         process = subprocess.Popen(
-            command, stdout=stdout_file, stderr=stderr_file, start_new_session=True, env=run_env
+            command, stdout=stdout_file, stderr=stderr_file, start_new_session=True, env=run_env,
+            cwd=trace_cwd,
         )
         try:
             exit_code = process.wait(timeout=timeout_seconds)
@@ -587,7 +628,18 @@ def run_single(
             f"RUN-04: quedan procesos vivos en el grupo de {run_id} (pgid={process.pid})"
         )
 
-    success = (not timed_out) and _check_success(entry, exit_code, stdout_path)
+    trace_success_check = (
+        getattr(entry, "cupti_activity_success_check", None)
+        if (
+            getattr(entry, "device", "cpu") == "gpu"
+            and getattr(entry, "role", "dataset") == "dataset"
+            and getattr(manifest, "gpu", {}).get("activity_trace", {}).get("enabled", False)
+        )
+        else None
+    )
+    success = (not timed_out) and _check_success(
+        entry, exit_code, stdout_path, override=trace_success_check,
+    )
 
     launcher_metadata = _read_launcher_metadata(run_dir)
     metadata = _merge_metadata(

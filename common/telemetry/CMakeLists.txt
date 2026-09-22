@@ -102,6 +102,28 @@ if(WITH_GPU)
   target_link_libraries(gpu_clock_transition_probe PRIVATE ${NVML_LIB})
 endif()
 
+# CUPTI Activity tracing is a preload library injected only into the measured
+# CUDA child. It is deliberately separate from libtelemetry/collector: the
+# collector runs in the parent process and cannot observe a child's CUDA
+# context. Enable explicitly on nodes with a complete CUDA Toolkit.
+option(WITH_CUPTI "Build CUPTI Activity preload tracer" OFF)
+if(WITH_CUPTI)
+  find_path(CUPTI_INCLUDE_DIR cupti.h
+    HINTS ENV CUDA_HOME ENV CUDA_PATH
+    PATH_SUFFIXES extras/CUPTI/include include)
+  find_library(CUPTI_LIB cupti
+    HINTS ENV CUDA_HOME ENV CUDA_PATH
+    PATH_SUFFIXES extras/CUPTI/lib64 lib64)
+  if(NOT CUPTI_INCLUDE_DIR OR NOT CUPTI_LIB)
+    message(FATAL_ERROR "WITH_CUPTI=ON requires cupti.h and libcupti.so")
+  endif()
+  add_library(hyperion_cupti_activity SHARED src/cupti_activity_preload.cpp)
+  target_include_directories(hyperion_cupti_activity PRIVATE ${CUPTI_INCLUDE_DIR})
+  target_link_libraries(hyperion_cupti_activity PRIVATE ${CUPTI_LIB} pthread)
+  set_target_properties(hyperion_cupti_activity PROPERTIES
+    OUTPUT_NAME hyperion_cupti_activity)
+endif()
+
 enable_testing()
 
 add_executable(telemetry_link_smoke_test

@@ -65,6 +65,9 @@ namespace {
         // there is no separate GPU thread). Requires TELEMETRY_WITH_GPU.
         bool enable_gpu = false;
         long gpu_interval_ns = 100'000'000;
+        // Optional CUPTI Activity tracer. The shared library is injected only
+        // into the measured exec child, never into this launcher before fork.
+        fs::path cupti_activity_lib;
         // Node-wide uncore_imc CAS_COUNT sampling (real DRAM bytes). Callers
         // are responsible for having confirmed an exclusive node allocation
         // before setting this -- these are system-scope counters, they
@@ -126,14 +129,16 @@ namespace {
                      "[--pin-workload-cpus <list> --pin-workers] "
                      "--collector-cpu <cpu> --consumer-cpu <cpu> "
                      "--cgroup-path <path> --output-dir <dir> --run-id <id> "
-                     "[--enable-gpu [--gpu-interval-ns <ns>]]\n"
+                     "[--enable-gpu [--gpu-interval-ns <ns>] "
+                     "[--cupti-activity-lib <libhyperion_cupti_activity.so>]]\n"
                      "       %s (external)   --exec <path> [--exec-args <string>] "
                      "--repetitions <N> "
                      "--perf-cpus <list> "
                      "[--pin-workload-cpus <list>] "
                      "--collector-cpu <cpu> --consumer-cpu <cpu> "
                      "--cgroup-path <path> --output-dir <dir> --run-id <id> "
-                     "[--enable-gpu [--gpu-interval-ns <ns>]]\n",
+                     "[--enable-gpu [--gpu-interval-ns <ns>] "
+                     "[--cupti-activity-lib <libhyperion_cupti_activity.so>]]\n",
                      argv0,
                      argv0);
         std::exit(2);
@@ -232,6 +237,8 @@ namespace {
                 opt.enable_gpu = true;
             } else if(arg == "--gpu-interval-ns") {
                 opt.gpu_interval_ns = std::stol(need_value());
+            } else if(arg == "--cupti-activity-lib") {
+                opt.cupti_activity_lib = need_value();
             } else if(arg == "--enable-uncore") {
                 opt.enable_uncore = true;
             } else if(arg == "--uncore-pin-cpu") {
@@ -291,6 +298,18 @@ namespace {
         if(opt.interval_ns <= 0) throw std::invalid_argument("--interval-ns must be positive");
         if(opt.enable_gpu && opt.gpu_interval_ns <= 0) {
             throw std::invalid_argument("--gpu-interval-ns must be positive when --enable-gpu is set");
+        }
+        if(!opt.cupti_activity_lib.empty()) {
+            if(!opt.enable_gpu) {
+                throw std::invalid_argument("--cupti-activity-lib requires --enable-gpu");
+            }
+            if(opt.exec_path.empty()) {
+                throw std::invalid_argument("--cupti-activity-lib requires external --exec mode");
+            }
+            if(!fs::exists(opt.cupti_activity_lib)) {
+                throw std::invalid_argument("--cupti-activity-lib does not exist: "
+                                            + opt.cupti_activity_lib.string());
+            }
         }
         // --cgroup-path is optional (CPP-05): perf now attaches by PID with
         // inherit=1, never through a cgroup. When present it is only used to
@@ -504,6 +523,21 @@ namespace {
                 ::close(stdout_pipe[0]);
                 if(::dup2(stdout_pipe[1], STDOUT_FILENO) < 0) _exit(126);
                 set_affinity(0, opt.pin_workload_cpus);
+
+                if(collect && !opt.cupti_activity_lib.empty()) {
+                    const std::string trace_path =
+                        (opt.output_dir / opt.run_id /
+                         ("cupti_activity_rep" + (repetition < 10 ? std::string("0") : std::string())
+                          + std::to_string(repetition) + ".csv")).string();
+                    ::setenv("HYPERION_CUPTI_ACTIVITY_FILE", trace_path.c_str(), 1);
+                    const char* inherited = ::getenv("LD_PRELOAD");
+                    std::string preload = opt.cupti_activity_lib.string();
+                    if(inherited != nullptr && *inherited != '\0') {
+                        preload += ":";
+                        preload += inherited;
+                    }
+                    ::setenv("LD_PRELOAD", preload.c_str(), 1);
+                }
 
                 // Replace the child with the measured binary. For the synthetic
                 // workload this is opt.workload_bin; for --exec mode it is the
@@ -1120,6 +1154,8 @@ int main(int argc, char** argv) {
         std::vector<RecordedSample> samples;
         std::vector<pid_t> measured_pids;
         const bool external_mode = !opt.exec_path.empty();
+        const fs::path run_dir = opt.output_dir / opt.run_id;
+        fs::create_directories(run_dir);
         // ARC-50: a per-node capability fact, expected identical across every
         // repetition of the same run on the same machine/kernel -- OR'd
         // across repetitions defensively rather than assumed from the first.
@@ -1236,8 +1272,6 @@ int main(int argc, char** argv) {
                 fp_arith_available || telemetry.fp_arith_available;
         }
 
-        const fs::path run_dir = opt.output_dir / opt.run_id;
-        fs::create_directories(run_dir);
         write_samples_csv(run_dir / "samples.csv", opt, samples, stalled_cycles_mem_any_available, l2_lines_in_all_available, fp_arith_available);
         write_metadata_json(run_dir / "metadata.json",
                             opt,

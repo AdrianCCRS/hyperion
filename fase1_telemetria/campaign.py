@@ -16,6 +16,7 @@ from common.hpc import freqctl as freqctl_module
 from common.hpc import gpu_freqctl as gpu_freqctl_module
 from common.hpc import node_profile as node_profile_module
 from . import postprocess as postprocess_module
+from . import gpu_phases as gpu_phases_module
 from common.hpc import preflight as preflight_module
 from . import runner as runner_module
 from . import validation as validation_module
@@ -590,6 +591,12 @@ def run_campaign(
     delegated_cpus = manifest.cores.delegated_cpus
     resolved_harness = harness or load_config().harness
 
+    # La campaña de ventanas GPU no puede empezar con cobertura parcial:
+    # hacerlo produciría ejemplos sin verdad y volvería a introducir una
+    # etiqueta de corrida heredada. Este control no toca el nodo.
+    from fase1_telemetria.audit_gpu_oi_coverage import require_complete as _require_gpu_oi_coverage
+    _require_gpu_oi_coverage(manifest, catalog)
+
     # CAM-09 (ARC-94): fail closed, before touching any hardware state, if
     # this output_dir already has accepted verdicts from a different
     # measurement protocol (see CampaignProtocolMismatchError).
@@ -1126,9 +1133,17 @@ def run_campaign(
                         freq_tail_grace_seconds=float(frequency_validation.get("tail_grace_seconds", 0.0)),
                         freq_is_native_governor=item.combination.frequency_level.mode == "native_governor",
                         gpu_transition_seconds=GPU_TRANSITION_SECONDS_CONSERVATIVE,
+                        gpu_activity_trace=(
+                            dict(getattr(manifest, "gpu", {}).get("activity_trace", {}))
+                            if getattr(entry, "device", "cpu") == "gpu" else None
+                        ),
                     )
+                    validation_path = windows_path
+                    gpu_phase_path = result.run_dir / gpu_phases_module.GPU_PHASE_DATASET_FILENAME
+                    if entry.device == "gpu" and gpu_phase_path.exists():
+                        validation_path = gpu_phase_path
                     verdict = validation_module.validate_windows(
-                        windows_path,
+                        validation_path,
                         target_windows_per_repetition=manifest.target_windows_per_repetition,
                         device=entry.device,
                     )

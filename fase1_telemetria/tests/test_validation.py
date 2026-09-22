@@ -669,3 +669,36 @@ def test_arc129_windows_gpu_mezcla_sobre_y_bajo_el_piso_solo_cuenta_las_reales(t
     # Pero sí alcanzan un objetivo de 3.
     verdict_ok = validation.validate_windows(windows_path, target_windows_per_repetition=3, device="gpu")
     assert verdict_ok.accepted is True
+
+
+def test_gpu_activity_trace_valida_el_dataset_temporal_y_no_windows_csv(tmp_path):
+    rows = [
+        {
+            "phase_quality_status": "ok",
+            "training_eligible": "True",
+            "phase_label_train": "compute_bound",
+        }
+        for _ in range(5)
+    ]
+    rows.append({
+        "phase_quality_status": "no_cuda_activity",
+        "training_eligible": "False",
+        "phase_label_train": "",
+    })
+    path = _write_windows_csv(tmp_path / "training_gpu_phases.csv", rows)
+    verdict = validation.validate_windows(path, target_windows_per_repetition=5, device="gpu")
+    assert verdict.accepted is True
+
+
+def test_gpu_activity_trace_exige_suficientes_ventanas_elegibles(tmp_path):
+    path = _write_windows_csv(tmp_path / "training_gpu_phases.csv", [
+        {
+            "phase_quality_status": "ok",
+            "training_eligible": "True",
+            "phase_label_train": "memory_bound",
+        }
+        for _ in range(2)
+    ])
+    verdict = validation.validate_windows(path, target_windows_per_repetition=3, device="gpu")
+    assert verdict.accepted is False
+    assert verdict.factor_id == "I10"

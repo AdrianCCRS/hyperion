@@ -87,6 +87,35 @@ def test_run01_sin_cgroup_path_no_agrega_la_bandera(tmp_path):
     assert "--cgroup-path" not in command
 
 
+def test_activity_trace_ejecuta_elf_directo_y_no_el_wrapper(tmp_path):
+    entry = _make_entry(tmp_path, device="gpu")
+    direct = tmp_path / "kernel_cuda_real"
+    direct.write_bytes(b"#!/bin/sh\necho cuda\n")
+    direct.chmod(0o755)
+    entry.cupti_activity_exec_path = str(direct)
+    entry.cupti_activity_binary_checksum = f"sha256:{hashlib.sha256(direct.read_bytes()).hexdigest()}"
+    manifest = _make_manifest(tmp_path)
+    manifest.gpu = {"activity_trace": {"enabled": True, "library_path": "/tmp/libtrace.so"}}
+    command = runner.build_command(entry, manifest, "run_x", _harness())
+    assert command[command.index("--exec") + 1] == str(direct)
+
+
+def test_activity_trace_usa_argumentos_declarados_para_el_elf_directo(tmp_path):
+    entry = _make_entry(tmp_path, device="gpu")
+    direct = tmp_path / "kernel_cuda_real"
+    direct.write_bytes(b"#!/bin/sh\necho cuda\n")
+    direct.chmod(0o755)
+    entry.cupti_activity_exec_path = str(direct)
+    entry.cupti_activity_binary_checksum = f"sha256:{hashlib.sha256(direct.read_bytes()).hexdigest()}"
+    entry.cupti_activity_exec_args = "--kernel Stream_TRIAD --outdir ."
+    manifest = _make_manifest(tmp_path)
+    manifest.gpu = {"activity_trace": {"enabled": True, "library_path": "/tmp/libtrace.so"}}
+
+    command = runner.build_command(entry, manifest, "run_x", _harness())
+
+    assert command[command.index("--exec-args") + 1] == "--kernel Stream_TRIAD --outdir ."
+
+
 def test_run02_run_id_determinista():
     run_id = runner.build_run_id("camp01", "npb_ep", "REF", 3)
     assert run_id == "camp01__npb_ep__REF__rep03"
@@ -347,6 +376,46 @@ def test_arc70_run_single_gpu_sin_shim_disponible_no_falla(tmp_path, monkeypatch
     assert result.success is True
     assert result.metadata["observed_ld_preload"] == ""
     assert "ARC-70" in caplog.text
+
+
+def test_gpu_activity_trace_se_propaga_al_launcher(tmp_path):
+    entry = _make_entry(tmp_path, device="gpu")
+    manifest = _make_manifest(tmp_path)
+    manifest.gpu = {
+        "enabled": True,
+        "activity_trace": {
+            "enabled": True,
+            "library_path": "/opt/hyperion/libhyperion_cupti_activity.so",
+        },
+    }
+
+    command = runner.build_command(entry, manifest, "run_cupti", _harness())
+
+    index = command.index("--cupti-activity-lib")
+    assert command[index + 1] == "/opt/hyperion/libhyperion_cupti_activity.so"
+
+
+def test_activity_trace_no_se_inyecta_en_calibradores_gpu(tmp_path):
+    entry = _make_entry(tmp_path, device="gpu")
+    entry.role = "calibration"
+    manifest = _make_manifest(tmp_path)
+    manifest.gpu = {
+        "enabled": True,
+        "activity_trace": {"enabled": True, "library_path": "/opt/hyperion/libtrace.so"},
+    }
+
+    command = runner.build_command(entry, manifest, "calibration", _harness())
+
+    assert "--cupti-activity-lib" not in command
+
+
+def test_gpu_activity_trace_falla_sin_library_path(tmp_path):
+    entry = _make_entry(tmp_path, device="gpu")
+    manifest = _make_manifest(tmp_path)
+    manifest.gpu = {"enabled": True, "activity_trace": {"enabled": True}}
+
+    with pytest.raises(ValueError, match="requiere library_path"):
+        runner.build_command(entry, manifest, "run_cupti", _harness())
 
 
 def test_run05_run06_run07_corrida_exitosa(tmp_path, monkeypatch):

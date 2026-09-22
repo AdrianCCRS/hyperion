@@ -11,6 +11,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from fase1_telemetria import gpu_phases
+from fase1_telemetria.gpu_window_oi import LaunchWork
 
 
 def _gpu_win(run_id, t_end_ns, *, util, power, sm_clock, mem_util=50, temp=60,
@@ -171,10 +172,53 @@ def test_filas_no_gpu_se_ignoran():
 
 def test_contrato_de_granularidad_declara_lo_esencial():
     c = gpu_phases.granularity_contract()
-    assert c["row_unit"] == "run"
+    assert c["row_unit"] == "time_window"
+    assert c["window_ns"] == 120_000_000
     assert c["nvml_sample_is_independent_example"] is False
     assert "phase_label_train" in c["label_and_truth_columns_forbidden_as_features"]
     assert c["phasic_kernels_training_eligible"] is False
+
+
+def test_ventanas_temporales_agregan_nvml_y_etiquetan_con_trabajo_cupti():
+    wins = [
+        _gpu_win("run_A", 1_000 + i * 5, util=90, power=200_000, sm_clock=1400)
+        for i in range(24)
+    ]
+    launches = [LaunchWork("kernel", 1_000, 1_120, flops=1_200, bytes_moved=100,
+                           model_id="test/aoi-v1")]
+    rows = gpu_phases.build_gpu_time_window_rows(
+        wins, launch_work=launches, i_ridge_flops_per_byte=3.3,
+        window_ns=120, min_nvml_samples=8,
+    )
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["granularity"] == "time_window"
+    assert row["n_nvml_samples"] == 24
+    assert row["operational_intensity"] == 12
+    assert row["phase_label_train"] == "compute_bound"
+    assert row["analytic_model_ids"] == "test/aoi-v1"
+    assert row["training_eligible"] is True
+
+
+def test_ventana_temporal_valida_reloj_fijo_solo_con_muestras_activas():
+    wins = [
+        _gpu_win("run_A", 1_000 + i * 5, util=0, power=50_000, sm_clock=765)
+        for i in range(12)
+    ] + [
+        _gpu_win("run_A", 1_060 + i * 5, util=90, power=200_000, sm_clock=1110)
+        for i in range(12)
+    ]
+    launches = [LaunchWork("kernel", 1_060, 1_120, flops=1_200, bytes_moved=100,
+                           model_id="test/aoi-v1")]
+    rows = gpu_phases.build_gpu_time_window_rows(
+        wins, launch_work=launches, i_ridge_flops_per_byte=3.3,
+        window_ns=120, min_nvml_samples=8,
+        gpu_freq_mhz_requested=1110, gpu_freq_mhz_applied=1110,
+    )
+    row = rows[0]
+    assert row["gpu_frequency_quality_status"] == "valid"
+    assert row["gpu_frequency_valid_fraction"] == 1.0
+    assert row["training_eligible"] is True
 
 
 def test_csv_y_contrato_se_escriben(tmp_path):

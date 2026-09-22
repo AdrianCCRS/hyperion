@@ -66,6 +66,7 @@ if str(_REPO_ROOT) not in sys.path:
 from common.hpc import catalog as catalog_module
 from common.hpc import manifest as manifest_module
 from . import campaign as campaign_module
+from . import gpu_phases as gpu_phases_module
 from . import postprocess as postprocess_module
 from . import runner as runner_module
 from . import validation as validation_module
@@ -184,13 +185,21 @@ def repostprocess_campaign(
                 freq_tail_grace_seconds=float(frequency_validation.get("tail_grace_seconds", 0.0)),
                 freq_is_native_governor=combo.frequency_level.mode == "native_governor",
                 gpu_transition_seconds=campaign_module.GPU_TRANSITION_SECONDS_CONSERVATIVE,
+                gpu_activity_trace=(
+                    dict(getattr(manifest, "gpu", {}).get("activity_trace", {}))
+                    if getattr(entry, "device", "cpu") == "gpu" else None
+                ),
             )
             # Re-validación (ver docstring del módulo): el accept/reject debe
             # reflejar el windows.csv YA corregido, no el provisional con el
             # que se decidió en vivo. VAL-06: esto nunca borra ni mueve la
             # corrida, solo sobrescribe verdict.json.
+            validation_path = windows_path
+            gpu_phase_path = run_dir / gpu_phases_module.GPU_PHASE_DATASET_FILENAME
+            if getattr(entry, "device", "cpu") == "gpu" and gpu_phase_path.exists():
+                validation_path = gpu_phase_path
             verdict = validation_module.validate_windows(
-                windows_path,
+                validation_path,
                 target_windows_per_repetition=manifest.target_windows_per_repetition,
                 device=getattr(entry, "device", "cpu"),
             )

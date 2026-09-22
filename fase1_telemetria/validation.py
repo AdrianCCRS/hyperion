@@ -475,7 +475,41 @@ def validate_windows(
     ``device=="gpu"``.
     """
     with open(windows_path, newline="", encoding="utf-8") as handle:
-        rows = list(csv.DictReader(handle))
+        reader = csv.DictReader(handle)
+        rows = list(reader)
+        fieldnames = set(reader.fieldnames or ())
+
+    # F1-GPU-003: cuando CUPTI Activity está activo, la unidad válida para
+    # entrenamiento ya no es la muestra NVML de windows.csv sino la ventana
+    # temporal agregada de training_gpu_phases.csv. Su propio contrato deja
+    # explícitos tanto el gate compuesto (training_eligible) como la causa
+    # (phase_quality_status). Tratar ese archivo como el esquema histórico
+    # hacía que las 570 corridas se rechazaran aunque sí hubiera etiquetas.
+    if device == "gpu" and {"phase_quality_status", "training_eligible"} <= fieldnames:
+        usable_status = "ok"
+
+        def _is_true(value: Any) -> bool:
+            return str(value).strip().lower() in ("1", "true", "yes")
+
+        usable_rows = [
+            row for row in rows
+            if row.get("phase_quality_status") == usable_status
+            and _is_true(row.get("training_eligible"))
+        ]
+        if len(usable_rows) < target_windows_per_repetition:
+            return Verdict(
+                False, "I10",
+                f"{len(usable_rows)} ventanas GPU elegibles logradas, por debajo de "
+                f"target_windows_per_repetition={target_windows_per_repetition}",
+            )
+        has_label = any(
+            row.get("phase_label_train") not in (None, "", "None")
+            for row in usable_rows
+        )
+        if not has_label:
+            return Verdict(False, "I11", "ninguna ventana usable tiene phase_label_train calculado")
+        return Verdict(True, None, "ok")
+
     usable_status = "gpu_telemetry" if device == "gpu" else "ok"
     usable_rows = [row for row in rows if row.get("quality_status") == usable_status]
     if device == "gpu":

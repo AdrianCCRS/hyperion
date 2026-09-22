@@ -5,12 +5,35 @@ from dataclasses import dataclass
 import json
 import math
 from pathlib import Path
+import re
 from statistics import median
 from typing import Any, Sequence
 
 from . import calibration as calibration_module
 from common.hpc import node_profile as node_profile_module
 from . import validation as validation_module
+
+
+_MEASURED_REGION_RE = re.compile(
+    r"^ Measured region t0_ns = (?P<start>\d+)[ \t]*\r?$\n"
+    r"^ Measured region t1_ns = (?P<end>\d+)[ \t]*\r?$",
+    re.MULTILINE,
+)
+
+
+def parse_declared_gpu_measured_region(stdout_path: str | Path) -> tuple[int, int] | None:
+    """Lee las marcas MONOTONIC de ``dispatch_timing.h`` si el binario las emite."""
+    try:
+        content = Path(stdout_path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    match = _MEASURED_REGION_RE.search(content)
+    if match is None:
+        return None
+    start, end = int(match.group("start")), int(match.group("end"))
+    if end <= start:
+        raise ValueError(f"región medida GPU inválida en {stdout_path}: {start}..{end}")
+    return start, end
 
 # POST-XX ids below refer to docs/retoma/Guia_Maestra_Fase1_DVFS.md section
 # 12.9. samples.csv columns come from telemetry_kernel_launcher.cpp's
@@ -1216,6 +1239,7 @@ def run_postprocess(
     freq_is_native_governor: bool = False,
     output_dir: str | Path | None = None,
     gpu_transition_seconds: float = 0.0,
+    gpu_activity_trace: dict[str, Any] | None = None,
 ) -> Path:
     """Orchestrates one run's samples.csv -> windows.csv + training_cpu_intervals.csv.
 
@@ -1268,7 +1292,13 @@ def run_postprocess(
     profile = node_profile_module.load_node_profile(calibration_dir)
 
     effective_gpu_freq_level_id = gpu_freq_level_id if gpu_freq_level_id is not None else freq_level_id
-    gpu_operational_intensity = getattr(kernel_entry, "operational_intensity_flops_per_byte", None)
+    # La OI histórica de ncu se conserva solo para poder leer campañas
+    # antiguas. En la vía nueva la etiqueta nace abajo, por ventana, de la
+    # actividad CUPTI y del modelo analítico; jamás funciona como fallback.
+    trace_enabled = bool((gpu_activity_trace or {}).get("enabled", False))
+    gpu_operational_intensity = (
+        None if trace_enabled else getattr(kernel_entry, "operational_intensity_flops_per_byte", None)
+    )
     gpu_precision = getattr(kernel_entry, "gpu_precision", None)
     gpu_i_ridge = None
     gpu_roofline_calibration_ref = None
@@ -1348,14 +1378,49 @@ def run_postprocess(
         except (OSError, json.JSONDecodeError):
             run_metadata = {}
 
-        _gpu_phases.write_gpu_phases_csv(
-            _gpu_phases.build_gpu_phase_rows(
+        if trace_enabled:
+            from fase1_telemetria.gpu_window_oi import load_cupti_launch_work
+
+            parameters_by_kernel = (gpu_activity_trace or {}).get("parameters_by_kernel", {})
+            if not isinstance(parameters_by_kernel, dict):
+                raise RuntimeError("gpu.activity_trace.parameters_by_kernel debe ser un mapa por kernel_ref")
+            parameters_raw = parameters_by_kernel.get(kernel_ref)
+            if not isinstance(parameters_raw, dict):
+                raise RuntimeError(
+                    f"activity_trace habilitado para {kernel_ref}, pero faltan parámetros analíticos "
+                    "explícitos en gpu.activity_trace.parameters_by_kernel"
+                )
+            parameters = dict(parameters_raw)
+            region = parse_declared_gpu_measured_region(run_dir / "stdout.txt")
+            trace_files = sorted(run_dir.glob("cupti_activity*.csv"))
+            if len(trace_files) != 1:
+                raise RuntimeError(
+                    f"activity_trace habilitado para {run_id}, se esperaba exactamente una "
+                    f"traza CUPTI en {run_dir}, encontradas {len(trace_files)}"
+                )
+            launch_work = load_cupti_launch_work(
+                trace_files[0], kernel_ref=kernel_ref, parameters=parameters,
+                measured_start_ns=region[0] if region else None,
+                measured_end_ns=region[1] if region else None,
+            )
+            phase_rows = _gpu_phases.build_gpu_time_window_rows(
+                windows, launch_work=launch_work, i_ridge_flops_per_byte=gpu_i_ridge,
+                window_ns=int((gpu_activity_trace or {}).get("window_ns", 120_000_000)),
+                gpu_freq_mhz_requested=run_metadata.get("gpu_freq_mhz_requested"),
+                gpu_freq_mhz_applied=run_metadata.get("gpu_freq_mhz_applied"),
+                gpu_freq_tolerance_fraction=freq_tolerance_fraction,
+                measured_start_ns=region[0] if region else None,
+                measured_end_ns=region[1] if region else None,
+            )
+        else:
+            phase_rows = _gpu_phases.build_gpu_phase_rows(
                 windows,
                 gpu_freq_mhz_requested=run_metadata.get("gpu_freq_mhz_requested"),
                 gpu_freq_mhz_applied=run_metadata.get("gpu_freq_mhz_applied"),
                 gpu_freq_tolerance_fraction=freq_tolerance_fraction,
-            ),
-            destination_dir / _gpu_phases.GPU_PHASE_DATASET_FILENAME,
+            )
+        _gpu_phases.write_gpu_phases_csv(
+            phase_rows, destination_dir / _gpu_phases.GPU_PHASE_DATASET_FILENAME,
         )
         _gpu_phases.write_contract(
             destination_dir / _gpu_phases.GPU_PHASE_CONTRACT_FILENAME

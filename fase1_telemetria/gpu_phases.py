@@ -1,4 +1,4 @@
-"""F1-GPU-003 -- contrato de granularidad GPU y dataset intermedio por fase.
+"""F1-GPU-003 -- contrato de granularidad GPU y dataset intermedio por ventana.
 
 Problema
 --------
@@ -15,18 +15,14 @@ kernel). Eso permite clasificar el régimen predominante del kernel, pero:
 
 Contrato de granularidad GPU (formal)
 -------------------------------------
-- Unidad de fila del dataset de entrenamiento GPU = **una corrida** (un
-  `run_id` = kernel_ref x nivel_frecuencia_gpu x repeticion), o **una fase
-  estable** si en el futuro existen marcas de fase alineadas con verdad
-  offline. NUNCA una muestra NVML periódica.
-- Las features NVML de esa fila son AGREGADOS robustos sobre las muestras NVML
-  post-warmup y válidas de la corrida (mediana, media recortada, dispersión,
-  min/max, duración cubierta, nº de muestras, nº de valores distintos como
-  indicador de frescura, fracción de muestras usables).
-- La etiqueta Roofline (`phase_label_train`), la intensidad operacional `ncu`
-  y el ridge se conservan SOLO para trazabilidad y como verdad; el entrenador
-  GPU no puede leerlas como features (fuga -- ver
-  `fase2_clasificador/analysis/feature_contract.py`).
+- Unidad de fila del dataset de entrenamiento GPU = **una ventana temporal de
+  120 ms** alineada a la resolución física observada de NVML. NUNCA una
+  muestra NVML periódica de 5 ms.
+- Las features NVML de esa fila son agregados robustos de las muestras NVML
+  que caen en la misma ventana. La etiqueta se deriva de la actividad CUDA
+  CUPTI y del trabajo analítico de los lanzamientos que se solapan con ella.
+- La etiqueta Roofline, la intensidad y el ridge son verdad/trazabilidad; el
+  entrenador GPU no puede leerlos como features (fuga).
 - `gpu_phasic_*` (microbenchmarks sintéticos propios con fases programadas)
   NO es elegible para entrenamiento con la etiqueta constante del catálogo:
   solo lo sería si existieran marcas de fase y verdad offline alineada. Por
@@ -59,6 +55,11 @@ _SIGNALS: tuple[str, ...] = (
 _AGG_SUFFIXES = ("median", "trimmed_mean", "std", "iqr", "min", "max",
                  "n_distinct", "valid_frac")
 
+# El reloj SM de una A100 cae al estado idle aunque el lock de aplicación
+# siga vigente. Solo las muestras que realmente observaron trabajo GPU son
+# evidencia para validar el reloj solicitado.
+_GPU_UTIL_NOISE_FLOOR_PCT = 5.0
+
 # Verdad Roofline / trazabilidad: se copia tal cual, el entrenador no la lee.
 _TRACE_COLUMNS: tuple[str, ...] = (
     "run_id", "repetition", "kernel_ref", "node_id",
@@ -70,8 +71,11 @@ _TRACE_COLUMNS: tuple[str, ...] = (
 GPU_PHASE_COLUMNS: tuple[str, ...] = (
     *_TRACE_COLUMNS,
     "kernel_family",
-    "granularity",              # "run" | "phase"
-    "phase_quality_status",     # ok | insufficient_samples | no_usable_samples | label_missing | phasic_control_needs_marks
+    "granularity",              # "run" histórico | "time_window"
+    "window_start_ns", "window_end_ns", "window_duration_ns",
+    "cuda_active_ns", "cuda_active_fraction", "cuda_launch_count",
+    "analytic_flops", "analytic_bytes_moved", "analytic_model_ids",
+    "phase_quality_status",     # ok | insufficient_samples | label_missing | no_cuda_activity | ...
     "phase_quality_reason",
     "training_eligible",        # bool
     "gpu_freq_mhz_requested",
@@ -172,12 +176,14 @@ def _is_phasic_control(kernel_ref: str) -> bool:
 def granularity_contract() -> dict[str, Any]:
     """Contrato de granularidad GPU, escrito como sidecar junto al CSV."""
     return {
-        "schema": "f1-gpu-003/gpu_phase_granularity_contract/1",
-        "row_unit": "run",
-        "row_unit_alternatives": ["phase (requires aligned phase marks + offline truth)"],
+        "schema": "f1-gpu-004/gpu_time_window_contract/1",
+        "row_unit": "time_window",
+        "window_ns": 120_000_000,
+        "row_unit_legacy": "run (only for historical datasets without CUPTI Activity)",
         "nvml_sample_is_independent_example": False,
-        "nvml_features_are": "robust aggregates over post-warmup valid NVML samples of the run",
-        "label_source": "offline ncu operational intensity vs precision/frequency-specific ridge",
+        "nvml_features_are": "robust aggregates over valid NVML samples inside the same time window",
+        "label_source": "CUPTI Activity timestamps + analytical FLOPs/bytes per CUDA launch vs precision/frequency-specific ridge",
+        "launch_boundary_rule": "FLOPs/bytes are prorated by temporal overlap; uniform work-rate assumption",
         "label_and_truth_columns_forbidden_as_features": [
             "operational_intensity", "i_ridge_used", "phase_label_train",
         ],
@@ -299,6 +305,164 @@ def build_gpu_phase_rows(
         result["phase_quality_reason"] = reason
         result["training_eligible"] = eligible
         out.append(result)
+    return out
+
+
+def build_gpu_time_window_rows(
+    windows: Iterable[dict[str, Any]],
+    *,
+    launch_work: Iterable[Any],
+    i_ridge_flops_per_byte: float | None,
+    window_ns: int = 120_000_000,
+    min_nvml_samples: int = 8,
+    min_usable_sample_fraction: float = 0.5,
+    gpu_freq_mhz_requested: int | None = None,
+    gpu_freq_mhz_applied: int | None = None,
+    gpu_freq_tolerance_fraction: float = 0.05,
+    measured_start_ns: int | None = None,
+    measured_end_ns: int | None = None,
+) -> list[dict[str, Any]]:
+    """Construye ejemplos GPU por ventana temporal, nunca por muestra NVML.
+
+    ``launch_work`` viene de CUPTI Activity + un modelo analítico por
+    lanzamiento. FLOPs y bytes de un lanzamiento que cruza un borde se
+    prorratean por solape temporal (supuesto explícito de tasa uniforme).
+    Una ventana sin actividad CUDA no recibe etiqueta y no entra a entrenar.
+    """
+    from fase1_telemetria.gpu_window_oi import aggregate_launches_in_window
+
+    if window_ns <= 0:
+        raise ValueError("window_ns debe ser positivo")
+    launches = list(launch_work)
+    if (measured_start_ns is None) != (measured_end_ns is None):
+        raise ValueError("la región medida GPU requiere inicio y fin juntos")
+    if measured_start_ns is not None and measured_end_ns <= measured_start_ns:
+        raise ValueError("la región medida GPU requiere start < end")
+    usable_statuses = {"gpu_telemetry"}
+    # Si el binario declara con timestamps MONOTONIC su región realmente
+    # medida, esos límites sustituyen el recorte heurístico de warmup: las
+    # muestras ya están fuera de setup/cold por construcción.
+    if measured_start_ns is not None:
+        usable_statuses.add("warmup_excluded")
+    usable = [
+        row for row in windows
+        if row.get("quality_status") in usable_statuses
+        and row.get("t_end_ns") not in (None, "")
+        and (measured_start_ns is None or measured_start_ns <= int(row["t_end_ns"]) <= measured_end_ns)
+    ]
+    if not usable:
+        return []
+    by_run: dict[str, list[dict[str, Any]]] = {}
+    for row in usable:
+        by_run.setdefault(str(row["run_id"]), []).append(row)
+
+    out: list[dict[str, Any]] = []
+    for run_id, samples in sorted(by_run.items()):
+        samples.sort(key=lambda row: int(row["t_end_ns"]))
+        first_ts = int(samples[0]["t_end_ns"])
+        last_ts = int(samples[-1]["t_end_ns"])
+        # El origen se fija a la primera muestra post-warmup del run. No se
+        # pretende inventar una fase anterior que NVML no observó.
+        cursor = first_ts
+        ordinal = 0
+        while cursor <= last_ts:
+            end_ns = cursor + window_ns
+            sample_rows = [
+                row for row in samples
+                if cursor <= int(row["t_end_ns"]) < end_ns
+            ]
+            if not sample_rows:
+                cursor = end_ns
+                ordinal += 1
+                continue
+            truth = aggregate_launches_in_window(
+                launches, start_ns=cursor, end_ns=end_ns
+            )
+            model_ids = sorted({
+                launch.model_id for launch in launches
+                if getattr(launch, "model_id", None)
+                and launch.start_ns < end_ns and launch.end_ns > cursor
+            })
+            first = sample_rows[0]
+            result: dict[str, Any] = {c: None for c in GPU_PHASE_COLUMNS}
+            for c in _TRACE_COLUMNS:
+                result[c] = first.get(c)
+            kernel_ref = first.get("kernel_ref") or ""
+            result.update({
+                "kernel_family": _kernel_family(kernel_ref),
+                "granularity": "time_window",
+                "window_start_ns": cursor,
+                "window_end_ns": end_ns,
+                "window_duration_ns": window_ns,
+                "cuda_active_ns": truth.active_ns,
+                "cuda_active_fraction": truth.active_fraction,
+                "cuda_launch_count": truth.overlapping_launches,
+                "analytic_flops": truth.flops,
+                "analytic_bytes_moved": truth.bytes_moved,
+                "analytic_model_ids": ";".join(model_ids),
+                "gpu_freq_mhz_requested": gpu_freq_mhz_requested,
+                "gpu_freq_mhz_applied": gpu_freq_mhz_applied,
+                "n_nvml_samples": len(sample_rows),
+                "n_nvml_samples_warmup_excluded": 0,
+                "n_nvml_samples_transition_excluded": 0,
+                "usable_sample_fraction": 1.0,
+                "covered_duration_ns": (
+                    int(sample_rows[-1]["t_end_ns"]) - int(sample_rows[0]["t_end_ns"])
+                    if len(sample_rows) >= 2 else 0
+                ),
+            })
+            for sig in _SIGNALS:
+                agg = _aggregate_signal([_to_float(row.get(sig)) for row in sample_rows])
+                for suffix in _AGG_SUFFIXES:
+                    result[f"{sig}_{suffix}"] = agg[suffix]
+            energy_deltas = [
+                _to_float(row.get("gpu_energy_delta_mj")) for row in sample_rows
+                if str(row.get("gpu_energy_valid")).lower() in ("true", "1")
+            ]
+            energy_deltas = [v for v in energy_deltas if v is not None]
+            result["gpu_energy_delta_mj_sum"] = sum(energy_deltas) if energy_deltas else None
+            result["gpu_energy_covered"] = bool(energy_deltas)
+
+            active_sample_rows = [
+                row for row in sample_rows
+                if (_to_float(row.get("gpu_util_pct")) or 0.0) >= _GPU_UTIL_NOISE_FLOOR_PCT
+            ]
+            clocks = [
+                v for v in (_to_float(r.get("gpu_sm_clock_mhz")) for r in active_sample_rows)
+                if v is not None
+            ]
+            if gpu_freq_mhz_applied is None:
+                result["gpu_frequency_quality_status"] = "not_applicable_native"
+            else:
+                tolerance = max(abs(gpu_freq_mhz_applied) * gpu_freq_tolerance_fraction, 1.0)
+                fraction = sum(abs(clock - gpu_freq_mhz_applied) <= tolerance for clock in clocks) / len(clocks) if clocks else 0.0
+                result["gpu_frequency_valid_fraction"] = fraction
+                result["gpu_frequency_quality_status"] = "valid" if fraction >= 0.9 else "invalid"
+
+            status, reason, eligible = "ok", "", True
+            if _is_phasic_control(kernel_ref):
+                status, reason, eligible = "phasic_control_needs_marks", "control sintético sin verdad por fase", False
+            elif truth.active_ns <= 0:
+                status, reason, eligible = "no_cuda_activity", "ningún lanzamiento CUDA se solapa con la ventana", False
+            elif i_ridge_flops_per_byte is None:
+                status, reason, eligible = "label_missing", "sin ridge GPU calibrado para precisión/frecuencia", False
+            elif len(sample_rows) < min_nvml_samples:
+                status, reason, eligible = "insufficient_samples", f"{len(sample_rows)} < min_nvml_samples={min_nvml_samples}", False
+            elif result["gpu_frequency_quality_status"] == "invalid":
+                status, reason, eligible = "gpu_frequency_invalid", "reloj SM fuera de tolerancia", False
+            else:
+                result["operational_intensity"] = truth.operational_intensity
+                result["i_ridge_used"] = i_ridge_flops_per_byte
+                result["phase_label_train"] = (
+                    "memory_bound" if truth.operational_intensity < i_ridge_flops_per_byte
+                    else "compute_bound"
+                )
+            result["phase_quality_status"] = status
+            result["phase_quality_reason"] = reason
+            result["training_eligible"] = eligible
+            out.append(result)
+            cursor = end_ns
+            ordinal += 1
     return out
 
 
