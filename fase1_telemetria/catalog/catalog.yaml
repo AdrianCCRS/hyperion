@@ -6399,3 +6399,109 @@ kernels:
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
       pacca-a100: "sha256:7eb09dce0475f559c61339516f77a7140425797ce9fa51fdbf27d47efc3e3cd6"
+
+  # ---------------------------------------------------------------------
+  # V1, ronda 2 (2026-09-22): la ronda 1 incluyo por error 6 kernels que el
+  # patron de familia (derive_kernel_family) funde con rajaperf_basic/lcals/
+  # polybench, ya presentes en las 30 de entrenamiento -- no aportaban
+  # familia nueva. Esta ronda se restringe a Algorithm_/Apps_/Comm_, que
+  # quedan como familia propia. Objetivo: completar cobertura de
+  # stall_mem_ratio >= 0.30 en familias nuevas memory-bound (solo 3 de 8 en
+  # la ronda 1: algorithm_histogram, algorithm_memcpy, comm_halo_packing).
+  - id: cpu_rajaperf_algorithm_scan
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_algorithm_scan
+    exec_args: "--repfact 519"
+    phase_label_hint: intermedio  # V1 tamizaje ronda 2: familia nueva, sin campana previa
+    size_variant: repfact519
+    expected_runtime_seconds: 20
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:4cb8aa647e7ed078bb2f1c23bc3836c1835a9dd1555cff456c8a810439cee659"
+
+  - id: cpu_rajaperf_apps_matvec_3d_stencil
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_apps_matvec_3d_stencil
+    exec_args: "--repfact 34"
+    phase_label_hint: intermedio  # V1 tamizaje ronda 2: familia nueva, sin campana previa
+    size_variant: repfact34
+    expected_runtime_seconds: 20
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:7330c88f0873f9ed834317b056df03b551f1352306cb30cfa962181f87389dad"
+
+  - id: cpu_rajaperf_apps_vol3d
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_apps_vol3d
+    exec_args: "--repfact 71"
+    phase_label_hint: intermedio  # V1 tamizaje ronda 2: familia nueva, sin campana previa
+    size_variant: repfact71
+    expected_runtime_seconds: 20
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:018577d62fc9f77f365f9a2c11fbf046c1cf700dc3d58ee6405fd110f1d80b52"
+
+  - id: cpu_rajaperf_apps_del_dot_vec_2d
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_apps_del_dot_vec_2d
+    exec_args: "--repfact 101"
+    phase_label_hint: intermedio  # V1 tamizaje ronda 2: familia nueva, sin campana previa
+    size_variant: repfact101
+    expected_runtime_seconds: 20
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:1b380055167ada5348dc29b2c73340f776b5d803dda33164782a8652830bb1e5"
+
+  - id: cpu_rajaperf_apps_pressure
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_apps_pressure
+    exec_args: "--repfact 33"
+    phase_label_hint: intermedio  # V1 tamizaje ronda 2: familia nueva, sin campana previa
+    size_variant: repfact33
+    expected_runtime_seconds: 20
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:30c7c0207fbbd23dd3b0af2a285c9f76e609fd1c8350d351c17be935042013fe"
+
+  - id: cpu_rajaperf_apps_nodal_accumulation_3d
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_apps_nodal_accumulation_3d
+    exec_args: "--repfact 18"
+    phase_label_hint: intermedio  # V1 tamizaje ronda 2: familia nueva, sin campana previa
+    size_variant: repfact18
+    expected_runtime_seconds: 20
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:dfa244611c18fb1d3cc94acef38c28c14a1f2953bd981215b361d896f617a356"
+
+  - id: cpu_rajaperf_apps_zonal_accumulation_3d
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_apps_zonal_accumulation_3d
+    exec_args: "--repfact 400"
+    phase_label_hint: intermedio  # V1 tamizaje ronda 2: familia nueva, sin campana previa
+    size_variant: repfact400
+    expected_runtime_seconds: 20
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:c192d447284db94c756cdd89f6449dd766c736d5957308b3a46c0aa1dfdef6e2"
