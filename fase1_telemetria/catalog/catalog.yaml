@@ -6505,3 +6505,232 @@ kernels:
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
       pacca-a100: "sha256:c192d447284db94c756cdd89f6449dd766c736d5957308b3a46c0aa1dfdef6e2"
+
+  # ---------------------------------------------------------------------
+  # V1b (2026-09-22): las mismas 15 familias RAJAPerf nuevas de V1, pero
+  # redimensionadas con --memory-touched 125829120 (120 MiB, ~10x la LLC de
+  # paccaA100, MISMO valor exacto usado para las familias de streaming de
+  # entrenamiento: cpu_rajaperf_stream_*, ver bin/cpu_rajaperf_stream_mul mas
+  # arriba). Motivo: V1 midio estos kernels con --repfact (tamano por
+  # defecto de RAJAPerf, cabe en LLC de 8 MiB) y la regla sellada
+  # (stall_mem_ratio>=0.30 -> F2) fue REFUTADA -- ver
+  # docs/libro/datos/cpu_calidad_30fam/politica/v1_prueba_sellada/v1_resultado.json.
+  # El post-mortem encontro que stall alto en V1 vino de latencia
+  # L2/L3/atomics (mpki ~0), no de trafico real a DRAM, exactamente el
+  # regimen que la regla no debia capturar. V1b prueba la regla CORREGIDA
+  # (stall_mem_ratio>=0.30 AND mpki>=20 -> F2, ambos umbrales de las 6
+  # familias streaming de entrenamiento) en las MISMAS familias pero al
+  # tamano que si excede cache, para que el tamizaje de PMU pueda
+  # discriminar el mecanismo. Mismo wrapper y mismo binary_checksum que las
+  # entradas repfactNNN de arriba (mismo script, solo cambia exec_args).
+  # ---------------------------------------------------------------------
+
+  - id: cpu_rajaperf_algorithm_histogram_llc10x
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_algorithm_histogram
+    exec_args: "--memory-touched 125829120"
+    phase_label_hint: intermedio  # V1b: sin campana previa a este tamano
+    size_variant: memtouched_10xLLC
+    expected_runtime_seconds: 25
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 157286400
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:34083576f675ee6dab5d6522ade48d0d4194e3f6e4256e3a081e37c610c7e39e"
+
+  - id: cpu_rajaperf_algorithm_memcpy_llc10x
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_algorithm_memcpy
+    exec_args: "--memory-touched 125829120"
+    phase_label_hint: intermedio  # V1b: sin campana previa a este tamano
+    size_variant: memtouched_10xLLC
+    expected_runtime_seconds: 25
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 157286400
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:d31323303f1e9345c0b871626a0f7c942dbaf63b0a39ca6fefbca0d6de507edf"
+
+  - id: cpu_rajaperf_algorithm_memset_llc10x
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_algorithm_memset
+    exec_args: "--memory-touched 125829120"
+    phase_label_hint: intermedio  # V1b: sin campana previa a este tamano
+    size_variant: memtouched_10xLLC
+    expected_runtime_seconds: 25
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 157286400
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:596d518218e79c30360829fd8d07fec73733c3b8a41c224f961b569be0f82aa4"
+
+  - id: cpu_rajaperf_algorithm_reduce_sum_llc10x
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_algorithm_reduce_sum
+    exec_args: "--memory-touched 125829120"
+    phase_label_hint: intermedio  # V1b: sin campana previa a este tamano
+    size_variant: memtouched_10xLLC
+    expected_runtime_seconds: 25
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 157286400
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:fcf147318461a160e681d5717903b39c287d9396271671dd0ca419bb9c1bdb34"
+
+  - id: cpu_rajaperf_apps_femsweep_llc10x
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_apps_femsweep
+    exec_args: "--memory-touched 125829120"
+    phase_label_hint: intermedio  # V1b: sin campana previa a este tamano
+    size_variant: memtouched_10xLLC
+    expected_runtime_seconds: 25
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 157286400
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:269a9f4eb8ef9e9edd899b217a7a0171946a00a6c15008a4af6b6684cbfb67d4"
+
+  - id: cpu_rajaperf_apps_intsc_hexhex_llc10x
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_apps_intsc_hexhex
+    exec_args: "--memory-touched 125829120"
+    phase_label_hint: intermedio  # V1b: sin campana previa a este tamano
+    size_variant: memtouched_10xLLC
+    expected_runtime_seconds: 25
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 157286400
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:cf7b15a3f336cec9fb83a2f281fed86513a7cf5a9cccc3af62cc376871278cc3"
+
+  - id: cpu_rajaperf_apps_intsc_hexrect_llc10x
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_apps_intsc_hexrect
+    exec_args: "--memory-touched 125829120"
+    phase_label_hint: intermedio  # V1b: sin campana previa a este tamano
+    size_variant: memtouched_10xLLC
+    expected_runtime_seconds: 25
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 157286400
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:3804ff38d7740d1951e8ddaff5c896f0ae1cc7a700acd24e106d2e0f80d921d9"
+
+  - id: cpu_rajaperf_comm_halo_packing_llc10x
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_comm_halo_packing
+    exec_args: "--memory-touched 125829120"
+    phase_label_hint: intermedio  # V1b: sin campana previa a este tamano
+    size_variant: memtouched_10xLLC
+    expected_runtime_seconds: 25
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 157286400
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:913844487cd9ea148af05dacaf19be8bfc336e520bd48fb124f6a9142e8ac290"
+
+  - id: cpu_rajaperf_algorithm_scan_llc10x
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_algorithm_scan
+    exec_args: "--memory-touched 125829120"
+    phase_label_hint: intermedio  # V1b: sin campana previa a este tamano
+    size_variant: memtouched_10xLLC
+    expected_runtime_seconds: 25
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 157286400
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:4cb8aa647e7ed078bb2f1c23bc3836c1835a9dd1555cff456c8a810439cee659"
+
+  - id: cpu_rajaperf_apps_del_dot_vec_2d_llc10x
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_apps_del_dot_vec_2d
+    exec_args: "--memory-touched 125829120"
+    phase_label_hint: intermedio  # V1b: sin campana previa a este tamano
+    size_variant: memtouched_10xLLC
+    expected_runtime_seconds: 25
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 157286400
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:1b380055167ada5348dc29b2c73340f776b5d803dda33164782a8652830bb1e5"
+
+  - id: cpu_rajaperf_apps_matvec_3d_stencil_llc10x
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_apps_matvec_3d_stencil
+    exec_args: "--memory-touched 125829120"
+    phase_label_hint: intermedio  # V1b: sin campana previa a este tamano
+    size_variant: memtouched_10xLLC
+    expected_runtime_seconds: 25
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 157286400
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:7330c88f0873f9ed834317b056df03b551f1352306cb30cfa962181f87389dad"
+
+  - id: cpu_rajaperf_apps_nodal_accumulation_3d_llc10x
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_apps_nodal_accumulation_3d
+    exec_args: "--memory-touched 125829120"
+    phase_label_hint: intermedio  # V1b: sin campana previa a este tamano
+    size_variant: memtouched_10xLLC
+    expected_runtime_seconds: 25
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 157286400
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:dfa244611c18fb1d3cc94acef38c28c14a1f2953bd981215b361d896f617a356"
+
+  - id: cpu_rajaperf_apps_pressure_llc10x
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_apps_pressure
+    exec_args: "--memory-touched 125829120"
+    phase_label_hint: intermedio  # V1b: sin campana previa a este tamano
+    size_variant: memtouched_10xLLC
+    expected_runtime_seconds: 25
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 157286400
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:30c7c0207fbbd23dd3b0af2a285c9f76e609fd1c8350d351c17be935042013fe"
+
+  - id: cpu_rajaperf_apps_vol3d_llc10x
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_apps_vol3d
+    exec_args: "--memory-touched 125829120"
+    phase_label_hint: intermedio  # V1b: sin campana previa a este tamano
+    size_variant: memtouched_10xLLC
+    expected_runtime_seconds: 25
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 157286400
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:018577d62fc9f77f365f9a2c11fbf046c1cf700dc3d58ee6405fd110f1d80b52"
+
+  - id: cpu_rajaperf_apps_zonal_accumulation_3d_llc10x
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_apps_zonal_accumulation_3d
+    exec_args: "--memory-touched 125829120"
+    phase_label_hint: intermedio  # V1b: sin campana previa a este tamano
+    size_variant: memtouched_10xLLC
+    expected_runtime_seconds: 25
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 157286400
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:c192d447284db94c756cdd89f6449dd766c736d5957308b3a46c0aa1dfdef6e2"
