@@ -6192,3 +6192,210 @@ kernels:
     success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
     binary_checksum:
       pacca-a100: "sha256:3ecdc2e032e5266ff42475fdeed39ab0c3541f4027531a0276e23db718ab65ab"
+
+  # ---------------------------------------------------------------------
+  # V1: 14 kernels RAJAPerf nuevos (familias no usadas en las 30 de
+  # entrenamiento), tamizaje de stall_mem_ratio para la prueba sellada de
+  # la politica de frecuencia CPU memory-bound (ver discusion 2026-09-22,
+  # documento de variantes en fase2_clasificador/analysis/cpu_policy_by_family.py
+  # y cpu_alpha_predict.py). phase_label_hint queda "intermedio" a proposito:
+  # nunca se midio esta familia, la etiqueta real la da la campana, no un
+  # supuesto de catalogo. exec_args con --repfact ajustado para caer en
+  # ~13-20s (sondeado a mano en paccaA100, ver bitacora de la sesion).
+  # warmup_seconds sin calibrar todavia (0.15 provisional): esta primera
+  # campana es solo tamizaje en REF, no la medicion de EDP.
+  - id: cpu_rajaperf_algorithm_memcpy
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_algorithm_memcpy
+    exec_args: "--repfact 1000"
+    phase_label_hint: intermedio  # V1 tamizaje: familia nueva, sin campana previa
+    size_variant: repfact1000
+    expected_runtime_seconds: 18
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:d31323303f1e9345c0b871626a0f7c942dbaf63b0a39ca6fefbca0d6de507edf"
+
+  - id: cpu_rajaperf_algorithm_memset
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_algorithm_memset
+    exec_args: "--repfact 2800"
+    phase_label_hint: intermedio  # V1 tamizaje: familia nueva, sin campana previa
+    size_variant: repfact2800
+    expected_runtime_seconds: 18
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:596d518218e79c30360829fd8d07fec73733c3b8a41c224f961b569be0f82aa4"
+
+  - id: cpu_rajaperf_basic_copy8
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_basic_copy8
+    exec_args: "--repfact 115"
+    phase_label_hint: intermedio  # V1 tamizaje: familia nueva, sin campana previa
+    size_variant: repfact115
+    expected_runtime_seconds: 20
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:8b3bf2198358d28c4eb45666c3ba5c9ddd63f58bf6bc3ab26f15d2fbc8ce4ab1"
+
+  - id: cpu_rajaperf_basic_muladdsub
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_basic_muladdsub
+    exec_args: "--repfact 60"
+    phase_label_hint: intermedio  # V1 tamizaje: familia nueva, sin campana previa
+    size_variant: repfact60
+    expected_runtime_seconds: 19
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:2ba42b4c7b493b443dfa78e2e0c66c400a3a9aa55c3d3241725305fcb2aed817"
+
+  - id: cpu_rajaperf_polybench_gesummv
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_polybench_gesummv
+    exec_args: "--repfact 570"
+    phase_label_hint: intermedio  # V1 tamizaje: familia nueva, sin campana previa
+    size_variant: repfact570
+    expected_runtime_seconds: 20
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:6769259920a5ae8104eb6a3d1e767c983c2f571427cca7b1c5a0fa1c4a956c82"
+
+  - id: cpu_rajaperf_comm_halo_packing
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_comm_halo_packing
+    exec_args: "--repfact 280"
+    phase_label_hint: intermedio  # V1 tamizaje: familia nueva, sin campana previa
+    size_variant: repfact280
+    expected_runtime_seconds: 20
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:913844487cd9ea148af05dacaf19be8bfc336e520bd48fb124f6a9142e8ac290"
+
+  - id: cpu_rajaperf_algorithm_reduce_sum
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_algorithm_reduce_sum
+    exec_args: "--repfact 1350"
+    phase_label_hint: intermedio  # V1 tamizaje: familia nueva, sin campana previa
+    size_variant: repfact1350
+    expected_runtime_seconds: 19
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:fcf147318461a160e681d5717903b39c287d9396271671dd0ca419bb9c1bdb34"
+
+  - id: cpu_rajaperf_basic_indexlist_3loop
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_basic_indexlist_3loop
+    exec_args: "--repfact 145"
+    phase_label_hint: intermedio  # V1 tamizaje: familia nueva, sin campana previa
+    size_variant: repfact145
+    expected_runtime_seconds: 20
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:882d076faa759082682c3e131bea78300b54b62ce040c470024283d36a50fce1"
+
+  - id: cpu_rajaperf_algorithm_histogram
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_algorithm_histogram
+    exec_args: "--repfact 24"
+    phase_label_hint: intermedio  # V1 tamizaje: familia nueva, sin campana previa
+    size_variant: repfact24
+    expected_runtime_seconds: 19
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:34083576f675ee6dab5d6522ade48d0d4194e3f6e4256e3a081e37c610c7e39e"
+
+  - id: cpu_rajaperf_apps_intsc_hexhex
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_apps_intsc_hexhex
+    exec_args: "--repfact 95"
+    phase_label_hint: intermedio  # V1 tamizaje: familia nueva, sin campana previa
+    size_variant: repfact95
+    expected_runtime_seconds: 20
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:cf7b15a3f336cec9fb83a2f281fed86513a7cf5a9cccc3af62cc376871278cc3"
+
+  - id: cpu_rajaperf_lcals_first_min
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_lcals_first_min
+    exec_args: "--repfact 630"
+    phase_label_hint: intermedio  # V1 tamizaje: familia nueva, sin campana previa
+    size_variant: repfact630
+    expected_runtime_seconds: 20
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:d968595a65e7f73ad74d0905796bec8ef229538b5565f4073ecabeb0c39b90ae"
+
+  - id: cpu_rajaperf_apps_femsweep
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_apps_femsweep
+    exec_args: "--repfact 1380"
+    phase_label_hint: intermedio  # V1 tamizaje: familia nueva, sin campana previa
+    size_variant: repfact1380
+    expected_runtime_seconds: 18
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:269a9f4eb8ef9e9edd899b217a7a0171946a00a6c15008a4af6b6684cbfb67d4"
+
+  - id: cpu_rajaperf_apps_intsc_hexrect
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_apps_intsc_hexrect
+    exec_args: "--repfact 70"
+    phase_label_hint: intermedio  # V1 tamizaje: familia nueva, sin campana previa
+    size_variant: repfact70
+    expected_runtime_seconds: 20
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:3804ff38d7740d1951e8ddaff5c896f0ae1cc7a700acd24e106d2e0f80d921d9"
+
+  - id: cpu_rajaperf_basic_if_quad
+    suite: RAJAPerf-OpenMP
+    role: dataset
+    exec_path: bin/cpu_rajaperf_basic_if_quad
+    exec_args: "--repfact 62"
+    phase_label_hint: intermedio  # V1 tamizaje: familia nueva, sin campana previa
+    size_variant: repfact62
+    expected_runtime_seconds: 20
+    warmup_seconds: 0.15
+    estimated_memory_bytes: 268435456
+    success_check: {type: stdout_regex, pattern: "Verification\\s*=\\s*SUCCESSFUL"}
+    binary_checksum:
+      pacca-a100: "sha256:7eb09dce0475f559c61339516f77a7140425797ce9fa51fdbf27d47efc3e3cd6"

@@ -1,0 +1,77 @@
+# Tamizaje V1 (politica CPU memory-bound, discusion 2026-09-22): mide stall_mem_ratio real (y el resto
+# del vector PMU) de 14 kernels RAJAPerf nuevos, en REF unicamente. No mide EDP ni niveles de frecuencia:
+# esta etapa solo decide que familias caen a cada lado del umbral declarado (stall_mem_ratio >= 0.30) y
+# confirma que el clasificador congelado las etiqueta memory-bound antes de invertir en el barrido de
+# niveles. Ninguno de estos 14 kernels entra a entrenamiento.
+campaign_id: pacca_cpu_v1_screen_20260922
+warmup_seconds_override: 0.0
+environment_tier: hpc_sc3
+seed: 20260922
+output_dir: /home/latorresn/hyperion-results/final/campaigns/cpu_v1_screen_20260922
+overwrite: false
+catalog_path: /home/latorresn/hyperion/fase1_telemetria/catalog/catalog.yaml
+calibration:
+- kernel_ref: stream_official
+- kernel_ref: ert_probe
+kernels:
+- kernel_ref: cpu_rajaperf_algorithm_memcpy
+- kernel_ref: cpu_rajaperf_algorithm_memset
+- kernel_ref: cpu_rajaperf_basic_copy8
+- kernel_ref: cpu_rajaperf_basic_muladdsub
+- kernel_ref: cpu_rajaperf_polybench_gesummv
+- kernel_ref: cpu_rajaperf_comm_halo_packing
+- kernel_ref: cpu_rajaperf_algorithm_reduce_sum
+- kernel_ref: cpu_rajaperf_basic_indexlist_3loop
+- kernel_ref: cpu_rajaperf_algorithm_histogram
+- kernel_ref: cpu_rajaperf_apps_intsc_hexhex
+- kernel_ref: cpu_rajaperf_lcals_first_min
+- kernel_ref: cpu_rajaperf_apps_femsweep
+- kernel_ref: cpu_rajaperf_apps_intsc_hexrect
+- kernel_ref: cpu_rajaperf_basic_if_quad
+frequency_levels:
+- {id: REF, mode: native_governor}
+repetitions_per_combination: 2
+baseline_repetition_indices: [1]
+target_windows_per_repetition: 50
+interval_ns: 1000000
+running_ratio_min: 0.90
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+  grace_seconds: 0.15
+  tail_grace_seconds: 0.15
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+turbo:
+  require_disabled: true
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+projected_campaign_bytes: 8589934592
+remaining_core_hours: 100000
+projected_core_hours: 1
+cores:
+  delegated_cpus: [0, 1, 2, 3, 4, 5]
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+smt_policy: one_thread_per_physical_core
+cgroup_path: null
+perf_enabled: true
+rapl:
+  enabled: true
+uncore:
+  enabled: true
+gpu:
+  enabled: false
+timeouts_seconds:
+  ready: 15
+  run: 360
+  shutdown: 15
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 480000000000
