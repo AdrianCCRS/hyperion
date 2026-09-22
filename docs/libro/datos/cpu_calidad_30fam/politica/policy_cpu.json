@@ -383,5 +383,54 @@
    "pacca_cpu_v1_screen_20260922_r2",
    "pacca_cpu_v1_edp_20260922"
   ]
+ },
+ "conditional_refinement_attempt_v1b": {
+  "descripcion": "Post-mortem de V1 (refutada por tamano de problema que cabia en la LLC): mismas 15 familias RAJAPerf redimensionadas a --memory-touched 125829120 (10x LLC, igual que las familias de streaming de entrenamiento), regla corregida con un segundo umbral (mpki) para excluir el regimen de latencia L2/L3/atomics que produjo los falsos positivos de V1.",
+  "regla_congelada": {
+   "variable_1": "stall_mem_ratio", "umbral_1": 0.3, "direccion_1": ">=",
+   "variable_2": "mpki", "umbral_2": 20, "direccion_2": ">=",
+   "nivel": "F2",
+   "fuente_de_los_umbrales": "familias de entrenamiento (18 memory-bound): 0.30 es el umbral de stall_mem_ratio de cpu_policy_conditional.py; 20 es el mpki minimo de las 6 familias streaming con stall_mem_ratio>=0.30 en entrenamiento"
+  },
+  "cobertura_tamizaje": {
+   "campana": "pacca_cpu_v1b_screen_20260922", "job_slurm": 7551,
+   "resultado": "45/45 corridas aceptadas (15 kernels x REF x 3 reps), 0 rechazadas"
+  },
+  "cobertura_edp": {
+   "campana": "pacca_cpu_v1b_edp_20260922", "job_slurm": 7552,
+   "resultado": "171/180 corridas aceptadas; las 9 rechazadas son F0/F1/F2 de cpu_rajaperf_algorithm_reduce_sum_llc10x (factor_id I10, piso de ventanas no alcanzado; REF del mismo kernel si fue aceptado). Excluido por falta de dato, no por su resultado de EDP (no existe ninguno para esa familia)."
+  },
+  "familias_actuan": {
+   "cpu_rajaperf_algorithm_memcpy_llc10x": {"stall_mem_ratio_ref": 0.7259, "mpki_ref": 70.33, "edp_ratio_F2_vs_REF": 1.0606, "gain_F2": -0.0606},
+   "cpu_rajaperf_apps_pressure_llc10x": {"stall_mem_ratio_ref": 0.5935, "mpki_ref": 45.61, "edp_ratio_F2_vs_REF": 0.9498, "gain_F2": 0.0502},
+   "cpu_rajaperf_algorithm_scan_llc10x": {"stall_mem_ratio_ref": 0.4692, "mpki_ref": 21.2, "edp_ratio_F2_vs_REF": 1.1232, "gain_F2": -0.1232},
+   "cpu_rajaperf_algorithm_reduce_sum_llc10x": {"stall_mem_ratio_ref": 0.4754, "mpki_ref": 41.56, "edp_ratio_F2_vs_REF": null, "gain_F2": null, "nota": "sin dato utilizable, ver cobertura_edp"}
+  },
+  "familias_no_actuan_contraste": {
+   "cpu_rajaperf_algorithm_histogram_llc10x": {"stall_mem_ratio_ref": 0.9684, "mpki_ref": 17.04, "gain_F2": -0.8205, "nota": "activaba con la regla V1 (solo stall); queda excluida por el filtro de mpki, consistente con el mecanismo esperado"},
+   "cpu_rajaperf_apps_nodal_accumulation_3d_llc10x": {"stall_mem_ratio_ref": 0.539, "mpki_ref": 4.53, "gain_F2": -0.4048, "nota": "activaba con la regla V1 (solo stall); queda excluida por el filtro de mpki, consistente con el mecanismo esperado"},
+   "cpu_rajaperf_apps_femsweep_llc10x": {"stall_mem_ratio_ref": 0.3744, "mpki_ref": 1.7, "gain_F2": -0.3076},
+   "cpu_rajaperf_apps_zonal_accumulation_3d_llc10x": {"stall_mem_ratio_ref": 0.2566, "mpki_ref": 24.59, "gain_F2": -0.062},
+   "cpu_rajaperf_apps_matvec_3d_stencil_llc10x": {"stall_mem_ratio_ref": 0.073, "mpki_ref": 20.42, "gain_F2": -0.1951},
+   "cpu_rajaperf_comm_halo_packing_llc10x": {"stall_mem_ratio_ref": 0.0657, "mpki_ref": 2.4, "gain_F2": -0.2857},
+   "cpu_rajaperf_apps_intsc_hexrect_llc10x": {"stall_mem_ratio_ref": 0.0267, "mpki_ref": 0.05, "gain_F2": -0.3124},
+   "cpu_rajaperf_apps_intsc_hexhex_llc10x": {"stall_mem_ratio_ref": 0.023, "mpki_ref": 0.08, "gain_F2": -0.2755},
+   "cpu_rajaperf_apps_del_dot_vec_2d_llc10x": {"stall_mem_ratio_ref": 0.0046, "mpki_ref": 8.25, "gain_F2": -0.2853},
+   "cpu_rajaperf_apps_vol3d_llc10x": {"stall_mem_ratio_ref": 0.0015, "mpki_ref": 3.74, "gain_F2": -0.275},
+   "cpu_rajaperf_algorithm_memset_llc10x": {"stall_mem_ratio_ref": 0.0012, "mpki_ref": 39.77, "gain_F2": -0.0384}
+  },
+  "ganancia_media_F2_donde_actua": -0.0445,
+  "n_familias_con_dato_donde_actua": 3,
+  "ganancia_ci95_F2_donde_actua": [-0.1232, 0.0502],
+  "nota_potencia": "n=3 (una de las 4 familias que activan quedo sin dato). IC95 orientativo, no cumple la potencia declarada en statistical_power_analysis.",
+  "ganancia_media_F2_contraste_no_actua": -0.2966,
+  "criterios_de_refutacion_declarados": [
+   "ganancia media donde actua negativa",
+   "IC95 incluye o esta por debajo de cero",
+   "alguna familia con stall alto pierde mas del 5%"
+  ],
+  "veredicto": "REFUTADA: se cumplen 2 de 3 criterios de refutacion. Ganancia media donde actua -4.45% (empeora). IC95 [-12.32%, 5.02%] incluye cero. algorithm_scan pierde 12.32% (> 5%). Solo apps_pressure (el candidato mas limpio de ancho de banda) mostro la ganancia esperada (+5.02%); algorithm_memcpy, la familia con MAS trafico medido a DRAM (mpki=70.3), empeoro 6.06%. Corregir el tamano de problema y agregar el filtro de mpki elimino los dos falsos positivos de V1 pero no establecio una regla generalizable. No se intenta un tercer ajuste sobre estos mismos kernels (seria buscar hasta que algo salga, prohibido por el protocolo).",
+  "campanas": ["pacca_cpu_v1b_screen_20260922", "pacca_cpu_v1b_edp_20260922"],
+  "jobs_slurm": [7551, 7552]
  }
 }

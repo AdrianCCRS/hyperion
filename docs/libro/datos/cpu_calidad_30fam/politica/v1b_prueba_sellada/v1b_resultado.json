@@ -1,0 +1,62 @@
+{
+ "descripcion": "Prueba sellada V1b: post-mortem de V1 (refutada por tamano de problema que cabia en LLC). Regla corregida stall_mem_ratio(REF)>=0.30 AND mpki(REF)>=20 -> actuar en F2, congelada ANTES de esta medicion, evaluada en las mismas 15 familias RAJAPerf de V1 redimensionadas a --memory-touched 125829120 (10x LLC, mismo tamano que las familias de streaming de entrenamiento).",
+ "regla_congelada": {
+  "variable_1": "stall_mem_ratio", "umbral_1": 0.30, "direccion_1": ">=",
+  "variable_2": "mpki", "umbral_2": 20, "direccion_2": ">=",
+  "nivel": "F2",
+  "fuente_de_los_umbrales": "familias de entrenamiento (18 memory-bound): 0.30 es el umbral de stall_mem_ratio de cpu_policy_conditional.py; 20 es el mpki minimo de las 6 familias streaming (dual_fft) con stall_mem_ratio>=0.30 en entrenamiento",
+  "motivo_de_la_correccion": "V1 (regla original, solo stall_mem_ratio) fue REFUTADA porque los 11 kernels midieron a --repfact, tamano por defecto de RAJAPerf que cabe en la LLC de 8 MiB; el stall alto medido ahi venia de latencia L2/L3 o atomics (mpki~0), no de trafico real a DRAM -- el regimen que la regla no debia capturar. V1b redimensiona a 10x LLC y agrega el filtro de mpki para excluir ese regimen."
+ },
+ "tamizaje_v1b": {
+  "campana": "pacca_cpu_v1b_screen_20260922", "job": 7551,
+  "cobertura": "45/45 corridas aceptadas (15 kernels x REF x 3 reps), 0 rechazadas",
+  "familias_que_actuan_segun_tamizaje": ["cpu_rajaperf_algorithm_memcpy_llc10x (stall=0.726, mpki=70.3)",
+   "cpu_rajaperf_apps_pressure_llc10x (stall=0.594, mpki=45.6)",
+   "cpu_rajaperf_algorithm_reduce_sum_llc10x (stall=0.475, mpki=41.6)",
+   "cpu_rajaperf_algorithm_scan_llc10x (stall=0.469, mpki=21.2)"],
+  "nota_filtro_mpki": "2 familias que activaban con la regla V1 rota (solo stall) quedan fuera con el filtro de mpki: cpu_rajaperf_algorithm_histogram_llc10x (stall=0.968 pero mpki=17.0 < 20) y cpu_rajaperf_apps_nodal_accumulation_3d_llc10x (stall=0.539 pero mpki=4.5 < 20) -- consistente con el mecanismo esperado (stall sin trafico a DRAM)."
+ },
+ "campana_edp": {
+  "campana": "pacca_cpu_v1b_edp_20260922", "job": 7552,
+  "cobertura": "171/180 corridas aceptadas (15 kernels x REF/F0/F1/F2 x 3 reps), 9 rechazadas",
+  "rechazo": "las 9 rechazadas son las 9 corridas F0/F1/F2 (3 niveles x 3 reps) de cpu_rajaperf_algorithm_reduce_sum_llc10x, factor_id=I10 (12 ventanas 'ok' logradas, por debajo de target_windows_per_repetition=50). REF de ese mismo kernel SI fue aceptado (mismo tamano de problema, gobernador nativo). No relacionado con la hipotesis de EDP: no existe ningun EDP de ese kernel en ningun nivel fijo que pudiera haber sesgado la decision de excluirlo -- se excluye por falta de dato utilizable, declarado antes de ver ningun resultado de EDP de esa familia."
+ },
+ "familias_actuan_con_dato_edp": {
+  "cpu_rajaperf_algorithm_memcpy_llc10x": {"stall_mem_ratio": 0.7259, "mpki": 70.33, "edp_ratio_F2_vs_REF": 1.0606, "gain_F2": -0.0606},
+  "cpu_rajaperf_apps_pressure_llc10x": {"stall_mem_ratio": 0.5935, "mpki": 45.61, "edp_ratio_F2_vs_REF": 0.9498, "gain_F2": 0.0502},
+  "cpu_rajaperf_algorithm_scan_llc10x": {"stall_mem_ratio": 0.4692, "mpki": 21.20, "edp_ratio_F2_vs_REF": 1.1232, "gain_F2": -0.1232}
+ },
+ "familia_actua_sin_dato_edp": {
+  "cpu_rajaperf_algorithm_reduce_sum_llc10x": {"stall_mem_ratio": 0.4754, "mpki": 41.56, "motivo": "F0/F1/F2 rechazados por piso de ventanas (I10), ver campana_edp.rechazo"}
+ },
+ "familias_no_actuan_contraste": {
+  "cpu_rajaperf_algorithm_histogram_llc10x": {"stall_mem_ratio": 0.9684, "mpki": 17.04, "gain_F2": -0.8205},
+  "cpu_rajaperf_apps_nodal_accumulation_3d_llc10x": {"stall_mem_ratio": 0.5390, "mpki": 4.53, "gain_F2": -0.4048},
+  "cpu_rajaperf_apps_femsweep_llc10x": {"stall_mem_ratio": 0.3744, "mpki": 1.70, "gain_F2": -0.3076},
+  "cpu_rajaperf_apps_zonal_accumulation_3d_llc10x": {"stall_mem_ratio": 0.2566, "mpki": 24.59, "gain_F2": -0.0620},
+  "cpu_rajaperf_apps_matvec_3d_stencil_llc10x": {"stall_mem_ratio": 0.0730, "mpki": 20.42, "gain_F2": -0.1951},
+  "cpu_rajaperf_comm_halo_packing_llc10x": {"stall_mem_ratio": 0.0657, "mpki": 2.40, "gain_F2": -0.2857},
+  "cpu_rajaperf_apps_intsc_hexrect_llc10x": {"stall_mem_ratio": 0.0267, "mpki": 0.05, "gain_F2": -0.3124},
+  "cpu_rajaperf_apps_intsc_hexhex_llc10x": {"stall_mem_ratio": 0.0230, "mpki": 0.08, "gain_F2": -0.2755},
+  "cpu_rajaperf_apps_del_dot_vec_2d_llc10x": {"stall_mem_ratio": 0.0046, "mpki": 8.25, "gain_F2": -0.2853},
+  "cpu_rajaperf_apps_vol3d_llc10x": {"stall_mem_ratio": 0.0015, "mpki": 3.74, "gain_F2": -0.2750},
+  "cpu_rajaperf_algorithm_memset_llc10x": {"stall_mem_ratio": 0.0012, "mpki": 39.77, "gain_F2": -0.0384}
+ },
+ "ganancia_media_F2_donde_actua": -0.0445,
+ "n_familias_con_dato_donde_actua": 3,
+ "ganancia_ci95_bootstrap_donde_actua": [-0.1232, 0.0502],
+ "nota_potencia": "n=3 (1 de las 4 familias que activan quedo sin dato utilizable por piso de ventanas). El IC95 reportado es orientativo, no cumple la potencia declarada en el analisis estadistico (V3, statistical_power_analysis.json): con esta dispersion harian falta muchas mas familias para acotar el efecto.",
+ "ganancia_media_F2_contraste_no_actua": -0.2966,
+ "criterios_de_refutacion_declarados": [
+  "ganancia media donde actua negativa",
+  "IC95 incluye o esta por debajo de cero",
+  "alguna familia con stall alto pierde mas del 5%"
+ ],
+ "veredicto": "REFUTADA: se cumplen 2 de los 3 criterios de refutacion declarados. Ganancia media donde actua -4.45% (empeora). IC95 [-12.32%, 5.02%] incluye cero (no demuestra el efecto). algorithm_scan pierde 12.32%, mas del 5% declarado. Solo apps_pressure, el candidato mas limpio de bandwidth (stall=0.59, mpki=45.6, ipc bajo), mostro la ganancia esperada (+5.02%). Corregir el tamano de problema y agregar el filtro de mpki elimino los dos falsos positivos de V1 (histogram, nodal_accumulation_3d) pero no establecio una regla generalizable con las familias disponibles: memcpy (la familia con MAS trafico a DRAM medido, mpki=70.3) empeoro 6.06%, y scan empeoro 12.32% pese a cumplir ambos umbrales. La hipotesis de ancho de banda de DRAM como mecanismo separador de la clase memory-bound de CPU no se sostiene con evidencia externa en dos intentos independientes.",
+ "campanas": [
+  "pacca_cpu_v1b_screen_20260922",
+  "pacca_cpu_v1b_edp_20260922"
+ ],
+ "jobs_slurm": [7551, 7552],
+ "cierre": "No se intenta un tercer ajuste de umbral/variable sobre estos mismos 15 kernels: seria buscar hasta que algo salga, prohibido por el protocolo declarado. La politica CPU se cierra en no_actuar para ambas clases, con dos pruebas externas selladas independientes (V1, V1b) como evidencia de que el intento de refinamiento por subgrupo no generaliza, ademas del analisis de potencia estadistica (V3) que ya explicaba por que la tabla agregada por clase no podia detectar el efecto candidato."
+}
