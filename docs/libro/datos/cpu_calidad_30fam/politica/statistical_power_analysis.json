@@ -1,0 +1,41 @@
+{
+ "descripcion": "Analisis de potencia estadistica y descomposicion de varianza (V3), sobre las 19 familias memory-bound de entrenamiento.",
+ "ruido_de_medicion": {
+  "sd_relativa_log_edp_entre_repeticiones_mediana": 0.0105,
+  "sd_relativa_log_edp_entre_repeticiones_p90": 0.0528
+ },
+ "heterogeneidad_entre_familias_log_edp": {
+  "F0": 0.0275,
+  "F1": 0.0535,
+  "F2": 0.097,
+  "F3": 0.1553
+ },
+ "conclusion_decomposicion": "el ruido de medicion (~1%) es 5 a 10 veces menor que la dispersion entre familias; la varianza que impide concluir es heterogeneidad fisica real, no error instrumental; mas repeticiones no lo habria resuelto",
+ "efecto_minimo_detectable_80pct_por_nivel": {
+  "F0": {
+   "n_familias": 19,
+   "sd_entre_familias_log": 0.0275,
+   "mde80_fraccion": 0.0175
+  },
+  "F1": {
+   "n_familias": 19,
+   "sd_entre_familias_log": 0.0535,
+   "mde80_fraccion": 0.0338
+  },
+  "F2": {
+   "n_familias": 19,
+   "sd_entre_familias_log": 0.097,
+   "mde80_fraccion": 0.0605
+  },
+  "F3": {
+   "n_familias": 19,
+   "sd_entre_familias_log": 0.1553,
+   "mde80_fraccion": 0.095
+  }
+ },
+ "auditoria_de_sesgos": {
+  "REF_vs_F0": "limpio: turbo desactivado en ambos, diferencia medida +0.25% en memory-bound, dentro de ruido",
+  "mezcla_de_campanas_main_sweep": "sin kernels reales compartidos entre pacca_cpu_final_20260913 y pacca_cpu_compute_sweep_20260919 (solo sondas de calibracion, excluidas); no hay puente para estimar deriva entre sesiones",
+  "smt_y_cpufreq": "hermanos alineados y lock de frecuencia verificados en todas las campanas relevantes (frequency_restored_verified=true)"
+ }
+}

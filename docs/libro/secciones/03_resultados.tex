@@ -557,6 +557,13 @@ La causa es el piso de potencia. Ajustando $P(f)=P_0+c\,f^{k}$ a cada kernel (er
     \label{fig:cpu-energia-piso}
 \end{figure}
 
+\subsubsection{Potencia del diseño y un intento de refinamiento}
+\label{sec:resultados-cpu-politica-potencia}
+
+El resultado \textit{no actuar} de la tabla \ref{tab:cpu-politica-ic} admite una lectura más precisa que "ningún nivel mejora": con 19 familias memory-bound, la dispersión del producto energía--retardo entre familias (no entre repeticiones) fue de 2.75\% en F0 y creció hasta 15.53\% en F3. El ruido de medición, en cambio, fue mucho menor: la desviación estándar relativa del producto entre las tres repeticiones de una misma corrida tuvo mediana 1.05\% (percentil 90 de 5.28\%), entre cinco y diez veces menos que la dispersión entre familias en cualquier nivel. La varianza que impide concluir es heterogeneidad física real del catálogo, no error instrumental, y más repeticiones no la habrían reducido. De ahí se deriva el efecto mínimo detectable con 80\% de potencia: 1.75\% en F0, 3.38\% en F1 y 6.05\% en F2. El efecto mínimo relevante de 1\% declarado para la tabla \ref{tab:cpu-politica-ic} era, en la práctica, indetectable por diseño con este tamaño de muestra.
+
+Esa heterogeneidad no es ruido sin estructura: dentro de memory-bound, las familias con razón de ciclos detenidos por acceso a memoria (\texttt{stall\_mem\_ratio}) sobre 0.30 ganaron en promedio 3.03\% en F1 y 2.70\% en F2, mientras que las de razón baja perdieron entre 5\% y 28\%. Se congeló, antes de medir nada nuevo, una regla de subdivisión: actuar en F2 cuando \texttt{stall\_mem\_ratio} medido en la referencia sea de al menos 0.30, variable que ya forma parte del vector de seis del clasificador, de modo que no exige cómputo adicional en el agente. La regla se evaluó en 11 familias memory-bound ajenas a las 30 de entrenamiento (kernels adicionales de RAJAPerf), de las cuales 6 quedaron del lado de actuar según la propia regla. El resultado fue negativo: la ganancia media del producto en esas 6 familias fue de $-25.8\%$ (IC95 de $-50.6$ a $-6.8\%$, \textit{bootstrap} de familias), con una sola familia (\texttt{apps\_pressure}) mostrando la ganancia esperada (3.5\%) y otra (\texttt{algorithm\_histogram}, con la razón de ciclos detenidos más alta de todo el conjunto, 0.97) empeorando 85.6\%. La regla aprendida sobre las familias de entrenamiento no generalizó a familias nuevas del mismo régimen. Se reporta como intento de refinamiento explícitamente refutado, no como limitación pendiente: los datos, el código y el resultado completo quedan en \path{docs/libro/datos/cpu_calidad_30fam/politica/policy_cpu.json} y \path{v1_prueba_sellada/}.
+
 \section{Resultados de GPU}
 \label{sec:resultados-gpu}
 

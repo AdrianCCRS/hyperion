@@ -1,0 +1,92 @@
+{
+ "descripcion": "Prueba sellada V1: regla stall_mem_ratio(REF) >= 0.30 -> actuar en F2, congelada antes de esta medicion, evaluada en 11 familias RAJAPerf nuevas (no en las 30 de entrenamiento) tamizadas en dos rondas.",
+ "regla_congelada": {
+  "variable": "stall_mem_ratio",
+  "umbral": 0.3,
+  "nivel": "F2",
+  "fuente_del_umbral": "familias de entrenamiento (18 memory-bound), ver cpu_policy_conditional.py"
+ },
+ "cobertura_tamizaje": {
+  "objetivo_familias_sobre_umbral": 8,
+  "logrado_ronda1": 3,
+  "logrado_ronda2": 3,
+  "logrado_total": 6,
+  "nota": "por debajo del objetivo; se midio EDP de todas formas con la potencia disponible, segun lo acordado"
+ },
+ "familias_actuan": {
+  "cpu_rajaperf_algorithm_histogram": {
+   "stall_mem_ratio_ref": 0.9684,
+   "edp_ratio_F2_vs_REF": 1.8555,
+   "gain_F2": -0.8555
+  },
+  "cpu_rajaperf_algorithm_memcpy": {
+   "stall_mem_ratio_ref": 0.6022,
+   "edp_ratio_F2_vs_REF": 1.0105,
+   "gain_F2": -0.0105
+  },
+  "cpu_rajaperf_comm_halo_packing": {
+   "stall_mem_ratio_ref": 0.3402,
+   "edp_ratio_F2_vs_REF": 1.2225,
+   "gain_F2": -0.2225
+  },
+  "cpu_rajaperf_apps_pressure": {
+   "stall_mem_ratio_ref": 0.5432,
+   "edp_ratio_F2_vs_REF": 0.9646,
+   "gain_F2": 0.0354
+  },
+  "cpu_rajaperf_apps_nodal_accumulation_3d": {
+   "stall_mem_ratio_ref": 0.5379,
+   "edp_ratio_F2_vs_REF": 1.4207,
+   "gain_F2": -0.4207
+  },
+  "cpu_rajaperf_algorithm_scan": {
+   "stall_mem_ratio_ref": 0.3359,
+   "edp_ratio_F2_vs_REF": 1.2595,
+   "gain_F2": -0.2595
+  }
+ },
+ "familias_no_actuan_contraste": {
+  "cpu_rajaperf_algorithm_memset": {
+   "stall_mem_ratio_ref": 0.0113,
+   "edp_ratio_F2_vs_REF": 1.3557,
+   "gain_F2": -0.3557
+  },
+  "cpu_rajaperf_apps_del_dot_vec_2d": {
+   "stall_mem_ratio_ref": 0.0099,
+   "edp_ratio_F2_vs_REF": 1.3582,
+   "gain_F2": -0.3582
+  },
+  "cpu_rajaperf_apps_matvec_3d_stencil": {
+   "stall_mem_ratio_ref": 0.1227,
+   "edp_ratio_F2_vs_REF": 1.1115,
+   "gain_F2": -0.1115
+  },
+  "cpu_rajaperf_apps_vol3d": {
+   "stall_mem_ratio_ref": 0.0021,
+   "edp_ratio_F2_vs_REF": 1.346,
+   "gain_F2": -0.346
+  },
+  "cpu_rajaperf_apps_zonal_accumulation_3d": {
+   "stall_mem_ratio_ref": 0.1246,
+   "edp_ratio_F2_vs_REF": 1.1989,
+   "gain_F2": -0.1989
+  }
+ },
+ "ganancia_media_F2_donde_actua": -0.2576,
+ "ganancia_ci95_F2_donde_actua": [
+  -0.5061,
+  -0.0684
+ ],
+ "ganancia_media_F2_contraste_no_actua": -0.2699,
+ "criterios_de_refutacion_declarados": [
+  "ganancia media donde actua negativa",
+  "IC95 incluye o esta por debajo de cero",
+  "alguna familia con stall alto pierde mas del 5%"
+ ],
+ "veredicto": "REFUTADA: las tres condiciones de refutacion se cumplen. ganancia media -25.76% (empeora), IC95 [-50.61%,-6.84%] (no toca cero), algorithm_histogram pierde 85.55%. Solo 1 de 6 familias (apps_pressure) mostro la ganancia esperada (+3.54%). La regla aprendida en las familias de entrenamiento no generaliza.",
+ "campanas": [
+  "pacca_cpu_v1_screen_20260922",
+  "pacca_cpu_v1_screen_20260922_r2",
+  "pacca_cpu_v1_edp_20260922"
+ ]
+}
