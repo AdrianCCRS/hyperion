@@ -3,505 +3,406 @@
 \section{Marco Conceptual}
 \label{sec:marco-conceptual}
 
-El ajuste dinámico de frecuencia y voltaje parte de la relación entre el punto
-de operación del hardware, la potencia consumida y el tiempo de ejecución. El
-efecto de modificar ese punto depende del comportamiento de la carga, por lo
-que resulta necesario establecer qué limita su desempeño y qué señales
-permiten reconocer esa condición durante la ejecución. A partir de esta
-relación se organiza el marco conceptual, comenzando por el modelo Roofline y
-la caracterización de los regímenes \textit{compute-bound} y
-\textit{memory-bound}, para continuar con la telemetría disponible en CPU y
-GPU, los modelos ligeros utilizados para inferir ese comportamiento y los
-mecanismos de control DVFS. Finalmente, se introduce el Producto
-Energía--Retardo como referencia para relacionar el ahorro energético con el
-efecto que una decisión de frecuencia produce sobre el tiempo de ejecución.
+El ajuste dinámico de la frecuencia y del voltaje para reducir el consumo energético parte de una relación física entre el punto de operación del hardware, la potencia requerida y el tiempo de ejecución. Su efecto depende del régimen de la carga, porque una fase limitada por cómputo no responde de la misma forma que una fase condicionada por el acceso a memoria. En este trabajo, el régimen se define con el modelo Roofline y deja señales indirectas en la telemetría disponible; esas señales alimentan un clasificador ligero que debe inferir la clase con una latencia compatible con el lazo de control. La clase inferida se utiliza como contexto para una política DVFS, cuyo efecto se juzga mediante el Producto Energía--Retardo. Esta cadena separa la magnitud física empleada para construir la etiqueta de las señales accesibles durante la ejecución y delimita qué puede observarse, inferirse y controlarse en CPU y GPU.
 
 \subsection{Potencia CMOS y fundamento de DVFS}
 \label{sec:marco-cmos}
 
-La potencia consumida por un circuito CMOS incluye una componente estática,
-asociada principalmente a corrientes de fuga, y una componente dinámica
-producida por la conmutación de cargas capacitivas. Dado que DVFS modifica la
-frecuencia y, según el estado operativo, también el voltaje de alimentación,
-su efecto se relaciona de forma directa con la potencia dinámica, que puede
-aproximarse como:
+La potencia dinámica de un circuito CMOS se asocia con la conmutación de cargas capacitivas y depende del factor de actividad, de la capacitancia efectiva, del voltaje de alimentación y de la frecuencia. La relación utilizada como fundamento de DVFS se expresa como:
 
 \begin{equation}
 P_{\text{dyn}} = \alpha \cdot C \cdot V^{2} \cdot f
 \end{equation}
 
-donde $\alpha$ representa el factor de actividad, $C$ la capacitancia efectiva
-conmutada, $V$ el voltaje de alimentación y $f$ la frecuencia de operación
-\cite{Gonzalez1997}. La dependencia cuadrática respecto al voltaje explica por
-qué una reducción del punto operativo puede disminuir de forma apreciable la
-potencia, aunque ese beneficio no puede evaluarse sin considerar el tiempo de
-ejecución. Una carga que pierde rendimiento al reducir la frecuencia puede
-permanecer activa durante más tiempo y compensar parte del ahorro obtenido.
-Esta relación física da origen al compromiso energía--rendimiento que debe
-resolver una política DVFS.
+donde $\alpha$ representa el factor de actividad, $C$ la capacitancia efectiva conmutada, $V$ el voltaje y $f$ la frecuencia de operación \cite{Gonzalez1997}. El voltaje y la frecuencia no son variables independientes en los estados de rendimiento, ya que los niveles de frecuencia más altos suelen requerir mayor voltaje para mantener las restricciones temporales del circuito. Por ello, una reducción de frecuencia que admita disminuir el voltaje puede reducir de forma apreciable la potencia dinámica debido a la dependencia cuadrática con $V$.
+
+El beneficio energético no se deduce únicamente de esa reducción de potencia. La energía acumulada depende también del tiempo durante el cual se mantiene el consumo, de modo que una frecuencia menor puede resultar desfavorable si prolonga la ejecución en una proporción comparable o superior. La potencia estática permanece además como una contribución que DVFS no elimina, por lo que una ejecución más larga puede acumular un costo que reduzca el ahorro obtenido sobre la componente dinámica. La sensibilidad del tiempo a la frecuencia queda condicionada por el recurso que limita la fase. Una fase cuyo rendimiento depende de las unidades aritméticas suele responder con mayor intensidad a una reducción del reloj de cómputo, mientras que una fase condicionada por el tráfico de memoria puede conservar parte de su rendimiento al operar a menor frecuencia. Esta diferencia exige identificar el régimen antes de asociar una reducción de frecuencia con un beneficio energético.
 
 \subsection{Modelo Roofline y regímenes de ejecución}
 \label{sec:roofline}
 
-El efecto de variar la frecuencia no es uniforme porque el rendimiento de una
-carga puede estar condicionado por recursos distintos. El modelo Roofline
-formaliza esta diferencia al relacionar la intensidad operacional con los
-límites de cómputo y ancho de banda de memoria de la plataforma
-\cite{Williams2009}. Su formulación básica es:
+El modelo Roofline relaciona el rendimiento alcanzable con la intensidad operacional de la carga y con dos límites de la plataforma, el rendimiento aritmético pico y el ancho de banda pico de memoria. Su formulación básica es:
 
 \begin{equation}
 P = \min\left(P_{\text{pico}},\; I \cdot BW_{\text{pico}}\right)
 \label{eq:roofline}
 \end{equation}
 
-donde $P_{\text{pico}}$ corresponde al rendimiento aritmético pico, $I$ a la
-intensidad operacional y $BW_{\text{pico}}$ al ancho de banda pico de memoria.
-Cuando el límite viene dado por $I \cdot BW_{\text{pico}}$, aumentar la
-capacidad de cómputo no elimina la restricción impuesta por el movimiento de
-datos y la carga se considera \textit{memory-bound}. Cuando el límite
-corresponde a $P_{\text{pico}}$, el rendimiento queda ligado a la capacidad
-aritmética y el régimen se considera \textit{compute-bound}.
+donde $P_{\text{pico}}$ es el techo de cómputo, $BW_{\text{pico}}$ el techo de ancho de banda e $I$ la intensidad operacional \cite{Williams2009}. Cuando el límite activo es $I\cdot BW_{\text{pico}}$, el rendimiento queda condicionado por el movimiento de datos y la carga se clasifica como \textit{memory-bound}. Cuando el límite activo es $P_{\text{pico}}$, la capacidad aritmética domina y la carga se clasifica como \textit{compute-bound}. La Figura~\ref{fig:modelo-roofline-conceptual} representa esta separación.
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.72\textwidth]
+    \includegraphics[width=0.75\textwidth]
         {figuras/fig_modelo_roofline_conceptual_williams2009.png}
-    \caption[Modelo Roofline conceptual]{Modelo Roofline conceptual y relación
-    entre el techo de ancho de banda de memoria y el techo de rendimiento de
-    cómputo. Tomado de Williams et al. \cite[Fig.~1(a)]{Williams2009}.}
+    \caption[Modelo Roofline conceptual]{Modelo Roofline conceptual con el techo de ancho de banda de memoria y el techo de rendimiento de cómputo. Nota. Tomado de Williams et al. \cite[Fig.~1(a)]{Williams2009}.}
     \label{fig:modelo-roofline-conceptual}
 \end{figure}
 
-La separación entre ambos regímenes se encuentra en el \textit{ridge point},
-obtenido al igualar las dos ramas del modelo:
+La intensidad operacional expresa operaciones por byte transferido desde el nivel de memoria considerado y, por ello, no equivale al tamaño nominal del conjunto de datos ni puede inferirse únicamente a partir de si este cabe en caché \cite[p.~66]{Williams2009}. La reutilización modifica el tráfico efectivo y puede elevar la intensidad incluso cuando el conjunto de trabajo completo excede la caché, como ocurre en implementaciones bloqueadas de multiplicación de matrices \cite[Secs.~3--4]{Goto2008}. Esta distinción evita usar propiedades estáticas del kernel como sustituto de una clasificación que depende del comportamiento medido sobre la plataforma. Roofline establece además un límite de rendimiento, no una predicción exacta del tiempo de ejecución. Una observación puede situarse por debajo de ambos techos por ineficiencias distintas del cuello de botella dominante, por lo que el uso del modelo en este trabajo se concentra en la separación de regímenes y en la construcción de una referencia física, sin interpretar la distancia al techo como una medida única de eficiencia.
+
+La frontera entre ambos regímenes se encuentra en el punto de inflexión \label{sec:marco-ridge} o \textit{ridge point}, donde las dos ramas de la ecuación \eqref{eq:roofline} se igualan. El umbral se obtiene como:
 
 \begin{equation}
-I_{\text{ridge}} =
-\frac{P_{\text{pico}}}{BW_{\text{pico}}}
+I_{\text{ridge}} = \frac{P_{\text{pico}}}{BW_{\text{pico}}}
 \label{eq:ridge}
 \end{equation}
 
-Una intensidad inferior a $I_{\text{ridge}}$ sitúa la carga en la región
-limitada por memoria y una intensidad superior en la región limitada por
-cómputo \cite{Williams2009}. Este criterio es especialmente útil para el
-proyecto porque permite construir una etiqueta a partir de una referencia
-física del hardware, en lugar de asumir el régimen por el nombre del kernel o
-por su comportamiento esperado. El punto de inflexión tampoco debe tratarse
-como una constante universal. El techo de cómputo depende de la precisión
-aritmética y puede variar con la frecuencia, mientras que el ancho de banda
-pertenece a otro dominio y no necesariamente cambia en la misma proporción
-\cite{Guerreiro2019,Ali2023}. Por ello, la interpretación de una carga debe
-mantenerse vinculada a los techos correspondientes a la plataforma y al punto
-operativo evaluado.
-\label{sec:marco-ridge}
+Una intensidad inferior a $I_{\text{ridge}}$ corresponde al régimen \textit{memory-bound}, mientras que una intensidad superior corresponde al régimen \textit{compute-bound} \cite{Williams2009}. El punto de inflexión no representa una frecuencia óptima ni el máximo rendimiento de una aplicación. Marca la intensidad para la cual los dos límites del modelo tienen el mismo valor; una carga situada cerca de esa frontera puede cambiar de régimen ante variaciones del techo aritmético, del ancho de banda o de su propio patrón de acceso. Su función en este trabajo es proporcionar un criterio físico de etiquetado, no una política de control por sí misma.
 
-La intensidad operacional observada durante un intervalo $i$ se calcula como:
+El valor del umbral debe corresponder a la precisión aritmética de las operaciones observadas, porque los techos de cómputo pueden diferir entre tipos de dato y precisiones \cite{Antepara2025}. También depende del punto de operación. El techo aritmético responde al reloj de las unidades de cómputo y el ancho de banda de memoria pertenece a otro dominio, por lo que ambos términos no tienen que variar en la misma proporción cuando cambia la frecuencia \cite{Guerreiro2019,Ali2023}. En consecuencia, el \textit{ridge point} utilizado para etiquetar una observación debe ser coherente con la precisión y con la configuración de frecuencia bajo la cual se obtuvo. Los valores nominales de la plataforma sirven como referencia, aunque la frontera empleada para clasificar observaciones debe corresponder a techos alcanzables bajo las condiciones de ejecución consideradas, razón por la que la caracterización experimental del Roofline precede al etiquetado \cite{NERSC2026}.
+
+La intensidad operacional observada \label{sec:intensidad} se calcula sobre magnitudes que representan el mismo intervalo temporal. Para un intervalo $i$ se utiliza:
 
 \begin{equation}
-I_i =
-\frac{\text{FLOPs}_i}{B_i^{\text{DRAM}}}
+I_i = \frac{\text{FLOPs}_i}{B_i^{\text{DRAM}}}
 \label{eq:intensidad}
 \end{equation}
 
-$\text{FLOPs}_i$ representa el trabajo aritmético realizado y
-$B_i^{\text{DRAM}}$ los bytes transferidos hacia o desde memoria principal
-durante el mismo intervalo \cite{Williams2009}. Esta correspondencia temporal
-es necesaria para conservar el significado físico de la razón. En CPU, el
-trabajo aritmético puede obtenerse mediante eventos de rendimiento y el
-tráfico hacia DRAM mediante contadores del controlador de memoria. En GPU, la
-obtención de ambas magnitudes requiere una instrumentación de mayor detalle
-que la telemetría ligera disponible durante la ejecución. Esta diferencia
-explica por qué la referencia Roofline y las señales usadas posteriormente
-para inferir el régimen no proceden necesariamente de la misma fuente.
-\label{sec:intensidad}
+donde $\text{FLOPs}_i$ representa el trabajo aritmético y $B_i^{\text{DRAM}}$ los bytes transferidos hacia o desde memoria principal durante el mismo intervalo \cite{Williams2009}. Los eventos PMU que se convierten en FLOPs dependen de la microarquitectura y su semántica debe verificarse antes de interpretar el conteo \cite{Weaver2008}. El tráfico DRAM se obtiene desde contadores asociados al controlador de memoria, cuyo alcance y granularidad pueden diferir de los contadores de núcleo. Esta diferencia obliga a alinear temporalmente ambos términos antes de aplicar la ecuación \eqref{eq:intensidad} y explica por qué la etiqueta Roofline se construye fuera del lazo ligero de inferencia.
 
-\subsection{Telemetría microarquitectónica e instrumentación}
+\subsection{Telemetría microarquitectónica con PMU}
 \label{sec:marco-telemetria}
 
-La clasificación en línea requiere señales que reflejen el comportamiento del
-hardware sin reproducir directamente el cálculo de la etiqueta Roofline. En
-CPU, estas señales se obtienen principalmente mediante las Unidades de
-Monitorización de Rendimiento, o PMU, que registran eventos asociados a la
-ejecución. Parte de los contadores se reserva para eventos frecuentes, como
-ciclos e instrucciones retiradas, mientras que otros son programables y
-permiten seleccionar eventos definidos por la microarquitectura
-\cite{IntelSDM2026}. Esta organización ofrece flexibilidad, pero también
-impone un límite al número de eventos que pueden observarse al mismo tiempo.
+La clasificación en CPU requiere señales que describan el comportamiento de la ejecución sin reconstruir en línea la intensidad operacional. Las Unidades de Monitorización de Rendimiento, o PMU, proporcionan esa observabilidad mediante contadores de hardware que acumulan eventos como instrucciones retiradas, ciclos y actividad de la jerarquía de memoria. Los contadores pueden ser fijos o programables, y los segundos seleccionan eventos mediante códigos definidos por la arquitectura y calificadores específicos \cite{IntelSDM2026}. La Figura~\ref{fig:pmu-conceptual} resume esta organización. La PMU no interpreta el comportamiento de la aplicación, sino que entrega conteos cuya semántica depende del evento y del dominio observado. Por ello, el mismo valor numérico solo adquiere significado después de considerar qué recurso cuenta, durante qué intervalo y con qué alcance. Los conteos funcionan como señales para la inferencia, pero no constituyen una medición directa de la intensidad operacional ni de la etiqueta Roofline.
 
-% Se conserva aquí la figura PMU del archivo reescrito.
+\begin{figure}[H]
+    \centering
 
-Cuando la cantidad de eventos solicitados supera los contadores físicos
-disponibles, Linux puede multiplexarlos y estimar los conteos a partir del
-tiempo durante el cual cada evento estuvo habilitado y realmente activo
-\cite{Liu2024}. La relación entre \textit{time running} y
-\textit{time enabled} permite reconocer esa situación y valorar si la lectura
-mantiene una cobertura suficiente \cite{Liu2024,LinuxPerfEventOpen2026}. El
-problema no es únicamente que existan pocos contadores, sino que una señal
-observada de forma intermitente puede representar mal una carga cuyo
-comportamiento cambia durante los periodos no medidos. Esta limitación
-condiciona qué eventos resultan adecuados para alimentar un clasificador que
-pretende operar sobre ventanas de ejecución.
+    \begin{tikzpicture}[
+        font=\small,
+        box/.style={
+            draw,
+            rounded corners,
+            align=center,
+            minimum height=1cm,
+            minimum width=4.4cm
+        },
+        arrow/.style={
+            -{Latex[length=2mm]},
+            thick
+        }
+    ]
 
-La información tampoco procede de un único dominio. Los contadores de núcleo
-registran eventos ligados a la actividad de los procesadores lógicos y
-permiten derivar señales como IPC, tasa de fallos de caché, MPKI o ciclos de
-espera. Los eventos \textit{uncore}, en cambio, cubren recursos compartidos
-del zócalo, entre ellos el controlador de memoria y las interconexiones
-\cite{IntelUncore2021}. Esta diferencia permite observar el tráfico que
-alcanza DRAM, pero hace que su alcance y granularidad no coincidan
-necesariamente con los contadores de núcleo. Para calcular intensidad
-operacional, el trabajo aritmético y los bytes de memoria deben agregarse
-sobre límites temporales compatibles antes de aplicar el criterio Roofline.
-\label{sec:uncore}
-\label{sec:ventanas}
+    % Entrada
+    \node[align=center] (events)
+        {Eventos\\microarquitectónicos};
 
-Las métricas derivadas de los eventos de núcleo cumplen una función distinta a
-la etiqueta. Un IPC bajo puede estar asociado con esperas, dependencias o
-presión de memoria, mientras que los fallos de caché y los ciclos con
-solicitudes de memoria pendientes aportan señales adicionales sobre la forma
-en que progresa la ejecución \cite{Gregg2020,IntelPerfmon2026}. Ninguna de
-estas variables demuestra por sí sola que una carga sea
-\textit{memory-bound}. En Hyperion se utilizan como observaciones a partir de
-las cuales el clasificador intenta aproximar una clase definida de manera
-independiente mediante Roofline. Mantener esta separación evita convertir un
-indicador microarquitectónico en una verdad física que no representa por sí
-mismo.
-\label{sec:marco-metricas-eficiencia}
+    % Contadores
+    \node[box, right=2.2cm of events, yshift=1.25cm] (fixed)
+        {\textbf{Contadores fijos}\\
+        FC$_0$, FC$_1$, \ldots\\
+        eventos predefinidos\\
+        (instrucciones, ciclos)};
 
-Linux expone estas mediciones mediante \texttt{perf\_event}, que permite
-acceder desde espacio de usuario a eventos de la PMU sin manipular
-directamente sus registros \cite{LinuxPerfEventOpen2026,Weaver2015}. Para la
-energía de CPU, Intel RAPL proporciona contadores acumulativos asociados a
-dominios disponibles en la plataforma, entre ellos \textit{Package} y, cuando
-existe soporte, DRAM \cite{David2010,Thamm2025}. La diferencia entre dos
-lecturas permite obtener la energía correspondiente a un intervalo, aunque
-esta medición representa los dominios expuestos por RAPL y no el consumo
-eléctrico completo del nodo.
-\label{sec:perfevent}
-\label{sec:rapl}
+    \node[box, below=0.8cm of fixed] (programmable)
+        {\textbf{Contadores programables}\\
+        PMC$_0$, PMC$_1$, \ldots, PMC$_n$};
 
-La observabilidad de GPU tiene otra granularidad. NVML ofrece desde espacio de
-usuario métricas agregadas de utilización, actividad de memoria, potencia,
-energía y frecuencias de operación \cite{NVML2026}. Son adecuadas para
-seguimiento continuo porque no requieren instrumentar cada kernel, pero no
-proporcionan directamente los FLOPs y bytes necesarios para reconstruir la
-intensidad operacional. Nsight Compute, por el contrario, puede perfilar
-kernels CUDA con métricas de mayor detalle y obtener información suficiente
-para caracterizar su posición en Roofline \cite{Nsight2026}. Su costo de
-perfilado, que puede incluir varias pasadas sobre un mismo kernel, hace que su
-papel sea distinto. \texttt{ncu} proporciona la referencia fuera de línea y
-NVML las señales disponibles durante la inferencia, una separación que
-mantiene la verdad de entrenamiento independiente de los proxies utilizados
-por el modelo.
-\label{sec:marco-nvml-ncu}
+    % Configuración
+    \node[box, below=0.8cm of programmable] (control)
+        {\textbf{Registros de configuración}\\
+        \textit{Event Select} + \textit{Unit Mask}\\
+        + calificadores};
+
+    % Marco de PMU
+    \node[
+        draw,
+        rounded corners,
+        fit=(fixed)(programmable)(control),
+        inner sep=0.35cm,
+        label=above:\textbf{PMU}
+    ] (pmu) {};
+
+    % Flechas
+    \draw[arrow] (events.east) -- ++(0.75,0)
+        |- (fixed.west);
+
+    \draw[arrow] (events.east) -- ++(0.75,0)
+        |- (programmable.west);
+
+    \draw[arrow] (control.north) -- (programmable.south);
+
+    \end{tikzpicture}
+
+    \caption[Unidad de Monitorización de Rendimiento (PMU)]{Organización conceptual de una Unidad de Monitorización de Rendimiento (PMU) con contadores fijos y programables. Nota. Elaboración propia.}
+    \label{fig:pmu-conceptual}
+\end{figure}
+
+La multiplexación aparece cuando se solicitan más eventos de los que pueden mantenerse simultáneamente en contadores físicos \label{sec:multiplexacion}. En ese caso, el sistema alterna grupos de eventos y escala los conteos a partir del tiempo durante el cual cada grupo permaneció activo \cite{Liu2024,LinuxPerfEventOpen2026}. El escalado conserva utilidad cuando el comportamiento es suficientemente estable durante la ventana, aunque puede introducir error si las fases cambian mientras un evento no está siendo contado. Esta limitación condiciona la cantidad de señales que conviene observar de forma simultánea.
+
+Los eventos genéricos y los eventos crudos representan dos niveles de abstracción de la misma PMU \label{sec:eventos-genericos-crudos}. Los eventos genéricos ofrecen nombres comunes que el kernel traduce a cada procesador, mientras que los eventos crudos emplean directamente la codificación de la microarquitectura cuando se necesita una señal que la abstracción genérica no expone \cite{Weaver2015,IntelSDM2026}. La segunda opción exige verificar plataforma, código de evento, máscara y semántica, ya que una codificación válida en una microarquitectura no puede trasladarse automáticamente a otra. Esta diferencia también afecta la portabilidad del vector de características. Una señal expresada mediante un evento genérico puede mantener un contrato similar entre plataformas aunque cambie su implementación, mientras que una señal cruda conserva un significado más específico y exige validar de nuevo la correspondencia física cuando cambia la microarquitectura. Para el clasificador, esa distinción delimita cuáles características pueden considerarse generales y cuáles quedan ligadas al procesador donde fueron medidas.
+
+Los contadores de núcleo y los contadores de \textit{uncore} difieren por su ámbito de atribución \label{sec:uncore}. Los primeros observan recursos asociados a un núcleo y pueden vincularse con la ejecución de una tarea, mientras que los de \textit{uncore} cubren componentes compartidos del zócalo, entre ellos el controlador de memoria integrado y partes de la interconexión. Los eventos del controlador de memoria permiten observar el tráfico que alcanza DRAM, incluidos accesos de demanda y tráfico generado por mecanismos de precarga \cite{IntelUncore2021}. Esta señal resulta útil para el denominador de la intensidad operacional porque representa movimiento efectivo hacia memoria principal, pero su alcance de sistema impide atribuir el tráfico a un proceso individual sin condiciones de aislamiento adecuadas. La diferencia entre una medida local de núcleo y una medida compartida también explica por qué ambas fuentes pueden tener granularidades temporales distintas y no deben combinarse fila a fila sin una correspondencia temporal explícita. La Figura~\ref{fig:core-uncore-counters} muestra esta diferencia estructural.
+
+\begin{figure}[H]
+\centering
+\begin{adjustbox}{max width=\textwidth}
+\begin{tikzpicture}[
+    every node/.style={font=\small},
+    unit/.style={rectangle, draw=blue!45!black, fill=white,
+        minimum width=1.9cm, minimum height=0.80cm, align=center, rounded corners=1pt},
+    uunit/.style={rectangle, draw=green!45!black, fill=white,
+        minimum width=2.9cm, minimum height=0.80cm, align=center, rounded corners=1pt},
+    corezone/.style={rectangle, draw=blue!45!black, thick, fill=blue!8,
+        rounded corners=2pt, inner xsep=0.35cm, inner ysep=0.30cm},
+    uncorezone/.style={rectangle, draw=green!45!black, thick, fill=green!12,
+        rounded corners=2pt, inner xsep=0.35cm, inner ysep=0.30cm},
+    cbox/.style={rectangle, draw=blue!45!black, dashed, thick, fill=white,
+        align=left, rounded corners=2pt, inner sep=0.28cm, font=\footnotesize},
+    ubox/.style={rectangle, draw=green!45!black, dashed, thick, fill=white,
+        align=left, rounded corners=2pt, inner sep=0.28cm, font=\footnotesize},
+    pkg/.style={rectangle, draw=black!55, very thick, fill=none,
+        rounded corners=3pt, inner xsep=0.55cm, inner ysep=0.55cm},
+    arr/.style={-{Stealth[length=2mm]}, thick}
+]
+    % --- Núcleos: contadores de núcleo ---
+    \node[unit] (alu1) {ALU / FPU};
+    \node[unit, right=0.3cm of alu1] (l11) {L1\\(I\$ / D\$)};
+    \node[unit, right=0.3cm of l11] (l21) {L2\\(privada)};
+
+    \node[unit, below=2.0cm of alu1] (alu2) {ALU / FPU};
+    \node[unit, right=0.3cm of alu2] (l12) {L1\\(I\$ / D\$)};
+    \node[unit, right=0.3cm of l12] (l22) {L2\\(privada)};
+
+    % --- Dominio uncore ---
+    \node[uunit] (llc) at ([yshift=-1.8cm]alu2.south west) [anchor=north west]
+        {LLC / L3 (compartida)};
+    \node[uunit, below=0.28cm of llc] (imc) {Controlador de memoria};
+    \node[uunit, below=0.28cm of imc] (icn) {Interconexión (anillo / malla)};
+    \node[uunit, below=0.28cm of icn] (pcie) {PCIe (opcional)};
+
+    % --- Cajas de contadores ---
+    \node[cbox, anchor=west] (ccount)
+        at ([xshift=1.6cm]$(l21.east)!0.5!(l22.east)$) {%
+        \textbf{Contadores de núcleo}\\[2pt]
+        Eventos locales de un núcleo,\\
+        atribuibles a un proceso:\\[3pt]
+        $\bullet$~instrucciones retiradas\\
+        $\bullet$~ciclos\\
+        $\bullet$~fallos de caché\\
+        $\bullet$~fallos de predicción de salto};
+
+    \node[ubox, anchor=west] (ucount)
+        at ([xshift=2.3cm]$(llc.east)!0.5!(pcie.east)$) {%
+        \textbf{Contadores de \textit{uncore}}\\[2pt]
+        Eventos compartidos del zócalo,\\
+        no atribuibles a un proceso:\\[3pt]
+        $\bullet$~tráfico a memoria principal\\
+        $\bullet$~accesos a la LLC\\
+        $\bullet$~ancho de banda\\
+        $\bullet$~actividad de interconexión};
+
+    % --- Espacio para rótulos internos ---
+    \coordinate (chead1) at ([yshift=0.48cm]alu1.north);
+    \coordinate (chead2) at ([yshift=0.48cm]alu2.north);
+    \coordinate (uhead)  at ([yshift=0.48cm]llc.north);
+    \coordinate (pkghead) at ([yshift=1.30cm]$(alu1.north)!0.5!(l21.north)$);
+
+    % --- Zonas y paquete (capa de fondo) ---
+    \begin{pgfonlayer}{background}
+        \node[corezone, fit=(chead1)(alu1)(l11)(l21)] (cz1) {};
+        \node[corezone, fit=(chead2)(alu2)(l12)(l22)] (cz2) {};
+        \node[uncorezone, fit=(uhead)(llc)(imc)(icn)(pcie)] (uz) {};
+        \node[pkg, fit=(pkghead)(cz1)(cz2)(uz)(ccount)(ucount)] (pkgbox) {};
+    \end{pgfonlayer}
+
+    % --- Títulos internos ---
+    \node[font=\bfseries, anchor=north] at ([yshift=-0.12cm]pkgbox.north)
+        {PAQUETE DEL CPU};
+    \node[font=\bfseries\small, anchor=north west]
+        at ([xshift=0.30cm, yshift=-0.12cm]cz1.north west) {Núcleo 1};
+    \node[font=\bfseries\small, anchor=north west]
+        at ([xshift=0.30cm, yshift=-0.12cm]cz2.north west) {Núcleo 2};
+    \node[font=\bfseries\small, anchor=north west]
+        at ([xshift=0.30cm, yshift=-0.12cm]uz.north west) {Dominio \textit{uncore}};
+
+    % --- Flechas de atribución ---
+    \draw[arr] (cz1.east) -- (ccount.west);
+    \draw[arr] (cz2.east) -- (ccount.west);
+    \draw[arr] (uz.east) -- (ucount.west);
+\end{tikzpicture}
+\end{adjustbox}
+\caption[Contadores de núcleo y contadores de \textit{uncore}]{Ámbito de atribución de los contadores de núcleo y de \textit{uncore} dentro del paquete del procesador. Los primeros observan eventos locales de un núcleo, mientras que los segundos observan recursos compartidos del zócalo. Nota. Elaboración propia.}
+\label{fig:core-uncore-counters}
+\end{figure}
+
+A partir de los conteos pueden derivarse métricas compactas para describir la ejecución, entre ellas IPC y MPKI, sin que ninguna de ellas determine por sí sola si la carga es \textit{compute-bound} o \textit{memory-bound} \cite{Gregg2020,LinuxPerfEventOpen2026}.
+
+Una ventana de muestreo convierte los contadores acumulativos en una observación temporal mediante diferencias entre lecturas consecutivas \label{sec:ventanas}. Su duración determina un compromiso entre resolución y sobrecarga, porque ventanas cortas localizan mejor los cambios de comportamiento, mientras que ventanas largas pueden mezclar fases distintas y reducen la frecuencia de lectura \cite{LinuxPerfEventOpen2026,LinuxPerfStat2026}. Las tasas deben usar el tiempo realmente transcurrido entre lecturas y una referencia temporal monotónica \cite{LinuxClockGettime2026}. La ventana define también la unidad temporal sobre la que el clasificador interpreta el estado. Si la fase cambia varias veces dentro del intervalo, la observación resume comportamientos distintos y la etiqueta pierde una correspondencia clara con un único régimen. Si el intervalo es demasiado corto, la medición puede quedar dominada por ruido de conteo, costos de lectura o señales que se actualizan con menor frecuencia. Cuando una señal compartida se actualiza con menor granularidad que los contadores de núcleo, las magnitudes que se combinan deben agregarse al intervalo común antes de interpretar la observación.
+
+La lectura de estas señales no depende únicamente del hardware disponible. El mecanismo que las consulta opera en un espacio de ejecución con permisos y fronteras definidas por el sistema operativo, condición que determina qué contadores e interfaces puede utilizar el agente.
+
+\subsection{Espacios de ejecución \textit{user-space} y \textit{kernel-space}}
+\label{sec:marco-espacios-ejecucion}
+
+El agente se ubica en \textit{user-space}, por lo que no accede directamente a los recursos reservados al kernel ni modifica sus estructuras internas. El sistema operativo media las operaciones sensibles y expone interfaces controladas para consultar contadores, leer energía o solicitar cambios de frecuencia \cite[ch.~2]{Kerrisk2010}. Esta frontera, representada en la Figura~\ref{fig:user-kernel-space}, permite mantener el control fuera del kernel y al mismo tiempo impone restricciones de privilegio, alcance y latencia sobre las observaciones y actuaciones disponibles \cite{McCarty2015}. La arquitectura del proyecto depende, por tanto, de las interfaces que atraviesan esa frontera sin requerir instrumentación dentro del núcleo del sistema operativo.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    every node/.style={font=\small},
+    app/.style={rectangle, draw=green!45!black, fill=white,
+        minimum width=2.2cm, minimum height=0.90cm, align=center, rounded corners=1pt},
+    kmod/.style={rectangle, draw=blue!45!black, fill=white,
+        minimum width=2.3cm, minimum height=0.95cm, align=center, rounded corners=1pt},
+    zoneuser/.style={rectangle, draw=green!45!black, thick, fill=green!12,
+        rounded corners=2pt, inner xsep=0.4cm, inner ysep=0.4cm},
+    zonekernel/.style={rectangle, draw=blue!45!black, thick, fill=blue!8,
+        rounded corners=2pt, inner xsep=0.4cm, inner ysep=0.4cm},
+    hw/.style={rectangle, draw=black!55, thick, fill=black!8,
+        minimum width=6.4cm, minimum height=1.05cm, align=center, rounded corners=2pt},
+    arr/.style={-{Stealth[length=2mm]}, thick}
+]
+    \node[app] (app1) {Aplicación 1};
+    \node[app, right=0.5cm of app1] (app2) {Aplicación 2};
+    \node[font=\large, right=0.4cm of app2] (dots1) {$\cdots$};
+    \node[app, right=0.4cm of dots1] (appn) {Aplicación N};
+    \coordinate (uhead) at ($(app1.north)+(0,0.85)$);
+
+    \node[kmod, below=3.4cm of app1] (proc) {Gestión de\\procesos};
+    \node[kmod, right=0.4cm of proc] (mem) {Gestión de\\memoria};
+    \node[kmod, right=0.4cm of mem] (fs) {Sistema de\\archivos};
+    \node[kmod, right=0.4cm of fs] (drv) {Controladores\\de dispositivos};
+    \node[font=\large, right=0.3cm of drv] (dots2) {$\cdots$};
+    \coordinate (khead) at ($(proc.north)+(0,0.85)$);
+
+    \begin{pgfonlayer}{background}
+        % Se elimina la etiqueta 'label=above:...' para que no dibuje fuera del recuadro
+        \node[zoneuser, fit=(app1)(app2)(dots1)(appn)(uhead)] (userzone) {};
+        \node[zonekernel, fit=(proc)(mem)(fs)(drv)(dots2)(khead)] (kernelzone) {};
+        \node[fit=(userzone)(kernelzone), inner sep=0pt] (span) {};
+    \end{pgfonlayer}
+
+    % Títulos internos de USER SPACE
+    \node[font=\bfseries] at ([yshift=-0.28cm]userzone.north) {USER SPACE};
+    \node[font=\small] at ([yshift=-0.80cm]userzone.north) {(Espacio de usuario)};
+
+    % Títulos internos de KERNEL SPACE
+    \node[font=\bfseries] at ([yshift=-0.28cm]kernelzone.north) {KERNEL SPACE};
+    \node[font=\small] at ([yshift=-0.80cm]kernelzone.north) {(Espacio del kernel)};
+
+    \coordinate (boundaryY) at ($(userzone.south)!0.5!(kernelzone.north)$);
+    \draw[dashed, thick] (span.west |- boundaryY) -- (span.east |- boundaryY);
+    \node[font=\small, align=left, anchor=west]
+        at ($(span.east |- boundaryY)+(0.3,0)$)
+        {Interfaz de\\llamadas al sistema\\(límite)};
+
+    \draw[arr] (app1.south) -- (app1.south |- kernelzone.north);
+    \draw[arr] (appn.south |- kernelzone.north) -- (appn.south);
+
+    \node[hw, below=1.2cm of kernelzone] (hardware) {\textbf{HARDWARE}\\\small(Hardware físico)};
+    \draw[{Stealth[length=2mm]}-{Stealth[length=2mm]}, thick] (kernelzone.south) -- (hardware.north);
+\end{tikzpicture}
+\caption[Espacios de usuario y de kernel]{Relación conceptual entre \textit{user-space}, \textit{kernel-space} y el hardware físico. Nota. Elaboración propia.}
+\label{fig:user-kernel-space}
+\end{figure}
+
+\subsection{Interfaces de observabilidad}
 \label{sec:marco-interfaces}
 
-\subsection{Control DVFS desde espacio de usuario}
-\label{sec:marco-espacios-ejecucion}
+Linux expone los contadores de CPU mediante \texttt{perf\_event} \label{sec:perfevent}, interfaz con la que el kernel configura eventos de la PMU, administra su asignación sobre los contadores físicos y devuelve los conteos a procesos en espacio de usuario \cite{LinuxPerfEventOpen2026}. Esta capa evita que el agente manipule directamente registros de la PMU y conserva las restricciones de alcance asociadas a cada evento. Un conteo puede asociarse a una tarea o a una CPU, y esa elección modifica qué actividad contribuye a la medida. En consecuencia, la interfaz no solo transporta un valor, también define el contexto de atribución con el que debe interpretarse. La disponibilidad efectiva depende tanto del soporte del procesador como de la política de acceso configurada en el sistema.
+
+Intel RAPL proporciona contadores energéticos para los dominios que exponga la plataforma, entre ellos el paquete del procesador y, cuando está disponible, DRAM \cite{David2010,Thamm2025}. Los valores se expresan como energía acumulada, de modo que el consumo de un intervalo se obtiene a partir de diferencias entre lecturas. La energía del dominio de paquete representa el consumo del paquete completo y no el consumo exclusivo de los núcleos reservados a la aplicación. Esta diferencia de alcance debe conservarse al interpretar el EDP, especialmente cuando la medición de rendimiento se atribuye a una carga y la energía cubre recursos compartidos. El dominio DRAM, cuando existe, añade una medida separada de la energía asociada a memoria, pero tampoco identifica por sí mismo el régimen de ejecución. RAPL actúa así como fuente energética del sistema observado y no como contador microarquitectónico de la clase de régimen.
+
+En GPU, NVML ofrece telemetría agregada del dispositivo, como utilización, potencia, energía y frecuencia, pero no entrega directamente los FLOPs y bytes requeridos por la intensidad operacional \cite{NVML2026}. Sus métricas reflejan actividad y estado del acelerador durante ventanas internas del controlador, por lo que valores altos de utilización no bastan para distinguir si la limitación procede del cómputo o de la memoria. Nsight Compute accede a contadores de hardware con granularidad de kernel y puede obtener métricas necesarias para una caracterización Roofline más detallada, a costa de una instrumentación que puede requerir múltiples pasadas y una intrusión mayor \cite{Nsight2026}. En este marco, la diferencia relevante es de función conceptual. La caracterización detallada puede construir la referencia física fuera de línea, mientras que la inferencia durante la ejecución debe apoyarse en señales que puedan consultarse con baja intrusión. Esta asimetría entre la verdad de entrenamiento y la telemetría de producción forma parte de la limitación del problema, no de una equivalencia entre ambas fuentes. Observar el comportamiento resuelve solo una parte del lazo, porque la decisión resultante debe materializarse mediante los mecanismos de control de frecuencia de cada dispositivo.
+
+\subsection{P-states, gobernadores y DVFS}
 \label{sec:dvfs-cpu}
 
-El agente opera en espacio de usuario, mientras que el acceso directo a los
-mecanismos del hardware permanece bajo control del kernel y de los
-controladores del dispositivo \cite{Kerrisk2010,McCarty2015}. Esta separación
-evita incorporar la lógica del proyecto como un módulo del kernel y permite
-trabajar sobre interfaces estándar del sistema, aunque cada lectura,
-inferencia y solicitud de frecuencia añade tiempo al lazo de decisión. La
-utilidad del control depende, por tanto, de que ese costo sea pequeño frente a
-la duración del comportamiento que se intenta aprovechar.
+DVFS modifica el punto operativo del procesador mediante mecanismos de hardware y software que coordinan una solicitud de rendimiento con la actuación efectiva sobre el reloj y, cuando corresponde, el voltaje \cite{Hebbar2022}. En CPU, los P-states representan niveles de rendimiento mientras el procesador permanece activo, mientras que los C-states representan niveles de inactividad con diferentes costos de reactivación. Los primeros modifican la capacidad disponible para una carga activa y los segundos reducen consumo cuando no existe trabajo suficiente para mantener el núcleo en actividad. Esta diferencia importa porque una política de frecuencia opera sobre capacidad de cómputo durante C0 y no sustituye a los mecanismos de reposo.
 
-En CPU, Linux organiza la gestión de frecuencia mediante CPUFreq y los
-mecanismos soportados por el procesador. Los \textit{governors} determinan
-cómo se solicita un nivel de rendimiento, mientras que el controlador traduce
-esa petición al hardware \cite{Hebbar2022,LinuxCPUFreq2026}. El
-\textit{governor} \texttt{userspace}, cuando está disponible, permite que una
-política externa participe en esa decisión, y las interfaces de CPUFreq
-también exponen límites sobre los que puede actuar un servicio en espacio de
-usuario. Hyperion se apoya en estas interfaces de control y se compara con
-políticas nativas de referencia. \texttt{performance} mantiene una orientación
-hacia niveles altos de rendimiento, \texttt{ondemand} responde a la carga
-observada y \texttt{schedutil} incorpora información del planificador en la
-selección de frecuencia \cite{Hebbar2022,LinuxCPUFreq2026}.
+Sobre los P-states operan políticas de selección de rendimiento. Los gobernadores \texttt{performance} y \texttt{powersave} fijan solicitudes hacia extremos distintos del rango disponible, mientras que políticas reactivas como \texttt{ondemand} o \texttt{schedutil} ajustan el nivel solicitado a partir de señales administradas por el sistema operativo \cite{LinuxCPUFreq2026}. La política decide qué nivel pedir, pero el controlador y el hardware determinan cómo esa solicitud se materializa. La decisión atraviesa el controlador, el firmware y la lógica de gestión del procesador antes de convertirse en una frecuencia efectiva, por lo que la frecuencia solicitada y la observada no tienen que coincidir en todo instante \cite{Hebbar2022,LinuxIntelPstate2026}. Además, mecanismos autónomos del procesador pueden desplazar el reloj dentro de los límites permitidos según condiciones térmicas, de potencia y de actividad. Esta separación es necesaria al comparar una política propia con los gobernadores nativos, porque el objeto de la comparación es la decisión de control y no la suposición de que cada solicitud se cumple de manera instantánea.
 
-Una solicitud de frecuencia no equivale necesariamente al reloj que termina
-usando el procesador. Mecanismos como \texttt{intel\_pstate}, HWP o Turbo
-Boost pueden intervenir en el punto operativo efectivo según las condiciones
-de ejecución \cite{LinuxIntelPstate2026,Hebbar2022}. Esta diferencia obliga a
-distinguir entre la acción solicitada y el estado alcanzado, ya que la
-comparación energética solo tiene sentido si el cambio atribuido a DVFS
-ocurrió realmente. El mismo principio aplica al tiempo de transición. Una
-decisión cuyo efecto tarda en materializarse puede perder utilidad cuando la
-fase de la carga cambia antes de que el nuevo nivel llegue a aprovecharse.
+\begin{figure}[H]
+    \centering
+    \begin{minipage}[t]{0.38\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{figuras/fig_pstates_cstates_hebbar_2022.png}
+        \small (a) Estados de rendimiento e inactividad
+    \end{minipage}\hfill
+    \begin{minipage}[t]{0.57\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{figuras/fig_jerarquia_dvfs_hebbar_2022.png}
+        \small (b) Jerarquía de solicitud y actuación
+    \end{minipage}
+    \caption[P-states, C-states y jerarquía DVFS]{Relación entre P-states y C-states e integración de la solicitud de rendimiento desde espacio de usuario con los mecanismos que materializan el cambio en hardware. Nota. Tomado de Hebbar y Milenković \cite{Hebbar2022}.}
+    \label{fig:pstates-cstates}
+    \label{fig:jerarquia-dvfs}
+\end{figure}
 
-En GPU, la relación entre frecuencia y rendimiento también depende del recurso
-dominante. El dominio de procesamiento asociado a los SM y el dominio de
-memoria no responden de la misma manera ante una variación del reloj
-\cite{Guerreiro2019,Ali2023}. Una carga \textit{compute-bound} suele mostrar
-mayor sensibilidad a la capacidad de procesamiento, mientras que en una carga
-\textit{memory-bound} elevar el reloj de los SM puede aportar una mejora menor
-si el movimiento de datos sigue imponiendo el límite. El régimen inferido
-adquiere sentido para el control precisamente porque anticipa esa sensibilidad
-y permite evitar cambios que añaden consumo sin una reducción proporcional
-del tiempo.
-\label{sec:dvfs-gpu}
-\label{sec:dominios}
+El alcance de una solicitud de frecuencia depende de los dominios de control definidos por la plataforma \label{sec:dominios}. Con SMT habilitado, dos procesadores lógicos hermanos comparten un núcleo físico y una solicitud de mayor rendimiento de uno de ellos puede influir sobre la frecuencia efectiva observada por el otro \cite{LinuxIntelPstate2026}. Por ello, la afinidad de una carga y el dominio sobre el que actúa la política no son equivalentes, y la frecuencia efectiva debe interpretarse según la topología y el controlador activos \cite{LinuxCPUFreq2026}.
 
-% Se conserva aquí la figura de dominios GPU del archivo reescrito.
+En GPU, DVFS presenta dominios de actuación distintos \label{sec:dvfs-gpu}, principalmente los relojes asociados al cómputo y a la memoria. La sensibilidad del tiempo de ejecución a cada dominio depende del comportamiento de la carga, por lo que una modificación del reloj de cómputo afecta con mayor intensidad a unas fases que a otras \cite{Guerreiro2019,Ali2023}. Una carga limitada por el trabajo de los SM puede perder rendimiento al reducir ese reloj, mientras que una fase condicionada por el movimiento de datos puede mostrar una respuesta menor si el subsistema de memoria continúa siendo el límite. Esta relación no implica que el reloj de memoria sea siempre independiente ni que exista una regla universal de frecuencia, porque el efecto depende de la arquitectura y de la aplicación. Además, el cambio de frecuencia tiene una latencia de actuación propia, de modo que una política que conmute con mayor rapidez que la respuesta del dispositivo puede introducir un costo comparable al beneficio esperado \cite{Velicka2025}. Estas restricciones hacen necesaria una señal de decisión que identifique el régimen sin repetir en línea la caracterización Roofline completa.
 
-El cambio de reloj en el acelerador tampoco es instantáneo. Entre la solicitud
-y la estabilización del nuevo punto operativo existe una latencia que depende
-del dispositivo y de la transición realizada \cite{Velicka2025}. Si ese
-tiempo es comparable con la duración de la fase sobre la que se pretende
-actuar, el beneficio potencial se reduce porque parte del intervalo transcurre
-antes de alcanzar el estado deseado. La actuación DVFS en GPU debe
-interpretarse, por ello, junto con la escala temporal de las fases y no
-únicamente a partir de la clase inferida.
-
-\subsection{Cargas de trabajo y calibración}
+\subsection{Cargas de calibración y modelos de clasificación ligera}
 \label{sec:marco-cargas}
 
-Las aplicaciones HPC combinan regiones con demandas diferentes sobre cómputo
-y memoria, de modo que una medida agregada de toda la ejecución puede ocultar
-cambios internos de comportamiento. Los kernels permiten aislar unidades de
-trabajo con un patrón computacional definido, mientras que los benchmarks
-aportan implementaciones reproducibles con diversidad algorítmica suficiente
-para observar cómo responde la plataforma \cite{Williams2009,Gregg2020}. Su
-procedencia no determina la clase. Una carga se considera
-\textit{compute-bound} o \textit{memory-bound} a partir de la intensidad
-operacional medida respecto al \textit{ridge point}, no porque la literatura
-o el nombre del benchmark la describan de esa manera.
+Los kernels y benchmarks proporcionan ejecuciones acotadas sobre las que puede observarse el comportamiento computacional, mientras que los microbenchmarks aíslan propiedades de la plataforma como el techo aritmético o el ancho de banda de memoria \cite{Williams2009,Gregg2020}. En este trabajo, las cargas de calibración establecen las referencias físicas del modelo Roofline y las cargas representativas generan observaciones cuya clase procede de esa referencia. La etiqueta no se deduce del nombre o de la reputación del kernel, porque el régimen depende del hardware, de la precisión y del punto operativo. El catálogo, las condiciones de ejecución y el procedimiento de etiquetado pertenecen a la metodología; en el marco interesa únicamente la relación entre una observación etiquetada y el modelo que aprende a inferirla.
 
-Los microbenchmarks cumplen una función distinta. Al reducir la ejecución a
-operaciones controladas, permiten estimar propiedades de la plataforma como el
-ancho de banda de memoria y el rendimiento aritmético \cite{Gregg2020}. Estas
-mediciones sirven para construir los techos de Roofline y calibrar la
-referencia con la que luego se etiquetan las cargas de caracterización. El
-conjunto de entrenamiento se apoya así en benchmarks diversos, mientras que
-los microbenchmarks proporcionan los límites físicos con los que se interpreta
-su comportamiento.
+El aprendizaje supervisado ligero \label{sec:marco-ml-ligero} se utiliza para aproximar esa relación mediante señales disponibles durante la ejecución. El calificativo \emph{ligero} no designa una familia concreta, sino una restricción de uso. La inferencia debe introducir una latencia pequeña frente a la escala temporal en la que el agente decide, de manera que el costo del propio modelo no absorba el ahorro que pretende habilitar. También debe operar con características que puedan obtenerse en producción con una intrusión compatible con el mismo lazo. Un modelo entrenado con una señal que solo existe durante el perfilado offline podría alcanzar alta calidad predictiva y aun así no ser utilizable por el agente. La complejidad efectiva depende tanto de la familia como de sus hiperparámetros, por lo que la calidad predictiva se considera junto con el costo de inferencia y con la disponibilidad real de las características.
 
-\subsection{Clasificación supervisada ligera}
-\label{sec:marco-ml-ligero}
+Las familias candidatas \label{sec:marco-familias-modelos} cubren fronteras de decisión con complejidades diferentes. La regresión logística funciona como referencia lineal de bajo costo y ofrece una base para determinar si una separación sencilla de las características es suficiente \cite[Ch.~4]{James2021}. Un árbol de decisión introduce fronteras no lineales e interacciones mediante reglas directamente inspeccionables, aunque una profundidad excesiva incrementa la varianza y el riesgo de ajuste al conjunto de entrenamiento \cite[Ch.~8]{James2021}.
 
-La inferencia del régimen se plantea como un problema de clasificación
-supervisada en el que una etiqueta conocida durante el entrenamiento se
-relaciona con señales que también puedan observarse durante la operación del
-sistema \cite{James2021}. En este caso, la etiqueta procede de Roofline y las
-entradas corresponden a telemetría de bajo costo. La intensidad operacional y
-las magnitudes que revelan directamente la regla utilizada para construir esa
-etiqueta deben permanecer fuera del vector de características, pues incluirlas
-convertiría la clasificación en una repetición del criterio de etiquetado y no
-en una inferencia útil para el lazo de control.
+Random Forest combina árboles entrenados con muestreo y selección aleatoria de características, lo que reduce la dependencia de una única partición y suele adaptarse bien a conjuntos tabulares con relaciones no lineales \cite{Breiman2001}. Esta propiedad es pertinente cuando pocas señales microarquitectónicas interactúan de forma distinta según el régimen, porque la frontera puede depender de combinaciones de presión de memoria, actividad y frecuencia que no sean separables linealmente. Extra-Trees aumenta la aleatorización al considerar puntos de corte aleatorios y puede reducir el costo de construcción del ensamble, con un compromiso entre sesgo y varianza que depende de la configuración y de los datos \cite{Geurts2006}. Ambos modelos admiten pocas características de entrada y pueden representar interacciones que una frontera lineal no captura, aunque el número y la profundidad de los árboles incrementan el costo de inferencia. Un ensamble más flexible tampoco compensa señales poco informativas, por lo que la complejidad del modelo no sustituye la necesidad de una telemetría discriminante.
 
-El carácter ligero del modelo se define por su costo de operación y no por el
-nombre del algoritmo. La regresión logística ofrece una referencia lineal,
-mientras que los árboles de decisión representan relaciones no lineales
-mediante reglas de partición sencillas \cite{James2021}. Random Forest y Extra
-Trees combinan múltiples árboles para reducir la dependencia de una sola
-partición, a cambio de evaluar varios estimadores durante la inferencia
-\cite{Breiman2001,Geurts2006}. XGBoost construye el ensamble de forma
-secuencial y permite representar interacciones más complejas entre
-características \cite{Chen2016}. Comparar estas familias permite determinar si
-el aumento de capacidad predictiva justifica también el costo temporal que
-introduce en una decisión en línea.
-\label{sec:marco-familias-modelos}
+XGBoost construye árboles de forma secuencial para reducir una función objetivo regularizada y puede representar relaciones no lineales e interacciones complejas entre características \cite{Chen2016}. Esa capacidad exige ajustar más decisiones de configuración y el costo del modelo depende del número y la profundidad de los árboles. Frente a los ensambles basados en árboles independientes, la construcción secuencial puede concentrar capacidad sobre errores residuales, aunque también aumenta la sensibilidad a la configuración y al tamaño efectivo del conjunto de entrenamiento. Ninguna de estas familias garantiza por sí misma una mejor clasificación. Con pocas características tabulares, un modelo simple puede generalizar mejor si la separación es estable, mientras que un ensamble puede resultar útil cuando la frontera depende de interacciones no lineales que se repiten entre familias de carga. Su utilidad depende de la información contenida en la telemetría y de la capacidad de generalizar hacia cargas que no participaron en el ajuste, lo que enlaza la selección del modelo con el tratamiento de sus hiperparámetros y con el esquema de validación.
 
-La evaluación debe reflejar tanto el desempeño global como el comportamiento
-sobre cada clase. La matriz de confusión permite observar cómo se distribuyen
-los errores entre \textit{compute-bound} y \textit{memory-bound}, mientras que
-el $F_1$ combina precisión y sensibilidad y su promedio macro otorga el mismo
-peso a ambas clases \cite{SokolovaLapalme2009}. Esta propiedad resulta útil
-cuando la distribución de etiquetas no es uniforme, ya que evita que la clase
-más frecuente determine por sí sola la lectura del resultado. Una línea base
-mayoritaria proporciona además una referencia mínima para comprobar si las
-señales de entrada contienen información discriminativa bajo el protocolo de
-evaluación.
-\label{sec:marco-evaluacion-clasificador}
-\label{sec:marco-lineas-base}
+\subsection{Hiperparámetros, Optuna y validación}
+\label{sec:marco-hiperparametros}
 
-La latencia de inferencia forma parte de esa evaluación porque cada predicción
-consume tiempo dentro del ciclo de control. Un valor medio puede ocultar
-ejecuciones ocasionalmente más lentas, por lo que percentiles como p95 y p99
-permiten describir la cola de la distribución sin presentarla como un peor
-caso absoluto \cite{Georges2007}. La elección de un modelo no puede separarse
-por completo de este costo. Una mejora predictiva deja de ser atractiva si la
-inferencia consume una fracción significativa del intervalo en el que todavía
-puede aplicarse la decisión.
-\label{sec:marco-costo-inferencia}
+Un hiperparámetro controla la estructura del modelo o el procedimiento de ajuste y se fija fuera de la estimación ordinaria de sus parámetros. Los espacios de Random Forest, Extra-Trees y XGBoost combinan variables enteras, reales y decisiones con efectos no uniformes, por lo que una rejilla exhaustiva puede dedicar evaluaciones a combinaciones poco informativas. La búsqueda bayesiana basada en el estimador de Parzen estructurado, TPE, utiliza el historial de evaluaciones para proponer nuevas configuraciones \cite{Bergstra2011}; Optuna implementa este tipo de optimización secuencial y permite explorar espacios mixtos sin enumerar todas las combinaciones \cite{Akiba2019}. El marco justifica el mecanismo de búsqueda, mientras que el presupuesto de intentos y los rangos concretos pertenecen a la metodología y a los resultados.
 
-\subsection{Optimización de hiperparámetros y Optuna}
-\label{sec:marco-optuna}
+La validación anidada separada por familia de kernel \label{sec:marco-validacion-anidada} evita que la optimización de hiperparámetros utilice información de la familia reservada para estimar generalización. En cada partición externa, la búsqueda opera únicamente sobre el conjunto de entrenamiento y la familia externa se utiliza después para evaluar la configuración seleccionada, manteniendo la separación entre selección y estimación \cite{Cawley2010,Roberts2017}. Agrupar por familia es más exigente que repartir tamaños o variantes del mismo algoritmo entre ambos conjuntos, porque impide que patrones casi equivalentes aparezcan simultáneamente en entrenamiento y prueba. La misma restricción se aplica a observaciones correlacionadas que provienen de una unidad experimental común, porque distribuirlas entre entrenamiento y prueba puede producir una estimación optimista. La validación intenta así medir generalización hacia patrones algorítmicos no observados, que es la condición relevante cuando el agente debe operar sobre cargas distintas de las utilizadas para construirlo.
 
-Además de los parámetros aprendidos durante el entrenamiento, cada familia de
-modelos contiene hiperparámetros que condicionan su estructura o su proceso de
-ajuste. La profundidad de un árbol, el número de estimadores de un ensamble o
-la intensidad de regularización son ejemplos de valores que deben
-seleccionarse antes de obtener el modelo final \cite{Bergstra2012}. Su
-elección modifica tanto la capacidad de ajuste como la complejidad resultante,
-de modo que comparar algoritmos sin considerar sus configuraciones puede
-confundir las propiedades de una familia con una elección particular de
-hiperparámetros.
+La fuga de información también puede originarse en el vector de entrada. Si la etiqueta se construye comparando la intensidad operacional con el \textit{ridge point}, incluir la propia intensidad, sus componentes directos o una variable que revele ese criterio permitiría al modelo reconstruir la etiqueta en lugar de inferirla a partir de señales disponibles en producción \cite{Kaufman2012}. La magnitud que origina la etiqueta debe quedar fuera de las características de entrada. Esta separación conserva una diferencia explícita entre la fuente de verdad y los predictores. La primera puede requerir instrumentación costosa para construir etiquetas confiables, mientras que los segundos deben corresponder a señales que el agente pueda consultar durante una ejecución ordinaria. Bajo estas condiciones, la calidad predictiva y la latencia de inferencia siguen siendo criterios en tensión, porque un modelo más complejo puede mejorar la separación y al mismo tiempo consumir una fracción mayor del presupuesto temporal del lazo de control. El modelo seleccionado alimenta una política cuya utilidad final no se decide por la clasificación aislada, sino por su efecto conjunto sobre energía y tiempo.
 
-Optuna organiza esta búsqueda mediante ensayos sucesivos o \textit{trials},
-donde cada configuración se evalúa a partir de una función objetivo y los
-resultados obtenidos orientan las propuestas posteriores \cite{Akiba2019}.
-Entre los métodos disponibles se encuentra el \textit{Tree-structured Parzen
-Estimator}, que utiliza los ensayos ya observados para modelar regiones
-asociadas con mejores y peores resultados y concentrar parte de la exploración
-donde existe mayor expectativa de mejora. La finalidad no es recorrer de forma
-exhaustiva todas las combinaciones, sino asignar el presupuesto de evaluación
-de manera más informada.
-
-La optimización introduce, al mismo tiempo, un riesgo de adaptación a los
-datos usados para escoger la configuración. Cuando la misma información
-participa en la selección y en la estimación final del desempeño, la
-evaluación puede quedar favorecida por el propio proceso de búsqueda. La
-validación anidada separa ambas funciones mediante un nivel interno para
-ajustar hiperparámetros y otro externo para estimar generalización
-\cite{Cawley2010}. Si varias observaciones proceden de una misma familia
-algorítmica, esa relación también debe preservarse durante la partición para
-evitar que variantes estrechamente relacionadas aparezcan a ambos lados de la
-evaluación \cite{Roberts2017}.
-
-Esta separación estadística no corrige una fuga presente en las
-características. Una variable derivada de la etiqueta, o suficientemente
-cercana a la regla que la construye, puede ofrecer al modelo información que
-no estaría disponible en una predicción real \cite{Kaufman2012}. En una
-clasificación basada en Roofline, la distinción entre la fuente de verdad y la
-fuente de inferencia debe mantenerse desde el diseño del conjunto de datos.
-Optuna puede encontrar una configuración eficiente dentro del espacio
-propuesto, pero no puede convertir en válida una entrada que ya contiene la
-respuesta que el modelo intenta aprender.
-
-\subsection{Producto Energía--Retardo}
+\subsection{Producto Energía--Retardo (EDP)}
 \label{sec:marco-edp}
 
-La reducción de potencia no implica necesariamente una mejora energética si el
-tiempo de ejecución aumenta en una proporción suficiente para compensarla. Por
-esta razón, la evaluación de DVFS requiere observar ambas magnitudes de forma
-conjunta. El Producto Energía--Retardo, o EDP, expresa este compromiso mediante
-\cite{Laros2013}:
+Una política DVFS puede reducir la potencia y aun así empeorar la eficiencia si el tiempo de ejecución aumenta lo suficiente. El Producto Energía--Retardo, o EDP, combina ambas magnitudes y se define como:
 
 \begin{equation}
-EDP = E \cdot T
+    EDP = E \cdot T,
 \end{equation}
 
-$E$ representa la energía consumida y $T$ el tiempo de ejecución. Un valor
-menor indica un compromiso más favorable bajo este criterio, pero la
-formulación puede modificarse cuando se desea penalizar con mayor fuerza la
-degradación temporal:
+donde $E$ es la energía consumida y $T$ el tiempo de ejecución \cite{Laros2013}. Un valor menor indica que, bajo este criterio, la reducción de energía compensa la variación temporal. La formulación puede ponderar con mayor intensidad el tiempo mediante:
 
 \begin{equation}
-\mathrm{ED}^{n}\mathrm{P} = E \cdot T^{n}
-\label{eq:ednp}
+    \mathrm{ED}^{n}\mathrm{P} = E \cdot T^{n},
+    \label{eq:ednp}
 \end{equation}
 
-Con $n=1$ se recupera el EDP clásico y con $n=2$ se obtiene ED$^{2}$P, donde
-el tiempo adquiere mayor peso \cite{Laros2013,Ali2023}. La elección del
-exponente modifica la forma en que se ordenan las configuraciones y debe
-mantenerse explícita al comparar políticas. Para Hyperion, esta familia de
-métricas permite valorar si una reducción energética justifica el cambio de
-tiempo producido por la actuación DVFS, evitando interpretar potencia, energía
-o rendimiento de manera aislada.
+donde $n$ determina el peso asignado a la degradación temporal. Con $n=1$ se recupera el EDP y con $n=2$ se obtiene ED$^{2}$P \cite{Laros2013,Ali2023}. El exponente debe fijarse antes de comparar configuraciones, porque distintos valores pueden cambiar su orden relativo. El EDP tampoco sustituye el reporte separado de energía y tiempo. Dos configuraciones pueden producir valores próximos del producto mediante combinaciones diferentes de ambas magnitudes, de manera que el producto resume el compromiso pero no identifica por sí solo la causa del cambio. En este trabajo, el EDP proporciona el criterio conceptual para juzgar si una decisión de frecuencia produce un ahorro energético que justifique su costo temporal, en lugar de evaluar potencia o tiempo por separado.
+
+El marco adoptado impone tres límites a esa interpretación \label{sec:marco-sintesis}. La clase de régimen es binaria y se define respecto a un umbral Roofline calibrado, por lo que no representa una escala continua de dependencia de cómputo o memoria ni identifica por sí sola el nivel de frecuencia más conveniente. La observabilidad es asimétrica entre CPU y GPU, ya que la CPU expone contadores microarquitectónicos mediante la PMU y la GPU ofrece en línea señales agregadas que actúan como proxies del comportamiento; por ello, una misma etiqueta puede tener distinta evidencia observable en cada dispositivo. Finalmente, toda actuación de frecuencia tiene un costo temporal que restringe la granularidad útil del control. Una clasificación correcta puede no traducirse en mejor EDP si el cambio de frecuencia llega tarde, si la fase es demasiado corta o si el punto seleccionado prolonga la ejecución. El EDP evalúa el resultado de la política bajo esas condiciones, sin convertir la clasificación o la telemetría disponible en una medición directa del beneficio energético.
 
 \section{Estado del Arte}
 \label{sec:estado-del-arte}
 
-La gestión energética en sistemas de alto rendimiento ha pasado de aplicar
-reducciones de frecuencia de forma relativamente uniforme a considerar con
-mayor detalle el comportamiento de cada carga. Este cambio responde a una
-limitación conocida de DVFS. Reducir el punto operativo puede disminuir la
-potencia, pero el resultado energético depende de cuánto se prolongue la
-ejecución. Los trabajos más próximos a esta investigación pueden leerse, por
-tanto, como una evolución desde la caracterización de esa sensibilidad hasta
-mecanismos capaces de reconocer fases y actuar durante la ejecución.
+La gestión energética en HPC ha pasado de aplicar configuraciones uniformes a explotar diferencias entre cargas y regiones de ejecución. DVFS ofrece el mecanismo de actuación, pero el beneficio depende de cómo la carga responde al cambio de frecuencia y de cuánto aumenta el tiempo cuando se reduce el punto operativo. Los antecedentes relevantes para este trabajo se concentran en tres problemas relacionados, la caracterización de esa sensibilidad, la clasificación del régimen y la actuación dinámica durante la ejecución.
 
-Calore et al. \cite{Calore2017} analizaron el efecto de DVFS sobre una CPU
-Intel Haswell y una GPU NVIDIA K80 utilizando kernels y una aplicación HPC
-completa. Al modificar la frecuencia en regiones de ejecución observaron que
-una misma configuración no ofrece el mismo compromiso entre energía y tiempo
-para toda la aplicación. El trabajo establece una relación directa entre el
-comportamiento local de la carga y la conveniencia de cambiar el punto
-operativo, aunque la actuación depende de conocer previamente las regiones
-donde debe aplicarse. El problema queda entonces planteado de una forma que
-resulta relevante para Hyperion. Si las fases responden de manera distinta a
-DVFS, el control necesita reconocer esas diferencias sin depender de
-anotaciones específicas en cada aplicación.
+\subsection{Adaptación de la frecuencia según el comportamiento de la carga}
 
-Guerreiro et al. \cite{Guerreiro2019} abordaron esa necesidad desde la
-caracterización de aplicaciones GPGPU. Su propuesta recoge métricas en una
-configuración inicial y utiliza esa información para estimar cómo responderá
-la carga ante otros estados de frecuencia de cómputo y memoria. Con ello
-reducen la necesidad de recorrer exhaustivamente el espacio DVFS y muestran
-que la sensibilidad de una aplicación puede anticiparse a partir de señales
-del hardware. El enfoque, sin embargo, se concentra en caracterizar la
-respuesta de una carga y no en seguir de manera continua las transiciones
-entre fases \textit{compute-bound} y \textit{memory-bound}.
+Calore et al. \cite{Calore2017} analizaron DVFS sobre una CPU Intel Haswell y una GPU NVIDIA K80 mediante kernels y una aplicación HPC completa. Sus mediciones conjuntas de energía y tiempo mostraron que una única frecuencia no resulta igualmente conveniente para todas las regiones. La actuación a nivel de función permitió identificar oportunidades distintas según la región y la arquitectura, porque la reducción de reloj modifica de forma diferente el tiempo de secciones dominadas por cómputo y de aquellas cuya ejecución depende en mayor medida del movimiento de datos. El estudio no plantea un clasificador en línea, sino una adaptación apoyada en conocimiento de la estructura de la aplicación. Esa condición le permite actuar sobre regiones concretas, aunque exige conocer de antemano dónde se producen y en qué puntos se modificará la frecuencia. El aporte relevante para este trabajo es la evidencia de que la política de frecuencia debe responder al comportamiento de la carga y no únicamente a una configuración global mantenida durante toda la ejecución.
 
-Ali et al. \cite{Ali2023} avanzaron en una dirección similar mediante modelos
-de potencia y tiempo construidos a partir de métricas obtenidas en la
-configuración predeterminada de la GPU. A partir de esas estimaciones
-seleccionan frecuencias sin ejecutar cada alternativa y consideran de forma
-conjunta el ahorro energético y la degradación del desempeño. En las
-plataformas evaluadas reportaron reducciones promedio de energía de 29.6\% en
-NVIDIA GA100 y 22.6\% en GV100, con pérdidas de rendimiento de 5.2\% y 4.7\%,
-respectivamente. El resultado refuerza la idea de que una caracterización
-limitada puede ser suficiente para orientar la selección de frecuencia, aunque
-nuevamente la unidad de decisión es la carga caracterizada y no una sucesión
-de fases detectadas durante la ejecución.
+Guerreiro et al. \cite{Guerreiro2019} abordaron esa dependencia en GPGPU mediante métricas obtenidas en una configuración inicial. A partir de esa observación clasifican la sensibilidad de las aplicaciones frente a cambios en las frecuencias de cómputo y memoria, y utilizan la clase para anticipar su respuesta en otras configuraciones DVFS. El procedimiento evita ejecutar cada combinación posible y separa aplicaciones cuyo rendimiento responde principalmente al reloj de cómputo de aquellas más sensibles al dominio de memoria. Esta clasificación se aproxima al problema de inferir comportamiento a partir de telemetría, pero sus clases describen sensibilidad a los dominios de reloj y no una detección continua de fases \textit{compute-bound} y \textit{memory-bound}. El estudio se concentra además en GPU. La caracterización funciona como una etapa previa a la selección de configuración y supone que las métricas obtenidas inicialmente representan de forma suficiente el comportamiento posterior de la carga.
 
-La identificación automática del régimen aparece de manera más directa en
-MCBound, propuesto por Antici et al. \cite{Antici2024}. El trabajo formula la
-separación entre cargas \textit{memory-bound} y \textit{compute-bound} como un
-problema de clasificación a partir de datos de ejecuciones HPC. Sobre
-información del supercomputador Fugaku, los autores reportaron un $F_1$ macro
-de al menos 0.89, lo que muestra que el régimen puede inferirse mediante
-señales observables sin depender exclusivamente de una clasificación manual.
-MCBound se aproxima al problema predictivo de Hyperion, pero utiliza la clase
-para caracterizar trabajos y no como entrada directa de una política que
-modifique la frecuencia de CPU o GPU durante la ejecución.
+Ali et al. \cite{Ali2023} también parten de métricas recolectadas en la configuración predeterminada de la GPU y construyen modelos de potencia y tiempo para estimar el comportamiento en otros estados DVFS. La selección considera consumo y degradación del desempeño para evitar que una reducción de potencia sea tratada como mejora cuando el tiempo crece en exceso. El enfoque es portable entre las plataformas evaluadas en la medida en que vuelve a construir la relación entre métricas y respuesta DVFS, en lugar de fijar una única frecuencia para todas las aplicaciones. En NVIDIA GA100 reportan una reducción promedio de energía de 29.6\% con una pérdida de rendimiento de 5.2\%, mientras que en NVIDIA GV100 obtienen 22.6\% de reducción con una pérdida de 4.7\% \cite{Ali2023}. Guerreiro et al. y Ali et al. reducen el costo de exploración mediante una caracterización previa y modelos que proyectan la respuesta en configuraciones no ejecutadas. La limitación frente a una aplicación multifásica es temporal, porque la caracterización inicial debe seguir representando la región sobre la que se aplica la decisión.
 
-Simsek et al. \cite{Simsek2024} estudiaron precisamente la actuación por
-regiones en simulaciones astrofísicas ejecutadas sobre GPU. La instrumentación
-de SPH-EXA les permitió modificar la frecuencia en puntos determinados y
-reducir el consumo energético por GPU hasta en 7.82\%, con una degradación de
-rendimiento cercana a 2.95\%. El resultado confirma que adaptar la frecuencia
-dentro de una misma aplicación puede ser más conveniente que mantener un
-estado uniforme, aunque la política continúa ligada a regiones conocidas del
-código. La diferencia frente a una estrategia basada en telemetría es
-importante, porque en esta última la frontera entre comportamientos debe
-detectarse a partir de lo que el hardware expone durante la ejecución.
+\subsection{Clasificación de cargas \textit{compute-bound} y \textit{memory-bound}}
 
-DRLCAP, presentado por Wang et al. \cite{Wang2024}, lleva esta idea hacia un
-control \textit{online} basado en aprendizaje por refuerzo profundo. El marco
-detecta cambios de fase y ajusta límites de frecuencia de GPU durante la
-ejecución, con una reducción media de energía del 22\% y menos de 3\% de
-degradación del rendimiento en las arquitecturas estudiadas. Este antecedente
-demuestra que una política aprendida puede intervenir en tiempo real, pero
-adopta una solución más compleja y centrada en GPU. Hyperion parte de otra
-restricción. La inferencia debe mantenerse ligera y la política debe poder
-operar sobre un entorno heterogéneo donde CPU y GPU no comparten las mismas
-fuentes de telemetría ni los mismos mecanismos de actuación.
+Antici et al. \cite{Antici2024} formulan con MCBound la distinción entre cargas \textit{memory-bound} y \textit{compute-bound} como un problema de clasificación basado en datos de ejecuciones HPC. La propuesta extrae características del comportamiento de los trabajos y aprende a separar ambos regímenes sin exigir que el usuario conozca previamente la naturaleza de cada aplicación. Sobre datos del supercomputador Fugaku, el método alcanza una puntuación F1-macro de al menos 0.89 y mantiene un costo reducido para el funcionamiento del sistema \cite{Antici2024}. Este antecedente respalda la posibilidad de inferir automáticamente el régimen a partir de información observable, en lugar de asignarlo por conocimiento previo del nombre o del algoritmo. También muestra que la utilidad del clasificador debe evaluarse fuera de las observaciones utilizadas para ajustarlo, porque la pregunta relevante es si la separación se mantiene frente a trabajos que no participaron en el entrenamiento.
 
-La literatura revisada cubre, por separado, los componentes principales del
-problema. Calore et al. muestran que la respuesta a DVFS cambia entre regiones,
-Guerreiro et al. y Ali et al. relacionan telemetría con sensibilidad y
-selección de frecuencia, MCBound demuestra que el régimen puede inferirse
-mediante clasificación y los trabajos de Simsek et al. y Wang et al. muestran
-distintas formas de actuación durante la ejecución. La separación entre estas
-contribuciones deja espacio para estudiar una integración donde la clase
-inferida funcione como contexto de una política DVFS y donde el costo de
-observar, clasificar y actuar forme parte de la evaluación.
+El alcance de MCBound es la caracterización de trabajos. La clase obtenida no se conecta directamente con un mecanismo que gobierne estados DVFS de CPU o GPU a medida que cambian las fases de una aplicación. Tampoco convierte la distinción entre regímenes en una regla de frecuencia concreta. Por ello, resuelve el problema de identificación bajo su contexto experimental, mientras deja separada la decisión de cómo convertir esa clase en una actuación de frecuencia, qué granularidad temporal debe utilizarse y cuánto cuesta realizar la inferencia dentro de un lazo de control. Esa separación coincide con la división que este trabajo establece entre construir una etiqueta físicamente sustentada, inferirla con telemetría ligera y evaluar después la política energética que la utiliza.
 
-Esta integración también exige tratar CPU y GPU como dispositivos distintos y
-no como dos instancias del mismo problema. La mayoría de los trabajos recientes
-de predicción y control se concentra en GPU, mientras que Calore et al. ofrecen
-una de las referencias que consideran ambos tipos de dispositivo
-\cite{Calore2017}. En CPU, las PMU y los contadores \textit{uncore} permiten
-observar señales que no tienen un equivalente directo en NVML. En GPU, el
-perfilado detallado necesario para construir la referencia Roofline tiene un
-costo incompatible con la inferencia ligera y debe separarse de la telemetría
-utilizada durante el control. El aporte que se investiga en Hyperion se sitúa
-en esa diferencia de observabilidad, utilizando una referencia física común
-para definir el régimen, pero aceptando que las señales con las que se intenta
-inferirlo y los mecanismos de frecuencia disponibles son distintos en cada
-dispositivo.
+\subsection{Actuación dinámica de frecuencia durante la ejecución}
+
+Simsek et al. \cite{Simsek2024} instrumentaron SPH-EXA para observar regiones de una simulación astrofísica y modificar la frecuencia de la GPU en puntos definidos de la ejecución. Frente a una frecuencia uniforme, reportan una reducción del consumo energético por GPU de hasta 7.82\% con una degradación del rendimiento de aproximadamente 2.95\% \cite{Simsek2024}. El resultado muestra que actuar dentro de la ejecución puede aprovechar diferencias entre regiones y confirma que la frecuencia conveniente puede variar durante una misma aplicación. La decisión, sin embargo, queda ligada a la instrumentación del código y al conocimiento de las regiones sobre las que se debe intervenir. Una política de este tipo conoce el punto de cambio porque la aplicación fue preparada para exponerlo, mientras que un agente externo debe deducir el cambio a partir de señales observables.
+
+Wang et al. \cite{Wang2024} proponen DRLCAP, un esquema de \textit{frequency capping} de GPU en línea basado en aprendizaje por refuerzo profundo. El sistema monitoriza información de ejecución, detecta cambios de fase y ajusta el límite de frecuencia, con una reducción promedio de 22\% en la energía de GPU y menos de 3\% de degradación de rendimiento en las arquitecturas NVIDIA evaluadas \cite{Wang2024}. La propuesta integra observación y actuación dentro del mismo controlador y reduce la necesidad de definir manualmente una regla por región. A diferencia de una clasificación supervisada ligera seguida de una regla discreta, DRLCAP aprende la política mediante refuerzo profundo y se orienta exclusivamente a GPU. Su resultado aporta evidencia de que el control en línea puede producir ahorro, pero utiliza un mecanismo de decisión y un alcance de dispositivo distintos de los planteados en este trabajo. La diferencia impide trasladar directamente su arquitectura al problema CPU--GPU, aunque sirve como antecedente de un control que reacciona durante la ejecución.
+
+\subsection{Brecha identificada y posición del trabajo}
+
+Los antecedentes cubren por separado la adaptación de frecuencia según la sensibilidad de la carga, la clasificación del régimen y el control en línea. La integración de estas piezas sigue condicionada por el costo de observación, la latencia de decisión y las diferencias entre dispositivos. Los enfoques predictivos de GPU reducen el espacio de búsqueda a partir de una caracterización previa; MCBound aporta una clasificación explícita del régimen; los controladores dinámicos muestran que una decisión tomada dentro de la ejecución puede modificar el consumo. Ninguno de estos resultados implica por sí mismo que una única fuente de telemetría y una única política puedan trasladarse entre CPU y GPU. En CPU, los contadores PMU ofrecen señales microarquitectónicas de bajo nivel con alcances de núcleo y de \textit{uncore}; en GPU, la telemetría ligera disponible durante la ejecución es más agregada y las mediciones Roofline de mayor detalle requieren herramientas de perfilado. Los mecanismos de actuación tampoco comparten la misma granularidad ni el mismo costo de transición.
+
+El trabajo se sitúa en esa separación entre observación y actuación. La propuesta utiliza una etiqueta física común, \textit{compute-bound} o \textit{memory-bound}, pero admite que las señales con las que se intenta inferirla son distintas en CPU y GPU. El objetivo es integrar una clasificación de baja latencia con una política DVFS ejecutada desde espacio de usuario y evaluar su efecto mediante EDP frente a los mecanismos nativos de gestión de frecuencia. Esta posición no supone que una misma regla de telemetría sea transferible entre dispositivos ni que la clasificación garantice ahorro energético; ambas condiciones deben evaluarse sobre la plataforma y las cargas utilizadas.
