@@ -1,0 +1,15 @@
+{
+ "REF": {
+  "bw_pico_bytes_per_s": 58279000000.0,
+  "p_pico_flops_per_s": 506390000000.0,
+  "i_ridge_flops_per_byte": 8.689064671665609
+ },
+ "F8": {
+  "bw_pico_bytes_per_s": 44336800000.0,
+  "p_pico_flops_per_s": 129515999999.99998,
+  "i_ridge_flops_per_byte": 2.9211851103372366
+ },
+ "fuente": "roofline_calibration_REF.json / roofline_calibration_F8.json, campana pacca_cpu_final_20260913",
+ "n_total_ref": 94426,
+ "n_total_f8": 256531
+}

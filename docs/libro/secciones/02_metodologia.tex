@@ -40,7 +40,7 @@ Jerarquía de caché & L1d 48~KiB, L1i 32~KiB, L2 1.25~MiB por núcleo; L3 12~Mi
 Tamaño de línea de caché & 64 bytes \\
 Controlador de frecuencia & \texttt{intel\_pstate} \\
 Rango de frecuencia & 0.8--3.6~GHz \\
-Dominio de frecuencia & Por núcleo lógico \\
+Dominio de frecuencia & Por núcleo físico (compartido entre sus dos hilos \textit{SMT}; sección \ref{sec:resultados-cpu-dvfs}) \\
 Medición energética & Intel RAPL (dominios de paquete y DRAM por zócalo) \\
 Acelerador & NVIDIA A100 PCIe 40~GB \\
 Gestor de recursos & Slurm \\
@@ -323,9 +323,8 @@ DGEMM & NVIDIA cuBLAS & Referencia \textit{compute-bound} del acelerador. \\
 \midrule
 \multicolumn{3}{@{}l@{}}{\textit{Candidatos de ampliación del catálogo (sección \ref{sec:cribado})}} \\
 \addlinespace[2pt]
-EP & NAS Parallel Benchmarks \cite{Bailey1991} & Ancla \textit{compute-bound} pura en CPU. \\
-kmeans, SRAD, NW, particlefilter & Rodinia \cite{Che2009} & Patrones de acceso irregular en CPU: agrupamiento iterativo, difusión anisotrópica, programación dinámica en diagonal y filtro de partículas. \\
-kmeans, SRAD, NW, b\texttt{+}tree, CFD & Rodinia \cite{Che2009} & Los mismos patrones en el acelerador, más recorrido de árbol y volúmenes finitos; \texttt{kmeans}, \texttt{SRAD} y \texttt{NW} forman pares CPU/acelerador. \\
+kmeans, SRAD, particlefilter & Rodinia \cite{Che2009} & Patrones de acceso irregular en CPU: agrupamiento iterativo, difusión anisotrópica y filtro de partículas. \\
+kmeans, SRAD, b\texttt{+}tree, CFD & Rodinia \cite{Che2009} & Los mismos patrones en el acelerador, más recorrido de árbol y volúmenes finitos; \texttt{kmeans} y \texttt{SRAD} forman pares CPU/acelerador. \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -677,7 +676,9 @@ En GPU se aplicó el mismo principio de separación por familia, pero la unidad 
 
 Antes de congelar XGBoost como modelo del clasificador de CPU se comparó contra un conjunto de referencias con y sin capacidad de discriminación: una regla mayoritaria, un árbol de decisión de profundidad uno, una regresión logística con estandarización previa (con seis y con doce variables), Extra Trees y Random Forest. Todos los modelos se evaluaron bajo el mismo protocolo LOFO por familia, la misma métrica principal y los mismos pesos de la ecuación \eqref{eq:peso-familia-clase}, con hiperparámetros fijos y cinco semillas de muestreo independientes para estimar la variabilidad debida al submuestreo, además del intervalo de confianza por remuestreo de familias ya descrito. La latencia de inferencia de cada modelo se midió sobre el hardware de destino (paccaA100), una fila y un hilo a la vez, y no se estimó de forma teórica.
 
-Sobre el modelo de mejor compromiso entre exactitud y latencia se ejecutó, además, una búsqueda de hiperparámetros con el muestreador TPE de Optuna \cite{Akiba2019}, anidada dentro de cada uno de los 30 pliegues externos: con la familia retirada completamente apartada, se puntuaron las configuraciones candidatas mediante un LOFO interno sobre las 29 familias restantes, se ajustó la configuración de mejor puntaje interno y solo entonces se evaluó sobre la familia retirada. Esta anidación es la misma disciplina de la sección \ref{sec:metodologia-lofo-cpu}, aplicada aquí a la elección de hiperparámetros en lugar de al umbral de confianza: impide que la configuración elegida se ajuste, aunque sea indirectamente, a la familia sobre la que se reporta el resultado. Se evaluaron 15 configuraciones por pliegue para XGBoost y 8 para la regresión logística, muestreando profundidad máxima, número de árboles, tasa de aprendizaje y regularización dentro de rangos declarados antes de la búsqueda.
+La búsqueda de hiperparámetros con el muestreador TPE de Optuna \cite{Akiba2019} no se extendió a los seis tipos de candidato: se reservó, deliberadamente, para XGBoost (el ganador de la comparación con hiperparámetros fijos) y para la regresión logística, como contraste interpretable. Los otros dos modelos con hiperparámetros ajustables (Random Forest y Extra Trees) ya habían quedado por debajo de XGBoost en la comparación de la etapa anterior, y repetir sobre ellos una búsqueda anidada en 30 pliegues (la etapa más costosa de todo el proceso) no podía cambiar cuál modelo se despliega; la regla mayoritaria y el árbol de profundidad uno quedan excluidos de cualquier búsqueda de forma permanente y por diseño, no por costo: a la regla mayoritaria no le queda ningún hiperparámetro que optimizar, y el árbol de profundidad uno es, por definición, el punto de referencia de interpretabilidad mínima del plan --- ajustarle hiperparámetros lo convertiría en un modelo distinto del que se usa como línea base.
+
+Sobre XGBoost y la regresión logística, la búsqueda se anidó dentro de cada uno de los 30 pliegues externos: con la familia retirada completamente apartada, se puntuaron las configuraciones candidatas mediante un LOFO interno sobre las 29 familias restantes, se ajustó la configuración de mejor puntaje interno y solo entonces se evaluó sobre la familia retirada. Esta anidación es la misma disciplina de la sección \ref{sec:metodologia-lofo-cpu}, aplicada aquí a la elección de hiperparámetros en lugar de al umbral de confianza: impide que la configuración elegida se ajuste, aunque sea indirectamente, a la familia sobre la que se reporta el resultado. Se evaluaron 15 configuraciones por pliegue para XGBoost y 8 para la regresión logística, muestreando profundidad máxima, número de árboles, tasa de aprendizaje y regularización dentro de rangos declarados antes de la búsqueda.
 
 \subsection{Diagnóstico del límite del resultado}
 \label{sec:metodologia-limite-cpu}
