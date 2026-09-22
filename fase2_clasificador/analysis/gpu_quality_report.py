@@ -66,7 +66,7 @@ _RAJAPERF_CUDA_SPLIT = {
 
 
 def load(path: str, split_rajaperf_cuda: bool = False, catalog_path: str | None = None,
-         add_variability: bool = False) -> pd.DataFrame:
+         add_variability: bool = False, extra_features: list[str] | None = None) -> pd.DataFrame:
     frame = pd.read_csv(path, low_memory=False)
     leak = set(FEATURES) & FORBIDDEN
     assert not leak, leak
@@ -77,6 +77,10 @@ def load(path: str, split_rajaperf_cuda: bool = False, catalog_path: str | None 
         frame[FAMILY_COL] = override.fillna(frame[FAMILY_COL])
     if add_variability:
         for f in VARIABILITY_FEATURES:
+            if f not in FEATURES:
+                FEATURES.append(f)
+    if extra_features:
+        for f in extra_features:
             if f not in FEATURES:
                 FEATURES.append(f)
     if catalog_path is not None:
@@ -382,11 +386,13 @@ def main() -> None:
                      help="A5: si se da, agrega gpu_precision_fp64 (leido del catalogo por kernel_ref) como 5a feature")
     ap.add_argument("--add-variability", action="store_true",
                      help="A6: agrega _std/_n_distinct (variabilidad intra-corrida) ya presentes en el CSV, nunca usadas")
+    ap.add_argument("--extra-features", nargs="*", default=None,
+                     help="ablacion A6: agrega columnas especificas del CSV en vez del grupo completo de --add-variability")
     args = ap.parse_args()
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     frame = load(args.source, split_rajaperf_cuda=args.split_rajaperf_cuda, catalog_path=args.catalog_path,
-                 add_variability=args.add_variability)
+                 add_variability=args.add_variability, extra_features=args.extra_features)
     print(f"features: {FEATURES}", flush=True)
     families = sorted(frame[FAMILY_COL].unique())
     fam_codes = pd.Categorical(frame[FAMILY_COL], categories=families).codes
