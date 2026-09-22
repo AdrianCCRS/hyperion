@@ -388,7 +388,12 @@ def main() -> None:
                      help="A6: agrega _std/_n_distinct (variabilidad intra-corrida) ya presentes en el CSV, nunca usadas")
     ap.add_argument("--extra-features", nargs="*", default=None,
                      help="ablacion A6: agrega columnas especificas del CSV en vez del grupo completo de --add-variability")
+    ap.add_argument("--candidate", default=None,
+                     help="modelo candidato para threshold/cells (default: xgboost, el congelado por convencion)")
     args = ap.parse_args()
+    if args.candidate:
+        global CANDIDATE
+        CANDIDATE = args.candidate
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     frame = load(args.source, split_rajaperf_cuda=args.split_rajaperf_cuda, catalog_path=args.catalog_path,
