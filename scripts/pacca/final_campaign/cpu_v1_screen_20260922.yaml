@@ -30,7 +30,7 @@ kernels:
 - kernel_ref: cpu_rajaperf_basic_if_quad
 frequency_levels:
 - {id: REF, mode: native_governor}
-repetitions_per_combination: 2
+repetitions_per_combination: 3
 baseline_repetition_indices: [1]
 target_windows_per_repetition: 50
 interval_ns: 1000000
