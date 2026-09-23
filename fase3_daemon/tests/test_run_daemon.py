@@ -163,6 +163,61 @@ def test_arm_sombra_escribe_senal_gpu_active_en_cada_transicion(policy_table_pat
     assert writes == [True, False, True]
 
 
+def test_arm_sombra_nunca_instala_manejadores_de_emergencia(policy_table_path, monkeypatch):
+    # Bloque C, item C5 (SS0.1 punto 5): "en base y sombra no hay nada que
+    # restaurar, y eso tambien debe verificarse: que el daemon no dejo
+    # rastro". La forma mas directa de probarlo: en sombra, el daemon ni
+    # siquiera REGISTRA un manejador de restauracion -- no hay estado que
+    # limpiar porque nunca se toco hardware real.
+    import fase3_daemon.run_daemon as run_daemon_module
+
+    def fail_if_called(*_a, **_kw):
+        raise AssertionError("no debe llamarse en brazo sombra")
+
+    monkeypatch.setattr(run_daemon_module.environment_module, "detect_environment", fail_if_called)
+    monkeypatch.setattr(run_daemon_module.freqctl, "install_emergency_handlers", fail_if_called)
+
+    build_daemon_gpu_loop(
+        policy_table_path, gpu_index=None, min_dwell_ns=0, dry_run=True,
+        classify_fn=lambda _f: GpuPhaseLabel.COMPUTE_BOUND,
+        query_features_fn=_active_features, max_events=1, sleep_fn=lambda _s: None,
+        arm="sombra",
+    )
+
+
+def test_arm_activo_instala_manejador_que_restaura_gpu(policy_table_path, monkeypatch):
+    # Contraparte: en activo SI debe registrarse un manejador, y ese
+    # manejador debe llamar a gpu_freqctl.restore_gpu_state() cuando se
+    # invoque -- no basta con que exista, tiene que restaurar de verdad.
+    import fase3_daemon.run_daemon as run_daemon_module
+
+    fake_env = object()
+    monkeypatch.setattr(run_daemon_module.environment_module, "detect_environment", lambda: fake_env)
+    monkeypatch.setattr(
+        run_daemon_module.gpu_loop_module, "make_gpu_freqctl_setter", lambda *_a, **_kw: (lambda _mhz: True),
+    )
+    restore_calls = []
+    monkeypatch.setattr(
+        run_daemon_module.gpu_freqctl, "restore_gpu_state",
+        lambda env, gpu_index=None: restore_calls.append((env, gpu_index)) or True,
+    )
+    registered = {}
+    monkeypatch.setattr(
+        run_daemon_module.freqctl, "install_emergency_handlers", lambda fn: registered.update(restore_fn=fn),
+    )
+
+    build_daemon_gpu_loop(
+        policy_table_path, gpu_index="7", min_dwell_ns=0, dry_run=False,
+        classify_fn=lambda _f: GpuPhaseLabel.COMPUTE_BOUND,
+        query_features_fn=_active_features, max_events=1, sleep_fn=lambda _s: None,
+        arm="activo",
+    )
+
+    assert "restore_fn" in registered
+    assert registered["restore_fn"]() is True
+    assert restore_calls == [(fake_env, "7")]
+
+
 def test_pid_alive_proceso_propio_es_true():
     assert pid_alive(os.getpid()) is True
 

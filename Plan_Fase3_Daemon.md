@@ -435,7 +435,39 @@ distinta a los nodos donde normalmente se verifica `telemetry`).
   coincidencia exacta con la secuencia escrita por Python (incluido el
   estado inicial `False` por archivo ausente antes de la primera
   escritura), `exit_code=0`.
-- **C5.** Prueba de caos de restauración, en los tres brazos.
+- **C5. Cerrado (local, sin necesidad de pacca -- es software puro de
+  señales/subprocesos, no HW real).** Tres pruebas de caos reales
+  (`fase3_daemon/tests/test_daemon_restore_chaos.py`), mismo patrón ya
+  establecido en `common/tests/test_freqctl.py::test_frq05_sigint_heredada_como_ignorada_restaura_y_termina`
+  (proceso real y separado, señal real enviada de verdad), pero aplicado
+  al WIRING propio de `run_daemon.py::_install_restore_handlers` -- no
+  repite la cobertura ya existente de `gpu_freqctl.restore_gpu_state` en
+  sí (`common/tests/test_gpu_freqctl.py`, incluida la garantía de "nunca
+  lanza"):
+  - Brazo *activo*, SIGINT heredada como `SIG_IGN` (la misma herencia
+    adversa que motivó la regresión original de `freqctl`): el proceso
+    restaura y muere por la señal.
+  - Brazo *activo*, SIGTERM (lo que Slurm envía al cancelar un job, el
+    caso real de "nos quitan el nodo antes de tiempo"): restaura y muere.
+  - Brazo *sombra*, SIGTERM: el proceso muere sin dejar ningún rastro --
+    nunca se registró un manejador de restauración porque nunca se tocó
+    hardware real, confirmando §0.1 punto 5 ("en base y sombra no hay
+    nada que restaurar, y eso también debe verificarse").
+  Complementado con 2 tests locales de wiring (`test_run_daemon.py`):
+  `sombra` nunca llama a `detect_environment()`/`install_emergency_handlers`,
+  `activo` sí y el manejador registrado sí invoca `restore_gpu_state()`.
+  El brazo *base* no requiere prueba: es, literalmente, no correr el
+  script, no hay proceso que matar.
+
+  **Fuera de alcance de esta ronda, explícito:** una prueba de caos que
+  confirme la restauración del reloj de GPU FÍSICO tras una escritura real
+  (no un doble de prueba) depende de que H1 (candado de reloj averiado,
+  Bloque D) esté reparado -- hoy escribir un reloj de GPU real ya no es
+  fiable (`nvidia-smi -lgc/-rgc` sale con éxito pero el reloj queda
+  pegado), así que verificar su restauración con el mismo instrumento roto
+  no probaría nada. El wiring de software (qué se llama, cuándo, con qué
+  argumentos) es exactamente lo que sí se puede y se debe verificar ahora,
+  independiente de H1.
 - **C6.** Sobrecarga del daemon medida y registrada.
 - **C7. Cerrado.** Modo `--pid` ahora ata el ciclo de vida del loop de GPU
   al proceso objetivo: `activity_poller.poll_phase_events()` acepta
