@@ -18,7 +18,9 @@
 #SBATCH --error=/home/latorresn/hyperion-results/final/logs/cpu_freq_actuator_test_%j.err
 
 set -euo pipefail
-ROOT="$HOME/hyperion"
+# Arbol propio (no $HOME/hyperion): ese checkout lo usa la campana en curso y tiene
+# cambios locales; no se toca. Se sobreescribe con HYPERION_ROOT.
+ROOT="${HYPERION_ROOT:-$HOME/hyperion}"
 BUILD_DIR="$ROOT/fase3_daemon/cpu_loop/build_actuator"
 CMAKE="$HOME/.conda/envs/hyperion-cpu-onnx/bin/cmake"
 CTEST="$HOME/.conda/envs/hyperion-cpu-onnx/bin/ctest"
