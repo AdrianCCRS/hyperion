@@ -803,6 +803,43 @@ clasificación cuesta: F1 sobre una fase compute alarga ~11% su tiempo, y
 liberar el reloj en una fase memory pierde el ahorro. Esa relación costo/beneficio
 es justo lo que mide la Fase 4.
 
+**Daemon de GPU en C++ (`fase3_daemon/gpu_loop_cpp/`, jobs 7609-7614).** Decisión
+del usuario (2026-09-23): portar el loop de GPU a C++ como el de CPU, en un
+binario aparte (`gpu_loop_main`), con el random forest exportado a ONNX y el
+daemon en Python (`run_daemon.py`, `gpu_loop/`) retirado una vez verificado el
+C++ (aún NO retirado). Piezas: `gpu_activity_tracker.hpp` (puerto de
+`poll_phase_events`, con ventana sostenida), `gpu_window_classifier.hpp` (buffer y
+vector de variables; los nombres salen de `gpu_rf_sin_reloj.features.txt`),
+`onnx_gpu_classifier.hpp`, `gpu_clock_actuator.hpp` (`sudo -n nvidia-smi -lgc/-rgc`
+por fork/exec, ARC-112, `mhz=0` libera el candado), `nvml_sampler.hpp` (NVML
+directo), `gpu_active_writer.hpp` (señal atómica para el loop de CPU),
+`launch_gpu_daemon.py` (política -> flags, `exec`) y `export_onnx.py`.
+- ONNX verificado fila a fila contra el `.joblib` (483 filas, max_diff 9.3e-8,
+  0 discrepancias con la regla P>0.5); 4 pruebas C++ + 4 de Python en verde.
+- **Costo de CPU con la GPU ociosa (30 s, sombra):** Python 30.6% de un núcleo
+  (9.2 s de CPU: `nvidia-smi` como subproceso por sondeo + intérprete);
+  C++ 0.1% con sondeo de 50 ms y 0.5% con 5 ms. El C6 solo había medido
+  clasificar y actuar (sub-ms), no el sondeo continuo: subestimaba la
+  sobrecarga del loop de GPU.
+- **Caos con el candado puesto:** SIGTERM y SIGINT -> código de salida 0,
+  `-rgc` ejecutado, `clocks.sm` vuelve a 1410 bajo carga.
+- **Clasificación sobre la compuesta real (dgemm + triad x3):** con sondeo de
+  50 ms, 2/5 en sombra y 4/6 en activo; con sondeo de 5 ms (la cadencia con que
+  se entrenó), 0/5 y 1/5 (todo `compute_bound`, conf 0.67). Es un resultado
+  MALO y sensible a la cadencia. Causa probable: `gpu_mem_util_pct_std`, la
+  variable de mayor peso, se entrenó como desviación de CORRIDAS completas
+  (incluye arranques e inactividad) y en una ventana de régimen estable, con
+  muestreo rápido, vale casi 0; además `mem_util` mediana es ~1% en ambas clases.
+  El modelo histórico por corrida no es una buena base para decidir en línea por
+  fase; el arreglo natural es entrenar con variables por ventana (dataset por
+  ventana), pendiente de la decisión del usuario sobre cuándo. Hasta entonces la
+  cadencia por defecto queda en 50 ms y la exactitud en línea NO debe darse por buena.
+- Atribución de decisiones a su fase: se registra `phase_active_for_s`; la
+  decisión llega `min_active_s` después del inicio de la actividad y puede caer
+  ya fuera de la fase real (dgemm dura ~3.2 s). RAJAPerf además produce
+  intervalos de actividad extra al final del proceso, que el puntaje atribuye al
+  triad.
+
 ---
 
 ## 2. Criterios de cierre
