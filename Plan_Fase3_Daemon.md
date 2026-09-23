@@ -592,6 +592,35 @@ launch_cpu_daemon.py` traduce la tabla a los flags de `cpu_loop_main` y hace
 `exec` (las señales llegan directo al proceso C++ que restaura); exige nivel
 base si memory actúa.
 
+**Hallazgos del preflight real (job 7592, 2026-09-23, paccaA100).**
+- El actuador C++ escribe y restaura de verdad: la sonda (turbo apagado,
+  100 x F0<->F1 con carga en 0-5) terminó con el estado IDÉNTICO al inicial.
+  El estado tras la cancelación del job 7590 estaba limpio (0-5 y 16-21 en
+  800000/3200000, turbo activo).
+- **Latencia de conmutación: set_khz p50 27.7 ms (p95 28.2 ms)** para 12 CPU
+  lógicos (6 + hermanos), enter(turbo off) 19 ms, restore(turbo on) 48 ms,
+  asentamiento de `scaling_cur_freq` a ±5% p50 37.7 ms (200/200 < 500 ms).
+  Es ~28 veces el tick de 1 ms: el controlador actual (sin piso de
+  permanencia) NO es viable tal cual, porque una clase que oscila entre ticks
+  dispara una escritura de ~28 ms en cada cambio. Hace falta permanencia
+  mínima/histéresis (p.ej. N ventanas consecutivas de la misma clase) y/o
+  reducir el costo por escritura.
+- **Bug encontrado: `run_consumer_loop` no atiende `stop` bajo backlog.**
+  `stop` se consulta solo fuera del bucle interno `while (try_pop())`; si el
+  consumidor va más lento que el productor (aquí, por las escrituras de
+  28 ms), el ring nunca se vacía y SIGTERM/SIGINT no detienen el proceso.
+  Consecuencia: la restauración por señal no corre. Corregir consultando
+  `stop` dentro del drenaje. La prueba de caos por señal (SIGTERM/SIGINT) NO
+  se completó y sigue pendiente.
+- Contexto de la prueba: `cpu_loop_main` se monitoreó a sí mismo
+  (`--target-pid` 0) y su clase osciló entre memory y compute casi cada tick,
+  lo que agravó lo anterior; con un target real habrá que repetirla.
+- Incidente: la intervención manual (kill -9 + reescritura de turbo) se solapó
+  con la segunda ronda y la invalidó; el job terminó FAILED y el nodo se
+  verificó/reparó con `hyp_node_state_check.sbatch` (jobs 7593/7594). La v1 de
+  ese script asumió max=3200000 en TODOS los CPU y bajó el max de los no
+  delegados (nativo 3600000); la v2 (job 7594) lo devolvió a cpuinfo_max.
+
 **Qué construir**
 1. Actuador C++ (port de `freqctl.py`, con prueba de paridad) + control de
    turbo con relectura.
