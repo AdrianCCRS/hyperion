@@ -69,7 +69,7 @@ from types import SimpleNamespace
 from common.hpc import environment as environment_module
 from common.hpc import gpu_freqctl
 
-env = environment_module.detect_environment()
+env = environment_module.detect_environment("0-3")  # cpus-per-task=4 de este job
 print(f"gpu_frequency_write_capable={env.gpu_frequency_write_capable} "
       f"gpu_available_clocks_mhz={env.gpu_available_clocks_mhz}")
 available = env.gpu_available_clocks_mhz
