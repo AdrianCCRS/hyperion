@@ -413,7 +413,7 @@ distinta a los nodos donde normalmente se verifica `telemetry`).
   es intrínsecamente de punta a punta y se verifica en el cluster, no con
   relojes falsos (decisión de alcance explícita, evita un test frágil sin
   garantía real adicional).
-- **C4. En verificación en paccaA100.** Mecanismo elegido: archivo de un
+- **C4. Cerrado (job 7575, paccaA100).** Mecanismo elegido: archivo de un
   byte, reemplazado atómicamente (`os.replace`/POSIX `rename()`) por el
   loop de GPU en cada transición de fase (`fase3_daemon/gpu_loop/coordination.py::GpuActiveSignalWriter`,
   enganchado a `on_decision`/`on_end` de `build_daemon_gpu_loop` vía
@@ -430,7 +430,11 @@ distinta a los nodos donde normalmente se verifica `telemetry`).
   lanza `gpu_active_signal_probe`, un binario C++ real sin PMU/ONNX, como
   subproceso mientras Python escribe una secuencia programada con esperas
   reales) -- confirma que la señal funciona entre procesos reales, no
-  solo que cada lado pasa sus propios tests en aislamiento.
+  solo que cada lado pasa sus propios tests en aislamiento. Corrida real:
+  el proceso C++ observó exactamente `[False, True, False, True, False]`,
+  coincidencia exacta con la secuencia escrita por Python (incluido el
+  estado inicial `False` por archivo ausente antes de la primera
+  escritura), `exit_code=0`.
 - **C5.** Prueba de caos de restauración, en los tres brazos.
 - **C6.** Sobrecarga del daemon medida y registrada.
 - **C7. Cerrado.** Modo `--pid` ahora ata el ciclo de vida del loop de GPU
