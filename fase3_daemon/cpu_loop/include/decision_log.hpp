@@ -33,7 +33,7 @@ struct DecisionRecord {
     std::optional<std::string> label;  // nullopt si no se llegó a clasificar
     std::optional<float> confidence;
     std::vector<DecisionRecordField> features;
-    std::string policy_action = "n/a";  // "actuar" | "no_actuar" | "n/a"
+    std::string policy_action = "n/a";  // "actuar" | "no_actuar" | "revisar" (GPU, abstencion) | "n/a"
     unsigned int target_freq_khz = 0;
     unsigned int applied_freq_khz = 0;
     bool written = false;

@@ -32,6 +32,7 @@
 #include "gpu_active_writer.hpp"
 #include "gpu_activity_tracker.hpp"
 #include "gpu_clock_actuator.hpp"
+#include "gpu_decision.hpp"
 #include "gpu_window_classifier.hpp"
 #include "nvml_sampler.hpp"
 #include "onnx_gpu_classifier.hpp"
@@ -54,6 +55,7 @@ struct Args {
     double activity_threshold_pct = 5.0;
     size_t window = 200;
     double settle_s = 1.5;
+    double threshold = 0.90;         // abstencion: confianza minima para actuar; 0.5 = sin abstencion. 0.90 = umbral del RF sin reloj (job 7620)
     unsigned int compute_clock_mhz = 0;
     unsigned int memory_clock_mhz = 0;
     std::string log_path;
@@ -64,10 +66,11 @@ struct Args {
     std::fprintf(stderr,
         "uso: %s --arm {sombra|activo} --model M.onnx --features F.txt --min-dwell-ns N\n"
         "  [--gpu-index 0] [--target-pid PID] [--min-active-s 3] [--poll-interval-ms 50]\n"
-        "  [--activity-threshold-pct 5] [--window 200] [--settle-s 1.5]\n"
+        "  [--activity-threshold-pct 5] [--window 200] [--settle-s 1.5] [--threshold 0.90]\n"
         "  [--compute-clock-mhz M] [--memory-clock-mhz M] [--log-path RUTA] [--gpu-active-signal-path RUTA]\n"
         "--min-dwell-ns no tiene default: debe salir de T_transicion_gpu MEDIDO (10 x p50). Las clases con\n"
-        "reloj 0 no actuan (se libera el candado). 'sombra' nunca escribe el reloj.\n", prog);
+        "reloj 0 no actuan (se libera el candado). 'sombra' nunca escribe el reloj. --threshold: si la confianza\n"
+        "max(P,1-P) es menor, la fase queda en 'revisar' y NO actua (libera el reloj a nativo, como el brazo base).\n", prog);
     std::exit(2);
 }
 
@@ -90,6 +93,7 @@ Args parse_args(int argc, char** argv) {
         else if (arg == "--activity-threshold-pct") a.activity_threshold_pct = std::stod(need("--activity-threshold-pct"));
         else if (arg == "--window") a.window = std::stoul(need("--window"));
         else if (arg == "--settle-s") a.settle_s = std::stod(need("--settle-s"));
+        else if (arg == "--threshold") a.threshold = std::stod(need("--threshold"));
         else if (arg == "--compute-clock-mhz") a.compute_clock_mhz = std::stoul(need("--compute-clock-mhz"));
         else if (arg == "--memory-clock-mhz") a.memory_clock_mhz = std::stoul(need("--memory-clock-mhz"));
         else if (arg == "--log-path") a.log_path = need("--log-path");
@@ -103,6 +107,13 @@ Args parse_args(int argc, char** argv) {
     }
     if (a.model_path.empty() || a.features_path.empty()) { std::fprintf(stderr, "--model y --features son obligatorios\n"); usage_and_exit(argv[0]); }
     if (a.min_dwell_ns < 0) { std::fprintf(stderr, "--min-dwell-ns es obligatorio\n"); usage_and_exit(argv[0]); }
+    if (a.threshold < 0.5 || a.threshold > 1.0) { std::fprintf(stderr, "--threshold debe estar en [0.5, 1.0]\n"); usage_and_exit(argv[0]); }
+    // "Revisar" libera el reloj pasando por el controlador como clase compute_bound: solo es correcto si esa clase
+    // NO actua (reloj 0). Con otra politica, un revisar fijaria el reloj de compute: se rechaza en vez de hacerlo.
+    if (a.threshold > 0.5 && a.compute_clock_mhz != 0) {
+        std::fprintf(stderr, "--threshold > 0.5 exige --compute-clock-mhz 0 (revisar libera el reloj como la clase compute)\n");
+        usage_and_exit(argv[0]);
+    }
     return a;
 }
 
@@ -164,9 +175,9 @@ int main(int argc, char** argv) {
     if (!args.gpu_active_signal_path.empty()) active_signal.emplace(args.gpu_active_signal_path);
 
     GpuActivityTracker tracker({args.activity_threshold_pct, static_cast<int64_t>(args.min_active_s * 1e9)});
-    std::printf("gpu_loop_main: brazo=%s variables=%zu min_active=%.1fs min_dwell=%lldns memoria=%uMHz compute=%uMHz\n",
+    std::printf("gpu_loop_main: brazo=%s variables=%zu min_active=%.1fs min_dwell=%lldns memoria=%uMHz compute=%uMHz umbral=%.2f\n",
                 args.arm.c_str(), names.size(), args.min_active_s, args.min_dwell_ns,
-                args.memory_clock_mhz, args.compute_clock_mhz);
+                args.memory_clock_mhz, args.compute_clock_mhz, args.threshold);
 
     uint64_t n_decisions = 0, n_phases = 0, n_read_failures = 0;
     const auto poll = std::chrono::milliseconds(args.poll_interval_ms);
@@ -187,7 +198,11 @@ int main(int argc, char** argv) {
                 const int64_t t0 = now_ns();
                 const float p_memory = classifier.predict_memory_bound_proba(features);
                 const int64_t t1 = now_ns();
-                const auto label = p_memory > 0.5f ? telemetry::GpuPhaseLabel::MemoryBound : telemetry::GpuPhaseLabel::ComputeBound;
+                const GpuDecision verdict = decide(p_memory, static_cast<float>(args.threshold));
+                // revisar -> mismo camino que compute_bound (reloj 0 = liberar a nativo), ver gpu_decision.hpp
+                const auto label = verdict == GpuDecision::kMemoryBound ? telemetry::GpuPhaseLabel::MemoryBound : telemetry::GpuPhaseLabel::ComputeBound;
+                const char* label_name = verdict == GpuDecision::kRevisar ? "revisar"
+                                       : verdict == GpuDecision::kMemoryBound ? "memory_bound" : "compute_bound";
                 const telemetry::GpuPhaseDecision d = controller.on_phase_begin(label, static_cast<telemetry::ns_t>(now));
                 const int64_t t2 = now_ns();
                 ++n_decisions;
@@ -196,13 +211,13 @@ int main(int argc, char** argv) {
                     rec.ts_ns = now;
                     rec.arm = args.arm;
                     rec.device = "gpu";
-                    rec.label = label == telemetry::GpuPhaseLabel::MemoryBound ? "memory_bound" : "compute_bound";
-                    rec.confidence = std::max(p_memory, 1.0f - p_memory);
+                    rec.label = label_name;
+                    rec.confidence = confidence_of(p_memory);
                     for (size_t i = 0; i < names.size(); ++i) rec.features.push_back({names[i], features[i]});
                     // Segundos de actividad sostenida al decidir: permite atribuir la decision a SU fase (la decision
                     // llega `min_active_s` despues del inicio de la actividad y puede caer ya fuera de la fase real).
                     rec.features.push_back({"phase_active_for_s", (now - tracker.active_since_ns()) / 1e9});
-                    rec.policy_action = d.target_clock_mhz ? "actuar" : "no_actuar";
+                    rec.policy_action = verdict == GpuDecision::kRevisar ? "revisar" : (d.target_clock_mhz ? "actuar" : "no_actuar");
                     rec.target_freq_khz = d.target_clock_mhz * 1000u;
                     rec.applied_freq_khz = d.applied_clock_mhz * 1000u;
                     rec.written = d.clock_changed && !d.clock_setter_failed && actuator.has_value();
@@ -212,7 +227,7 @@ int main(int argc, char** argv) {
                     decision_log->write(rec);
                 }
                 std::printf("fase GPU: clase=%s p_memory=%.3f objetivo=%uMHz aplicado=%uMHz cambio=%d dwell_restante_ns=%lld\n",
-                            label == telemetry::GpuPhaseLabel::MemoryBound ? "memory_bound" : "compute_bound", p_memory,
+                            label_name, p_memory,
                             d.target_clock_mhz, d.applied_clock_mhz, (int)d.clock_changed, (long long)d.dwell_remaining_ns);
                 std::fflush(stdout);
             }

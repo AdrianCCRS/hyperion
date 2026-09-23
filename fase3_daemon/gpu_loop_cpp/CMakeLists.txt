@@ -24,7 +24,7 @@ target_include_directories(gpu_loop_cpp INTERFACE
 target_link_libraries(gpu_loop_cpp INTERFACE Threads::Threads)
 
 enable_testing()
-foreach(t gpu_activity_tracker gpu_window_classifier gpu_active_writer gpu_clock_actuator)
+foreach(t gpu_activity_tracker gpu_window_classifier gpu_active_writer gpu_clock_actuator gpu_decision)
   add_executable(${t}_test tests/test_${t}.cpp)
   target_include_directories(${t}_test PRIVATE tests)
   target_link_libraries(${t}_test PRIVATE gpu_loop_cpp)
