@@ -32,7 +32,7 @@ def main() -> None:
     model = joblib.load(a.model)
     df = pd.read_csv(a.source, low_memory=False).dropna(subset=features)
     label_col = "phase_label_train" if "phase_label_train" in df else [c for c in df.columns if "label" in c][0]
-    fam_col = "kernel_family" if "kernel_family" in df else [c for c in df.columns if "family" in c][0]
+    fam_col = "kernel_family" if "kernel_family" in df else "kernel_ref"  # source30.csv no trae familia: se agrupa por kernel
     y = df[label_col].eq("memory_bound").to_numpy()
     fam = df[fam_col].to_numpy()
     X = df[features].to_numpy(dtype=np.float32)
@@ -55,7 +55,7 @@ def main() -> None:
             "flip_si_clase_real_memory": round(float(flipped[y].mean()), 4),
             "compute_a_memory": int((flipped & ~base_pred).sum()), "memory_a_compute": int((flipped & base_pred).sum()),
             "cambio_medio_absoluto_de_proba": round(float(np.abs(p - base).mean()), 4),
-            "familia_mas_sensible": {per_fam.index[0]: round(float(per_fam.iloc[0]), 4)},
+            "kernel_mas_sensible": {per_fam.index[0]: round(float(per_fam.iloc[0]), 4)},
         }
         report["contrafactual"][label] = entry
         print(label, json.dumps(entry, ensure_ascii=False))
