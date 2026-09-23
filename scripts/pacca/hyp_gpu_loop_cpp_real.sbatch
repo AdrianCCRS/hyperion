@@ -58,11 +58,11 @@ launch sombra --target-pid $SP > "$WORK/idle_cpp.out" 2>&1 & CP=$!
 sleep 2; t0=$(ticks $CP); sleep 30; t1=$(ticks $CP); kill $CP 2>/dev/null; wait $CP 2>/dev/null; kill $SP 2>/dev/null
 echo "C++ (gpu_loop_main, NVML directo): $(( t1 - t0 )) ticks = $(awk -v a=$((t1-t0)) 'BEGIN{printf "%.2f", a/100}') s de CPU en 30 s = $(awk -v a=$((t1-t0)) 'BEGIN{printf "%.1f", a/30}')% de un nucleo"
 
-echo; echo "=== 2. caos con el candado puesto (carga sintetica con huecos: fases de 20 s) ==="
+echo; echo "=== 2. caos con el candado puesto (fases sinteticas de 20 s; --threshold 0.5 = sin abstencion, para forzar el candado: se prueba la restauracion, no la clasificacion) ==="
 chaos_round() {  # $1 = TERM|INT
   local sig=$1
   "$T" alternate 20 400 2 > "$WORK/phases_chaos_$sig.txt" 2>&1 & TGT=$!
-  launch activo --target-pid $TGT --log-path "$WORK/chaos_$sig.jsonl" > "$WORK/chaos_$sig.out" 2>&1 & DP=$!
+  launch activo --threshold 0.5 --target-pid $TGT --log-path "$WORK/chaos_$sig.jsonl" > "$WORK/chaos_$sig.out" 2>&1 & DP=$!
   local locked=""
   for i in $(seq 1 40); do
     sleep 1; c=$(clk)
@@ -99,18 +99,21 @@ import json, sys
 phases = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
 try: dec = [json.loads(l) for l in open(sys.argv[2]) if l.strip()]
 except FileNotFoundError: dec = []
-ok = n = 0
+ok = wrong = abst = 0
 for r in dec:
-    # se atribuye a la fase en que EMPEZO la actividad (ts - segundos activos), no a la que contiene el instante de decidir
     t_start = r["ts_ns"] - int(r["features"].get("phase_active_for_s", 0) * 1e9)
     ph = next((p for p in phases if p["begin_ns"] - 1_000_000_000 <= t_start <= p["end_ns"]), None)
     hint = ph["phase_label_hint"] if ph else None
-    good = hint in ("compute_bound", "memory_bound") and hint == r["label"]
-    if hint in ("compute_bound", "memory_bound"): n += 1; ok += good
-    print(f"  {(ph['kernel_id'] if ph else '(entre fases)'):30s} verdad={hint} clase={r['label']} conf={r['confidence']:.2f} {'OK' if good else 'ERROR'} "
+    if r["label"] == "revisar":
+        verdict = "ABSTUVO"; abst += 1
+    elif hint in ("compute_bound", "memory_bound") and hint == r["label"]:
+        verdict = "OK"; ok += 1
+    else:
+        verdict = "ERROR"; wrong += 1
+    print(f"  {(ph['kernel_id'] if ph else '(entre fases)'):30s} verdad={hint} clase={r['label']} conf={r['confidence']:.2f} {verdict} "
           f"objetivo_khz={r['target_freq_khz']} escrito={r['written']} actuacion_ms={(r.get('actuation_time_ns') or 0)/1e6:.0f} "
-          f"inferencia_us={(r.get('inference_time_ns') or 0)/1e3:.0f} actividad_empezo_s_tras_inicio_del_proceso={(t_start-ph['begin_ns'])/1e9 if ph else float('nan'):.1f}")
-print(f"brazo {sys.argv[3]}: clasificacion {ok}/{n} ({len(phases)} fases, {len(dec)} decisiones)")
+          f"actividad_empezo_s_tras_inicio_del_proceso={(t_start-ph['begin_ns'])/1e9 if ph else float('nan'):.1f}")
+print(f"brazo {sys.argv[3]}: {ok} correctas, {wrong} erroneas, {abst} abstenciones ({len(phases)} fases, {len(dec)} decisiones)")
 PY
   sudo -n nvidia-smi -i $GPU -rgc >/dev/null 2>&1
   echo "reloj tras el brazo: $(clk) MHz"
