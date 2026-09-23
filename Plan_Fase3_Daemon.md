@@ -697,10 +697,62 @@ de fase conocidas.
 total) la ganancia esperada en CPU es pequeña; un resultado plano o negativo
 es un hallazgo válido.
 
-### Bloque D — Bloqueado por H1
+### Bloque D — Brazo activo de GPU (H1 RESUELTO, en verificación)
 
-Brazo *activo* de GPU. No se arranca hasta que el candado de reloj esté
-reparado. Todo lo demás corre en *sombra* mientras tanto.
+**H1 resuelto (jobs 7599/7600, paccaA100, 2026-09-23).** Prueba directa con
+carga real (`gpu_phase_target`): con `-lgc c,c` el `clocks.sm` observado
+coincide con el pedido en los 6 relojes probados (1410, 1260, 1110, 810, 510,
+210), y el efecto es real y con la forma esperada:
+
+| Reloj MHz | compute (GFLOP/s, relativo a 1410) | memory (GB/s, relativo a 1410) |
+|---|---|---|
+| 1410 | 1.00 | 1.00 |
+| 1260 | 0.89 | 1.01 |
+| 1110 | 0.79 | 1.01 |
+| 810 | 0.58 | 1.01 |
+| 510 | 0.37 | 0.98 |
+| 210 | 0.15 | 0.72 |
+
+El rendimiento compute escala con el reloj (0.89/0.79/0.57/0.36/0.15 ≈ reloj/1410);
+el de memoria no cae hasta 510 MHz. Es la premisa física de la política
+(bajar el reloj en `memory_bound` no cuesta tiempo) medida sobre el mismo
+instrumento.
+
+**T_transición_gpu (primera medición del proyecto):** el comando `-lgc` cuesta
+~50 ms y el reloj observado llega al objetivo ~70-80 ms después del comando.
+`apply_gpu_frequency` completo cuesta ~1.59 s por cambio porque incluye la
+espera de asentamiento de NVML (`_UTILIZATION_SETTLE_SECONDS` = 1.5 s); con
+`--gpu-settle-s 0.3` baja a ~0.38 s. `--min-dwell-ns` del preflight = 10 x p50
+(settle 0.3) = 3.8 s.
+
+**Bugs hallados y corregidos (nunca ejercitados antes porque el brazo activo
+solo se había probado con dobles):**
+1. `run_daemon.py` llamaba `detect_environment()` sin el `delegated_cpus`
+   obligatorio: `TypeError` al arrancar `--arm activo`. La prueba lo
+   enmascaraba con un `lambda: fake_env`. Nuevo `--delegated-cpus`.
+2. `make_gpu_freqctl_setter(0)` caía en la rama `fixed` con fracción 0.0 y
+   **fijaba el reloj MÍNIMO (210 MHz)** en cada decisión `no_actuar`
+   (compute_bound, primera decisión). Con esa carga compute habría corrido
+   ~6.6 veces más lento. Ahora `mhz <= 0` aplica `native_governor` (`-rgc`),
+   que además deshace un candado de una fase anterior.
+
+**Caos con el candado puesto (job 7600):** SIGTERM con el candado estable y
+SIGINT justo al fijarse (a mitad de actuación): el daemon atiende la señal y
+`clocks.sm` vuelve a 1410 bajo carga en ambos casos.
+
+**Hallazgo abierto: el clasificador GPU usa el reloj como variable.** En el
+ciclo M -> C -> M (ronda C) el reloj quedó en 1260 durante la fase compute:
+el daemon la clasificó `memory_bound` (2/3 decisiones correctas; la 1.ª, con
+el reloj nativo, acertó). `HistoricalGpuClassifier` incluye
+`gpu_sm_clock_mhz_median` entre sus variables, y esa variable la cambia la
+propia actuación: una vez fijado F1, la clase vista depende del reloj que el
+daemon puso (retroalimentación). Con 3 decisiones no es concluyente, pero la
+causa es estructural. Opciones: excluir el reloj (y quizá la potencia) de las
+variables del clasificador de GPU, o clasificar con las que no dependen de la
+frecuencia. Pendiente de decisión antes del brazo activo de GPU en Fase 4.
+La rejilla de la política (F1 = 1260 MHz, pasos de 150 MHz) coincide con la de
+la campaña, pero la Tabla de frecuencias del libro lista otra rejilla de
+GPU (1410, 1350, 1290, ...); revisar cuál es la vigente.
 
 ---
 
