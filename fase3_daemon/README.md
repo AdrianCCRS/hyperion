@@ -15,13 +15,14 @@ ejecución inferida. Ver `Plan_Detallado_Realineacion_Hyperion.md` §4.
 | `gpu_loop/activity_poller.py` (fuente de eventos de fase, Opción C) | ✅ Construido y probado (6/6 tests) | Sondeo de `gpu_util_pct` vía NVML -- ver el hallazgo que motivó esta elección más abajo |
 | `gpu_loop/loop.py` (incluye `query_gpu_features`) | ✅ Construido y probado (10/10 tests) | `classify_fn` inyectable -- `run_daemon.py` ya cablea `gpu_loop/classifier.py::HistoricalGpuClassifier` real |
 | `gpu_loop/classifier.py` (`HistoricalGpuClassifier`) | ✅ Construido y probado (10/10 tests, incluido contra el `.joblib` real) | Carga el candidato de Fase 2 (`fase2_clasificador/models/gpu_regresion_log_historical_20260922.joblib`) y aproxima con un buffer móvil la mediana/std con que se entrenó -- ver limitaciones abajo |
-| `run_daemon.py` | ✅ Construido y probado en `--dry-run` (2/2 tests de integración) | Arranca el loop de GPU completo; el loop de CPU no está integrado |
+| `run_daemon.py` | ✅ Construido y probado (6/6 tests de integración, incluido `--arm`/registro estructurado, Bloque C) | Arranca el loop de GPU completo; el loop de CPU no está integrado en este script |
 | `cpu_loop/include/cpu_phase_controller.hpp` | ✅ Compilado y probado con CTest (1/1) | Máquina de decisión pura, sin dependencias de ONNX/collector.hpp |
 | `cpu_loop/include/cpu_feature_builder.hpp` | ✅ Compilado y probado (1/1) | Deltas de `CpuSample` -> 6 variables, mismas fórmulas que `postprocess.py` |
 | `cpu_loop/include/onnx_cpu_classifier.hpp` + `cpu_loop_tick.hpp` | ✅ Compilados y probados EN paccaA100 vía sbatch (2/2, incluido contra `.joblib` real) | Inferencia ONNX C++ + ecuación de decisión selectiva; latencia real en paccaA100 (job 7562): p50=16.4µs, p99=19.3µs contra presupuesto ~1000µs |
 | `common/telemetry` con `-DWITH_GPU=ON` real | ✅ Recompilado y probado contra NVML/GPU reales (13/13 CTest, incluido `collector_gpu_cadence_test`) | Verificado con un entorno conda con CUDA real (`environment-hyperion-verify.yml`) |
 | `common/hpc/native/blocking_sync_shim.cpp` (mecanismo ARC-70, sin cambios) | ✅ Compila, enlaza y funciona contra `libcudart` real | Sigue siendo válido para forzar blocking-sync en campañas de Fase 1 -- ver más abajo por qué Fase 3 ya no depende de él |
 | Loop de CPU real en vivo (`cpu_loop_consumer.hpp` + `cpu_loop_main.cpp`) | ✅ Construido y probado EN paccaA100 vía sbatch (job 7565) | Smoke test de 10s contra PMU real: 9886/9933 ticks (99.5%) con features válidas y clasificación correcta (9139 actuando, 747 abstenidos). Sin escritor de frecuencia real ni parseo de `policy_table.yaml` (decisiones de alcance documentadas en el docstring del archivo) |
+| `decision_log.py` / `cpu_loop/include/decision_log.hpp` (Bloque C, §0.1 requisito 2) | ✅ Construido y probado (Python 6/6, C++ 4/4, más verificado en vivo en paccaA100 job 7566) | Mismo esquema JSONL en ambos dispositivos; wireado en `run_daemon.py` y `cpu_loop_main.cpp` (`--arm`/`--log-path`) -- el smoke test de `cpu_loop_main` confirmó el registro con exactamente `actuo+abstuvo+features_fallidas` líneas |
 
 ## Historial de diseño: por qué la detección de fase de GPU es por sondeo, no por intercepción
 
@@ -183,12 +184,19 @@ python3 fase3_daemon/run_daemon.py \
     --min-dwell-ns 10000000000 \
     --poll-interval-s 0.05 \
     --activity-threshold-pct 5.0 \
-    --dry-run
+    --arm sombra \
+    --log-path fase3_daemon/decisions_gpu.jsonl
 ```
 
-`--dry-run` clasifica y decide pero solo registra en log (§4.3 punto 9) —
-validar así antes de tocar hardware real. Sin `--dry-run`, escribe reloj
-GPU real e instala restauración por señal (`atexit`/`SIGINT`/`SIGTERM`).
+`--arm` es obligatorio (Bloque C, Plan_Fase3_Daemon.md §0.1 requisito 1;
+reemplaza al antiguo `--dry-run`, que era un atajo de conveniencia, no un
+parámetro de primera clase). `sombra` clasifica y decide exactamente igual
+que `activo`, pero se detiene justo antes de escribir el reloj real.
+`activo` escribe de verdad e instala restauración por señal
+(`atexit`/`SIGINT`/`SIGTERM`). El brazo `base` es, literalmente, no correr
+este script. `--log-path` (opcional) activa el registro estructurado de
+decisiones (`fase3_daemon/decision_log.py`) — una línea JSONL por fase de
+GPU, mismo esquema que el lado CPU (`decision_log.hpp`).
 
 ## Uso de `cpu_loop_main` (compilar y correr SOLO vía sbatch en pacca)
 
@@ -198,32 +206,50 @@ scripts/pacca/hyp_cpu_loop_cpp_build_test.sbatch
 
 Compila todo `fase3_daemon/cpu_loop/` (incluido `cpu_loop_main`, que
 enlaza contra la biblioteca `telemetry` completa vía `add_subdirectory`),
-corre los 5 tests propios como puerta dura, la suite completa de
-`telemetry` como informativa, mide la latencia de inferencia
-(`cpu_loop_latency_bench`) y termina con una prueba de humo de 10s de
-`cpu_loop_main` contra PMU real. Invocación manual del binario:
+corre los 6 tests propios como puerta dura (incluye `decision_log_test`,
+Bloque C), la suite completa de `telemetry` como informativa, mide la
+latencia de inferencia (`cpu_loop_latency_bench`) y termina con una prueba
+de humo de 10s de `cpu_loop_main` contra PMU real, verificando además que
+el registro de decisiones tenga tantas líneas como ticks decididos.
+Invocación manual del binario:
 
 ```bash
 LD_LIBRARY_PATH="$HOME/.conda/envs/hyperion-cpu-onnx/lib:$LD_LIBRARY_PATH" \
   fase3_daemon/cpu_loop/build/cpu_loop_main \
-    --perf-cpus 0,1,2,3 --collector-cpu 4 --consumer-cpu 5
+    --arm sombra --perf-cpus 0,1,2,3 --collector-cpu 4 --consumer-cpu 5 \
+    --log-path fase3_daemon/cpu_loop/build/decisions_cpu.jsonl
 ```
 
-Sin `--compute-actuar`/`--memory-actuar`, corre en modo observación puro
-(clasifica y decide, nunca escribe frecuencia) — coherente con que la
-política de CPU medida hoy es `no_actuar` en ambas clases. No parsea
-`policy_table.yaml` directamente (ver el docstring de `cpu_loop_main.cpp`
-para por qué); un script wrapper resolvería el YAML y pasaría los valores
-concretos como flags si la política cambia.
+`--arm` es obligatorio, mismo criterio que `run_daemon.py` (Bloque C,
+§0.1 requisito 1). Este binario todavía no tiene un escritor nativo de
+frecuencia (ver el docstring de `cpu_loop_main.cpp`), así que hoy `sombra`
+y `activo` solo difieren en el valor registrado en el log, no en
+comportamiento — `written` queda siempre en `false` hasta que exista ese
+escritor. Sin `--compute-actuar`/`--memory-actuar`, corre en modo
+observación puro (clasifica y decide, nunca escribe frecuencia) —
+coherente con que la política de CPU medida hoy es `no_actuar` en ambas
+clases. No parsea `policy_table.yaml` directamente (ver el docstring de
+`cpu_loop_main.cpp` para por qué); un script wrapper resolvería el YAML y
+pasaría los valores concretos como flags si la política cambia.
 
 ## Tests
 
 ```bash
-python3 -m pytest fase3_daemon/tests/ -q          # 31 tests Python
-cmake -S fase3_daemon/cpu_loop -B fase3_daemon/cpu_loop/build && \
+python3 -m pytest fase3_daemon/tests/ -q          # 56 tests Python (55 passed + 1 skipped, ver arriba)
+cmake -S fase3_daemon/cpu_loop -B fase3_daemon/cpu_loop/build \
+    -DONNXRUNTIME_ROOT=$(conda info --base)/envs/hyperion-cpu-onnx && \
   cmake --build fase3_daemon/cpu_loop/build && \
-  ctest --test-dir fase3_daemon/cpu_loop/build     # 1 test C++
+  ctest --test-dir fase3_daemon/cpu_loop/build     # 6 tests C++ (puerta dura de cpu_loop)
 ```
+
+El registro estructurado de decisiones (`decision_log.py`/`decision_log.hpp`,
+Bloque C) escribe el mismo esquema JSONL en ambos lados: `ts_ns`, `arm`,
+`device`, `label`, `confidence`, `features`, `policy_action`,
+`target_freq_khz`, `applied_freq_khz`, `written`, `write_failed`,
+`inference_time_ns`, `actuation_time_ns`, y un campo `extra`/`error` para
+lo específico de cada dispositivo. Es el insumo directo del objetivo 4 de
+Fase 4 y de los criterios de cierre de Bloque C (puntuar clasificación
+contra las fronteras de fase conocidas, no solo comparar EDP agregado).
 
 ## Limitaciones conocidas (además de la tabla de arriba)
 

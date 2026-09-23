@@ -310,8 +310,30 @@ distinta a los nodos donde normalmente se verifica `telemetry`).
 
 ### Bloque C — Brazos de experimento e integración
 
-- **C1.** Brazo como parámetro (`base`/`sombra`/`activo`) con registro
-  idéntico en los tres (§0.1, requisitos 1 y 2).
+- **C1. Cerrado (job 7566, paccaA100).** Brazo como parámetro de primera
+  clase: `run_daemon.py` reemplazó `--dry-run` por `--arm {sombra,activo}`
+  (obligatorio, sin default -- `build_daemon_gpu_loop()` rechaza `arm=base`
+  y cualquier combinación `arm`/`dry_run` inconsistente). `cpu_loop_main.cpp`
+  recibió la misma bandera `--arm`. Registro estructurado idéntico en ambos
+  dispositivos: `fase3_daemon/decision_log.py` (GPU) y
+  `fase3_daemon/cpu_loop/include/decision_log.hpp` (CPU) escriben el mismo
+  esquema JSONL (marca de tiempo, brazo, variables leídas, clase inferida,
+  confianza, decisión de la política, si se escribió, tiempo de inferencia
+  y de actuación) -- una línea por decisión de GPU, una línea por tick de
+  CPU sin importar el desenlace (actuó/abstuvo/features fallidas). Probado
+  con `decision_log_test` (C++, 4 casos) y `test_decision_log.py` (Python,
+  6 casos), además de 4 casos nuevos en `test_run_daemon.py` que verifican
+  el rechazo de `arm=base`/inconsistencias y el esquema completo del
+  registro en brazo *sombra*. En el smoke test real de 10s sobre
+  `cpu_loop_main` (PMU real, `--arm sombra --log-path ...`), el registro
+  quedó con 9944 líneas = `actuo(9873)+abstuvo(59)+features_fallidas(12)`,
+  verificado por el propio sbatch -- confirma que el wiring de producción
+  escribe una línea por tick, no solo el test unitario. Suite completa de
+  `fase3_daemon/tests/` en verde localmente (55 passed, 1 skipped); puerta
+  dura de `cpu_loop` 6/6 en verde en paccaA100 (se sumó `decision_log_test`
+  a la puerta dura y al smoke test). Los mismos 3 tests preexistentes de
+  `common/telemetry` (`std::bad_alloc`, ver cierre de Bloque B) siguen sin
+  investigar, sin bloquear.
 - **C2.** Aplicaciones compuestas A y B, con fronteras de fase
   registradas (§0.1, requisito 3). Entran al catálogo con el mismo rigor
   que Fase 1: binario, suma de verificación, warmup calibrado.
