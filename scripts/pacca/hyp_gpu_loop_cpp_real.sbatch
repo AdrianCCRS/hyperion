@@ -34,6 +34,7 @@ NVCC=/opt/ohpc/pub/devtools/nvidia/hpc_sdk/Linux_x86_64/23.1/cuda/12.0/bin/nvcc
 BIN="$CPP/build/gpu_loop_main"
 COMMON=(--model "$CPP/gpu_rf_sin_reloj.onnx" --features "$CPP/gpu_rf_sin_reloj.features.txt" --gpu-index $GPU)
 DWELL_NS=3700000000; SETTLE=0.3
+echo "cadencia de sondeo del daemon C++: ${POLL_MS:-50} ms (el entrenamiento muestreo la GPU cada 5 ms, gpu_interval_ns=5000000)"
 clk() { nvidia-smi -i $GPU --query-gpu=clocks.sm --format=csv,noheader,nounits; }
 cleanup() { pkill -P $$ gpu_phase_target 2>/dev/null || true; pkill -P $$ -f "run_daemon.py|gpu_loop_main" 2>/dev/null || true; sudo -n nvidia-smi -i $GPU -rgc >/dev/null 2>&1 || true; }
 trap cleanup EXIT
@@ -47,7 +48,7 @@ launch() {  # $1 = arm ; resto = flags extra. Traduce policy_table.yaml y hace e
   # (la primera version senalaba al subshell y dejaba al daemon huerfano con el candado puesto).
   local arm=$1; shift
   exec python3 "$CPP/launch_gpu_daemon.py" --policy-table "$ROOT/fase3_daemon/policy_table.yaml" --binary "$BIN" --arm "$arm" -- \
-    "${COMMON[@]}" --min-dwell-ns $DWELL_NS --settle-s $SETTLE "$@"
+    "${COMMON[@]}" --min-dwell-ns $DWELL_NS --settle-s $SETTLE --poll-interval-ms "${POLL_MS:-50}" "$@"
 }
 ticks() { awk '{print $14+$15+$16+$17}' /proc/$1/stat; }   # utime+stime+cutime+cstime (ticks de 10 ms)
 
