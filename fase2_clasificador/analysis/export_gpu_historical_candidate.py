@@ -47,6 +47,11 @@ def main() -> None:
     ap.add_argument("--latency-weight", type=float, default=0.2)
     ap.add_argument("--split-rajaperf-cuda", action="store_true")
     ap.add_argument("--extra-features", nargs="*", default=None)
+    ap.add_argument("--drop-features", nargs="*", default=[],
+                    help="variables a quitar del conjunto (p.ej. gpu_sm_clock_mhz_median gpu_power_mw_median: el daemon "
+                         "cambia el reloj, y la potencia depende de el; ver gpu_clock_feature_audit.py)")
+    ap.add_argument("--tag", default="20260922", help="sufijo del nombre de archivo del candidato exportado")
+    ap.add_argument("--rationale", default=None, help="texto libre que se guarda en el metadata")
     # cell_balanced_acc de cada candidato, tomado del matrix.json de la ronda
     # de hoy (gpu_quality_FINAL_20260922, 5 semillas, LOFO por familia) --
     # pasado explicito en vez de recalculado para no repetir 5x16x7 ajustes
@@ -60,6 +65,9 @@ def main() -> None:
     scores = {k: float(v) for k, v in scores.items()}
 
     frame = load(args.source, split_rajaperf_cuda=args.split_rajaperf_cuda, extra_features=args.extra_features)
+    for f in args.drop_features:
+        FEATURES.remove(f)
+    frame = frame.dropna(subset=FEATURES).reset_index(drop=True)
     print(f"features: {FEATURES}", flush=True)
     X = frame[FEATURES].to_numpy(dtype=np.float32)
     y = frame["y"].to_numpy()
@@ -86,13 +94,15 @@ def main() -> None:
     final_model.fit(X, y)
 
     args.out.mkdir(parents=True, exist_ok=True)
-    model_path = args.out / f"gpu_{winner}_historical_20260922.joblib"
-    metadata_path = args.out / f"gpu_{winner}_historical_20260922.metadata.json"
+    model_path = args.out / f"gpu_{winner}_historical_{args.tag}.joblib"
+    metadata_path = args.out / f"gpu_{winner}_historical_{args.tag}.metadata.json"
     joblib.dump(final_model, model_path)
     metadata_path.write_text(json.dumps({
         "schema": "gpu_historical_candidate/1",
         "model": winner,
         "features": FEATURES,
+        "dropped_features": args.drop_features,
+        "rationale": args.rationale,
         "label": LABEL,
         "candidates_compared": list(scores.keys()),
         "candidates_cell_balanced_acc": scores,
