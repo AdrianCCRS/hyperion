@@ -1,0 +1,163 @@
+# Campana GPU con CUPTI Activity (etiqueta OI online por-lanzamiento) --
+# retoma de gpu_final.yaml (ncu offline, pacca_gpu_final_20260913) con el
+# mismo conjunto de 19 kernels y la misma matriz de frecuencia, pero
+# midiendo con CUPTI Activity en vez de ncu offline (decision-cupti-online-
+# oi-por-lanzamiento): reemplaza la etiqueta constante por corrida (ncu
+# offline, un solo OI representativo de toda la corrida) por OI real por
+# lanzamiento de kernel CUDA, prorrateado por ventana temporal
+# (fase1_telemetria/gpu_phases.py::granularity_contract, row_unit=
+# "time_window"). H1 (candado de reloj GPU averiado) reparado por el
+# administrador el 2026-09-23 (reset via nvidia-smi -rgc +
+# nvidia-bug-report) y validado con nuestro propio flujo
+# (hyp_gpu_freq_validate_h1.sbatch, job 7579: 1410/810/210 MHz aplicados y
+# confirmados exactos bajo carga real sostenida).
+#
+# gpu.activity_trace.enabled=true activa --cupti-activity-lib en el
+# launcher (fase1_telemetria/runner.py::build_command) y exige
+# cupti_activity_exec_path/binary_checksum poblados en el catalogo para
+# cada kernel dataset de GPU (verify_cupti_activity_binary, F1-GPU-004) --
+# los 19 kernels de abajo son EXACTAMENTE los que ya tienen esos campos
+# poblados en fase1_telemetria/catalog/catalog.yaml (confirmado
+# 2026-09-23, coincide con el listado histórico de gpu_final.yaml).
+#
+# catalog_path apunta al catalogo VIVO del repo, no a un snapshot de
+# cribado congelado (el snapshot de pacca_screen_20260909 es anterior a
+# que estos campos CUPTI existieran) -- verify_binary()/
+# verify_cupti_activity_binary() revalidan el checksum contra el binario
+# real en CADA corrida (CAT-07), asi que cualquier deriva entre el
+# catalogo vivo y lo que se probo antes falla ruidosamente por corrida, no
+# en silencio.
+#
+# output_dir NUEVO (nunca el de gpu_final.yaml): son mediciones con un
+# instrumento distinto (CUPTI online vs ncu offline), no continuacion de
+# la misma campana -- mismo criterio que ya establecio CAM-09 para
+# rodinia_kmeans/gpu_cutlass_simt_conv2d en la cabecera de gpu_final.yaml.
+campaign_id: pacca_gpu_cupti_20260923
+warmup_seconds_override: 0.0
+environment_tier: hpc_sc3
+seed: 20260923
+output_dir: /home/latorresn/hyperion-results/final/campaigns/gpu_cupti_20260923
+overwrite: false
+catalog_path: /home/latorresn/hyperion/fase1_telemetria/catalog/catalog.yaml
+calibration:
+- kernel_ref: stream_official
+- kernel_ref: ert_probe
+kernels:
+- kernel_ref: rodinia_gaussian
+- kernel_ref: rodinia_lavamd
+- kernel_ref: rodinia_heartwall
+- kernel_ref: rodinia_lud
+- kernel_ref: rodinia_dwt2d
+- kernel_ref: gpu_rajaperf_stream_triad
+- kernel_ref: gpu_rajaperf_jacobi_2d
+- kernel_ref: gpu_rajaperf_heat_3d
+- kernel_ref: gpu_rajaperf_gemm
+- kernel_ref: gpu_cutlass_simt_dgemm_n4096
+- kernel_ref: gpu_cutlass_simt_conv2d
+- kernel_ref: rodinia_kmeans_gpu_N350000_D34_K200
+- kernel_ref: dual_fft_gpu_N4096
+- kernel_ref: dual_axpy_gpu_N10000000
+- kernel_ref: dual_axpy_gpu_N1280000000
+- kernel_ref: dual_stencil_gpu_N1024
+- kernel_ref: dual_stencil_gpu_N36864
+- kernel_ref: dual_cholesky_gpu_N2048
+- kernel_ref: dual_spmv_gpu_N1000000
+- kernel_ref: dual_spmv_gpu_N200000000
+# CPU solo en REF (ver DECISION 2026-09-13 en gpu_final.yaml, sigue vigente
+# -- no remedida aqui, es una conclusion sobre el eje CPU, no sobre CUPTI).
+frequency_levels:
+- id: REF
+  mode: native_governor
+gpu_frequency_levels:
+- id: REF
+  mode: native_governor
+- id: F0
+  mode: fixed
+  fraction: 1.0
+- id: F1
+  mode: fixed
+  fraction: 0.875
+- id: F2
+  mode: fixed
+  fraction: 0.75
+- id: F3
+  mode: fixed
+  fraction: 0.625
+- id: F4
+  mode: fixed
+  fraction: 0.5
+- id: F5
+  mode: fixed
+  fraction: 0.375
+- id: F6
+  mode: fixed
+  fraction: 0.25
+- id: F7
+  mode: fixed
+  fraction: 0.125
+- id: F8
+  mode: fixed
+  fraction: 0.0
+repetitions_per_combination: 3
+baseline_repetition_indices:
+- 1
+target_windows_per_repetition: 5
+interval_ns: 1000000
+gpu_interval_ns: 5000000
+running_ratio_min: 0.9
+frequency_validation:
+  require_per_window: true
+  tolerance_fraction: 0.05
+  grace_seconds: 0.15
+  tail_grace_seconds: 0.15
+frequency_settle:
+  enabled: true
+  timeout_seconds: 30.0
+  tolerance_fraction: 0.05
+  poll_interval_seconds: 0.5
+turbo:
+  require_disabled: true
+temperature:
+  require_package_sensor: true
+  minimum_c: 0
+  maximum_c: 90
+# Mismo orden de magnitud que gpu_final.yaml (~21 GB) mas la traza CUPTI
+# por corrida -- margen generoso, 1.2 TB libres en /home confirmados el
+# 2026-09-13 (gpu_final.yaml).
+projected_campaign_bytes: 68719476736
+remaining_core_hours: 100000
+projected_core_hours: 313
+cores:
+  delegated_cpus:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  collector_cpu: 6
+  consumer_cpu: 7
+  numa_node_pin: 0
+smt_policy: one_thread_per_physical_core
+cgroup_path: null
+perf_enabled: true
+rapl:
+  enabled: true
+uncore:
+  enabled: true
+gpu:
+  enabled: true
+  calibration:
+  - gpu_stream_bw
+  - gpu_ert_probe_fp32
+  - gpu_ert_probe_fp64
+  activity_trace:
+    enabled: true
+    library_path: /home/latorresn/hyperion/common/telemetry/build-cupti/libhyperion_cupti_activity.so
+timeouts_seconds:
+  ready: 15
+  run: 300
+  shutdown: 15
+hardware_datasheet:
+  bw_pico_bytes_per_s: 59500000000
+  p_pico_flops_per_s: 480000000000
