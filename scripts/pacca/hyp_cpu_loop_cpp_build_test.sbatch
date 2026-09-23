@@ -19,18 +19,24 @@ set -euo pipefail
 ROOT="$HOME/hyperion"
 ONNXRUNTIME_ROOT="$HOME/.conda/envs/hyperion-cpu-onnx"
 BUILD_DIR="$ROOT/fase3_daemon/cpu_loop/build"
+# cmake no esta en el PATH del nodo de computo por defecto (module
+# cmake/3.24.2 ni siquiera existe) -- se instalo cmake en el mismo entorno
+# conda que trae onnxruntime-cpp, se invoca por ruta absoluta.
+CMAKE="$ONNXRUNTIME_ROOT/bin/cmake"
+CTEST="$ONNXRUNTIME_ROOT/bin/ctest"
 
 hostname
 echo "ONNXRUNTIME_ROOT=$ONNXRUNTIME_ROOT"
 find "$ONNXRUNTIME_ROOT" -iname "onnxruntime_cxx_api.h" -o -iname "libonnxruntime.so" 2>/dev/null
+"$CMAKE" --version | head -1
 
 rm -rf "$BUILD_DIR"
-cmake -S "$ROOT/fase3_daemon/cpu_loop" -B "$BUILD_DIR" \
+"$CMAKE" -S "$ROOT/fase3_daemon/cpu_loop" -B "$BUILD_DIR" \
   -DONNXRUNTIME_ROOT="$ONNXRUNTIME_ROOT"
-cmake --build "$BUILD_DIR" -j "${SLURM_CPUS_PER_TASK:-4}"
+"$CMAKE" --build "$BUILD_DIR" -j "${SLURM_CPUS_PER_TASK:-4}"
 
 echo "=== ctest ==="
-ctest --test-dir "$BUILD_DIR" --output-on-failure
+"$CTEST" --test-dir "$BUILD_DIR" --output-on-failure
 
 echo "=== latency_bench (fila a fila, presupuesto ~1000us) ==="
 freq_state() {
