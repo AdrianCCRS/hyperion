@@ -908,6 +908,23 @@ código de salida 0. Límites: no arregla la exactitud de fondo (solo evita actu
 cuando duda), τ se calculó sobre variables de corrida y no se recalibró para
 ventanas en línea, y el libro describe todavía el candidato anterior.
 
+**Variantes que se llevan a la Fase 4 (decisión del usuario, 2026-09-23: "abordar ambos
+experimentos").** Se interpretan como las dos alternativas abiertas, ambas como brazos
+experimentales en vez de elegir una a priori:
+1. **Piso de CPU con la GPU activa:** (a) piso en F0, `--gpu-active-floor-khz 3200000`, y
+   (b) sin piso, `--gpu-active-floor-khz 0` (la CPU puede bajar a F1 con la GPU activa).
+   Solo tiene efecto cuando el daemon de CPU está activo sobre una aplicación con actividad
+   de GPU (compuesta A de GPU con `cpu_loop_main` apuntado a ella); los experimentos
+   puros de CPU (GPU inactiva) y de GPU (CPU nativa) no lo ejercen. Medido en los jobs 7628
+   y 7633: el ahorro máximo esperado es ~1.7-2.5% del EDP del nodo en cargas dominadas por
+   la GPU y hasta +4.6% de EDP (peor) en cargas con parte de CPU.
+2. **Aplicación B de GPU:** (a) dejar B solo en CPU y documentar que no existe una familia
+   inédita memory_bound de GPU más larga que la ventana de decisión, y (b) probar
+   `gpu_gemm_native_n4096` (31.6 s, hint "intermedio", sin verdad de fase compute/memory)
+   como única fase inédita larga, reportando su clasificación sin puntuarla contra una
+   verdad que el catálogo no declara.
+Ambas se ejecutan en la Fase 4; el código de la Fase 3 ya soporta todas las variantes.
+
 ---
 
 ## 2. Criterios de cierre
