@@ -24,15 +24,17 @@
  * atómica compartida como describe el plan (§4.1: "una variable atómica
  * compartida entre ambos loops... viven en el mismo proceso"). Ese supuesto
  * ya no se sostiene tal cual: el loop de GPU es Python (`run_daemon.py`) y
- * este es un binario C++ separado, dos procesos distintos. Mientras no
- * exista un mecanismo de coordinación entre procesos definido (candidato:
- * un archivo de estado que el loop de GPU escribe y este lee cada tick,
- * o un socket local), `gpu_active` es una función inyectable que hoy puede
- * ser tan simple como `[]{ return false; }` -- decisión de alcance
- * explícita, no un hueco escondido: como la política de GPU en
- * `memory_bound` sigue bloqueada por H1 (Plan_Fase3_Daemon.md Bloque D),
- * no hay todavía un escenario real donde el loop de GPU esté aplicando
- * reloj y este loop necesite coordinarse con él.
+ * este es un binario C++ separado, dos procesos distintos. Bloque C, ítem
+ * C4: el mecanismo de coordinación entre procesos ya existe
+ * (`gpu_active_reader.hpp` / `fase3_daemon/gpu_loop/coordination.py`, un
+ * archivo de un byte reemplazado atómicamente en cada transición de fase)
+ * -- `cpu_loop_main.cpp` lo conecta con `--gpu-active-signal-path`. Sigue
+ * siendo una función inyectable aquí (para poder probarse con
+ * `[]{ return false; }` u otra fuente, ver `tests/test_cpu_loop_consumer.cpp`),
+ * y sin esa bandera el binario de producción mantiene `false` siempre --
+ * el único comportamiento con sentido mientras la política GPU en
+ * `memory_bound` siga bloqueada por H1 (Plan_Fase3_Daemon.md Bloque D): no
+ * hay todavía un escenario real donde el loop de GPU esté aplicando reloj.
  */
 namespace hyperion::cpu_loop {
 

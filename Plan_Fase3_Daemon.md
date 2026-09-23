@@ -413,7 +413,24 @@ distinta a los nodos donde normalmente se verifica `telemetry`).
   es intrínsecamente de punta a punta y se verifica en el cluster, no con
   relojes falsos (decisión de alcance explícita, evita un test frágil sin
   garantía real adicional).
-- **C4.** Señal de coordinación probada entre ambos loops.
+- **C4. En verificación en paccaA100.** Mecanismo elegido: archivo de un
+  byte, reemplazado atómicamente (`os.replace`/POSIX `rename()`) por el
+  loop de GPU en cada transición de fase (`fase3_daemon/gpu_loop/coordination.py::GpuActiveSignalWriter`,
+  enganchado a `on_decision`/`on_end` de `build_daemon_gpu_loop` vía
+  `--gpu-active-signal-path`), leído por el loop de CPU cada tick
+  (`fase3_daemon/cpu_loop/include/gpu_active_reader.hpp`, enganchado a
+  `cpu_loop_main` vía la misma bandera). Falla cerrado a `false` ante
+  cualquier problema de lectura (archivo ausente, vacío, contenido
+  irreconocible) -- el mismo default que existía antes de que esta señal
+  existiera. Probado en tres capas: 6 tests Python del escritor
+  (`fase3_daemon/tests/test_coordination.py`), 6 tests C++ del lector
+  (`fase3_daemon/cpu_loop/tests/test_gpu_active_reader.cpp`), y una
+  verificación real de punta a punta entre DOS PROCESOS del sistema
+  operativo (`fase3_daemon/gpu_loop/verify_gpu_coordination_e2e.py`
+  lanza `gpu_active_signal_probe`, un binario C++ real sin PMU/ONNX, como
+  subproceso mientras Python escribe una secuencia programada con esperas
+  reales) -- confirma que la señal funciona entre procesos reales, no
+  solo que cada lado pasa sus propios tests en aislamiento.
 - **C5.** Prueba de caos de restauración, en los tres brazos.
 - **C6.** Sobrecarga del daemon medida y registrada.
 - **C7. Cerrado.** Modo `--pid` ahora ata el ciclo de vida del loop de GPU

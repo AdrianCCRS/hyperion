@@ -67,6 +67,17 @@ add_executable(decision_log_test tests/test_decision_log.cpp)
 target_link_libraries(decision_log_test PRIVATE cpu_loop)
 add_test(NAME decision_log_test COMMAND decision_log_test)
 
+# Senal de coordinacion CPU-GPU (Bloque C, item C4) -- sin dependencias
+# externas, siempre se construye y se prueba.
+add_executable(gpu_active_reader_test tests/test_gpu_active_reader.cpp)
+target_link_libraries(gpu_active_reader_test PRIVATE cpu_loop)
+add_test(NAME gpu_active_reader_test COMMAND gpu_active_reader_test)
+
+# Sonda real para verify_gpu_coordination_e2e.py (Bloque C, item C4) --
+# proceso C++ separado real, sin PMU/ONNX, solo para probar la señal.
+add_executable(gpu_active_signal_probe tools/gpu_active_signal_probe.cpp)
+target_link_libraries(gpu_active_signal_probe PRIVATE cpu_loop pthread)
+
 if(DEFINED ONNXRUNTIME_ROOT)
   find_path(ONNXRUNTIME_INCLUDE_DIR onnxruntime_cxx_api.h
             PATHS ${ONNXRUNTIME_ROOT}/include/onnxruntime/core/session)

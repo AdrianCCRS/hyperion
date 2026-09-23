@@ -27,11 +27,15 @@
  *    ninguna política real en `actuar` sería código muerto sin ejercitar.
  *    El `FrequencySetter` de este binario solo registra en log lo que
  *    haría, exactamente igual que `_dry_run_setter` del lado GPU.
- * 3. **`gpu_active` siempre false.** Ver el docstring de
- *    `cpu_loop_consumer.hpp` -- no hay todavía un mecanismo de
- *    coordinación entre este proceso C++ y `run_daemon.py` (Python,
- *    proceso separado), y no hace falta uno mientras la política GPU siga
- *    bloqueada por H1.
+ * 3. **`gpu_active` real, vía archivo (Bloque C, ítem C4).** Con
+ *    `--gpu-active-signal-path`, cada tick lee el mismo archivo de un byte
+ *    que `run_daemon.py` (Python, proceso separado) escribe atómicamente
+ *    en cada transición de fase (`fase3_daemon/gpu_loop/coordination.py` /
+ *    `gpu_active_reader.hpp`, el espejo de este mecanismo). Sin esa
+ *    bandera, sigue en `false` siempre -- el default seguro previo a esta
+ *    señal, y el único comportamiento con sentido mientras la política GPU
+ *    siga bloqueada por H1 (no hay ningún escenario real donde el loop de
+ *    GPU esté aplicando reloj todavía).
  */
 #include <array>
 #include <atomic>
@@ -40,11 +44,13 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "cpu_loop_consumer.hpp"
 #include "decision_log.hpp"
+#include "gpu_active_reader.hpp"
 #include "onnx_cpu_classifier.hpp"
 #include "telemetry/collector.hpp"
 
@@ -70,12 +76,14 @@ struct Args {
     bool verbose = false;
     std::string arm;       // "sombra" | "activo", obligatorio (Plan_Fase3_Daemon.md SS0.1, requisito 1)
     std::string log_path;  // ruta del registro JSONL de decisiones (requisito 2); vacio = sin registro
+    std::string gpu_active_signal_path;  // senal de coordinacion CPU-GPU (item C4); vacio = gpu_active siempre false
 };
 
 [[noreturn]] void usage_and_exit(const char* prog) {
     std::fprintf(stderr,
         "uso: %s --arm {sombra|activo} --perf-cpus 0,1,2,3 [--model xgboost_cpu.onnx] [--threshold 0.85]\n"
         "  [--target-pid PID] [--collector-cpu N] [--consumer-cpu N] [--log-path RUTA]\n"
+        "  [--gpu-active-signal-path RUTA]\n"
         "  [--interval-ns 1000000] [--cpu-freq-sysfs-path RUTA]\n"
         "  [--compute-actuar --compute-freq-khz N] [--memory-actuar --memory-freq-khz N] [-v]\n"
         "--arm es obligatorio (Plan_Fase3_Daemon.md SS0.1, requisito 1): 'sombra' corre exactamente\n"
@@ -121,6 +129,7 @@ Args parse_args(int argc, char** argv) {
         else if (arg == "--memory-freq-khz") a.memory_freq_khz = std::stoul(need("--memory-freq-khz"));
         else if (arg == "--arm") a.arm = need("--arm");
         else if (arg == "--log-path") a.log_path = need("--log-path");
+        else if (arg == "--gpu-active-signal-path") a.gpu_active_signal_path = need("--gpu-active-signal-path");
         else if (arg == "-v" || arg == "--verbose") a.verbose = true;
         else if (arg == "-h" || arg == "--help") usage_and_exit(argv[0]);
         else { std::fprintf(stderr, "flag desconocida: %s\n", arg.c_str()); usage_and_exit(argv[0]); }
@@ -249,10 +258,22 @@ int main(int argc, char** argv) {
         if (decision_log) decision_log->write(rec);
     };
 
+    // Sin --gpu-active-signal-path: gpu_active siempre false (default seguro
+    // previo a la senal, item C4 -- ver el docstring de gpu_active_reader.hpp).
+    std::optional<GpuActiveFileReader> gpu_active_reader;
+    if (!args.gpu_active_signal_path.empty()) {
+        gpu_active_reader.emplace(args.gpu_active_signal_path);
+        std::printf("senal de coordinacion CPU-GPU: leyendo %s cada tick\n",
+                    args.gpu_active_signal_path.c_str());
+    }
+    auto gpu_active_fn = [&gpu_active_reader]() -> bool {
+        return gpu_active_reader.has_value() && gpu_active_reader->read_active();
+    };
+
     run_consumer_loop(
         ring, g_stop,
         [&classifier](const FeatureVector& f) { return classifier.predict_memory_bound_proba(f); },
-        args.threshold, []{ return false; }, controller, on_tick);
+        args.threshold, gpu_active_fn, controller, on_tick);
 
     std::printf("deteniendo collector...\n");
     collector.stop();

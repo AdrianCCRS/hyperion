@@ -137,6 +137,32 @@ def test_arm_sombra_escribe_registro_estructurado_con_esquema_completo(policy_ta
     assert record["features"]["gpu_util_pct"] == 80.0
 
 
+def test_arm_sombra_escribe_senal_gpu_active_en_cada_transicion(policy_table_path, tmp_path):
+    # Bloque C, item C4: run_daemon.py debe escribir True en cada inicio de
+    # fase (on_decision) y False en cada fin de fase (on_end) -- no solo en
+    # el inicio, o un lector que llegara tarde veria "activa" para siempre.
+    readings = iter([80.0, 1.0, 80.0])  # activo(begin1), idle(on_end), activo(begin2)
+
+    def query_features():
+        util = next(readings)
+        return GpuFeatures(gpu_util_pct=util, gpu_mem_util_pct=1.0, gpu_power_mw=1.0,
+                            gpu_sm_clock_mhz=1.0, gpu_temperature_c=1.0)
+
+    writes: list[bool] = []
+
+    class _SpyWriter:
+        def write(self, active: bool) -> None:
+            writes.append(active)
+
+    build_daemon_gpu_loop(
+        policy_table_path, gpu_index=None, min_dwell_ns=0, dry_run=True,
+        classify_fn=lambda _f: GpuPhaseLabel.COMPUTE_BOUND,
+        query_features_fn=query_features, max_events=2, sleep_fn=lambda _s: None,
+        arm="sombra", gpu_active_signal=_SpyWriter(),
+    )
+    assert writes == [True, False, True]
+
+
 def test_pid_alive_proceso_propio_es_true():
     assert pid_alive(os.getpid()) is True
 

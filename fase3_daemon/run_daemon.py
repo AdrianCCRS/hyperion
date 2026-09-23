@@ -63,6 +63,7 @@ from common.hpc import environment as environment_module  # noqa: E402
 from common.hpc import freqctl, gpu_freqctl  # noqa: E402
 from fase3_daemon.decision_log import ARMS, DecisionLogWriter, DecisionRecord  # noqa: E402
 from fase3_daemon.gpu_loop import activity_poller  # noqa: E402
+from fase3_daemon.gpu_loop.coordination import GpuActiveSignalWriter  # noqa: E402
 from fase3_daemon.gpu_loop import loop as gpu_loop_module  # noqa: E402
 from fase3_daemon.gpu_loop.classifier import HistoricalGpuClassifier  # noqa: E402
 
@@ -116,6 +117,7 @@ def build_daemon_gpu_loop(
     arm: str = "sombra",
     decision_log: DecisionLogWriter | None = None,
     should_continue=None,
+    gpu_active_signal: GpuActiveSignalWriter | None = None,
 ):
     """Ensambla el loop de GPU real a partir de la tabla de política ya
     derivada (§3.4/§3.5) -- nunca recalcula EDP en línea (§3.4 punto 4:
@@ -146,6 +148,8 @@ def build_daemon_gpu_loop(
     controller = gpu_loop_module.build_controller_from_policy(policy, min_dwell_ns, set_clock)
 
     def on_decision(event, label, decision):
+        if gpu_active_signal is not None:
+            gpu_active_signal.write(True)
         logger.info(
             "fase GPU: label=%s target_mhz=%s applied_mhz=%s changed=%s dwell_remaining_ns=%s",
             label.value, decision.target_clock_mhz, decision.applied_clock_mhz,
@@ -176,6 +180,8 @@ def build_daemon_gpu_loop(
             ))
 
     def on_end(now_ns: int) -> None:
+        if gpu_active_signal is not None:
+            gpu_active_signal.write(False)
         logger.debug("fin de fase GPU en t=%sns", now_ns)
 
     query_fn = query_features_fn or (lambda: gpu_loop_module.query_gpu_features(gpu_index))
@@ -240,6 +246,12 @@ def main() -> int:
                          help="Ruta del registro JSONL de decisiones (requisito 2 SS0.1) -- una linea por fase "
                               "de GPU, mismo esquema que el lado CPU (decision_log.py/decision_log.hpp). Si se "
                               "omite, no se escribe registro estructurado (solo el log de texto habitual).")
+    parser.add_argument("--gpu-active-signal-path", type=Path, default=None,
+                         help="Ruta del archivo de senal de coordinacion CPU-GPU (Bloque C, item C4) -- este "
+                              "loop escribe '1'/'0' atomicamente en cada transicion de fase; cpu_loop_main "
+                              "(C++, proceso separado) lo lee cada tick via --gpu-active-signal-path propio. Si "
+                              "se omite, no se escribe (cpu_loop_main sigue viendo gpu_active=false, el default "
+                              "seguro de antes de que esta senal existiera).")
     parser.add_argument("--models-dir", type=Path, default=_DEFAULT_MODELS_DIR,
                          help=f"Directorio con {{nombre}}.joblib + {{nombre}}.metadata.json del candidato GPU "
                               f"(default: {_DEFAULT_MODELS_DIR}).")
@@ -285,6 +297,10 @@ def main() -> int:
     )
 
     decision_log = DecisionLogWriter(args.log_path) if args.log_path is not None else None
+    gpu_active_signal = (
+        GpuActiveSignalWriter(args.gpu_active_signal_path)
+        if args.gpu_active_signal_path is not None else None
+    )
     try:
         build_daemon_gpu_loop(
             args.policy_table,
@@ -298,6 +314,7 @@ def main() -> int:
             arm=args.arm,
             decision_log=decision_log,
             should_continue=should_continue,
+            gpu_active_signal=gpu_active_signal,
         )
     except KeyboardInterrupt:
         logger.info("interrumpido, saliendo")
