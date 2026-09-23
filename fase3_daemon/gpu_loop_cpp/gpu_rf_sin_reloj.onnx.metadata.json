@@ -1,0 +1,20 @@
+{
+  "schema": "gpu_onnx_export/1",
+  "source_joblib": "fase2_clasificador/models/gpu_random_forest_historical_20260923_sin_reloj.joblib",
+  "source_joblib_sha256": "61806e68b1abc0bdf95750930cbd801e73ac9ce37cbc2e89756e02f671b3a366",
+  "onnx_sha256": "a63091633602bbd5b23dfac103b4866bdb28e15281ed8aaddd43940b7f5f8ff7",
+  "features_in_order": [
+    "gpu_util_pct_median",
+    "gpu_mem_util_pct_median",
+    "gpu_mem_util_pct_std"
+  ],
+  "decision_rule": "clase = memory_bound si P(memory_bound) > 0.5 (equivale a RandomForestClassifier.predict)",
+  "verification": {
+    "n_rows": 483,
+    "max_diff_proba": 9.298324588069562e-08,
+    "label_mismatches_daemon_rule": 0,
+    "label_mismatches_onnx_label": 0,
+    "tol": 0.0001,
+    "verify_source": "/home/latorresn/hyperion_c8/docs/libro/datos/gpu_calidad_20260922/historical_gpu_relaxed020_20260922.csv"
+  }
+}

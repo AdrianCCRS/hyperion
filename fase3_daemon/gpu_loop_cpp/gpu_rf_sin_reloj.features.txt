@@ -1,0 +1,3 @@
+gpu_util_pct_median
+gpu_mem_util_pct_median
+gpu_mem_util_pct_std
