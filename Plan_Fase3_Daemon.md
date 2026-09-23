@@ -840,6 +840,38 @@ directo), `gpu_active_writer.hpp` (señal atómica para el loop de CPU),
   intervalos de actividad extra al final del proceso, que el puntaje atribuye al
   triad.
 
+**Daemon de GPU en Python RETIRADO y reentrenamiento por ventana sin CUPTI
+(jobs 7615-7617, 2026-09-23).** Por decisión del usuario se retiró el daemon en
+Python (`run_daemon.py`, `gpu_loop/`, `decision_log.py`, sus pruebas y sbatch);
+`gpu_loop_main` (C++) es el único daemon de GPU. `gpu_phase_target.cu` y
+`measure_clock_transition.py` se movieron a `gpu_loop_cpp/tools/`. Verificado
+tras el retiro: 4 pruebas C++ y 33 de Python en verde.
+
+Reentrenamiento con el dataset histórico SIN CUPTI (`gpu_window_quality.py`):
+111 636 ventanas activas de 120 ms (480 corridas, 16 familias) construidas de los
+`samples.csv` de 5 ms de las corridas históricas, mismas 3 variables por ventana
+(util mediana, mem_util mediana, mem_util desviación; sin reloj ni potencia),
+etiqueta de la corrida, LOFO por familia, 3 semillas. Exactitud balanceada por
+celda:
+
+| Modelo | por ventana (IC95) | votación primeras 25 ventanas por corrida (IC95) |
+|---|---|---|
+| **BASE**: candidato actual (variables de corrida) aplicado a ventanas | 0.540 [0.39, 0.70] | 0.481 [0.30, 0.66] |
+| regresión logística | 0.614 [0.46, 0.76] | 0.629 [0.47, 0.79] |
+| random forest | 0.616 [0.46, 0.76] | 0.607 [0.47, 0.74] |
+| extra trees | 0.659 [0.50, 0.81] | 0.626 [0.50, 0.74] |
+| xgboost | 0.646 [0.52, 0.77] | 0.633 [0.50, 0.76] |
+
+El BASE reproduce offline el fallo del daemon (recall de memory_bound 2.5% con
+votación: predice casi todo compute). Reentrenar por ventana mejora ~+0.13 a
++0.15 en votación, pero con IC95 amplios (las diferencias no son significativas)
+y con exactitud absoluta baja (~0.63): tres variables en una ventana de 120 ms
+discriminan mucho peor que las agregadas por corrida (0.81 en su propio
+protocolo, no desplegable). Pendiente: decidir si se amplían las variables de
+NVML por ventana (desviación/IQR de util, IQR de mem_util, temperatura,
+potencia normalizada por reloj) o se acepta esta exactitud y se documenta la
+limitación. Ningún modelo nuevo se exportó todavía.
+
 ---
 
 ## 2. Criterios de cierre
