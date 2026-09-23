@@ -58,11 +58,15 @@ launch sombra --target-pid $SP > "$WORK/idle_cpp.out" 2>&1 & CP=$!
 sleep 2; t0=$(ticks $CP); sleep 30; t1=$(ticks $CP); kill $CP 2>/dev/null; wait $CP 2>/dev/null; kill $SP 2>/dev/null
 echo "C++ (gpu_loop_main, NVML directo): $(( t1 - t0 )) ticks = $(awk -v a=$((t1-t0)) 'BEGIN{printf "%.2f", a/100}') s de CPU en 30 s = $(awk -v a=$((t1-t0)) 'BEGIN{printf "%.1f", a/30}')% de un nucleo"
 
-echo; echo "=== 2. caos con el candado puesto (fases sinteticas de 20 s; --threshold 0.5 = sin abstencion, para forzar el candado: se prueba la restauracion, no la clasificacion) ==="
+echo; echo "=== 2. caos con el candado puesto (fases sinteticas de 20 s, candado forzado: se prueba la restauracion, no la clasificacion) ==="
 chaos_round() {  # $1 = TERM|INT
   local sig=$1
   "$T" alternate 20 400 2 > "$WORK/phases_chaos_$sig.txt" 2>&1 & TGT=$!
-  launch activo --threshold 0.5 --target-pid $TGT --log-path "$WORK/chaos_$sig.jsonl" > "$WORK/chaos_$sig.out" 2>&1 & DP=$!
+  # Candado FORZADO en ambas clases (1260 MHz) y sin abstencion: el caos prueba la restauracion, no la clasificacion, y no
+  # puede depender de que el modelo acierte una carga sintetica (con clasificacion real el candado fallaba de forma intermitente).
+  ( exec "$BIN" --arm activo "${COMMON[@]}" --min-dwell-ns $DWELL_NS --settle-s $SETTLE --poll-interval-ms "${POLL_MS:-50}" \
+      --compute-clock-mhz 1260 --memory-clock-mhz 1260 --threshold 0.5 --target-pid $TGT --log-path "$WORK/chaos_$sig.jsonl" ) \
+      > "$WORK/chaos_$sig.out" 2>&1 & DP=$!
   local locked=""
   for i in $(seq 1 40); do
     sleep 1; c=$(clk)
