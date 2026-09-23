@@ -7,7 +7,7 @@ warmup_seconds_override: 0.0
 environment_tier: hpc_sc3
 seed: 20260923
 output_dir: /home/latorresn/hyperion-results/final/campaigns/gpu_cupti_smoke_20260923
-overwrite: false
+overwrite: true
 catalog_path: /home/latorresn/hyperion/fase1_telemetria/catalog/catalog.yaml
 calibration:
 - kernel_ref: stream_official
