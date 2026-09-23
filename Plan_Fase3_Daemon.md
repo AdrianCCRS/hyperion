@@ -186,6 +186,46 @@ detectados al revisar el consumo real del daemon):
 
 49/49 tests de `fase3_daemon` en verde (36 previos del Bloque 0 + 13 nuevos).
 
+#### Límite conocido de A4: dos capas de generalización sin validar
+
+La tabla de política no está indexada por kernel (solo tiene 2 entradas,
+`compute_bound`/`memory_bound`); que "funcione" con un kernel nunca visto
+depende enteramente de que el **clasificador** generalice, no de que la
+tabla lo conozca. Hay evidencia real de eso (LOFO 0.792, validación
+externa sellada 0.779 sobre 4 familias nunca tocadas), pero esa evidencia
+cubre solo una de dos capas necesarias, y de las otras dos no hay ninguna
+medición todavía:
+
+1. **Generalización del clasificador** (¿acierta la clase?) — medida:
+   ~0.79-0.85 según cobertura. Evidencia fuerte.
+2. **Generalización de la propia tabla** (¿la ganancia de F1 en
+   `memory_bound` se sostiene en un kernel `memory_bound` nuevo?) — la
+   validación LOFO de la Tabla \ref{tab:gpu-politica-ic} da 6.5% de
+   ganancia realizada fuera de muestra con **n=8 familias** y un IC95 que
+   casi toca cero ($-4.0$ a $13.1\%$). Dirección correcta, evidencia
+   débil por tamaño de muestra pequeño, no por defecto de método.
+3. **Aproximación del buffer móvil** (`HistoricalGpuClassifier`, A4b):
+   sustituye la mediana/desviación estándar de la corrida completa con la
+   que se entrenó el modelo por la de una ventana causal de ~20 muestras
+   recientes. **Nunca se comparó contra la agregación real de
+   entrenamiento** -- no hay ninguna cifra de cuánto se degrada el 0.792
+   de LOFO al usar esta versión online en vez de la offline.
+4. **Kernels que cruzan el punto de inflexión Roofline** (`rajaperf_gemm`,
+   `rodinia_lud`, sección \ref{sec:resultados-gpu-gemm-evolucion} del
+   libro): su clase real cambia con el nivel de frecuencia. Un kernel
+   nuevo con ese comportamiento probablemente se clasifica mal, sin forma
+   de saberlo de antemano con las cinco variables actuales.
+
+No es un defecto de diseño del daemon: es exactamente la pregunta que la
+aplicación compuesta **B (familias inéditas)** de §0.1 está pensada para
+responder de forma empírica, en vez de asumir que el 0.792 de LOFO se
+traduce directamente en beneficio real. Un resultado donde "el
+clasificador acierta pero la ganancia no se sostiene" sería un hallazgo
+válido de Fase 4, no un fallo del daemon -- pero hasta que esa medición
+exista, el brazo *activo* de GPU sobre un kernel fuera del catálogo de
+entrenamiento se apoya en una cadena de tres aproximaciones no verificadas
+apiladas sobre una que sí lo está.
+
 ### Bloque B — Loop de CPU en C++
 
 Integrar en `telemetry/`: leer el snapshot de `collector.hpp` por tick,
@@ -230,3 +270,10 @@ Los del checklist §8 del plan de realineación, más los de §0.1:
       EDP) contra las fronteras de fase conocidas.
 - [ ] Ruta de GPU completa y validada en *sombra*, de modo que el brazo
       *activo* no requiera cambios de código cuando H1 se repare.
+- [ ] Aplicación B (familias inéditas) mide, sobre las decisiones
+      reales del daemon, las tres capas de generalización sin validar
+      documentadas en A4: exactitud del clasificador con el buffer móvil
+      real (no la agregación offline de entrenamiento), y si la ganancia
+      de F1 en `memory_bound` (n=8, IC95 casi en cero) se sostiene fuera
+      del catálogo de política. Resultado negativo en cualquiera de las
+      dos es un hallazgo válido, no un bloqueador de cierre.
