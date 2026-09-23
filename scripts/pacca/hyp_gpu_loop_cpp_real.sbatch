@@ -42,9 +42,11 @@ hostname; git -C "$ROOT" log --oneline -1
 sudo -n nvidia-smi -i $GPU -rgc || { echo "sudo -n nvidia-smi -rgc NO permitido" >&2; exit 1; }
 "$NVCC" -O2 -arch=sm_80 -o "$WORK/gpu_phase_target" "$ROOT/fase3_daemon/gpu_loop/tools/gpu_phase_target.cu" || exit 1
 T="$WORK/gpu_phase_target"
-launch() {  # $1 = arm ; resto = flags extra. exec via el lanzador de politica (traduce policy_table.yaml)
+launch() {  # $1 = arm ; resto = flags extra. Traduce policy_table.yaml y hace exec. Se llama SIEMPRE en segundo plano
+  # (subshell): el `exec` reemplaza ese subshell, asi que $! es el PID del propio gpu_loop_main y las senales le llegan a el
+  # (la primera version senalaba al subshell y dejaba al daemon huerfano con el candado puesto).
   local arm=$1; shift
-  python3 "$CPP/launch_gpu_daemon.py" --policy-table "$ROOT/fase3_daemon/policy_table.yaml" --binary "$BIN" --arm "$arm" -- \
+  exec python3 "$CPP/launch_gpu_daemon.py" --policy-table "$ROOT/fase3_daemon/policy_table.yaml" --binary "$BIN" --arm "$arm" -- \
     "${COMMON[@]}" --min-dwell-ns $DWELL_NS --settle-s $SETTLE "$@"
 }
 ticks() { awk '{print $14+$15+$16+$17}' /proc/$1/stat; }   # utime+stime+cutime+cstime (ticks de 10 ms)
@@ -103,13 +105,15 @@ try: dec = [json.loads(l) for l in open(sys.argv[2]) if l.strip()]
 except FileNotFoundError: dec = []
 ok = n = 0
 for r in dec:
-    ph = next((p for p in phases if p["begin_ns"] <= r["ts_ns"] <= p["end_ns"]), None)
+    # se atribuye a la fase en que EMPEZO la actividad (ts - segundos activos), no a la que contiene el instante de decidir
+    t_start = r["ts_ns"] - int(r["features"].get("phase_active_for_s", 0) * 1e9)
+    ph = next((p for p in phases if p["begin_ns"] - 1_000_000_000 <= t_start <= p["end_ns"]), None)
     hint = ph["phase_label_hint"] if ph else None
     good = hint in ("compute_bound", "memory_bound") and hint == r["label"]
     if hint in ("compute_bound", "memory_bound"): n += 1; ok += good
     print(f"  {(ph['kernel_id'] if ph else '(entre fases)'):30s} verdad={hint} clase={r['label']} conf={r['confidence']:.2f} {'OK' if good else 'ERROR'} "
           f"objetivo_khz={r['target_freq_khz']} escrito={r['written']} actuacion_ms={(r.get('actuation_time_ns') or 0)/1e6:.0f} "
-          f"inferencia_us={(r.get('inference_time_ns') or 0)/1e3:.0f} t_desde_inicio_fase_s={(r['ts_ns']-ph['begin_ns'])/1e9 if ph else float('nan'):.1f}")
+          f"inferencia_us={(r.get('inference_time_ns') or 0)/1e3:.0f} actividad_empezo_s_tras_inicio_del_proceso={(t_start-ph['begin_ns'])/1e9 if ph else float('nan'):.1f}")
 print(f"brazo {sys.argv[3]}: clasificacion {ok}/{n} ({len(phases)} fases, {len(dec)} decisiones)")
 PY
   sudo -n nvidia-smi -i $GPU -rgc >/dev/null 2>&1

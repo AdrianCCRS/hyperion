@@ -66,6 +66,8 @@ public:
     }
 
     bool is_active() const { return is_active_; }
+    /** Instante (ns) en que empezo la actividad actual; sirve para atribuir una decision a SU fase. */
+    int64_t active_since_ns() const { return active_since_ns_; }
 
 private:
     TrackerConfig cfg_;

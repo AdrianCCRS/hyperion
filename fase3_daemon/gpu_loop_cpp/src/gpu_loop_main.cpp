@@ -199,6 +199,9 @@ int main(int argc, char** argv) {
                     rec.label = label == telemetry::GpuPhaseLabel::MemoryBound ? "memory_bound" : "compute_bound";
                     rec.confidence = std::max(p_memory, 1.0f - p_memory);
                     for (size_t i = 0; i < names.size(); ++i) rec.features.push_back({names[i], features[i]});
+                    // Segundos de actividad sostenida al decidir: permite atribuir la decision a SU fase (la decision
+                    // llega `min_active_s` despues del inicio de la actividad y puede caer ya fuera de la fase real).
+                    rec.features.push_back({"phase_active_for_s", (now - tracker.active_since_ns()) / 1e9});
                     rec.policy_action = d.target_clock_mhz ? "actuar" : "no_actuar";
                     rec.target_freq_khz = d.target_clock_mhz * 1000u;
                     rec.applied_freq_khz = d.applied_clock_mhz * 1000u;
