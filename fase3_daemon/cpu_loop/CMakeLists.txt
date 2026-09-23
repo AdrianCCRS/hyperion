@@ -52,6 +52,14 @@ add_executable(cpu_loop_tick_test tests/test_cpu_loop_tick.cpp)
 target_link_libraries(cpu_loop_tick_test PRIVATE cpu_loop)
 add_test(NAME cpu_loop_tick_test COMMAND cpu_loop_tick_test)
 
+# cpu_loop_consumer.hpp usa telemetry::Collector::Ring (para el tipo, no
+# para construir un Collector real) -- basta con el include header-only ya
+# agregado arriba, sin enlazar la biblioteca telemetry ni PMU real: el test
+# empuja muestras sinteticas directo al ring con try_push().
+add_executable(cpu_loop_consumer_test tests/test_cpu_loop_consumer.cpp)
+target_link_libraries(cpu_loop_consumer_test PRIVATE cpu_loop)
+add_test(NAME cpu_loop_consumer_test COMMAND cpu_loop_consumer_test)
+
 if(DEFINED ONNXRUNTIME_ROOT)
   find_path(ONNXRUNTIME_INCLUDE_DIR onnxruntime_cxx_api.h
             PATHS ${ONNXRUNTIME_ROOT}/include/onnxruntime/core/session)
@@ -81,6 +89,21 @@ if(ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIB)
   target_link_directories(cpu_loop_latency_bench PRIVATE ${ONNXRUNTIME_ROOT}/lib)
   target_link_libraries(cpu_loop_latency_bench PRIVATE cpu_loop ${ONNXRUNTIME_LIB})
   set_target_properties(cpu_loop_latency_bench PROPERTIES
+                         BUILD_RPATH ${ONNXRUNTIME_ROOT}/lib INSTALL_RPATH ${ONNXRUNTIME_ROOT}/lib)
+
+  # cpu_loop_main.cpp -- el binario de produccion real (§4.3, equivalente a
+  # run_daemon.py del lado GPU). Necesita ADEMAS la biblioteca `telemetry`
+  # completa (perf_reader.cpp y compania -- PMU real), no solo sus headers.
+  # Requiere permisos de PMU para correr (nunca funciona sin ellos, ni en
+  # pacca fuera de un nodo de computo real) -- se compila aqui porque
+  # compilar no requiere esos permisos, solo ejecutarlo los requiere.
+  add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../common/telemetry
+                    ${CMAKE_CURRENT_BINARY_DIR}/telemetry_build)
+  add_executable(cpu_loop_main src/cpu_loop_main.cpp)
+  target_include_directories(cpu_loop_main PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
+  target_link_directories(cpu_loop_main PRIVATE ${ONNXRUNTIME_ROOT}/lib)
+  target_link_libraries(cpu_loop_main PRIVATE cpu_loop telemetry pthread ${ONNXRUNTIME_LIB})
+  set_target_properties(cpu_loop_main PROPERTIES
                          BUILD_RPATH ${ONNXRUNTIME_ROOT}/lib INSTALL_RPATH ${ONNXRUNTIME_ROOT}/lib)
 else()
   message(STATUS "ONNX Runtime NO encontrado (pasa -DONNXRUNTIME_ROOT=<prefijo conda>) -- "

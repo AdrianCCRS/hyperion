@@ -51,3 +51,26 @@ freq_state antes
   LD_LIBRARY_PATH="$ONNXRUNTIME_ROOT/lib:${LD_LIBRARY_PATH:-}" \
   taskset -c 0 "$BUILD_DIR/cpu_loop_latency_bench")
 freq_state despues
+
+echo "=== smoke test de cpu_loop_main (produccion real, PMU real) ==="
+# Corrida corta y acotada (10s, timeout la corta con SIGTERM -- cpu_loop_main
+# ya maneja SIGTERM limpio): monitorea el propio shell de este script como
+# target_pid, solo para confirmar que collector.start() abre PMU real sin
+# lanzar excepcion, que el consumidor drena muestras reales, y que
+# collector.stop() cierra limpio -- no es un experimento de Fase 4 (eso
+# necesita un target real y las aplicaciones compuestas del Bloque C).
+smoke_status=0
+(cd "$ROOT/fase3_daemon/cpu_loop" && \
+  LD_LIBRARY_PATH="$ONNXRUNTIME_ROOT/lib:${LD_LIBRARY_PATH:-}" \
+  timeout --signal=TERM 10s "$BUILD_DIR/cpu_loop_main" \
+    --perf-cpus 0,1,2,3 --collector-cpu 4 --consumer-cpu 5 \
+    --target-pid $$ --verbose) || smoke_status=$?
+# 0 = cpu_loop_main atendio SIGTERM y salio limpio por su cuenta; 124/143 =
+# timeout tuvo que insistir (todavia aceptable, no es una excepcion real);
+# cualquier otro codigo (p.ej. una excepcion sin capturar de OnnxCpuClassifier
+# o de collector.start() por falta de permisos PMU) SI debe fallar el job.
+echo "cpu_loop_main codigo de salida: $smoke_status"
+case "$smoke_status" in
+  0|124|143) echo "smoke test de cpu_loop_main: OK" ;;
+  *) echo "smoke test de cpu_loop_main: codigo inesperado" >&2; exit 1 ;;
+esac
