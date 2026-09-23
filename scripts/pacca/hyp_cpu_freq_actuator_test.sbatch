@@ -50,5 +50,5 @@ echo "actuador C++: OK"
 echo "=== pytest: tabla de politica y lanzador (Python puro, sin hardware) ==="
 # Requiere pytest/pandas/yaml en el python3 del nodo; si no estan, se reporta
 # pero no bloquea la puerta dura del actuador (que ya paso arriba).
-(cd "$ROOT" && python3 -m pytest -q fase3_daemon/tests/test_build_policy_table.py \
+(source "$HOME/hyperion-venv/bin/activate" && cd "$ROOT" && python3 -m pytest -q fase3_daemon/tests/test_build_policy_table.py \
   fase3_daemon/tests/test_launch_cpu_daemon.py fase3_daemon/tests/test_gpu_classifier.py) || echo "pytest de politica/lanzador: fallo o entorno incompleto (informativo)"
