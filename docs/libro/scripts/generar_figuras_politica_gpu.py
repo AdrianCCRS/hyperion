@@ -85,6 +85,7 @@ def relativos_a_referencia() -> None:
         ks = kc.index[kc["class"] == cls]
         sub = med[med.kernel_ref.isin(ks)]
         ref = sub[sub.level == "REF"].set_index("kernel_ref")
+        n_con_ref = ref.index.nunique()  # kernels con REF, los unicos que aportan a estas curvas
         rows = []
         for lv in LEVELS:
             c = sub[sub.level == lv].set_index("kernel_ref")
@@ -101,7 +102,7 @@ def relativos_a_referencia() -> None:
         ax.plot(x, s["energy_ratio"], "o-", color=COMPUTE, lw=2, ms=5, label="Energía")
         ax.plot(x, s["edp_ratio"], "^-", color=MEMORY, lw=1.8, ms=5, label="Producto energía-retardo")
         ax.axhline(1.0, color="#9a9a9a", ls="--", lw=1)
-        ax.set_title(f"{titulo} ({len(ks)})", fontsize=10)
+        ax.set_title(f"{titulo} ({n_con_ref})", fontsize=10)
         ax.set_xlabel("Nivel de frecuencia GPU")
         ax.set_xticks(range(len(LEVELS))); ax.set_xticklabels(LEVELS)
     axes[0].set_ylabel("Relativo a REF (mediana entre kernels)")
