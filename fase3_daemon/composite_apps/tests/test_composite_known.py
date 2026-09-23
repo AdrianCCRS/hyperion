@@ -119,6 +119,30 @@ def test_run_composite_on_phase_se_llama_por_cada_fase(monkeypatch):
     assert [r.kernel_id for r in seen] == ["a", "b"]
 
 
+def test_run_composite_verifica_checksum_contra_ruta_resuelta_no_cwd(monkeypatch):
+    # Bug real (job 7568): verify_binary() resuelve exec_path relativo al
+    # cwd del PROCESO, no a kernels_root -- pasarle entry.exec_path tal
+    # cual ("bin/a") falla siempre que el proceso no esté parado en
+    # kernels_root, incluso con el binario real presente y correcto.
+    entries = [_entry("a")]
+    seen_paths = []
+
+    def fake_verify_binary(entry, node_id=None):
+        seen_paths.append(entry.exec_path)
+        return True
+
+    monkeypatch.setattr(
+        "fase3_daemon.composite_apps.composite_known.verify_binary", fake_verify_binary,
+    )
+    run_fn = _FakeRunFn()
+
+    run_composite(
+        entries, cycles=1, node_id="pacca-a100", kernels_root=Path("/kroot"),
+        run_fn=run_fn, now_fn=lambda: 0,
+    )
+    assert seen_paths == ["/kroot/bin/a"]
+
+
 def test_run_composite_nunca_corre_sin_checksum_verificado(monkeypatch):
     entries = [_entry("a")]
     monkeypatch.setattr(

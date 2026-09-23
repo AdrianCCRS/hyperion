@@ -42,7 +42,7 @@ import shlex
 import subprocess
 import sys
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -126,12 +126,22 @@ def run_composite(
     records: list[PhaseRecord] = []
     for cycle in range(cycles):
         for entry in entries:
-            if not verify_binary(entry, node_id=node_id):
+            # verify_binary() resuelve entry.exec_path relativo al cwd del
+            # PROCESO, no a kernels_root -- pasarle el entry tal cual (sin
+            # resolver la ruta) lo comprobaría contra el cwd equivocado
+            # (típicamente la raíz del repo, no ~/hyperion-kernels) y
+            # fallaría siempre, incluso con el binario real presente y
+            # correcto. Se le pasa una copia con exec_path ya resuelto a
+            # ruta absoluta -- ver catalog.yaml: exec_path es relativo a la
+            # raíz de binarios compilados por convención del proyecto.
+            resolved_exec_path = str(kernels_root / entry.exec_path)
+            if not verify_binary(replace(entry, exec_path=resolved_exec_path), node_id=node_id):
                 raise RuntimeError(
-                    f"C02: {entry.id!r} no pasó la verificación de checksum en node_id={node_id!r} -- "
-                    "nunca se corre un binario sin verificar (mismo rigor que Fase 1, CAT-07)"
+                    f"C02: {entry.id!r} no pasó la verificación de checksum en node_id={node_id!r} "
+                    f"(exec_path resuelto: {resolved_exec_path}) -- nunca se corre un binario sin "
+                    "verificar (mismo rigor que Fase 1, CAT-07)"
                 )
-            argv = [str(kernels_root / entry.exec_path), *shlex.split(entry.exec_args)]
+            argv = [resolved_exec_path, *shlex.split(entry.exec_args)]
             begin_ns = now_fn()
             proc = run_fn(argv, cwd=str(kernels_root), capture_output=True, text=True)
             end_ns = now_fn()
