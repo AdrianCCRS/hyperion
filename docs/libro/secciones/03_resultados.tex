@@ -736,6 +736,45 @@ Con el candidato ya congelado (modelo, variables y decisión) se evaluó una vez
     \label{fig:gpu-matriz-confusion}
 \end{figure}
 
+\subsection{Política de frecuencia por clase en GPU}
+\label{sec:resultados-gpu-politica}
+
+La tabla clase--frecuencia se derivó sobre las mismas 483 corridas de la sección anterior, con el kernel como unidad de comparación y el procedimiento de la sección \ref{sec:metodologia-politica-gpu}: mediana de repeticiones por kernel y nivel, prueba pareada contra \texttt{REF} e intervalo de confianza del 95\% por \textit{bootstrap}. Un cálculo preliminar emparejó en cambio, kernel por kernel, sus tres repeticiones de cada nivel contra sus tres de \texttt{REF} ($n=3$ por prueba); se descartó por responder una pregunta distinta de la que decide la tabla --- si el ruido de medición dentro de un kernel es distinguible de cero, no si el efecto generaliza entre kernels --- y se sustituye aquí por el resultado con el kernel, y su agregación por familia, como unidad.
+
+De los 18 kernels con corridas aceptadas, uno (\texttt{minibude\_cuda\_bm1}) queda fuera por no tener más que una repetición en un solo nivel, y el núcleo GEMM de RAJAPerf queda fuera de la prueba por no tener corridas en \texttt{REF} bajo la rejilla disponible. Restan 5 kernels \textit{compute\_bound} y 9 \textit{memory\_bound}, de los cuales tres pares (\texttt{dual\_axpy}, \texttt{dual\_spmv} y \texttt{dual\_stencil}) son el mismo algoritmo en dos tamaños de problema; la Tabla \ref{tab:gpu-politica-ic} agrega esos pares dentro de su familia (8 familias \textit{memory\_bound}, 5 \textit{compute\_bound}), con validación \textit{leave-one-familia-out} de la regla de nivel elegido.
+
+\begin{table}[H]
+\centering
+\caption[Ganancia del producto energía--retardo GPU por nivel y clase, con la familia como unidad]{Ganancia agregada del producto energía--retardo frente a \texttt{REF} (\%), intervalo de confianza de 95\% por \textit{bootstrap} de familias y valor $p$ de la prueba pareada. Compute: 5 familias; memory: 8 familias. Fuente: elaboración propia.}
+\label{tab:gpu-politica-ic}
+\small
+\begin{tabular}{@{}lrcrrcr@{}}
+\toprule
+& \multicolumn{3}{c}{\textbf{Compute}} & \multicolumn{3}{c}{\textbf{Memory}} \\
+\cmidrule(lr){2-4}\cmidrule(l){5-7}
+\textbf{Nivel} & Ganancia & IC 95\% & $p$ & Ganancia & IC 95\% & $p$ \\
+\midrule
+F0 & $-0.7$ & $[-4.3;\ 2.0]$ & 0.438 & $-0.6$ & $[-2.3;\ 1.1]$ & 0.770 \\
+F1 & $2.1$ & $[-12.7;\ 14.2]$ & 0.438 & $\mathbf{8.9}$ & $\mathbf{[3.0;\ 13.3]}$ & $\mathbf{0.020}$ \\
+F2 & $-10.2$ & $[-41.2;\ 15.3]$ & 0.688 & $7.4$ & $[-3.6;\ 15.9]$ & 0.156 \\
+F3 & $-30.8$ & $[-87.3;\ 9.4]$ & 0.844 & $-0.3$ & $[-20.0;\ 14.1]$ & 0.422 \\
+F4 & $-68.6$ & $[-165.7;\ -3.7]$ & 0.938 & $-14.0$ & $[-45.7;\ 8.3]$ & 0.680 \\
+F5 & $-122.0$ & $[-276.6;\ -23.4]$ & 0.969 & $-30.3$ & $[-78.1;\ 1.3]$ & 0.902 \\
+F6 & $-183.9$ & $[-438.9;\ -47.3]$ & 0.969 & $-38.9$ & $[-104.2;\ -0.9]$ & 0.926 \\
+F7 & $-300.4$ & $[-761.1;\ -86.1]$ & 1.000 & $-48.2$ & $[-147.4;\ 0.9]$ & 0.902 \\
+F8 & $-645.1$ & $[-1727.4;\ -200.0]$ & 1.000 & $-76.3$ & $[-268.2;\ -2.3]$ & 0.902 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+El resultado es \textbf{no actuar} en \textit{compute\_bound} y \textbf{actuar en F1 para \textit{memory\_bound}}, con una ganancia agregada de 8.9\% (IC95 de 3.0 a 13.3\%, $p=0.020$, 7 de 8 familias mejoran). La validación \textit{leave-one-familia-out} --- aplicar la regla ``elegir F1'' a cada familia excluida, usando solo las siete restantes para elegirla --- confirma la dirección: siete de ocho pliegues eligen F1 de forma independiente y la ganancia realizada fuera de muestra es 6.5\% (IC95 de $-4.0$ a 13.1\%, un intervalo que roza cero por tratarse de solo ocho familias, pero consistente en signo con el resultado de la Tabla \ref{tab:gpu-politica-ic}). F2 muestra una ganancia de magnitud similar (7.4\%) pero no alcanza significancia con la familia como unidad, a diferencia del resultado preliminar por kernel: la diferencia es exactamente el efecto de dejar de contar dos veces los mismos algoritmos en dos tamaños.
+
+En \textit{compute\_bound}, ningún nivel mejora el producto de forma significativa, y la validación LOFO de la regla de nivel elegido resulta en una ganancia realizada negativa ($-4.8\%$, IC95 de $-13.4$ a $0\%$): aplicada honestamente fuera de muestra, la regla que parece mejor en F1 (2.1\%, no significativa) empeora en promedio. La conclusión para \textit{compute\_bound} coincide con la de CPU.
+
+\paragraph{Por qué \textit{memory\_bound} sí responde y \textit{compute\_bound} no.} El mecanismo es el mismo que en CPU (sección \ref{sec:resultados-cpu-potencia-diseno}): la sensibilidad del tiempo de ejecución al reloj. Ajustando $\alpha$, la pendiente negativa de $\log(\text{tiempo})$ frente a $\log(\text{reloj SM})$, sobre los mismos 18 kernels (excluido \texttt{minibude\_cuda\_bm1} por insuficiencia de niveles), los kernels \textit{compute\_bound} tienen $\alpha$ mediano de 0.837 (rango 0.344--1.216, $n=6$): su tiempo es casi inversamente proporcional al reloj, de modo que bajar la frecuencia ahorra poca energía por unidad de tiempo perdido. Los kernels \textit{memory\_bound} tienen $\alpha$ mediano de 0.189 (rango 0.093--0.941, $n=12$): su tiempo apenas responde al reloj del multiprocesador de flujo, porque su cuello de botella --- el ancho de banda hacia la memoria del dispositivo --- está gobernado por un dominio de reloj separado que la matriz experimental no varía (Tabla \ref{tab:frecuencias}). Reducir el reloj SM en ese régimen retira potencia dinámica del cómputo sin alargar proporcionalmente la espera por memoria, lo que abre el margen de mejora del producto energía--retardo que la Tabla \ref{tab:gpu-politica-ic} mide. La excepción es \texttt{rodinia\_gaussian} ($\alpha=0.941$ pese a ser \textit{memory\_bound}), la familia más cercana al punto de inflexión del catálogo (sección \ref{sec:resultados-gpu-gemm-evolucion}), consistente con que su tiempo responda casi tanto al reloj como el de un kernel genuinamente limitado por cómputo.
+
+\paragraph{La única familia que empeora en la validación LOFO.} De las ocho familias \textit{memory\_bound}, siete escogen F1 al aplicar la regla ``mayor ganancia media en las demás familias'' a su propio pliegue, y la realizan con ganancias de entre 4.2\% y 14.8\%. La excepción es \texttt{rodinia\_gaussian}, cuyo pliegue escoge F2 a partir de las otras siete familias y realiza una pérdida de $-27.3\%$: es precisamente la familia con $\alpha=0.941$ señalada en el párrafo anterior, la más cercana al punto de inflexión del catálogo (sección \ref{sec:resultados-gpu-gemm-evolucion}), cuyo tiempo responde al reloj casi como el de un kernel \textit{compute\_bound} pese a estar etiquetada \textit{memory\_bound} sin ambigüedad (margen de clase 1.0). No es el mismo mecanismo que limita al clasificador: \texttt{rodinia\_lud}, la familia con menor margen de mayoría de clase de todo el conjunto (0.60, la que sí cruza el punto de inflexión entre niveles) realiza en este pliegue una ganancia positiva de 13.9\% y no es problemática para la política, aunque sí lo sea para el clasificador de la sección \ref{sec:resultados-gpu-gemm-evolucion}. La política de frecuencia y el clasificador de régimen comparten un límite de fondo --- ninguno de los dos recibe la distancia al punto de inflexión como variable --- pero les afecta por vías distintas: al clasificador lo confunde un kernel cuya etiqueta cambia con el nivel; a la política la sorprende un kernel cuya etiqueta es estable pero cuya física de reloj se parece a la de la otra clase. Ninguna de las dos familias se excluyó de su respectivo análisis por la misma razón: excluirlas seleccionaría datos por el resultado que ellas mismas producen.
+
 \subsection{Continuidad de la ruta CUPTI}
 \label{sec:resultados-gpu-hiperparam}
 
