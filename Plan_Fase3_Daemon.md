@@ -374,10 +374,25 @@ distinta a los nodos donde normalmente se verifica `telemetry`).
     `dgemm_bench` sin `libopenblas.so.0`). Corregido replicando ese mismo
     patrón.
 
-  Aplicación B (familias
-  inéditas) queda pendiente, es la contraparte deliberada de esta (§0.1
-  Eje 1: si A gana y B no, el resultado es memorización, no
-  generalización).
+- **C2b. Aplicación B (familias inéditas) — Cerrado (job 7573, paccaA100).**
+  `fase3_daemon/composite_apps/composite_unseen.py` encadena
+  `cpu_xsbench_omp` (memory_bound) y `cpu_rsbench_omp` (compute_bound) --
+  el mismo par que `cpu_external_screen_20260921.yaml` declara "nunca
+  entran a entrenamiento" y que ya corrió con éxito como prueba externa
+  sellada (job 7530). Contraparte deliberada de la Aplicación A (§0.1
+  Eje 1): si A gana y B no, el resultado es memorización, no
+  generalización -- también el instrumento con el que Fase 4 puede cerrar
+  las dos capas de generalización sin validar documentadas en Bloque A.
+  Reutiliza `run_composite`/`resolve_entries` de `composite_known.py` sin
+  duplicar lógica (`build_arg_parser()`/`main_with_defaults()`
+  compartidos, para que un cambio futuro al criterio de éxito o al
+  registro se aplique a ambas aplicaciones a la vez). Corrida real en
+  paccaA100 (2 ciclos, 4 fases): 4/4 exitosas, alternando memory_bound
+  (xsbench, ~9.15s) / compute_bound (rsbench, ~43.6s), checksum
+  verificado en cada ejecución. 13/13 tests unitarios locales
+  (`fase3_daemon/composite_apps/tests/`, incluye una verificación contra
+  el catálogo real -- sin mocks -- de que A y B son conjuntos de familias
+  disjuntos).
 - **C3.** Detección de fase de GPU probada de punta a punta contra un
   kernel real de terceros (hoy solo hay pruebas unitarias del sondeo).
 - **C4.** Señal de coordinación probada entre ambos loops.
