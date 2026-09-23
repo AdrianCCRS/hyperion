@@ -64,23 +64,51 @@ freq_state despues
 
 echo "=== smoke test de cpu_loop_main (produccion real, PMU real) ==="
 # Corrida corta y acotada (10s, timeout la corta con SIGTERM -- cpu_loop_main
-# ya maneja SIGTERM limpio): monitorea el propio shell de este script como
-# target_pid, solo para confirmar que collector.start() abre PMU real sin
-# lanzar excepcion, que el consumidor drena muestras reales, y que
-# collector.stop() cierra limpio -- no es un experimento de Fase 4 (eso
-# necesita un target real y las aplicaciones compuestas del Bloque C).
+# ya maneja SIGTERM limpio). --target-pid se omite a proposito: el default
+# (0) hace que perf_event_open monitoree al propio cpu_loop_main, que esta
+# genuinamente activo (bucle consumidor + inferencia ONNX cada tick). La
+# primera version de este smoke test pasaba --target-pid $$ (el shell padre
+# de este script, bloqueado esperando, casi sin actividad de CPU propia) --
+# los deltas de ciclos/instrucciones salian en 0 y run_cpu_tick() rechazaba
+# CADA tick (correctamente: kZeroCycles/kZeroInstructions, ver
+# cpu_feature_builder.hpp), dejando features_fallidas=9920/9920. No es un
+# experimento de Fase 4 (eso necesita un target real y las aplicaciones
+# compuestas del Bloque C) -- solo confirma que collector.start() abre PMU
+# real sin excepcion, que el consumidor construye features validas de
+# muestras reales, y que collector.stop() cierra limpio.
 smoke_status=0
+SMOKE_OUT="$BUILD_DIR/cpu_loop_main_smoke.out"
 (cd "$ROOT/fase3_daemon/cpu_loop" && \
   LD_LIBRARY_PATH="$ONNXRUNTIME_ROOT/lib:${LD_LIBRARY_PATH:-}" \
   timeout --signal=TERM 10s "$BUILD_DIR/cpu_loop_main" \
-    --perf-cpus 0,1,2,3 --collector-cpu 4 --consumer-cpu 5 \
-    --target-pid $$ --verbose) || smoke_status=$?
+    --perf-cpus 0,1,2,3 --collector-cpu 4 --consumer-cpu 5 --verbose) \
+  > "$SMOKE_OUT" 2>&1 || smoke_status=$?
+cat "$SMOKE_OUT"
 # 0 = cpu_loop_main atendio SIGTERM y salio limpio por su cuenta; 124/143 =
 # timeout tuvo que insistir (todavia aceptable, no es una excepcion real);
 # cualquier otro codigo (p.ej. una excepcion sin capturar de OnnxCpuClassifier
 # o de collector.start() por falta de permisos PMU) SI debe fallar el job.
 echo "cpu_loop_main codigo de salida: $smoke_status"
 case "$smoke_status" in
-  0|124|143) echo "smoke test de cpu_loop_main: OK" ;;
-  *) echo "smoke test de cpu_loop_main: codigo inesperado" >&2; exit 1 ;;
+  0|124|143) ;;
+  *) echo "smoke test de cpu_loop_main: codigo de salida inesperado" >&2; exit 1 ;;
 esac
+
+# El proceso puede salir "limpio" (0/124/143) y aun asi no haber construido
+# NINGUN vector de features valido (ya paso: --target-pid mal elegido dejo
+# features_fallidas=9920/9920, actuo=0 abstuvo=0, sin que el codigo de
+# salida lo reflejara). Verificar el resumen explicitamente, no solo el
+# codigo de salida.
+resumen=$(grep "^resumen:" "$SMOKE_OUT" || true)
+if [ -z "$resumen" ]; then
+  echo "smoke test de cpu_loop_main: no se encontro la linea de resumen" >&2; exit 1
+fi
+echo "$resumen"
+acted=$(echo "$resumen" | grep -oP 'actuo=\K[0-9]+')
+abstained=$(echo "$resumen" | grep -oP 'abstuvo=\K[0-9]+')
+decided=$((acted + abstained))
+if [ "$decided" -eq 0 ]; then
+  echo "smoke test de cpu_loop_main: 0 ticks con features validas (actuo+abstuvo=0) -- ver $SMOKE_OUT" >&2
+  exit 1
+fi
+echo "smoke test de cpu_loop_main: OK ($decided ticks con features validas)"
