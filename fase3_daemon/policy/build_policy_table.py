@@ -37,13 +37,33 @@ import yaml
 MIN_EFFECT = 0.01  # mismo criterio declarado que cpu_policy_table.py/gpu_policy_table.py
 LEVELS = ["F0", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8"]
 
+# Rejilla de CPU de la campana final (scripts/pacca/final_campaign/cpu_final.yaml):
+# el nivel se declara por `fraction` sobre [800, 3200] MHz (turbo apagado, 3200 es
+# la frecuencia base), y coincide con la Tabla de frecuencias del libro
+# (F0=3200, F1=2900, ..., F8=800). Los IDs F* NO son iguales entre campanas
+# (el cribado usa otra convencion): estos valen solo para la campana final.
+CPU_RANGE_KHZ = (800_000, 3_200_000)
+CPU_FINAL_FRACTIONS = {"F0": 1.0, "F1": 0.875, "F2": 0.75, "F3": 0.625, "F4": 0.5,
+                       "F5": 0.375, "F6": 0.25, "F7": 0.125, "F8": 0.0}
 
-def cpu_entry(policy_cpu: dict, cls: str) -> dict:
+
+def cpu_level_khz(level: str) -> int:
+    if level not in CPU_FINAL_FRACTIONS:
+        raise ValueError(f"nivel de CPU desconocido: {level!r} (validos: {sorted(CPU_FINAL_FRACTIONS)})")
+    low, high = CPU_RANGE_KHZ
+    return round(low + CPU_FINAL_FRACTIONS[level] * (high - low))
+
+
+def cpu_entry(policy_cpu: dict, cls: str, experimental_level: str | None = None) -> dict:
     """La política de CPU ya viene en la unidad y con la prueba correctas
     (kernel, IC95 bootstrap) -- se traduce el esquema tal cual, sin
-    recalcular nada. Ambas clases son hoy 'no_actuar', así que
-    resolved_freq_khz no aplica (build_controller_from_policy-equivalente
-    en CPU nunca lo consulta si action != 'actuar')."""
+    recalcular nada. Ambas clases son hoy 'no_actuar'.
+
+    `experimental_level` (Bloque C8) NO cambia esa conclusión medida: emite
+    `action: actuar_experimental` con el nivel pedido y su frecuencia
+    resuelta, y conserva `measured_action`/`measured_reason` para que nadie
+    lea la entrada como una política que ganó. Solo se admite sobre una
+    clase que la medición dejó en 'no_actuar'."""
     src = policy_cpu["policy"][f"cpu-{cls}"]
     if src["action"] == "actuar":
         raise NotImplementedError(
@@ -52,8 +72,16 @@ def cpu_entry(policy_cpu: dict, cls: str) -> dict:
             "clases son no_actuar); no emitir una tabla con 'actuar' sin "
             "frecuencia resuelta en vez de fallar en silencio."
         )
-    return {"action": src["action"], "n_kernels": src["n_kernels"], "reason": src.get("reason"),
-            "source": "docs/libro/datos/cpu_calidad_30fam/politica/policy_cpu.json"}
+    source = "docs/libro/datos/cpu_calidad_30fam/politica/policy_cpu.json"
+    if experimental_level is None:
+        return {"action": src["action"], "n_kernels": src["n_kernels"], "reason": src.get("reason"),
+                "source": source}
+    return {"action": "actuar_experimental", "chosen_level": experimental_level,
+            "resolved_freq_khz": cpu_level_khz(experimental_level),
+            "measured_action": src["action"], "measured_reason": src.get("reason"),
+            "n_kernels": src["n_kernels"], "source": source,
+            "note": "Experimento de Fase 4 (Plan_Fase3_Daemon.md, Bloque C8), no una politica que gano: "
+                    "la medicion por kernel dejo esta clase en no_actuar."}
 
 
 def _choose_family_level(levels: dict) -> tuple[str | None, dict | None]:
@@ -113,7 +141,16 @@ def main() -> None:
                     help="policy_by_family.json, NUNCA policy_gpu.json (ver docstring del modulo)")
     ap.add_argument("--gpu-dataset", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--cpu-experimental-base", metavar="NIVEL",
+                    help="Bloque C8: nivel de CPU para compute_bound (estado base del daemon activo, p.ej. F0). "
+                         "Debe pasarse junto con --cpu-experimental-memory.")
+    ap.add_argument("--cpu-experimental-memory", metavar="NIVEL",
+                    help="Bloque C8: nivel de CPU para memory_bound (p.ej. F1; F0 = variante activo-F0).")
     a = ap.parse_args()
+    if bool(a.cpu_experimental_base) != bool(a.cpu_experimental_memory):
+        raise SystemExit("--cpu-experimental-base y --cpu-experimental-memory van juntos: el daemon fija "
+                         "siempre un nivel base, y la clase memory_bound solo decide si baja de el.")
+    experimental = {"compute_bound": a.cpu_experimental_base, "memory_bound": a.cpu_experimental_memory}
 
     if a.gpu_policy.name == "policy_gpu.json":
         raise SystemExit(
@@ -128,7 +165,7 @@ def main() -> None:
 
     policy = {}
     for cls in ("compute_bound", "memory_bound"):
-        policy[f"cpu-{cls}"] = cpu_entry(policy_cpu, cls)
+        policy[f"cpu-{cls}"] = cpu_entry(policy_cpu, cls, experimental[cls])
         policy[f"gpu-{cls}"] = gpu_entry(policy_by_family, cls, gpu_dataset)
 
     doc = {
@@ -145,7 +182,7 @@ def main() -> None:
     for k, v in policy.items():
         print(f"  {k}: {v['action']}"
               + (f" @ {v['chosen_level']} ({v.get('resolved_clock_mhz', v.get('resolved_freq_khz', '?'))})"
-                 if v["action"] == "actuar" else ""))
+                 if v["action"] in ("actuar", "actuar_experimental") else ""))
 
 
 if __name__ == "__main__":

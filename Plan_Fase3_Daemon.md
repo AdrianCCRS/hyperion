@@ -521,6 +521,111 @@ distinta a los nodos donde normalmente se verifica `telemetry`).
   y 3 en `test_run_daemon.py` (60 passed, 1 skipped, todo local -- Python
   puro con datos sintéticos, sin GPU/PMU real, no requiere pacca).
 
+### Bloque C8 — Brazo activo de CPU (EN CONSTRUCCIÓN)
+
+**Decisión (2026-09-23).** El daemon de CPU deja de ser un no-op. La
+comparación de la tesis es contra el gobernador nativo (REF), que **no es
+un estado del daemon**: es el brazo *base* (daemon apagado). Con el daemon
+activo el reloj siempre está en un nivel fijo, con el turbo apagado:
+
+| Situación | Nivel |
+|---|---|
+| Daemon activo, estado base | **F0** (3200 MHz, turbo apagado) |
+| `memory_bound`, q >= 0.85 sostenido | **F1** |
+| `compute_bound` o abstención | F0 (o mantiene el último; un tick "revisar" no llama a `on_window()`) |
+
+- F0 como base está respaldado por los datos de entrenamiento (kernel
+  único): +0.56% de EDP en compute_bound (p=0.008) y +0.2% en
+  memory_bound (p=0.94, plano; energía y tiempo idénticos a REF). No es un
+  costo. Apagar el turbo es parte legítima de la intervención (impide
+  llegar a 3600 MHz); por encima de 3200 sin turbo no existe punto fijable.
+- F1 es la apuesta: en agregado pierde 5.4% en memory_bound (ahorra 1.1%
+  de energía, alarga 2.3% el tiempo; 11/28 kernels mejoran). Solo paga si
+  el clasificador acierta la fase y la fase es larga.
+- El mejor nivel por kernel (oráculo) NO se usa: se elige con los mismos
+  datos con que se mide la ganancia, e implica conocer el kernel.
+
+**Brazos:** *base* (REF, daemon apagado), *sombra* (sin escribir;
+`sombra - base` = sobrecarga) y *activo* (`activo - base` = efecto total
+contra el gobernador nativo). Variante **activo-F0** (en memory se queda en
+F0) para ver si F1 agrega algo sobre solo fijar F0; ambas se reportan, sin
+elegir la mejor después de ver los resultados.
+
+**Actuador en C++, portando las reglas de `freqctl.py`.** El mecanismo de
+fijar frecuencia ya existe y está probado en `common/hpc/freqctl.py`, pero es
+Python y el loop de CPU es C++. Un actuador Python persistente habría añadido
+un segundo proceso (intérprete, sondeo de un archivo, latencia decisión ->
+reloj) cuya energía cuenta en el RAPL de paquete, o sea, dentro de la
+sobrecarga que el brazo *sombra* debe medir. Decisión: el actuador vive en
+`cpu_loop_main` y implementa el `FrequencySetter` del controlador en C++,
+**portando sin cambiar las reglas** de `freqctl.py`: orden protegido al
+escribir min/max, relectura de cada escritura, hermanos SMT, snapshot del
+estado original, restauración idempotente que prueba todos los CPU aunque uno
+falle, y manejadores de señal que restauran. Prueba de paridad: el mismo
+escenario sobre un sysfs simulado, corrido con `freqctl.py` y con el C++,
+comparando los archivos resultantes. Turbo: el C++ hace `fork/exec` de
+`sudo /usr/local/bin/set_turbo_state` (ruta absoluta, `1` = desactiva) solo
+al entrar y salir del daemon, con relectura de `no_turbo`; no se escribe
+directo porque el permiso lo da el wrapper. Verificar la ubicación actual del
+wrapper antes de construir (en `scripts/pacca/` solo aparece referenciado
+desde los sbatch; `with_cpu_turbo_disabled.sh` está en `old/`).
+
+**Estado (2026-09-23).** Escrito, NO verificado (no se compila ni corre en
+local, ver feedback-never-run-compute-locally): `cpu_freq_actuator.hpp`
+(actuador con turbo, snapshot, restauración idempotente y falla cerrado),
+`tests/test_cpu_freq_actuator.cpp` (10 casos sobre sysfs simulado),
+`tools/cpu_freq_actuator_probe.cpp` + `tests/test_freqctl_parity.py`
+(paridad con `freqctl.py`), integración en `cpu_loop_main.cpp` (solo brazo
+`activo`, con `--sysfs-cpu-root`/`--no-manage-turbo` para pruebas) y
+`scripts/pacca/hyp_cpu_freq_actuator_test.sbatch` (puerta dura). Pendiente:
+correr ese sbatch en pacca; luego la lectura de la tabla de política (hoy los
+niveles entran por `--compute-freq-khz`/`--memory-freq-khz`), el caos real y
+la medición de latencia de conmutación.
+
+Tabla y lanzador (escritos, sin correr): `build_policy_table.py` acepta
+`--cpu-experimental-base F0 --cpu-experimental-memory F1` (F0 en ambos =
+variante activo-F0) y emite `action: actuar_experimental` con
+`resolved_freq_khz` (rejilla final: F0=3200000, F1=2900000) y
+`measured_action: no_actuar`, para que nadie la lea como una política que
+ganó; el `policy_table.yaml` versionado NO se regeneró. `cpu_loop/
+launch_cpu_daemon.py` traduce la tabla a los flags de `cpu_loop_main` y hace
+`exec` (las señales llegan directo al proceso C++ que restaura); exige nivel
+base si memory actúa.
+
+**Qué construir**
+1. Actuador C++ (port de `freqctl.py`, con prueba de paridad) + control de
+   turbo con relectura.
+2. Lectura de la tabla en `cpu_loop_main` (hoy no parsea el YAML) con un
+   estado `actuar_experimental` (`base_level: F0`, `memory_level: F1`),
+   distinto de una política ganadora.
+3. Restauración por caos (C5) ampliada a turbo y rango de frecuencia, incluida
+   la muerte del daemon con el nodo en F1 y turbo apagado.
+4. Guardas: estado inicial de los núcleos 0-5 (contaminación de cpufreq en
+   paccaA100) y turbo siempre desactivado en corridas de frecuencia fija.
+
+**Riesgos y cosas a medir**
+- Latencia de F0<->F1: escritura, relectura y asentamiento real del reloj,
+  más la llamada `sudo` del turbo (el turbo solo se toca al entrar/salir del
+  daemon, no en cada transición F0<->F1, salvo que se decida lo contrario).
+  El controlador actual no tiene piso de permanencia mínima; revisar si hace
+  falta a la luz de esta medición.
+- Fases cortas: las aplicaciones compuestas necesitan fases más largas que el
+  costo de conmutar, o el experimento no puede mostrar nada.
+- Aplicaciones compuestas solo de CPU: bajar el reloj de CPU alarga 63-66% las
+  cargas GPU (F1-XDEV-006).
+- Mientras corra una campaña, las shells adjuntas al nodo son solo inspección.
+
+**Orden:** (1) local con sysfs simulado y pruebas de tabla/política;
+(2) preflight en pacca (~20 min) de escritura real con relectura y latencia,
+revisando antes `docs/general/Estado_Cola_Slurm.md`; (3) caos real;
+(4) aplicaciones A y B, tres brazos + variante activo-F0, >= 3 repeticiones,
+con registro por decisión para puntuar la clasificación contra las fronteras
+de fase conocidas.
+
+**Expectativa declarada de antemano:** por el piso de potencia (85 W, 84% del
+total) la ganancia esperada en CPU es pequeña; un resultado plano o negativo
+es un hallazgo válido.
+
 ### Bloque D — Bloqueado por H1
 
 Brazo *activo* de GPU. No se arranca hasta que el candado de reloj esté

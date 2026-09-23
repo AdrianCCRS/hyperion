@@ -20,13 +20,15 @@
  *    `policy_table.yaml` y pasa los valores concretos como flags
  *    (`--compute-actuar/--compute-freq-khz`, ídem memory) el día que la
  *    política cambie a `actuar`.
- * 2. **No escribe frecuencia real.** No existe todavía un escritor nativo
- *    de `scaling_min/max_freq` con verificación por relectura (el que
- *    describe §4.3 punto 5, "reutilizando la lógica de freqctl.py pero
- *    implementada nativamente") -- construir y probar ese código sin
- *    ninguna política real en `actuar` sería código muerto sin ejercitar.
- *    El `FrequencySetter` de este binario solo registra en log lo que
- *    haría, exactamente igual que `_dry_run_setter` del lado GPU.
+ * 2. **Escritura real de frecuencia solo en el brazo `activo` (Bloque C8).**
+ *    `cpu_freq_actuator.hpp` (porte de `common/hpc/freqctl.py`) es el
+ *    `FrequencySetter` real: al arrancar toma el snapshot del estado
+ *    original, desactiva el turbo (verificado por relectura) y fija el
+ *    nivel base; al terminar (fin del loop, SIGINT/SIGTERM, destructor)
+ *    restaura todo. El brazo `sombra` nunca construye el actuador: corre el
+ *    mismo trabajo y solo registra lo que haría (equivalente a
+ *    `_dry_run_setter` del lado GPU). Con `--arm activo` y ninguna clase en
+ *    `--*-actuar` no hay nada que escribir y tampoco se toca el turbo.
  * 3. **`gpu_active` real, vía archivo (Bloque C, ítem C4).** Con
  *    `--gpu-active-signal-path`, cada tick lee el mismo archivo de un byte
  *    que `run_daemon.py` (Python, proceso separado) escribe atómicamente
@@ -48,6 +50,7 @@
 #include <string>
 #include <vector>
 
+#include "cpu_freq_actuator.hpp"
 #include "cpu_loop_consumer.hpp"
 #include "decision_log.hpp"
 #include "gpu_active_reader.hpp"
@@ -77,19 +80,21 @@ struct Args {
     std::string arm;       // "sombra" | "activo", obligatorio (Plan_Fase3_Daemon.md SS0.1, requisito 1)
     std::string log_path;  // ruta del registro JSONL de decisiones (requisito 2); vacio = sin registro
     std::string gpu_active_signal_path;  // senal de coordinacion CPU-GPU (item C4); vacio = gpu_active siempre false
+    std::string sysfs_cpu_root = "/sys/devices/system/cpu";  // solo para pruebas con sysfs simulado
+    bool manage_turbo = true;  // --no-manage-turbo solo para pruebas; en produccion el turbo se apaga en 'activo'
 };
 
 [[noreturn]] void usage_and_exit(const char* prog) {
     std::fprintf(stderr,
         "uso: %s --arm {sombra|activo} --perf-cpus 0,1,2,3 [--model xgboost_cpu.onnx] [--threshold 0.85]\n"
         "  [--target-pid PID] [--collector-cpu N] [--consumer-cpu N] [--log-path RUTA]\n"
-        "  [--gpu-active-signal-path RUTA]\n"
+        "  [--gpu-active-signal-path RUTA] [--sysfs-cpu-root RUTA] [--no-manage-turbo]\n"
         "  [--interval-ns 1000000] [--cpu-freq-sysfs-path RUTA]\n"
         "  [--compute-actuar --compute-freq-khz N] [--memory-actuar --memory-freq-khz N] [-v]\n"
         "--arm es obligatorio (Plan_Fase3_Daemon.md SS0.1, requisito 1): 'sombra' corre exactamente\n"
-        "el mismo trabajo que 'activo' pero nunca pasa --compute-actuar/--memory-actuar de verdad al\n"
-        "FrequencySetter (hoy este binario no tiene escritor nativo, ver el docstring del archivo, asi\n"
-        "que en la practica ambos brazos solo registran lo que harian). --log-path activa el registro\n"
+        "el mismo trabajo que 'activo' pero nunca escribe frecuencia (solo registra lo que haria); 'activo'\n"
+        "desactiva el turbo, fija el nivel de --compute-freq-khz/--memory-freq-khz segun la clase y\n"
+        "restaura el estado original al terminar (ver el docstring del archivo). --log-path activa el registro\n"
         "JSONL de decisiones (requisito 2), mismo esquema que decision_log.py del lado GPU.\n",
         prog);
     std::exit(2);
@@ -130,6 +135,8 @@ Args parse_args(int argc, char** argv) {
         else if (arg == "--arm") a.arm = need("--arm");
         else if (arg == "--log-path") a.log_path = need("--log-path");
         else if (arg == "--gpu-active-signal-path") a.gpu_active_signal_path = need("--gpu-active-signal-path");
+        else if (arg == "--sysfs-cpu-root") a.sysfs_cpu_root = need("--sysfs-cpu-root");
+        else if (arg == "--no-manage-turbo") a.manage_turbo = false;
         else if (arg == "-v" || arg == "--verbose") a.verbose = true;
         else if (arg == "-h" || arg == "--help") usage_and_exit(argv[0]);
         else { std::fprintf(stderr, "flag desconocida: %s\n", arg.c_str()); usage_and_exit(argv[0]); }
@@ -185,12 +192,41 @@ int main(int argc, char** argv) {
     CpuPhaseControllerConfig ctrl_cfg{};
     ctrl_cfg.compute_bound = {args.compute_actuar, args.compute_freq_khz};
     ctrl_cfg.memory_bound = {args.memory_actuar, args.memory_freq_khz};
-    // Sin escritor real (ver punto 2 del docstring del archivo): registra
-    // en log lo que haria, nunca toca hardware. Mismo patron que
-    // run_daemon.py::_dry_run_setter del lado GPU.
-    CpuPhaseController controller(ctrl_cfg, [](unsigned int khz) {
-        std::printf("[observacion] aplicaria %u kHz (no se escribe: sin escritor nativo, ver docstring)\n", khz);
-        return true;
+    // Brazo 'activo' con alguna clase en actuar: actuador real (punto 2 del
+    // docstring). En 'sombra', o 'activo' sin nada que escribir, el setter
+    // solo registra (mismo patron que run_daemon.py::_dry_run_setter).
+    const bool writes_frequency = args.arm == "activo" && (args.compute_actuar || args.memory_actuar);
+    std::optional<CpuFreqActuator> actuator;
+    if (writes_frequency) {
+        CpuFreqActuatorConfig acfg;
+        acfg.sysfs_cpu_root = args.sysfs_cpu_root;
+        acfg.cpus = args.perf_cpus;
+        acfg.manage_turbo = args.manage_turbo;
+        actuator.emplace(acfg);
+        if (!actuator->snapshot() || !actuator->enter()) {
+            std::fprintf(stderr, "no se pudo preparar el actuador de frecuencia (%s); abortando sin tocar nada\n",
+                         actuator->last_error().c_str());
+            return 3;
+        }
+        // Nivel base: el de la clase compute_bound (F0 en el diseno C8).
+        if (args.compute_actuar && !actuator->set_khz(args.compute_freq_khz)) {
+            std::fprintf(stderr, "no se pudo fijar el nivel base %u kHz (%s); estado restaurado\n",
+                         args.compute_freq_khz, actuator->last_error().c_str());
+            return 3;
+        }
+        std::printf("actuador activo: cpus=%zu turbo_administrado=%d nivel_base=%u kHz\n",
+                    actuator->cpus().size(), (int)args.manage_turbo, args.compute_freq_khz);
+    }
+    int64_t last_actuation_ns = 0;
+    CpuPhaseController controller(ctrl_cfg, [&](unsigned int khz) {
+        if (!actuator) {
+            std::printf("[observacion] aplicaria %u kHz (brazo sombra o sin clase en actuar: no se escribe)\n", khz);
+            return true;
+        }
+        const int64_t t0 = now_ns();
+        const bool ok = actuator->set_khz(khz);
+        last_actuation_ns = now_ns() - t0;
+        return ok;
     });
 
     telemetry::CollectorConfig cfg{};
@@ -235,10 +271,11 @@ int main(int argc, char** argv) {
                 rec.label = label_name(r.decision->label);
                 rec.policy_action = r.decision->target_freq_khz ? "actuar" : "no_actuar";
                 rec.target_freq_khz = r.decision->target_freq_khz;
-                // Sin escritor nativo todavia (ver docstring del archivo, punto 2): nunca se escribe
-                // frecuencia de verdad, en ningun brazo -- el registro debe reflejar eso, no fingir.
-                rec.written = false;
+                // 'written' solo es true si hubo actuador real y la escritura se verifico; en
+                // 'sombra' nunca lo es -- el registro no debe fingir una escritura.
+                rec.written = actuator.has_value() && r.decision->actuation_attempted && !r.decision->actuation_failed;
                 rec.write_failed = r.decision->actuation_attempted && r.decision->actuation_failed;
+                if (r.decision->actuation_attempted && actuator) rec.actuation_time_ns = last_actuation_ns;
                 if (args.verbose) {
                     std::printf("[actuo] p_memory_bound=%.3f clase=%s target_khz=%u\n",
                                 *r.p_memory_bound, label_name(r.decision->label), r.decision->target_freq_khz);
@@ -277,6 +314,11 @@ int main(int argc, char** argv) {
 
     std::printf("deteniendo collector...\n");
     collector.stop();
+    if (actuator) {
+        const bool restored = actuator->restore();
+        std::printf("actuador: estado original %s\n", restored ? "restaurado y verificado" : "NO se pudo restaurar por completo");
+        if (!restored) return 4;
+    }
     std::printf("resumen: actuo=%lu abstuvo=%lu features_fallidas=%lu push_retries=%lu\n",
                 (unsigned long)n_acted, (unsigned long)n_abstained, (unsigned long)n_feature_failed,
                 (unsigned long)collector.push_retries());

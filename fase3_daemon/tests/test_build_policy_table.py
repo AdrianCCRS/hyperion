@@ -65,6 +65,24 @@ def test_cpu_entry_no_actuar_passthrough():
     assert entry["n_kernels"] == 19
 
 
+def test_cpu_level_khz_sigue_la_rejilla_final():
+    assert [bpt.cpu_level_khz(f) for f in ("F0", "F1", "F4", "F8")] == [3_200_000, 2_900_000, 2_000_000, 800_000]
+    with pytest.raises(ValueError, match="desconocido"):
+        bpt.cpu_level_khz("F9")
+
+
+def test_cpu_entry_experimental_conserva_la_medicion():
+    entry = bpt.cpu_entry(_policy_cpu(), "memory_bound", experimental_level="F1")
+    assert entry["action"] == "actuar_experimental"
+    assert entry["chosen_level"] == "F1" and entry["resolved_freq_khz"] == 2_900_000
+    assert entry["measured_action"] == "no_actuar"  # nadie debe leerla como politica ganadora
+
+
+def test_cpu_entry_experimental_sobre_actuar_medido_sigue_fallando():
+    with pytest.raises(NotImplementedError):
+        bpt.cpu_entry(_policy_cpu(action="actuar"), "compute_bound", experimental_level="F0")
+
+
 def test_cpu_entry_actuar_not_implemented():
     with pytest.raises(NotImplementedError):
         bpt.cpu_entry(_policy_cpu(action="actuar"), "compute_bound")

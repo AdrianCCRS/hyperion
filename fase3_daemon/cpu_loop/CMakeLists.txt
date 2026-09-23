@@ -78,6 +78,19 @@ add_test(NAME gpu_active_reader_test COMMAND gpu_active_reader_test)
 add_executable(gpu_active_signal_probe tools/gpu_active_signal_probe.cpp)
 target_link_libraries(gpu_active_signal_probe PRIVATE cpu_loop pthread)
 
+# Actuador nativo de frecuencia (Bloque C8) -- sin dependencias externas,
+# probado sobre un sysfs simulado (sin hardware ni permisos), siempre se
+# construye. La sonda es para tests/test_freqctl_parity.py (paridad con
+# common/hpc/freqctl.py).
+add_executable(cpu_freq_actuator_test tests/test_cpu_freq_actuator.cpp)
+target_link_libraries(cpu_freq_actuator_test PRIVATE cpu_loop)
+add_test(NAME cpu_freq_actuator_test COMMAND cpu_freq_actuator_test)
+
+add_executable(cpu_freq_actuator_probe tools/cpu_freq_actuator_probe.cpp)
+target_link_libraries(cpu_freq_actuator_probe PRIVATE cpu_loop)
+add_test(NAME freqctl_parity_test
+         COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_freqctl_parity.py $<TARGET_FILE:cpu_freq_actuator_probe>)
+
 if(DEFINED ONNXRUNTIME_ROOT)
   find_path(ONNXRUNTIME_INCLUDE_DIR onnxruntime_cxx_api.h
             PATHS ${ONNXRUNTIME_ROOT}/include/onnxruntime/core/session)
