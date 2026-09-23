@@ -21,7 +21,17 @@ KERNELS_ROOT="$HOME/hyperion-kernels"
 BOUNDARIES_OUT="$ROOT/fase3_daemon/composite_apps/composite_known_smoke_%j.jsonl"
 BOUNDARIES_OUT="${BOUNDARIES_OUT/\%j/$SLURM_JOB_ID}"
 
+# Mismo entorno que las campanas reales (hyp_external_cpu.sbatch) -- sin
+# esto, python3 cae al Python 3.10.20 del sistema (sin hashlib.file_digest,
+# ver el fix en common/hpc/catalog.py) y dgemm_bench no encuentra
+# libopenblas.so.0 en tiempo de ejecucion (jobs 7568-7570, 2026-09-23).
+module load cmake/4.3.4 gnu12/12.4.0 devtools/nvidia/hpc_sdk/nvhpc/23.1 openblas/0.3.21 2>&1 || true
+export LD_LIBRARY_PATH="/opt/ohpc/pub/libs/gnu12/openblas/0.3.21/lib:${LD_LIBRARY_PATH:-}"
+export PYTHONPATH="$ROOT:${PYTHONPATH:-}"
+source "$HOME/hyperion-venv/bin/activate"
+
 hostname
+python3 --version
 echo "=== tests unitarios (sin binarios reales) ==="
 python3 -m pytest "$ROOT/fase3_daemon/composite_apps/tests/test_composite_known.py" -q
 
