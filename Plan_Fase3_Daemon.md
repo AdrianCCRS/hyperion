@@ -621,6 +621,35 @@ base si memory actúa.
   ese script asumió max=3200000 en TODOS los CPU y bajó el max de los no
   delegados (nativo 3600000); la v2 (job 7594) lo devolvió a cpuinfo_max.
 
+**Correcciones y optimización de la conmutación (job 7596, 2026-09-23).**
+- `run_consumer_loop` ahora consulta `stop` dentro del drenaje (y el drenaje
+  final se acota a 64 muestras): SIGTERM y SIGINT detienen `cpu_loop_main`,
+  restauran y el estado queda IDÉNTICO al inicial (caos por señal real, ambos
+  casos, con `dd` como target). Prueba de regresión con productor rápido y
+  consumidor lento en `test_cpu_loop_consumer.cpp` (no se comprobó que falle
+  contra el código anterior; el watchdog aborta si el bucle no vuelve).
+- Histéresis: `CpuPhaseControllerConfig::min_consecutive_windows` (default 1
+  en el controlador; `cpu_loop_main --min-dwell-windows`, default 50) y
+  `mark_applied()` para no reescribir el nivel base al arrancar. Con ella la
+  ronda de caos hizo 1 y 7 escrituras reales (antes, una por cambio de clase).
+- Costo por cambio F0<->F1 sobre 12 CPU lógicos (200 cambios por variante):
+
+  | Variante | set_khz p50 | asentamiento cur_freq p50 |
+  |---|---|---|
+  | min+max, secuencial (original) | 27.9 ms | 37.7 ms |
+  | min+max, **un hilo por CPU** | **2.85 ms** | 10.4 ms |
+  | solo techo, secuencial | 14.1 ms | 24.1 ms |
+  | solo techo + hilos | 1.8 ms | 10.6 ms |
+
+  El asentamiento (~10 ms) ya está dominado por el hardware, no por las
+  escrituras. Default de `cpu_loop_main`: `--switch-parallel 1` con min+max
+  fijos (misma semántica de candado que las campañas medidas); `--switch-pin-min 0`
+  queda como opción, con 200/200 asentamientos correctos bajo carga pero sin
+  usarse por defecto para no cambiar la condición frente a las mediciones.
+- Pendiente: el target `dd` del caos produjo 96% de ventanas con
+  `zero_cycles` (5171 de ~5400): no es representativo; el caos y la
+  clasificación deben repetirse con un target real de las aplicaciones A/B.
+
 **Qué construir**
 1. Actuador C++ (port de `freqctl.py`, con prueba de paridad) + control de
    turbo con relectura.

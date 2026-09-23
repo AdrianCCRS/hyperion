@@ -86,7 +86,7 @@ struct Args {
     // cuesta ~28 ms (preflight job 7592) vs un tick de ~1 ms; 50 ventanas ~ 50 ms de estabilidad.
     unsigned int min_dwell_windows = 50;
     bool switch_pin_min = true;   // false: solo se escribe el techo (ver CpuFreqActuatorConfig::pin_min)
-    bool switch_parallel = false; // true: escrituras por CPU en hilos (ver CpuFreqActuatorConfig::parallel)
+    bool switch_parallel = true;  // escrituras por CPU en hilos: 27.9 -> 2.85 ms medido (job 7596); --switch-parallel 0 lo desactiva
 };
 
 [[noreturn]] void usage_and_exit(const char* prog) {

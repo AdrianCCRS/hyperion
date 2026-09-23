@@ -42,6 +42,7 @@ state() {  # una linea por atributo, sin cur_freq (es volatil)
 }
 
 mkdir -p "$WORK"
+rm -f "$WORK"/chaos_*.jsonl "$WORK"/chaos_*.out   # el registro se abre en modo append: no arrastrar corridas previas
 state > "$WORK/state_inicial.txt"
 echo "=== ESTADO INICIAL (tras la cancelacion del job 7590) ==="
 cat "$WORK/state_inicial.txt"
