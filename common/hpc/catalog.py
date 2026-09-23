@@ -243,6 +243,21 @@ def load_catalog(catalog_path: str) -> dict[str, KernelEntry]:
         entries[entry.id] = entry
     return entries
 
+def _sha256_file(path: str) -> str:
+    """sha256 por bloques de 1 MiB -- NO usa `hashlib.file_digest` (stdlib
+    3.11+, más rápido) porque el Python real del sistema en los nodos de
+    pacca es 3.10.20 (confirmado: `AttributeError: module 'hashlib' has no
+    attribute 'file_digest'`, job 7569, 2026-09-23) y no hay ningún módulo
+    de Python más nuevo disponible ahí (`module avail` solo lista
+    `Analytics/anaconda3/python3`, la misma 3.10). Mismo patrón portable
+    que ya usa `fase1_telemetria/screening_workflow.py::_sha256`."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as binary_file:
+        for block in iter(lambda: binary_file.read(1024 * 1024), b""):
+            digest.update(block)
+    return f"sha256:{digest.hexdigest()}"
+
+
 def verify_binary(entry: KernelEntry, node_id: str | None = None) -> bool:
     """
     C02: sha256(entry.exec_path) == entry.binary_checksum.
@@ -261,8 +276,7 @@ def verify_binary(entry: KernelEntry, node_id: str | None = None) -> bool:
         return False
 
     try:
-        with open(entry.exec_path, "rb") as binary_file:
-            checksum = f"sha256:{hashlib.file_digest(binary_file, 'sha256').hexdigest()}"
+        checksum = _sha256_file(entry.exec_path)
     except OSError:
         return False
 
@@ -288,8 +302,7 @@ def verify_cupti_activity_binary(entry: KernelEntry, node_id: str | None = None)
     if not os.path.isfile(path) or not os.access(path, os.X_OK):
         return False
     try:
-        with open(path, "rb") as binary_file:
-            checksum = f"sha256:{hashlib.file_digest(binary_file, 'sha256').hexdigest()}"
+        checksum = _sha256_file(path)
     except OSError:
         return False
     if isinstance(expected, dict):

@@ -87,8 +87,15 @@ def _launcher_checksum(harness: Any) -> str | None:
     if not binary_path:
         return None
     try:
+        # Sin hashlib.file_digest (stdlib 3.11+): el Python real de los
+        # nodos de pacca es 3.10.20 (confirmado con AttributeError, job
+        # 7569, 2026-09-23) -- mismo patrón portable que
+        # common/hpc/catalog.py::_sha256_file / screening_workflow.py::_sha256.
+        digest = hashlib.sha256()
         with open(binary_path, "rb") as binary_file:
-            return f"sha256:{hashlib.file_digest(binary_file, 'sha256').hexdigest()}"
+            for block in iter(lambda: binary_file.read(1024 * 1024), b""):
+                digest.update(block)
+        return f"sha256:{digest.hexdigest()}"
     except OSError:
         return None
 
