@@ -1,4 +1,8 @@
 #!/bin/bash
+# AHORRO posible al bajar la frecuencia de la CPU mientras corre una carga de GPU (Fase 3). Ademas de la duracion, por corrida se
+# mide la ENERGIA: paquetes de CPU (RAPL, ambos sockets) y GPU (contador de energia de NVML), y con ellas el EDP del nodo. Asi
+# se ve si bajar la CPU durante la actividad de GPU ahorra energia y cuanto cuesta en tiempo (el primer intento de este job
+# solo midio duracion). Detalle del diseno original:
 # Efecto de la frecuencia de la CPU sobre la duracion de cargas de GPU (Fase 3, piso de CPU mientras la GPU esta activa):
 # corre gpu_cutlass_simt_dgemm_n4096 (compute) y gpu_rajaperf_stream_triad (memory) con la CPU (nucleos 0-5 y hermanos
 # 16-21, el proceso fijado a 0-5) en REF (nativo, turbo activo) y en niveles fijos F0/F1/F4/F8 (turbo apagado), 3 repeticiones
@@ -25,6 +29,12 @@ export LD_LIBRARY_PATH="/opt/ohpc/pub/libs/gnu12/openblas/0.3.21/lib:${LD_LIBRAR
 export PYTHONPATH="$ROOT:${PYTHONPATH:-}"; source "$HOME/hyperion-venv/bin/activate"
 C=/sys/devices/system/cpu; CPUS="0 1 2 3 4 5 16 17 18 19 20 21"
 hostname; git -C "$ROOT" log --oneline -1
+CUDA=/opt/ohpc/pub/devtools/nvidia/hpc_sdk/Linux_x86_64/23.1/cuda/12.0
+g++ -O2 -o "$WORK/gpu_energy_read" "$ROOT/fase3_daemon/composite_apps/gpu_energy_read.cpp" -I"$CUDA/include" "$CUDA/targets/x86_64-linux/lib/stubs/libnvidia-ml.so" || { echo "no compila gpu_energy_read" >&2; exit 1; }
+"$WORK/gpu_energy_read" 0 >/dev/null || { echo "no se puede leer la energia de la GPU por NVML" >&2; exit 1; }
+R0=/sys/class/powercap/intel-rapl:0; R1=/sys/class/powercap/intel-rapl:1
+rapl_uj() { echo $(( $(cat $R0/energy_uj) + $(cat $R1/energy_uj) )); }   # ambos paquetes
+RMAX=$(cat $R0/max_energy_range_uj)
 # snapshot del estado original (turbo y rango por CPU) y restauracion garantizada
 ORIG_NO_TURBO=$(cat $C/intel_pstate/no_turbo)
 declare -A OMIN OMAX
@@ -50,23 +60,33 @@ for cell in "${order[@]}"; do
   read -r lvl k r <<<"$cell"
   set_level "$lvl" || { echo "no se pudo fijar $lvl" >&2; continue; }
   sleep 2
+  e0=$(cat $R0/energy_uj); f0=$(cat $R1/energy_uj); g0=$("$WORK/gpu_energy_read" 0)
   out=$( ( cd "$KERNEL_ROOT" && taskset -c 0-5 python3 "$ROOT/fase3_daemon/composite_apps/composite_known.py" --node-id pacca-a100 \
       --kernels-root "$KERNEL_ROOT" --sequence $k --cycles 1 --boundaries-out "$WORK/tmp.jsonl" 2>&1 ) | grep -E "^\[ciclo" )
   dur=$(echo "$out" | grep -oE "en [0-9.]+s" | grep -oE "[0-9.]+")
+  e1=$(cat $R0/energy_uj); f1=$(cat $R1/energy_uj); g1=$("$WORK/gpu_energy_read" 0)
   cur=$(cat $C/cpu0/cpufreq/scaling_cur_freq)
-  echo "$lvl $k $r $dur $cur" | tee -a "$WORK/results.txt"
+  # energia en J: RAPL en uJ (con vuelta del contador), GPU en mJ
+  ecpu=$(python3 -c "m=$RMAX; d=lambda a,b:(b-a)%m; print(round((d($e0,$e1)+d($f0,$f1))/1e6,1))")
+  egpu=$(python3 -c "print(round(($g1-$g0)/1e3,1))")
+  echo "$lvl $k $r $dur $cur $ecpu $egpu" | tee -a "$WORK/results.txt"
 done
 restore
 python3 - "$WORK/results.txt" <<'PY'
 import sys, statistics as st, collections
-rows = [l.split() for l in open(sys.argv[1]) if len(l.split()) == 5 and l.split()[3] not in ("", "None")]
+rows = [l.split() for l in open(sys.argv[1]) if len(l.split()) == 7 and l.split()[3] not in ("", "None")]
 d = collections.defaultdict(list)
-for lvl, k, r, dur, cur in rows: d[(k, lvl)].append(float(dur))
-print("\n=== duracion mediana por kernel y nivel de CPU (s), y razon frente a REF ===")
+for lvl, k, r, dur, cur, ecpu, egpu in rows:
+    dur, ecpu, egpu = float(dur), float(ecpu), float(egpu)
+    d[(k, lvl)].append((dur, ecpu, egpu, (ecpu + egpu) * dur))  # EDP del nodo = (E_cpu + E_gpu) * T
+print("\n=== por kernel y nivel de CPU: medianas de 3 corridas; razones frente a REF (menor = mejor) ===")
+print(f"{'kernel':30s} {'nivel':>8s} {'T(s)':>7s} {'E_cpu(J)':>9s} {'E_gpu(J)':>9s} {'E_tot(J)':>9s} | {'T':>6s} {'E_cpu':>6s} {'E_tot':>6s} {'EDP':>6s}")
 for k in sorted({k for k, _ in d}):
-    ref = st.median(d[(k, "REF")]) if d.get((k, "REF")) else float("nan")
+    ref = [st.median(x[i] for x in d[(k, "REF")]) for i in range(4)]
     for lvl in ("REF", "3200000", "2900000", "2000000", "800000"):
         v = d.get((k, lvl))
-        if v: print(f"  {k:32s} {lvl:>8s}  mediana={st.median(v):7.2f}s  n={len(v)}  vs REF x{st.median(v)/ref:.3f}  (min {min(v):.2f} max {max(v):.2f})")
+        if not v: continue
+        m = [st.median(x[i] for x in v) for i in range(4)]
+        print(f"{k:30s} {lvl:>8s} {m[0]:7.2f} {m[1]:9.1f} {m[2]:9.1f} {m[1]+m[2]:9.1f} | x{m[0]/ref[0]:.3f} x{m[1]/ref[1]:.3f} x{(m[1]+m[2])/(ref[1]+ref[2]):.3f} x{m[3]/ref[3]:.3f}")
 PY
 echo "estado final: no_turbo=$(cat $C/intel_pstate/no_turbo) (original $ORIG_NO_TURBO) cpu0 min/max=$(cat $C/cpu0/cpufreq/scaling_min_freq)/$(cat $C/cpu0/cpufreq/scaling_max_freq)"
