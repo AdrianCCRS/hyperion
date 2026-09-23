@@ -1,0 +1,242 @@
+{
+ "schema_version": 1,
+ "generated_at_utc": "2026-09-23T00:05:12.878096+00:00",
+ "device": "gpu",
+ "reference_level": "REF",
+ "inputs": {
+  "historical_gpu_relaxed020_20260922.csv": "1031060ec758027a7f31d757ccd0e8648c72bd9a20389e19aa9844722d518dbd"
+ },
+ "excluded_kernels": {
+  "motivo": "una sola repeticion, un solo nivel (REF), sin pares posibles",
+  "kernels": [
+   "minibude_cuda_bm1"
+  ]
+ },
+ "ambiguous_class_note": "kernels con margen de mayoria de clase < 0.75 (el ridge se desplaza con el nivel de frecuencia mientras la OI ncu es constante por kernel; ver kernel_class.csv col. margin/ambiguous) se mantienen en la clase mayoritaria pero no se excluyen: excluirlos seria seleccionar datos por resultado",
+ "policy": {
+  "gpu-compute_bound": {
+   "action": "no_actuar",
+   "reason": "mejora_no_significativa",
+   "reason_detail": "algun nivel mejora el EDP agregado frente a REF pero sin significancia (prueba pareada por kernel)",
+   "best_candidate": {
+    "level": "F1",
+    "gain_agg": 0.1134,
+    "gain_ci95": [
+     -0.0372,
+     0.1825
+    ],
+    "p": 0.625
+   },
+   "n_kernels": 5,
+   "n_ambiguous_class_excluded_note": 0,
+   "reference_level": "REF",
+   "sample_unit": "kernel (mediana de sus repeticiones aceptadas)",
+   "test": "wilcoxon/t pareado por kernel contra REF (common.stats.paired_significance_test)",
+   "alpha": 0.05,
+   "min_effect": 0.01,
+   "levels_tested": {
+    "F0": {
+     "gain_agg": 0.0009,
+     "gain_ci95": [
+      -0.0001,
+      0.0227
+     ],
+     "median_ratio": 0.9994,
+     "p": 0.375,
+     "significant": false
+    },
+    "F1": {
+     "gain_agg": 0.1134,
+     "gain_ci95": [
+      -0.0372,
+      0.1825
+     ],
+     "median_ratio": 0.9657,
+     "p": 0.625,
+     "significant": false
+    },
+    "F2": {
+     "gain_agg": 0.0225,
+     "gain_ci95": [
+      -0.1517,
+      0.2323
+     ],
+     "median_ratio": 1.1425,
+     "p": 1.0,
+     "significant": false
+    },
+    "F3": {
+     "gain_agg": -0.0895,
+     "gain_ci95": [
+      -0.312,
+      0.2239
+     ],
+     "median_ratio": 1.2825,
+     "p": 0.8125,
+     "significant": false
+    },
+    "F4": {
+     "gain_agg": -0.3695,
+     "gain_ci95": [
+      -0.7189,
+      0.147
+     ],
+     "median_ratio": 1.6729,
+     "p": 0.3125,
+     "significant": false
+    },
+    "F5": {
+     "gain_agg": -0.7758,
+     "gain_ci95": [
+      -1.2634,
+      0.0199
+     ],
+     "median_ratio": 2.1959,
+     "p": 0.1875,
+     "significant": false
+    },
+    "F6": {
+     "gain_agg": -1.4094,
+     "gain_ci95": [
+      -1.9926,
+      -0.0894
+     ],
+     "median_ratio": 2.9487,
+     "p": 0.1875,
+     "significant": false
+    },
+    "F7": {
+     "gain_agg": -2.735,
+     "gain_ci95": [
+      -3.4323,
+      -0.3154
+     ],
+     "median_ratio": 3.8285,
+     "p": 0.0625,
+     "significant": false
+    },
+    "F8": {
+     "gain_agg": -7.0861,
+     "gain_ci95": [
+      -8.1426,
+      -1.0244
+     ],
+     "median_ratio": 9.0844,
+     "p": 0.0625,
+     "significant": false
+    }
+   },
+   "chosen_level": null
+  },
+  "gpu-memory_bound": {
+   "action": "actuar",
+   "gain": 0.1687,
+   "gain_ci95": [
+    0.1211,
+    0.1912
+   ],
+   "p": 0.031016136419341384,
+   "n_pairs": 9,
+   "n_kernels": 9,
+   "n_ambiguous_class_excluded_note": 1,
+   "reference_level": "REF",
+   "sample_unit": "kernel (mediana de sus repeticiones aceptadas)",
+   "test": "wilcoxon/t pareado por kernel contra REF (common.stats.paired_significance_test)",
+   "alpha": 0.05,
+   "min_effect": 0.01,
+   "levels_tested": {
+    "F0": {
+     "gain_agg": -0.004,
+     "gain_ci95": [
+      -0.0161,
+      0.0081
+     ],
+     "median_ratio": 0.9971,
+     "p": 0.5457,
+     "significant": false
+    },
+    "F1": {
+     "gain_agg": 0.1351,
+     "gain_ci95": [
+      0.1124,
+      0.1466
+     ],
+     "median_ratio": 0.8692,
+     "p": 0.0213,
+     "significant": true
+    },
+    "F2": {
+     "gain_agg": 0.1687,
+     "gain_ci95": [
+      0.1211,
+      0.1912
+     ],
+     "median_ratio": 0.8667,
+     "p": 0.031,
+     "significant": true
+    },
+    "F3": {
+     "gain_agg": 0.1383,
+     "gain_ci95": [
+      0.052,
+      0.1795
+     ],
+     "median_ratio": 0.8745,
+     "p": 0.0673,
+     "significant": false
+    },
+    "F4": {
+     "gain_agg": 0.0553,
+     "gain_ci95": [
+      -0.0843,
+      0.1272
+     ],
+     "median_ratio": 0.9803,
+     "p": 0.3763,
+     "significant": false
+    },
+    "F5": {
+     "gain_agg": -0.0484,
+     "gain_ci95": [
+      -0.2475,
+      0.0648
+     ],
+     "median_ratio": 1.1552,
+     "p": 0.4989,
+     "significant": false
+    },
+    "F6": {
+     "gain_agg": -0.0677,
+     "gain_ci95": [
+      -0.2918,
+      0.0706
+     ],
+     "median_ratio": 1.2192,
+     "p": 0.4421,
+     "significant": false
+    },
+    "F7": {
+     "gain_agg": -0.095,
+     "gain_ci95": [
+      -0.3706,
+      0.085
+     ],
+     "median_ratio": 1.1904,
+     "p": 0.4313,
+     "significant": false
+    },
+    "F8": {
+     "gain_agg": -0.3039,
+     "gain_ci95": [
+      -0.894,
+      0.0855
+     ],
+     "median_ratio": 1.2072,
+     "p": 0.6523,
+     "significant": false
+    }
+   },
+   "chosen_level": "F2"
+  }
+ }
+}

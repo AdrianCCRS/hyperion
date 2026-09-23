@@ -27,6 +27,11 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+# Solo para fase3_daemon/cpu_loop/export_onnx.py (conversión offline del
+# candidato CPU a ONNX, §4.3 punto 3 del plan de realineación) -- el
+# daemon en producción consume el SDK C++ de ONNX Runtime (conda,
+# environment-hyperion-verify.yml), no estos paquetes Python.
+onnx-export = ["onnx", "onnxruntime", "skl2onnx", "onnxmltools"]
 
 [tool.setuptools.packages.find]
 # Solo los paquetes Python reales de las 4 fases + common/ -- excluye

@@ -128,24 +128,27 @@ def build_controller_from_policy(
     policy: dict[str, Any], min_dwell_ns: int, set_clock: Callable[[int], bool],
 ) -> GpuClockController:
     """Construye el GpuClockController a partir de la tabla de política ya
-    derivada (fase3_daemon/policy/derive_policy_table.py) -- nunca
-    hardcodea los MHz objetivo en el daemon (§3.5 paso 7 del plan: "nunca
-    hardcodear esta tabla en el código del daemon").
+    derivada en Fase 2 (fase2_clasificador/analysis/gpu_policy_table.py +
+    gpu_policy_by_family.py) y combinada por
+    fase3_daemon/policy/build_policy_table.py -- nunca hardcodea los MHz
+    objetivo en el daemon (§3.5 paso 7 del plan: "nunca hardcodear esta
+    tabla en el código del daemon").
 
-    Si la política para una clase es "no_actuar" (incluyendo el caso real
-    de hoy, T_transición_gpu no medido), el reloj objetivo de esa clase es
-    0 -- interpretado aguas abajo por el llamador como "no bloquear el
-    reloj", no como un MHz real a solicitar. Queda a criterio del llamador
-    decidir si eso significa restaurar el gobernador nativo o simplemente
-    no tocar la GPU en absoluto para esa clase.
+    Si la política para una clase es "no_actuar" (hoy: compute_bound en
+    ambos dispositivos, y memory_bound de GPU mientras el candado de reloj
+    siga averiado -- ver Plan_Fase3_Daemon.md Bloque D), el reloj objetivo
+    de esa clase es 0 -- interpretado aguas abajo por el llamador como "no
+    bloquear el reloj", no como un MHz real a solicitar. Queda a criterio
+    del llamador decidir si eso significa restaurar el gobernador nativo o
+    simplemente no tocar la GPU en absoluto para esa clase.
 
-    El reloj objetivo viene directamente de `resolved_clock_mhz`
-    (mediana del reloj REAL observado en la campaña de barrido, no una
-    resolución de fracción hecha aquí) -- ver
-    `fase3_daemon/policy/derive_policy_table.py::_median_observed_frequency()`.
-    La tabla de política es autocontenida a propósito: no requiere que el
-    daemon tenga a mano el manifiesto de campaña que definió qué fracción
-    correspondía a "F0" para poder aplicar la política.
+    El reloj objetivo viene directamente de `resolved_clock_mhz` (mediana
+    del reloj REAL observado en la campaña de barrido, no una resolución
+    de fracción hecha aquí) -- ver
+    `fase3_daemon/policy/build_policy_table.py::gpu_entry()`. La tabla de
+    política es autocontenida a propósito: no requiere que el daemon tenga
+    a mano el manifiesto de campaña que definió qué fracción correspondía
+    a "F1" para poder aplicar la política.
     """
     def _target_mhz(key: str) -> int:
         entry = policy.get(key, {})
@@ -156,7 +159,7 @@ def build_controller_from_policy(
             raise ValueError(
                 f"{key}: política 'actuar' sin 'resolved_clock_mhz' -- "
                 "tabla de política incompleta o generada por una versión "
-                "vieja de derive_policy_table.py"
+                "vieja de build_policy_table.py"
             )
         return int(round(resolved))
 

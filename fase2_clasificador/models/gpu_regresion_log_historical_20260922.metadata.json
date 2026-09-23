@@ -1,0 +1,38 @@
+{
+  "schema": "gpu_historical_candidate/1",
+  "model": "regresion_log",
+  "features": [
+    "gpu_util_pct_median",
+    "gpu_mem_util_pct_median",
+    "gpu_power_mw_median",
+    "gpu_sm_clock_mhz_median",
+    "gpu_mem_util_pct_std"
+  ],
+  "label": "phase_label_train",
+  "candidates_compared": [
+    "regresion_log",
+    "random_forest",
+    "extra_trees"
+  ],
+  "candidates_cell_balanced_acc": {
+    "regresion_log": 0.7924,
+    "random_forest": 0.8074,
+    "extra_trees": 0.8064
+  },
+  "candidates_latency_us": {
+    "regresion_log": { "p50": 400.9, "p95": 413.8, "p99": 466.9 },
+    "random_forest": { "p50": null, "p95": null, "p99": 5512.2 },
+    "extra_trees": { "p50": null, "p95": null, "p99": 4989.9 }
+  },
+  "latency_provenance": "Cifras del texto del libro (docs/libro/secciones/03_resultados.tex, tabla de latencia de la ronda 2026-09-22), medidas EN paccaA100, el nodo de destino real. Los pesos de este .joblib se reprodujeron localmente (mismos datos, mismas features, mismo seed=2000) para exportarlos al repo sin volver a correr computo real en el clúster; NO se remidió latencia en la laptop local (una corrida de prueba dio p50=281.4us/p95=307.2us/p99=350.9us, descartada por no ser representativa del hardware de destino, per feedback-never-run-compute-locally). random_forest/extra_trees solo tienen su p99 documentado en el libro; p50/p95 quedan en null hasta remedir en pacca si algún día se necesitan.",
+  "selection_criterion": "empate estadistico por bootstrap pareado de familias (P entre 0.53 y 0.60 entre los 3); desempate por score=(1-cell_balanced_acc)+latency_weight*(p99/max_p99), mismo criterio que train_phase.py/train_phase_gpu.py::select_best_model",
+  "latency_weight": 0.2,
+  "n_rows": 483,
+  "n_families": 16,
+  "source": "tmp/historical_gpu_relaxed020_20260922.csv",
+  "seed": 2000,
+  "dataset_contract": "granularity=run, etiqueta ncu constante -- NO el dataset por ventana CUPTI",
+  "fitted_on": "todas las filas disponibles (sin retener ninguna familia), igual que el modelo final de CPU",
+  "measured_on_node": "paccaA100 (nodo de destino real para el daemon GPU) -- ver latency_provenance",
+  "weights_sha256": "87dd3bee3b17fb426a28b2bc334e9060f1240e870e8de194b11f10d3aca0a9f4"
+}

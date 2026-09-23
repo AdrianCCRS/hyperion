@@ -60,6 +60,7 @@ def poll_phase_events(
     now_fn: Callable[[], int] = time.monotonic_ns,
     sleep_fn: Callable[[float], None] = time.sleep,
     on_end: Callable[[int], None] | None = None,
+    on_sample: Callable[[GpuFeatures], None] | None = None,
     max_events: int | None = None,
 ) -> Iterator[PhaseBeginEvent]:
     """Sondea `query_features_fn()` cada `poll_interval_s` segundos y genera
@@ -74,6 +75,16 @@ def poll_phase_events(
     no cambia el estado interno -- se trata como "sin señal esta muestra",
     nunca se fabrica una transición con datos ausentes.
 
+    `on_sample`, si se pasa, se llama con CADA muestra no-`None`, en cada
+    tick, sin importar si hubo transición -- no solo en el instante de
+    inicio de fase. Existe para que un clasificador con estado
+    (`gpu_loop/classifier.py::HistoricalGpuClassifier`) pueda mantener un
+    buffer móvil de muestras recientes y aproximar así la mediana/desviación
+    estándar con las que se entrenó el modelo (calculadas sobre TODA una
+    corrida histórica, no sobre una sola instantánea) -- ver ese módulo
+    para la discusión completa de por qué es una aproximación causal y no
+    una reproducción exacta de esa definición.
+
     `max_events` es solo para pruebas (detiene el generador tras N eventos
     de inicio); en producción se deja en `None` y el generador corre
     indefinidamente. `now_fn`/`sleep_fn` son inyectables para poder probar
@@ -84,6 +95,8 @@ def poll_phase_events(
     while max_events is None or emitted < max_events:
         features = query_features_fn()
         if features is not None:
+            if on_sample is not None:
+                on_sample(features)
             active_now = features.gpu_util_pct > activity_threshold_pct
             now = now_fn()
             if active_now and not is_active:

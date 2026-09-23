@@ -93,6 +93,30 @@ def test_features_none_no_cambia_el_estado():
     assert events[1].features.gpu_util_pct == 60.0  # la lectura del índice 5, tras el idle del índice 4
 
 
+def test_on_sample_se_llama_en_cada_muestra_no_none_sin_importar_transicion():
+    # activo, activo (sin transicion), None (sin señal), idle -> on_sample
+    # debe verse en las 3 muestras no-None, no solo en la unica transicion
+    # idle->activo (que aqui ni siquiera ocurre, arranca ya activo).
+    readings = [50.0, 55.0, None, 1.0]
+    query = _fake_source(readings)
+    now_values = iter(range(len(readings)))
+    samples = []
+
+    def bounded():
+        try:
+            return query()
+        except StopIteration:
+            raise RuntimeError("fin")
+
+    with pytest.raises(RuntimeError):
+        list(poll_phase_events(
+            bounded, activity_threshold_pct=5.0,
+            now_fn=lambda: next(now_values), sleep_fn=lambda _s: None,
+            on_sample=lambda f: samples.append(f.gpu_util_pct), max_events=None,
+        ))
+    assert samples == [50.0, 55.0, 1.0]  # nunca se llama con la muestra None
+
+
 def test_sleep_fn_se_invoca_cada_iteracion():
     readings = [1.0, 1.0, 1.0]
     query = _fake_source(readings)

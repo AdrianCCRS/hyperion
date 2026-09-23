@@ -1,0 +1,22 @@
+{
+  "schema": "cpu_onnx_export/1",
+  "source_joblib": "fase2_clasificador/models/xgboost_cpu.joblib",
+  "source_joblib_sha256": "48172683ed567839b51df84a6889735aa1cc513b5b21fb1f84178a85177bc4cb",
+  "features_in_order": [
+    "ipc",
+    "mpki",
+    "cache_miss_rate",
+    "stall_mem_ratio",
+    "ips",
+    "freq_khz_observed"
+  ],
+  "threshold": 0.85,
+  "verification": {
+    "n_rows": 1169833,
+    "max_diff_proba": 2.980232238769531e-07,
+    "worst_row": 467028,
+    "label_mismatches": 0,
+    "tol": 0.0001,
+    "verify_source": "tmp/cpu_quality_20260918/source.csv"
+  }
+}

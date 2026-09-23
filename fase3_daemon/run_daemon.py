@@ -4,6 +4,7 @@ de usuario.
 
 ⚠️ **Estado real, léase antes de usar**: este script arranca el loop de
 GPU completo (sondeo de actividad NVML vía `gpu_loop/activity_poller.py`
++ clasificador real `gpu_loop/classifier.py::HistoricalGpuClassifier`
 + controller + actuación real vía `common.hpc.gpu_freqctl`) y el manejo de
 señales/restauración combinada (§4.2/§4.3 punto 8). La fuente de eventos
 de fase es sondeo, no intercepción de `cudaLaunchKernel` -- esa vía se
@@ -19,6 +20,16 @@ reconstrucción (falta un modelo real entrenado -- el SDK C++ de ONNX
 Runtime ya está disponible, ver `fase3_daemon/README.md`, limitaciones
 conocidas). Correr este script hoy da el loop de GPU en vivo; el loop de
 CPU debe lanzarse por separado en cuanto exista ese binario.
+
+**Brazos del experimento de Fase 4** (`Plan_Fase3_Daemon.md` §0.1): `--dry-run`
+es el brazo *sombra* -- clasifica y decide exactamente igual que en
+producción, se detiene justo antes de escribir el reloj real. Sin esa
+bandera es el brazo *activo*. El brazo *base* es, simplemente, no correr
+este script. Hoy la política de `memory_bound` en GPU es la única
+`actuar` (F1, +8.9% EDP), y el brazo *activo* para esa clase sigue
+bloqueado por H1 (candado de reloj averiado) -- el resto del daemon
+(clasificación, decisión, registro) es válido y puede probarse en *sombra*
+sin esperar a que H1 se repare.
 
 Modo (a) por defecto: opera sobre un cpuset/cgroup delegado (no descubre
 ni delega el cpuset por sí solo -- eso lo hace el job de Slurm que lanza
@@ -44,6 +55,9 @@ from common.hpc import environment as environment_module  # noqa: E402
 from common.hpc import freqctl, gpu_freqctl  # noqa: E402
 from fase3_daemon.gpu_loop import activity_poller  # noqa: E402
 from fase3_daemon.gpu_loop import loop as gpu_loop_module  # noqa: E402
+from fase3_daemon.gpu_loop.classifier import HistoricalGpuClassifier  # noqa: E402
+
+_DEFAULT_MODELS_DIR = _REPO_ROOT / "fase2_clasificador" / "models"
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +81,7 @@ def build_daemon_gpu_loop(
     query_features_fn=None,
     max_events: int | None = None,
     sleep_fn=time.sleep,
+    on_sample=None,
 ):
     """Ensambla el loop de GPU real a partir de la tabla de política ya
     derivada (§3.4/§3.5) -- nunca recalcula EDP en línea (§3.4 punto 4:
@@ -98,7 +113,7 @@ def build_daemon_gpu_loop(
     events = activity_poller.poll_phase_events(
         query_fn, poll_interval_s=poll_interval_s,
         activity_threshold_pct=activity_threshold_pct, on_end=on_end,
-        max_events=max_events, sleep_fn=sleep_fn,
+        max_events=max_events, sleep_fn=sleep_fn, on_sample=on_sample,
     )
     return gpu_loop_module.run(events, controller, classify_fn=classify_fn, on_decision=on_decision)
 
@@ -126,7 +141,7 @@ def _install_restore_handlers(env, gpu_index: int | str | None) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--policy-table", type=Path, required=True,
-                         help="policy_table.yaml producido por fase3_daemon/policy/derive_policy_table.py")
+                         help="policy_table.yaml producido por fase3_daemon/policy/build_policy_table.py")
     parser.add_argument("--gpu-index", default=None)
     parser.add_argument("--min-dwell-ns", type=int, required=True,
                          help="Piso de permanencia de reloj GPU (§2.4.1) -- debe venir de T_transición_gpu "
@@ -142,8 +157,18 @@ def main() -> int:
     parser.add_argument("--pid", type=int, default=None,
                          help="Requerido si --mode pid (§4.3 punto 1, modo de prueba dirigida).")
     parser.add_argument("--dry-run", action="store_true",
-                         help="Clasifica y decide, pero solo registra en log -- no escribe frecuencia real "
-                              "(§4.3 punto 9, validar antes de tocar hardware real).")
+                         help="Brazo 'sombra' (Plan_Fase3_Daemon.md SS0.1): clasifica y decide igual que en "
+                              "produccion, pero se detiene justo antes de escribir el reloj real -- no un atajo "
+                              "que se salte la inferencia. Sin esta bandera: brazo 'activo'.")
+    parser.add_argument("--models-dir", type=Path, default=_DEFAULT_MODELS_DIR,
+                         help=f"Directorio con {{nombre}}.joblib + {{nombre}}.metadata.json del candidato GPU "
+                              f"(default: {_DEFAULT_MODELS_DIR}).")
+    parser.add_argument("--model-name", default="gpu_regresion_log_historical_20260922",
+                         help="Nombre base del candidato exportado (sin extensión).")
+    parser.add_argument("--classifier-window", type=int, default=None,
+                         help="Muestras NVML del buffer movil para mediana/std (default: "
+                              "HistoricalGpuClassifier.DEFAULT_WINDOW_SIZE). Ver gpu_loop/classifier.py "
+                              "para la discusion de por que es una aproximacion causal.")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -161,11 +186,16 @@ def main() -> int:
         "fase3_daemon/README.md. Arrancando solo el loop de GPU."
     )
 
-    def classify_placeholder(features):
-        raise NotImplementedError(
-            "no existe todavía un clasificador de GPU entrenado -- ver "
-            "fase2_clasificador/README.md, limitaciones conocidas"
-        )
+    classifier_kwargs = {}
+    if args.classifier_window is not None:
+        classifier_kwargs["window_size"] = args.classifier_window
+    classifier = HistoricalGpuClassifier.from_export_dir(
+        args.models_dir, name=args.model_name, **classifier_kwargs,
+    )
+    logger.info(
+        "clasificador GPU cargado: %s (variables=%s, brazo=%s)",
+        args.model_name, classifier._feature_names, "sombra" if args.dry_run else "activo",
+    )
 
     try:
         build_daemon_gpu_loop(
@@ -173,7 +203,8 @@ def main() -> int:
             gpu_index=args.gpu_index,
             min_dwell_ns=args.min_dwell_ns,
             dry_run=args.dry_run,
-            classify_fn=classify_placeholder,
+            classify_fn=classifier.classify,
+            on_sample=classifier.record_sample,
             poll_interval_s=args.poll_interval_s,
             activity_threshold_pct=args.activity_threshold_pct,
         )

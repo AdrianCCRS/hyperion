@@ -10,10 +10,11 @@ ejecución inferida. Ver `Plan_Detallado_Realineacion_Hyperion.md` §4.
 | Pieza | Estado | Por qué |
 |---|---|---|
 | `actuation/actuator.py` (`HardwareFrequencyActuator`) | ✅ Portado y probado (5/5 tests) | Ya era código Python autocontenido en `fase-02`, sin acoplamiento al selector como se pensó inicialmente |
-| `policy/derive_policy_table.py` | ✅ Construido y probado (7/7 tests, datos sintéticos) | Envuelve `fase2_clasificador/eval/protocol.py` + `common/stats.py`, ambos ya probados |
+| `policy/build_policy_table.py` | ✅ Construido, probado de punta a punta contra `build_controller_from_policy()` real | Combina las tablas ya derivadas en Fase 2 (unidad correcta), retirado `derive_policy_table.py` (EDP por ventana, unidad equivocada — ver §"La tabla de política") |
 | `gpu_loop/controller.py` | ✅ Puerto fiel de `gpu_clock_controller.hpp`, verificado con los MISMOS casos que su test C++ (2/2) | Máquina de estados pura, sin NVML/CUDA |
 | `gpu_loop/activity_poller.py` (fuente de eventos de fase, Opción C) | ✅ Construido y probado (6/6 tests) | Sondeo de `gpu_util_pct` vía NVML -- ver el hallazgo que motivó esta elección más abajo |
-| `gpu_loop/loop.py` (incluye `query_gpu_features`) | ✅ Construido y probado (10/10 tests) | El clasificador de GPU real no existe (`classify_fn` inyectable, ver limitaciones) |
+| `gpu_loop/loop.py` (incluye `query_gpu_features`) | ✅ Construido y probado (10/10 tests) | `classify_fn` inyectable -- `run_daemon.py` ya cablea `gpu_loop/classifier.py::HistoricalGpuClassifier` real |
+| `gpu_loop/classifier.py` (`HistoricalGpuClassifier`) | ✅ Construido y probado (10/10 tests, incluido contra el `.joblib` real) | Carga el candidato de Fase 2 (`fase2_clasificador/models/gpu_regresion_log_historical_20260922.joblib`) y aproxima con un buffer móvil la mediana/std con que se entrenó -- ver limitaciones abajo |
 | `run_daemon.py` | ✅ Construido y probado en `--dry-run` (2/2 tests de integración) | Arranca el loop de GPU completo; el loop de CPU no está integrado |
 | `cpu_loop/include/cpu_phase_controller.hpp` | ✅ Compilado y probado con CTest (1/1) | Máquina de decisión pura, sin dependencias de ONNX/collector.hpp |
 | `common/telemetry` con `-DWITH_GPU=ON` real | ✅ Recompilado y probado contra NVML/GPU reales (13/13 CTest, incluido `collector_gpu_cadence_test`) | Verificado con un entorno conda con CUDA real (`environment-hyperion-verify.yml`) |
@@ -132,25 +133,44 @@ mismo un binario GPU (hoy no lo hace: opera sobre procesos ya en marcha o
 dentro de un cpuset delegado), puede reutilizar `common/hpc/gpu_shim.py`
 directamente para ese caso, sin necesidad de una copia propia.
 
-## La tabla de política (`policy/derive_policy_table.py`)
+## La tabla de política (`policy/build_policy_table.py`)
 
-Script offline (§3.5): agrega EDP por `(device, phase_label_train,
-freq_level_id)` desde `windows.csv` de una campaña de barrido cerrada,
-mediana por kernel, prueba de significancia pareada
-(`common/stats.py::paired_significance_test`) antes de elegir un nivel
-distinto de REF. La tabla resultante es **autocontenida**: cada entrada
-`actuar` incluye `resolved_freq_khz`/`resolved_clock_mhz` (mediana del
-reloj REAL observado en la campaña, no el solicitado) — el daemon nunca
-necesita volver a resolver un ID de nivel contra un manifiesto de campaña.
+**La derivación NO vive en Fase 3.** Un primer diseño (`derive_policy_table.py`,
+retirado 2026-09-23, ver `Plan_Fase3_Daemon.md` §0.3) calculaba el EDP por
+*ventana* (~1ms) agregada desde `windows.csv` — exactamente la unidad que
+el libro rechaza explícitamente: a frecuencia baja una ventana de duración
+fija cubre menos trabajo que a frecuencia alta, así que `energía_ventana ×
+Δt_ventana` mide potencia, no energía-retardo del trabajo. Habría producido,
+en silencio, una tabla distinta de la que sustenta el libro.
 
-Para GPU, sin `--t-transicion-gpu-ns` medido, la política de ambas clases
-queda **siempre en `no_actuar`** — no es un default conservador arbitrario,
-es honesto sobre que no existe todavía esa medición en el proyecto (§2.4.1).
+La derivación real vive en Fase 2 (`fase2_clasificador/analysis/
+cpu_policy_table.py` y `gpu_policy_table.py`/`gpu_policy_by_family.py`),
+con la corrida completa (CPU) o el kernel/familia (GPU) como unidad, IC95
+por bootstrap y validación *leave-one-familia-out* — son los scripts que
+realmente produjeron los números y figuras del libro.
+
+`policy/build_policy_table.py` **no deriva nada**: combina las dos tablas
+ya comprometidas en el repo (`docs/libro/datos/cpu_calidad_30fam/politica/
+policy_cpu.json` y `docs/libro/datos/gpu_calidad_20260922/politica/
+policy_by_family.json` — nunca `policy_gpu.json`, que es el análisis por
+kernel sin des-duplicar y elige F2 en vez del F1 defendido en el libro) y
+resuelve la frecuencia física real de cada entrada `actuar` consultando el
+dataset de la campaña. La tabla resultante es **autocontenida**: cada
+entrada `actuar` incluye `resolved_freq_khz`/`resolved_clock_mhz` (mediana
+del reloj REAL observado, no el solicitado) — el daemon nunca necesita
+resolver un ID de nivel contra un manifiesto de campaña.
+
+Hoy: `cpu-compute_bound`/`cpu-memory_bound`/`gpu-compute_bound` en
+`no_actuar`; `gpu-memory_bound` en `actuar @ F1 (1260 MHz)` — la única
+clase con ganancia medida (+8.9% EDP), bloqueada para el brazo `activo`
+hasta que el candado de reloj de GPU se repare (Bloque D).
 
 ```bash
-python3 fase3_daemon/policy/derive_policy_table.py \
-    ~/hyperion-results/campaigns/mi_campana/*/windows.csv \
-    --campaign-id mi_campana --output fase3_daemon/policy_table.yaml
+python3 fase3_daemon/policy/build_policy_table.py \
+    --cpu-policy docs/libro/datos/cpu_calidad_30fam/politica/policy_cpu.json \
+    --gpu-policy docs/libro/datos/gpu_calidad_20260922/politica/policy_by_family.json \
+    --gpu-dataset tmp/historical_gpu_relaxed020_20260922.csv \
+    --out fase3_daemon/policy_table.yaml
 ```
 
 ## Uso de `run_daemon.py`
@@ -179,9 +199,15 @@ cmake -S fase3_daemon/cpu_loop -B fase3_daemon/cpu_loop/build && \
 
 ## Limitaciones conocidas (además de la tabla de arriba)
 
-- No hay clasificador de GPU entrenado (`classify_fn` inyectable en
-  `gpu_loop/loop.py`, lanza `NotImplementedError` si se usa el placeholder
-  fuera de pruebas).
+- `HistoricalGpuClassifier` aproxima la mediana/desviación estándar con
+  que se entrenó el modelo (agregadas sobre una corrida histórica
+  completa) mediante un buffer móvil causal de las últimas `window_size`
+  muestras NVML sondeadas (default 20, ~1s a 50ms de sondeo) -- **no es la
+  misma definición**, y no hay todavía ninguna medición de cuánto cuesta
+  esa diferencia en exactitud. Ver el docstring completo de
+  `gpu_loop/classifier.py` para la discusión, y `Plan_Fase3_Daemon.md`
+  Bloque C para cuándo se cierra (Fase 4, contra las fronteras de fase
+  conocidas de las aplicaciones compuestas construidas a mano).
 - La detección de fase por sondeo (Opción C) tiene latencia igual a
   `--poll-interval-s`, no es instantánea — ver "Historial de diseño"
   arriba para el porqué y las dos alternativas (a)/(b) que sí serían

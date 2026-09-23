@@ -1,0 +1,34 @@
+schema_version: 1
+generated_at_utc: '2026-09-23T01:45:08.045429+00:00'
+generator: fase3_daemon/policy/build_policy_table.py
+note: Combina policy_cpu.json (kernel, IC95 bootstrap) y policy_by_family.json (familia,
+  des-duplicado) de Fase 2. No recalcula EDP; ver Plan_Fase3_Daemon.md SS0.3.
+policy:
+  cpu-compute_bound:
+    action: no_actuar
+    n_kernels: 19
+    reason: efecto_bajo_minimo
+    source: docs/libro/datos/cpu_calidad_30fam/politica/policy_cpu.json
+  gpu-compute_bound:
+    n_familias: 5
+    source: docs/libro/datos/gpu_calidad_20260922/politica/policy_by_family.json
+    lofo_ganancia_realizada: -0.0482
+    action: no_actuar
+    reason: ningun_nivel_familia_mejora_edp_de_forma_significativa
+  cpu-memory_bound:
+    action: no_actuar
+    n_kernels: 28
+    reason: mejora_no_significativa
+    source: docs/libro/datos/cpu_calidad_30fam/politica/policy_cpu.json
+  gpu-memory_bound:
+    n_familias: 8
+    source: docs/libro/datos/gpu_calidad_20260922/politica/policy_by_family.json
+    lofo_ganancia_realizada: 0.0647
+    action: actuar
+    chosen_level: F1
+    gain: 0.0891
+    gain_ci95:
+    - 0.0301
+    - 0.1325
+    p: 0.0195
+    resolved_clock_mhz: 1260
