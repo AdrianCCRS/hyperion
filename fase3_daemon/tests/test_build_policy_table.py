@@ -169,7 +169,6 @@ def test_main_end_to_end(tmp_path):
     assert doc["policy"]["gpu-compute_bound"]["action"] == "no_actuar"
     assert doc["policy"]["cpu-compute_bound"]["action"] == "no_actuar"
 
-    # el resultado debe cargar sin error en el consumidor real del daemon
-    from fase3_daemon.gpu_loop.loop import build_controller_from_policy
-    controller = build_controller_from_policy(doc["policy"], min_dwell_ns=1, set_clock=lambda mhz: True)
-    assert controller is not None
+    # el resultado debe ser consumible por el lanzador real del daemon de GPU (C++): 0 = no actuar, 1260 en memory
+    from fase3_daemon.gpu_loop_cpp.launch_gpu_daemon import gpu_flags
+    assert gpu_flags(doc["policy"]) == ["--compute-clock-mhz", "0", "--memory-clock-mhz", "1260"]
