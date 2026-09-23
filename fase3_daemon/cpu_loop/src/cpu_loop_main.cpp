@@ -86,6 +86,7 @@ struct Args {
     // cuesta ~28 ms (preflight job 7592) vs un tick de ~1 ms; 50 ventanas ~ 50 ms de estabilidad.
     unsigned int min_dwell_windows = 50;
     bool switch_pin_min = true;   // false: solo se escribe el techo (ver CpuFreqActuatorConfig::pin_min)
+    unsigned int gpu_active_floor_khz = 0;  // piso de CPU mientras el daemon de GPU reporta actividad (0 = sin barrera)
     bool switch_parallel = true;  // escrituras por CPU en hilos: 27.9 -> 2.85 ms medido (job 7596); --switch-parallel 0 lo desactiva
 };
 
@@ -94,7 +95,7 @@ struct Args {
         "uso: %s --arm {sombra|activo} --perf-cpus 0,1,2,3 [--model xgboost_cpu.onnx] [--threshold 0.85]\n"
         "  [--target-pid PID] [--collector-cpu N] [--consumer-cpu N] [--log-path RUTA]\n"
         "  [--gpu-active-signal-path RUTA] [--sysfs-cpu-root RUTA] [--no-manage-turbo]\n"
-        "  [--min-dwell-windows N] [--switch-pin-min 0|1] [--switch-parallel 0|1]\n"
+        "  [--min-dwell-windows N] [--switch-pin-min 0|1] [--switch-parallel 0|1] [--gpu-active-floor-khz N]\n"
         "  [--interval-ns 1000000] [--cpu-freq-sysfs-path RUTA]\n"
         "  [--compute-actuar --compute-freq-khz N] [--memory-actuar --memory-freq-khz N] [-v]\n"
         "--arm es obligatorio (Plan_Fase3_Daemon.md SS0.1, requisito 1): 'sombra' corre exactamente\n"
@@ -146,6 +147,7 @@ Args parse_args(int argc, char** argv) {
         else if (arg == "--min-dwell-windows") a.min_dwell_windows = std::stoul(need("--min-dwell-windows"));
         else if (arg == "--switch-pin-min") a.switch_pin_min = (need("--switch-pin-min") == "1");
         else if (arg == "--switch-parallel") a.switch_parallel = (need("--switch-parallel") == "1");
+        else if (arg == "--gpu-active-floor-khz") a.gpu_active_floor_khz = std::stoul(need("--gpu-active-floor-khz"));
         else if (arg == "-v" || arg == "--verbose") a.verbose = true;
         else if (arg == "-h" || arg == "--help") usage_and_exit(argv[0]);
         else { std::fprintf(stderr, "flag desconocida: %s\n", arg.c_str()); usage_and_exit(argv[0]); }
@@ -202,6 +204,9 @@ int main(int argc, char** argv) {
     ctrl_cfg.compute_bound = {args.compute_actuar, args.compute_freq_khz};
     ctrl_cfg.memory_bound = {args.memory_actuar, args.memory_freq_khz};
     ctrl_cfg.min_consecutive_windows = args.min_dwell_windows;
+    // Barrera de coordinacion (ver cpu_phase_controller.hpp): con actividad de GPU la CPU nunca baja de este piso.
+    // Requiere --gpu-active-signal-path; 0 = sin barrera.
+    ctrl_cfg.gpu_active_floor_khz = args.gpu_active_floor_khz;
     // Brazo 'activo' con alguna clase en actuar: actuador real (punto 2 del
     // docstring). En 'sombra', o 'activo' sin nada que escribir, el setter
     // solo registra (mismo patron que run_daemon.py::_dry_run_setter).
