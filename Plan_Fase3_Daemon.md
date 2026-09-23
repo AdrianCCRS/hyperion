@@ -160,20 +160,31 @@ detectados al revisar el consumo real del daemon):
 
 ## 1. Bloques de trabajo
 
-### Bloque A — Sin dependencia de hardware
+### Bloque A — Sin dependencia de hardware — CERRADO (2026-09-22)
 
-- **A1.** Emitir el artefacto de política canónico y autocontenido, con la
-  decisión por familia y la frecuencia física resuelta (§0.3).
-- **A2.** Cargador/validador en `fase3_daemon/policy/`, y retirar el
-  derivador por ventana.
-- **A3.** Exportar el candidato GPU vigente al repo.
-  `fase2_clasificador/models/arbol_prof1_gpu.joblib` está **obsoleto**
-  (15-sep, 334 corridas, 11 familias, 4 variables); el vigente es la
-  regresión logística de 5 variables sobre 483 corridas y 16 familias.
-- **A4.** Cablear `classify_fn` real en `gpu_loop/loop.py` (hoy es un
-  placeholder que lanza `NotImplementedError`).
-- **A5.** Exportar el modelo de CPU a ONNX y verificar que la predicción
-  coincide fila a fila con scikit-learn.
+- [x] **A1/A2.** `fase3_daemon/policy/build_policy_table.py` combina
+  `policy_cpu.json` (kernel) con `policy_by_family.json` de GPU (familia,
+  des-duplicado) y resuelve la frecuencia real (F1 → 1260 MHz). Verificado
+  contra `build_controller_from_policy()` real. `derive_policy_table.py`
+  retirado. Artefactos GPU comprometidos en
+  `docs/libro/datos/gpu_calidad_20260922/politica/`.
+- [x] **A3.** Candidato GPU vigente (regresión logística, 483 corridas, 16
+  familias, 5 variables) exportado a `fase2_clasificador/models/`. El
+  `.joblib` de 15-sep quedó retirado. Latencia: la cifra de `paccaA100` se
+  preserva en la metadata con su procedencia documentada; no se remidió
+  localmente (número sin sentido fuera del hardware de destino).
+- [x] **A4.** `gpu_loop/classifier.py::HistoricalGpuClassifier` cablea el
+  modelo real. Encontrado y resuelto en el camino: (a) el modelo se
+  entrenó con mediana+std de múltiples muestras NVML por corrida, el loop
+  solo daba una instantánea por evento — resuelto con un buffer móvil
+  (`activity_poller` gana un `on_sample` aditivo), documentado como
+  aproximación causal, no la definición exacta de entrenamiento; (b) el
+  modelo predice booleano, no la string de la etiqueta.
+- [x] **A5.** `fase3_daemon/cpu_loop/export_onnx.py`: ONNX verificado fila
+  a fila contra las 1 169 833 filas reales de `tmp/cpu_quality_20260918/
+  source.csv` (no una muestra): `max_diff_proba=2.98e-07`, 0 discrepancias.
+
+49/49 tests de `fase3_daemon` en verde (36 previos del Bloque 0 + 13 nuevos).
 
 ### Bloque B — Loop de CPU en C++
 
