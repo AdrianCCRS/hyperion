@@ -156,8 +156,7 @@ def build_daemon_gpu_loop(
     controller = gpu_loop_module.build_controller_from_policy(policy, min_dwell_ns, set_clock)
 
     def on_decision(event, label, decision):
-        if gpu_active_signal is not None:
-            gpu_active_signal.write(True)
+        # (La senal de coordinacion sube en _active_start, al inicio de la actividad, no aqui.)
         logger.info(
             "fase GPU: label=%s target_mhz=%s applied_mhz=%s changed=%s dwell_remaining_ns=%s",
             label.value, decision.target_clock_mhz, decision.applied_clock_mhz,
