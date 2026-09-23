@@ -468,7 +468,21 @@ distinta a los nodos donde normalmente se verifica `telemetry`).
   no probaría nada. El wiring de software (qué se llama, cuándo, con qué
   argumentos) es exactamente lo que sí se puede y se debe verificar ahora,
   independiente de H1.
-- **C6.** Sobrecarga del daemon medida y registrada.
+- **C6. En verificación en paccaA100.** Lado CPU ya medido en Bloque B
+  (`cpu_loop_latency_bench`: p50=16.4µs/p99=19.3µs contra un presupuesto
+  de ~1ms por tick, ~1.6-1.9%). Lado GPU:
+  `fase3_daemon/gpu_loop/measure_overhead.py` corre `build_daemon_gpu_loop`
+  real (brazo *sombra*, clasificador real, `policy_table.yaml` real) en un
+  hilo mientras `gpu_dgemm_n4096` (mismo kernel de C3, checksum verificado)
+  se lanza 5 veces en el hilo principal -- mismo patrón de coordinación
+  que `verify_phase_detection_e2e.py`. Reporta p50/p95/p99/max de
+  `inference_time_ns`/`actuation_time_ns` (los mismos campos que ya
+  registra `decision_log.py`, ítem C1) y los escribe a JSON (`--out`,
+  "registrada"). Sin presupuesto de tick equivalente al de CPU -- el loop
+  de GPU decide una vez por FASE, no cada ~1ms -- así que se compara
+  contra la duración típica de la fase, no contra un budget fijo. 5 tests
+  locales (`fase3_daemon/gpu_loop/tests/test_measure_overhead.py`) cubren
+  la agregación de percentiles con datos sintéticos.
 - **C7. Cerrado.** Modo `--pid` ahora ata el ciclo de vida del loop de GPU
   al proceso objetivo: `activity_poller.poll_phase_events()` acepta
   `should_continue` (consultado al inicio de cada iteración, antes de
