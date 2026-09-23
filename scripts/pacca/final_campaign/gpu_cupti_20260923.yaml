@@ -69,7 +69,17 @@ warmup_seconds_override: 0.0
 environment_tier: hpc_sc3
 seed: 20260923
 output_dir: /home/latorresn/hyperion-results/final/campaigns/gpu_cupti_20260923
-overwrite: false
+# true desde el resume tras el fallo de SpMV (job 7588/7589, 2026-09-23):
+# el guard I07 de manifest.py::load() rechaza arrancar si output_dir ya
+# existe y overwrite=false, SIN IMPORTAR que la reanudacion real (saltar
+# combos ya aceptados) la hace campaign.py::run_campaign() por su cuenta
+# via CAM-03/CAM-11 (accepted_run_ids en disco), un mecanismo totalmente
+# separado que no lee este campo. overwrite=true aqui NUNCA borra nada
+# (confirmado: ningun rmtree/shutil en campaign.py/runner.py referencia
+# manifest.overwrite) -- solo desactiva ese guard de existencia. Ver el
+# docstring de manifest.load(skip_output_dir_check) para el mismo patron
+# documentado para repostprocess_campaign.py.
+overwrite: true
 catalog_path: /home/latorresn/hyperion/fase1_telemetria/catalog/catalog.yaml
 calibration:
 - kernel_ref: stream_official
