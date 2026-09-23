@@ -153,5 +153,22 @@ int main() {
     pc.on_window(CpuPhaseLabel::ComputeBound, false);
     if (plain_applied.size() != 1) return 39;
 
+    // Piso de GPU con histeresis: subir al piso es INMEDIATO (no espera min_consecutive_windows), bajar no.
+    CpuPhaseControllerConfig floor_cfg{};
+    floor_cfg.compute_bound = {true, 3200000};
+    floor_cfg.memory_bound = {true, 2900000};
+    floor_cfg.gpu_active_floor_khz = 3200000;
+    floor_cfg.min_consecutive_windows = 50;
+    std::vector<unsigned int> floor_applied;
+    CpuPhaseController fc(floor_cfg, [&floor_applied](unsigned int khz) { floor_applied.push_back(khz); return true; });
+    fc.mark_applied(2900000);  // la CPU venia en F1 por una fase memory
+    d = fc.on_window(CpuPhaseLabel::MemoryBound, /*gpu_active=*/true);  // la GPU se activa: la barrera sube a 3.2 GHz YA
+    if (!d.actuation_attempted || !d.gpu_floor_clamped || floor_applied.size() != 1 || floor_applied[0] != 3200000) return 40;
+    d = fc.on_window(CpuPhaseLabel::MemoryBound, /*gpu_active=*/false);  // la GPU se apaga: volver a F1 SI espera la histeresis
+    if (d.actuation_attempted) return 41;
+    for (int i = 0; i < 48; ++i) fc.on_window(CpuPhaseLabel::MemoryBound, false);
+    d = fc.on_window(CpuPhaseLabel::MemoryBound, false);
+    if (!d.actuation_attempted || floor_applied.size() != 2 || floor_applied[1] != 2900000) return 42;
+
     return 0;
 }

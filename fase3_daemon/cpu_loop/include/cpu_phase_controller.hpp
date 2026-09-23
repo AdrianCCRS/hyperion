@@ -141,7 +141,14 @@ namespace hyperion::cpu_loop {
                 pending_windows_ = 0;
                 return decision;
             }
-            if (config_.min_consecutive_windows > 1) {
+            // Subir al piso de GPU NO espera a la histeresis: la barrera dice "nunca por debajo del piso mientras la GPU
+            // este activa", y el retraso de min_consecutive_windows la violaba unos 0.25-0.5 s en cada flanco de subida de
+            // la senal (coexistencia, job 7630: 97.6% del tiempo con GPU activa dentro del piso). La histeresis sigue
+            // aplicando a los cambios que no protegen la carga de GPU.
+            const bool raises_to_floor = gpu_active && config_.gpu_active_floor_khz > 0 &&
+                                         desired_khz >= config_.gpu_active_floor_khz &&
+                                         last_applied_khz_ != 0 && last_applied_khz_ < config_.gpu_active_floor_khz;
+            if (config_.min_consecutive_windows > 1 && !raises_to_floor) {
                 if (pending_khz_ != desired_khz) {
                     pending_khz_ = desired_khz;
                     pending_windows_ = 0;
