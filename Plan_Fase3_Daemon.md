@@ -885,6 +885,29 @@ moderada de la frecuencia. Pero el cambio que hace el daemon es F0 -> F1
 retroalimentación por esa variable es despreciable; no hace falta reentrenar el
 modelo de CPU para esta ronda.
 
+**Abstención cableada en el daemon de GPU (jobs 7620-7624, 2026-09-23).** El
+candidato de GPU del libro tenía abstención (τ = 0.70; 0.792 -> 0.846 con 76.7%
+de cobertura, para la regresión logística con reloj), pero el daemon nunca la usó
+(decidía siempre con P > 0.5) y el candidato vigente (random forest sin reloj ni
+potencia) no tenía umbral. Con el mismo criterio de Fase 2 (LOFO sobre las
+corridas ya medidas, cobertura media por celda >= 0.60, sin medir nada nuevo):
+**τ = 0.90**, exactitud balanceada por celda 0.900 con 65.7% de cobertura (0.819
+sin abstención). `gpu_loop_main --threshold` (default 0.90): si max(P, 1-P) < τ
+la fase queda en `revisar`, NO actúa y libera el reloj a nativo (`-rgc`, el mismo
+comportamiento que el brazo *base*; en GPU "nativo" es el DVFS por defecto del
+driver, no un daemon). `policy_action = "revisar"` en el registro. Regla de
+decisión en `gpu_decision.hpp` (5 pruebas C++ en verde).
+Sobre la compuesta real (dgemm + triad x3) con τ = 0.90: sombra 3 correctas / 0
+erróneas / 2 abstenciones y activo 3 / 0 / 2 (job 7624); jobs 7622 y 7623: 0
+errores en las fases principales (los aciertos tenían confianza 1.00 y las
+abstenciones 0.57-0.67; el único error con confianza 1.00 fue una actividad de la
+cola de RAJAPerf ~17 s tras el inicio del proceso, que no es el triad). n muy
+pequeña, pero la abstención convirtió los errores blandos en "no actuar".
+Restauración por SIGTERM/SIGINT con el candado forzado: `clocks.sm` vuelve a 1410,
+código de salida 0. Límites: no arregla la exactitud de fondo (solo evita actuar
+cuando duda), τ se calculó sobre variables de corrida y no se recalibró para
+ventanas en línea, y el libro describe todavía el candidato anterior.
+
 ---
 
 ## 2. Criterios de cierre
