@@ -226,14 +226,53 @@ exista, el brazo *activo* de GPU sobre un kernel fuera del catálogo de
 entrenamiento se apoya en una cadena de tres aproximaciones no verificadas
 apiladas sobre una que sí lo está.
 
-### Bloque B — Loop de CPU en C++
+### Bloque B — Loop de CPU en C++ — núcleo de inferencia CERRADO (2026-09-22), falta la integración en vivo
 
-Integrar en `telemetry/`: leer el snapshot de `collector.hpp` por tick,
-armar las 6 variables, inferir con ONNX, consultar la tabla, decidir con
-`CpuPhaseController`. **Medir la latencia de inferencia antes de
-integrarla al camino caliente**: si no cabe en el presupuesto de ~1 ms, la
-decisión de diseño cambia (decidir cada N ticks), y eso es un resultado a
-documentar, no un ajuste silencioso.
+El SDK C++ de ONNX Runtime no estaba disponible en ningún entorno local
+(solo el binding Python) -- instalado vía un entorno conda-forge dedicado
+y liviano (sin CUDA, la inferencia de CPU no la necesita):
+`conda create -n hyperion-cpu-onnx -c conda-forge cmake onnxruntime-cpp onnx`.
+Construidos y probados (4/4 tests C++ en verde, además de los 3 de
+`cpu_phase_controller_test` ya existentes):
+
+- [x] **`cpu_feature_builder.hpp`**: deltas de `telemetry::CpuSample` -> las
+  6 variables, reproduce EXACTAMENTE las fórmulas de `postprocess.py`
+  (líneas ~700-712). Rechaza explícitamente deltas de tiempo <= 0,
+  contadores que retroceden (overflow/reset) y denominadores en cero --
+  nunca fabrica un valor.
+- [x] **`onnx_cpu_classifier.hpp`**: envoltorio de `Ort::Session`, verificado
+  contra tres filas calculadas con el `.joblib` real en Python
+  (`model.predict_proba`), no valores inventados. El grafo (`zipmap=False`)
+  expone dos salidas (`label` int64, `probabilities` float32 [N,2]) --
+  verificado con `session.get_outputs()` antes de asumir el orden en C++,
+  y `classes_=[0,1]` del modelo real antes de asumir qué índice es
+  `memory_bound`.
+- [x] **`cpu_loop_tick.hpp`**: une construcción de variables -> inferencia ->
+  la ecuación de decisión selectiva del libro (q=max(p,1-p), umbral 0.85)
+  -> `CpuPhaseController`. Decisión de diseño nueva, no heredada de Fase 2:
+  un tick "revisar" (baja confianza) **no llama a `on_window()`** -- la
+  frecuencia queda en lo último aplicado, coherente con la conclusión del
+  libro de que la utilidad del clasificador está en decidir cuándo
+  abstenerse. Probado con `predict_proba` inyectado, sin modelo real.
+- [x] **Latencia de inferencia medida** (`latency_bench.cpp`, fila a fila,
+  2000 repeticiones): **p50=14.8µs, p95=15.9µs, p99=25.2µs**, contra un
+  presupuesto de ~1000µs -- margen amplio (~2.5% del presupuesto en el
+  peor caso). ⚠️ Medido en la laptop local de desarrollo, NO en
+  `paccaA100`; sirve para descartar que ONNX sea el cuello de botella
+  antes de invertir en la integración completa, no como cifra
+  autoritativa (mismo principio que la latencia GPU de A3).
+
+**Lo que falta, y por qué no se cerró hoy**: el ejecutable real que
+instancia `telemetry::Collector` (el productor de `CpuSample` de verdad,
+vía `perf_event_open`) y consume el anillo SPSC en vivo. Requiere permisos
+de PMU (`perf_event_paranoid`, o `CAP_PERFMON`) que esta laptop no tiene
+(`perf_event_paranoid=2`, sin binario `perf` instalado) -- consistente con
+la convención ya establecida del proyecto de que la telemetría real corre
+siempre en `pacca`, nunca en local. El núcleo de inferencia queda listo
+para conectarse a ese productor sin cambios (`run_cpu_tick()` ya no asume
+de dónde vienen `prev`/`curr`); falta el bucle consumidor sobre
+`SPSCRing<Sample>::try_pop()`, filtrando `SampleTag::CPU`, y el CLI
+equivalente a `run_daemon.py` del lado GPU.
 
 ### Bloque C — Brazos de experimento e integración
 

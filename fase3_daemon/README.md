@@ -17,9 +17,11 @@ ejecución inferida. Ver `Plan_Detallado_Realineacion_Hyperion.md` §4.
 | `gpu_loop/classifier.py` (`HistoricalGpuClassifier`) | ✅ Construido y probado (10/10 tests, incluido contra el `.joblib` real) | Carga el candidato de Fase 2 (`fase2_clasificador/models/gpu_regresion_log_historical_20260922.joblib`) y aproxima con un buffer móvil la mediana/std con que se entrenó -- ver limitaciones abajo |
 | `run_daemon.py` | ✅ Construido y probado en `--dry-run` (2/2 tests de integración) | Arranca el loop de GPU completo; el loop de CPU no está integrado |
 | `cpu_loop/include/cpu_phase_controller.hpp` | ✅ Compilado y probado con CTest (1/1) | Máquina de decisión pura, sin dependencias de ONNX/collector.hpp |
+| `cpu_loop/include/cpu_feature_builder.hpp` | ✅ Compilado y probado (1/1) | Deltas de `CpuSample` -> 6 variables, mismas fórmulas que `postprocess.py` |
+| `cpu_loop/include/onnx_cpu_classifier.hpp` + `cpu_loop_tick.hpp` | ✅ Compilados y probados (2/2, incluido contra `.joblib` real) | Inferencia ONNX C++ + ecuación de decisión selectiva; latencia p99=25.2µs (local, no paccaA100) contra presupuesto ~1000µs |
 | `common/telemetry` con `-DWITH_GPU=ON` real | ✅ Recompilado y probado contra NVML/GPU reales (13/13 CTest, incluido `collector_gpu_cadence_test`) | Verificado con un entorno conda con CUDA real (`environment-hyperion-verify.yml`) |
 | `common/hpc/native/blocking_sync_shim.cpp` (mecanismo ARC-70, sin cambios) | ✅ Compila, enlaza y funciona contra `libcudart` real | Sigue siendo válido para forzar blocking-sync en campañas de Fase 1 -- ver más abajo por qué Fase 3 ya no depende de él |
-| Loop de CPU real (inferencia ONNX sobre `collector.hpp`) | ❌ No construido | El SDK C++ de ONNX Runtime SÍ está disponible (`onnxruntime-cpp` vía conda-forge, verificado) -- falta el código de integración y un modelo real entrenado |
+| Loop de CPU real en vivo (`telemetry::Collector` + anillo SPSC) | ❌ No construido | El núcleo de inferencia (features+ONNX+decisión) ya está listo y probado -- falta el consumidor real sobre `SPSCRing<Sample>::try_pop()`, bloqueado por falta de permisos de PMU en esta máquina (`perf_event_paranoid=2`), requiere `pacca` |
 
 ## Historial de diseño: por qué la detección de fase de GPU es por sondeo, no por intercepción
 
