@@ -117,6 +117,36 @@ def test_on_sample_se_llama_en_cada_muestra_no_none_sin_importar_transicion():
     assert samples == [50.0, 55.0, 1.0]  # nunca se llama con la muestra None
 
 
+def test_should_continue_false_detiene_sin_emitir_evento_falso():
+    # should_continue se consulta ANTES de sondear -- si ya es False desde
+    # el arranque, el generador no debe emitir ningun evento ni consultar
+    # query_features_fn en absoluto (wiring de --mode pid, Bloque C C7).
+    def query_that_must_not_be_called():
+        raise AssertionError("query_features_fn no debe llamarse si should_continue ya es False")
+
+    events = list(poll_phase_events(
+        query_that_must_not_be_called, should_continue=lambda: False,
+        sleep_fn=lambda _s: None,
+    ))
+    assert events == []
+
+
+def test_should_continue_corta_a_mitad_de_sondeo():
+    # El proceso objetivo "muere" tras la segunda iteracion -- el
+    # generador debe parar ahi, sin emitir el evento que hubiera salido
+    # de la tercera lectura (nunca llega a consultarse).
+    readings = [50.0, 55.0, 999.0]  # la tercera lectura nunca deberia leerse
+    query = _fake_source(readings)
+    alive = iter([True, True, False])
+
+    events = list(poll_phase_events(
+        query, activity_threshold_pct=5.0, sleep_fn=lambda _s: None,
+        should_continue=lambda: next(alive),
+    ))
+    assert len(events) == 1  # solo la transicion idle->activo de la primera lectura
+    assert events[0].features.gpu_util_pct == 50.0
+
+
 def test_sleep_fn_se_invoca_cada_iteracion():
     readings = [1.0, 1.0, 1.0]
     query = _fake_source(readings)

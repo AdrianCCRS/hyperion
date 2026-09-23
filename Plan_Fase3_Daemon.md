@@ -342,7 +342,21 @@ distinta a los nodos donde normalmente se verifica `telemetry`).
 - **C4.** Señal de coordinación probada entre ambos loops.
 - **C5.** Prueba de caos de restauración, en los tres brazos.
 - **C6.** Sobrecarga del daemon medida y registrada.
-- **C7.** Modos `cpuset`/`pid`: hoy son banderas aceptadas sin wiring.
+- **C7. Cerrado.** Modo `--pid` ahora ata el ciclo de vida del loop de GPU
+  al proceso objetivo: `activity_poller.poll_phase_events()` acepta
+  `should_continue` (consultado al inicio de cada iteración, antes de
+  sondear NVML) y `run_daemon.py::pid_alive()` lo resuelve con
+  `os.kill(pid, 0)`. Con `--mode pid`, el script rechaza arrancar si el
+  proceso ya no existe, y el loop se detiene solo cuando termina -- sin
+  eso, seguía sondeando indefinidamente contra un PID muerto. `--mode
+  cpuset` (default) queda sin cambio de comportamiento, documentado
+  explícitamente como "corre mientras dure la asignación de Slurm". Límite
+  declarado, no oculto: `--pid` decide CUÁNDO parar, no filtra qué
+  muestras NVML cuentan -- `query_gpu_features()` sigue siendo una lectura
+  de todo el dispositivo (mismo límite estructural que ya tiene el
+  clasificador GPU). Probado con 2 casos nuevos en `test_activity_poller.py`
+  y 3 en `test_run_daemon.py` (60 passed, 1 skipped, todo local -- Python
+  puro con datos sintéticos, sin GPU/PMU real, no requiere pacca).
 
 ### Bloque D — Bloqueado por H1
 

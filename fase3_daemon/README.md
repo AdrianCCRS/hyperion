@@ -235,7 +235,7 @@ pasaría los valores concretos como flags si la política cambia.
 ## Tests
 
 ```bash
-python3 -m pytest fase3_daemon/tests/ -q          # 56 tests Python (55 passed + 1 skipped, ver arriba)
+python3 -m pytest fase3_daemon/tests/ -q          # 61 tests Python (60 passed + 1 skipped, ver arriba)
 cmake -S fase3_daemon/cpu_loop -B fase3_daemon/cpu_loop/build \
     -DONNXRUNTIME_ROOT=$(conda info --base)/envs/hyperion-cpu-onnx && \
   cmake --build fase3_daemon/cpu_loop/build && \
@@ -266,6 +266,10 @@ contra las fronteras de fase conocidas, no solo comparar EDP agregado).
   `--poll-interval-s`, no es instantánea — ver "Historial de diseño"
   arriba para el porqué y las dos alternativas (a)/(b) que sí serían
   instantáneas, documentadas como trabajo futuro.
-- `run_daemon.py` no implementa todavía el modo `(a)` cpuset/cgroup de
-  verdad (delegación real vía Slurm) ni el modo `(b)` `--pid` — ambos son
-  flags aceptados pero sin wiring de monitoreo por proceso todavía.
+- `run_daemon.py` no delega el cpuset/cgroup por sí solo en modo `(a)`
+  (eso lo hace el job de Slurm que lo lanza, igual que `campaign.py`) —
+  pero el modo `(b)` `--pid` YA está wireado (Bloque C, C7): ata el ciclo
+  de vida del loop al proceso objetivo (`pid_alive()`), no solo lo acepta
+  como flag sin efecto. Sigue sin recortar las variables NVML a ese
+  proceso — siguen siendo del dispositivo completo, mismo límite
+  estructural del clasificador GPU (ver arriba).

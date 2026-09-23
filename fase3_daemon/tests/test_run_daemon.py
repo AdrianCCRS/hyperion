@@ -13,10 +13,12 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+import os
+
 from fase3_daemon.decision_log import DecisionLogWriter
 from fase3_daemon.gpu_loop.controller import GpuPhaseLabel
 from fase3_daemon.gpu_loop.loop import GpuFeatures
-from fase3_daemon.run_daemon import build_daemon_gpu_loop
+from fase3_daemon.run_daemon import build_daemon_gpu_loop, pid_alive
 
 
 def _active_features() -> GpuFeatures:
@@ -133,3 +135,23 @@ def test_arm_sombra_escribe_registro_estructurado_con_esquema_completo(policy_ta
     assert record["inference_time_ns"] is not None
     assert record["actuation_time_ns"] is not None
     assert record["features"]["gpu_util_pct"] == 80.0
+
+
+def test_pid_alive_proceso_propio_es_true():
+    assert pid_alive(os.getpid()) is True
+
+
+def test_pid_alive_pid_inexistente_es_false():
+    # PID improbable de existir -- si algun dia colisiona en el entorno de
+    # CI, el test fallaria de forma obvia (no en silencio).
+    assert pid_alive(2**30) is False
+
+
+def test_should_continue_false_detiene_el_loop_sin_eventos(policy_table_path):
+    decisions = build_daemon_gpu_loop(
+        policy_table_path, gpu_index=None, min_dwell_ns=0, dry_run=True,
+        classify_fn=lambda _f: GpuPhaseLabel.COMPUTE_BOUND,
+        query_features_fn=_active_features, sleep_fn=lambda _s: None,
+        arm="sombra", should_continue=lambda: False,
+    )
+    assert decisions == []

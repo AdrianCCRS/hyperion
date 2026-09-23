@@ -33,9 +33,17 @@ sin esperar a que H1 se repare.
 
 Modo (a) por defecto: opera sobre un cpuset/cgroup delegado (no descubre
 ni delega el cpuset por sí solo -- eso lo hace el job de Slurm que lanza
-este proceso, igual que `fase1_telemetria/campaign.py`). Modo (b)
-(`--pid`): se limita a monitorear/actuar en función de un PID específico,
-para pruebas dirigidas contra un solo binario del catálogo (§4.3 punto 1).
+este proceso, igual que `fase1_telemetria/campaign.py`) y corre mientras
+dure la asignación, sin atarse a ningún proceso concreto. Modo (b)
+(`--pid`, Bloque C ítem C7): ata el CICLO DE VIDA del loop a un PID
+objetivo -- se detiene solo cuando ese proceso termina (`pid_alive()`,
+verificado antes de arrancar y en cada iteración de sondeo), para pruebas
+dirigidas contra un solo binario del catálogo (§4.3 punto 1). ⚠️ Esto NO
+recorta las variables NVML a lo que ese proceso consume: `query_gpu_features()`
+sigue siendo una lectura de TODO el dispositivo (mismo límite estructural
+documentado para el clasificador GPU, ver `gpu_loop/classifier.py`) --
+`--pid` en este script solo decide CUÁNDO parar, no filtra CUÁLES
+muestras cuentan.
 """
 from __future__ import annotations
 
@@ -63,6 +71,28 @@ _DEFAULT_MODELS_DIR = _REPO_ROOT / "fase2_clasificador" / "models"
 logger = logging.getLogger(__name__)
 
 
+def pid_alive(pid: int) -> bool:
+    """Comprueba si `pid` sigue vivo, sin enviar ninguna señal real
+    (`kill(pid, 0)` -- el kernel solo valida permisos/existencia, POSIX
+    estándar, mismo mecanismo que usa `psutil`/`os.kill` en cualquier
+    daemon Unix). Wiring del modo (b) `--pid` (Bloque C ítem C7,
+    Plan_Fase3_Daemon.md §4.3 punto 1): el loop de GPU se detiene solo
+    cuando el proceso objetivo de la prueba dirigida termina, en vez de
+    seguir sondeando NVML indefinidamente contra un PID muerto."""
+    import os
+
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # El proceso existe pero pertenece a otro usuario -- no debería
+        # pasar en la cuenta compartida de pacca (todo corre como
+        # latorresn), pero "existe sin permiso" sigue siendo "vivo".
+        return True
+    return True
+
+
 def _dry_run_setter(label: str):
     def set_clock(mhz: int) -> bool:
         logger.info("[dry-run] aplicaría reloj GPU -> %s MHz (%s)", mhz, label)
@@ -85,6 +115,7 @@ def build_daemon_gpu_loop(
     on_sample=None,
     arm: str = "sombra",
     decision_log: DecisionLogWriter | None = None,
+    should_continue=None,
 ):
     """Ensambla el loop de GPU real a partir de la tabla de política ya
     derivada (§3.4/§3.5) -- nunca recalcula EDP en línea (§3.4 punto 4:
@@ -152,6 +183,7 @@ def build_daemon_gpu_loop(
         query_fn, poll_interval_s=poll_interval_s,
         activity_threshold_pct=activity_threshold_pct, on_end=on_end,
         max_events=max_events, sleep_fn=sleep_fn, on_sample=on_sample,
+        should_continue=should_continue,
     )
     return gpu_loop_module.run(events, controller, classify_fn=classify_fn, on_decision=on_decision)
 
@@ -191,7 +223,11 @@ def main() -> int:
                          default=activity_poller.DEFAULT_ACTIVITY_THRESHOLD_PCT,
                          help="Umbral de gpu_util_pct para considerar la GPU activa "
                               f"(default {activity_poller.DEFAULT_ACTIVITY_THRESHOLD_PCT}%%).")
-    parser.add_argument("--mode", choices=["cpuset", "pid"], default="cpuset")
+    parser.add_argument("--mode", choices=["cpuset", "pid"], default="cpuset",
+                         help="'cpuset' (default): corre mientras dure la asignación de Slurm, sin "
+                              "atarse a ningún proceso. 'pid': ata el ciclo de vida del loop a --pid -- "
+                              "se detiene solo cuando ese proceso termina (Bloque C C7). No recorta las "
+                              "variables NVML al proceso (siguen siendo del dispositivo completo).")
     parser.add_argument("--pid", type=int, default=None,
                          help="Requerido si --mode pid (§4.3 punto 1, modo de prueba dirigida).")
     parser.add_argument("--arm", choices=["sombra", "activo"], required=True,
@@ -224,6 +260,13 @@ def main() -> int:
     if args.mode == "pid" and args.pid is None:
         parser.error("--mode pid requiere --pid")
 
+    should_continue = None
+    if args.mode == "pid":
+        if not pid_alive(args.pid):
+            parser.error(f"--mode pid: el proceso {args.pid} no existe (ya terminó antes de arrancar)")
+        should_continue = lambda: pid_alive(args.pid)  # noqa: E731
+        logger.info("modo pid: el loop se detendrá cuando el proceso %d termine", args.pid)
+
     logger.warning(
         "run_daemon.py: el loop de CPU (C++, inferencia sobre collector.hpp) no está "
         "integrado en este script todavía -- ver el docstring del módulo y "
@@ -254,6 +297,7 @@ def main() -> int:
             activity_threshold_pct=args.activity_threshold_pct,
             arm=args.arm,
             decision_log=decision_log,
+            should_continue=should_continue,
         )
     except KeyboardInterrupt:
         logger.info("interrumpido, saliendo")

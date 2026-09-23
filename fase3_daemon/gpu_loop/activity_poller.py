@@ -62,6 +62,7 @@ def poll_phase_events(
     on_end: Callable[[int], None] | None = None,
     on_sample: Callable[[GpuFeatures], None] | None = None,
     max_events: int | None = None,
+    should_continue: Callable[[], bool] | None = None,
 ) -> Iterator[PhaseBeginEvent]:
     """Sondea `query_features_fn()` cada `poll_interval_s` segundos y genera
     un `PhaseBeginEvent` en cada transición idle -> activo
@@ -89,10 +90,21 @@ def poll_phase_events(
     de inicio); en producción se deja en `None` y el generador corre
     indefinidamente. `now_fn`/`sleep_fn` son inyectables para poder probar
     sin reloj real ni esperas reales.
+
+    `should_continue`, si se pasa, se consulta al INICIO de cada iteración
+    (antes de sondear NVML) -- devolver `False` detiene el generador de
+    inmediato, sin emitir un evento de cierre falso. Es el wiring del modo
+    (b) `--pid` de `run_daemon.py` (§4.3 punto 1, Bloque C ítem C7): el
+    daemon deja de sondear en cuanto el proceso objetivo termina, en vez de
+    seguir corriendo indefinidamente contra un PID que ya no existe. En
+    modo (a) `cpuset` se deja en `None` (el daemon corre mientras dure la
+    asignación de Slurm, sin atarse a un proceso concreto).
     """
     is_active = False
     emitted = 0
     while max_events is None or emitted < max_events:
+        if should_continue is not None and not should_continue():
+            return
         features = query_features_fn()
         if features is not None:
             if on_sample is not None:
