@@ -1,6 +1,4 @@
 # Campana GPU con CUPTI Activity (etiqueta OI online por-lanzamiento) --
-# retoma de gpu_final.yaml (ncu offline, pacca_gpu_final_20260913) con el
-# mismo conjunto de 19 kernels y la misma matriz de frecuencia, pero
 # midiendo con CUPTI Activity en vez de ncu offline (decision-cupti-online-
 # oi-por-lanzamiento): reemplaza la etiqueta constante por corrida (ncu
 # offline, un solo OI representativo de toda la corrida) por OI real por
@@ -15,10 +13,44 @@
 # gpu.activity_trace.enabled=true activa --cupti-activity-lib en el
 # launcher (fase1_telemetria/runner.py::build_command) y exige
 # cupti_activity_exec_path/binary_checksum poblados en el catalogo para
-# cada kernel dataset de GPU (verify_cupti_activity_binary, F1-GPU-004) --
-# los 19 kernels de abajo son EXACTAMENTE los que ya tienen esos campos
-# poblados en fase1_telemetria/catalog/catalog.yaml (confirmado
-# 2026-09-23, coincide con el listado histórico de gpu_final.yaml).
+# cada kernel dataset de GPU (verify_cupti_activity_binary, F1-GPU-004),
+# ADEMAS de un modelo analitico registrado en gpu_oi_models.py y sus
+# parametros explicitos en gpu.activity_trace.parameters_by_kernel
+# (fase1_telemetria/audit_gpu_oi_coverage.py::require_complete, fail-closed
+# antes de tocar hardware). Los 19 kernels de abajo son EXACTAMENTE los que
+# tienen las tres cosas: cupti_activity_exec_path/checksum en catalog.yaml,
+# modelo en gpu_oi_models.registered_kernel_refs(), y parametros aqui.
+# NO es el mismo conjunto de 19 de gpu_final.yaml (ncu offline,
+# pacca_gpu_final_20260913): ese tenia rodinia_lavamd/rodinia_dwt2d, que
+# NUNCA recibieron modelo analitico CUPTI; el conjunto CUPTI-listo cambia
+# esos dos por minibude_cuda_bm1 (que sí lo tiene). Confirmado 2026-09-23
+# comparando catalog.yaml contra gpu_oi_models.registered_kernel_refs().
+#
+# Parametros derivados de fuente real, no adivinados (2026-09-23):
+# - size/elements/n_points/etc: de exec_args del catalogo cuando existen.
+# - gpu_cutlass_simt_conv2d (n,h,w,c,k,r,s,p,q): leidos directo de
+#   kernels/gpu/cutlass_simt_conv2d_bench.cu (defaults sin --n/--h/etc en
+#   exec_args; p,q=64 derivados de la formula de Conv2dProblemSize con
+#   pad=1,stride=1,dilation=1,R=S=3, confirmada contra el codigo).
+# - minibude_cuda_bm1 (poses/proteins/ligands/forcefields): leidos del
+#   propio stdout real de una corrida ya aceptada
+#   (gpu_minibude_extra_20260916, deck bm1: poses=65536, proteins=938,
+#   ligands=26, forcefields=34) -- no del binario ni de una fuente externa.
+# - rodinia_heartwall (points/template_side/search_side/frame_bytes): de
+#   rodinia-src/cuda/heartwall/{define.c,main.cu} (ALL_POINTS=51,
+#   sSize=40/tSize=25 -> search_side=2*40+1=81, template_side=25+1+25=51)
+#   + dimensiones reales de data/heartwall/test.avi via ffprobe (128x128,
+#   fp=float de 4B -> frame_bytes=128*128*4=65536).
+# - Los 4 kernels RAJAPerf (elements/side/ni,nj,nk): RAJAPerf no expone
+#   estos por --sizefact directamente -- se resolvieron reproduciendo la
+#   formula real de cada kernel (RAJAPerf/src/{stream/TRIAD.cpp,
+#   polybench/POLYBENCH_{JACOBI_2D,HEAT_3D,GEMM}.cpp} +
+#   common/RunParams.hpp::getTargetSize, target_size=default*sizefact):
+#     stream_triad (sizefact=400): elements = 1e6*400 = 400000000
+#     jacobi_2d    (sizefact=400): m_N = sqrt(1e6*400)+2+sqrt(2)-1 = 20002
+#     heat_3d      (sizefact=400): m_N = cbrt(1e6*400)+2+cbrt(3)-1 = 739
+#     gemm         (sizefact=250): ni=nj=sqrt(1e6*250)+sqrt(2)-1=15811,
+#                                  nk=int(1200/1000*ni)=18973
 #
 # catalog_path apunta al catalogo VIVO del repo, no a un snapshot de
 # cribado congelado (el snapshot de pacca_screen_20260909 es anterior a
@@ -44,10 +76,9 @@ calibration:
 - kernel_ref: ert_probe
 kernels:
 - kernel_ref: rodinia_gaussian
-- kernel_ref: rodinia_lavamd
 - kernel_ref: rodinia_heartwall
 - kernel_ref: rodinia_lud
-- kernel_ref: rodinia_dwt2d
+- kernel_ref: minibude_cuda_bm1
 - kernel_ref: gpu_rajaperf_stream_triad
 - kernel_ref: gpu_rajaperf_jacobi_2d
 - kernel_ref: gpu_rajaperf_heat_3d
@@ -154,6 +185,63 @@ gpu:
   activity_trace:
     enabled: true
     library_path: /home/latorresn/hyperion/common/telemetry/build-cupti/libhyperion_cupti_activity.so
+    parameters_by_kernel:
+      rodinia_gaussian:
+        size: 4096
+      dual_axpy_gpu_N10000000:
+        size: 10000000
+      dual_axpy_gpu_N1280000000:
+        size: 1280000000
+      dual_stencil_gpu_N1024:
+        size: 1024
+      dual_stencil_gpu_N36864:
+        size: 36864
+      gpu_cutlass_simt_dgemm_n4096:
+        size: 4096
+      gpu_cutlass_simt_conv2d:
+        n: 8
+        h: 64
+        w: 64
+        c: 512
+        k: 512
+        r: 3
+        s: 3
+        p: 64
+        q: 64
+      gpu_rajaperf_stream_triad:
+        elements: 400000000
+      gpu_rajaperf_jacobi_2d:
+        side: 20002
+      gpu_rajaperf_heat_3d:
+        side: 739
+      gpu_rajaperf_gemm:
+        ni: 15811
+        nj: 15811
+        nk: 18973
+      rodinia_lud:
+        size: 2048
+      minibude_cuda_bm1:
+        poses: 65536
+        proteins: 938
+        ligands: 26
+        forcefields: 34
+      rodinia_heartwall:
+        points: 51
+        template_side: 51
+        search_side: 81
+        frame_bytes: 65536
+      dual_spmv_gpu_N1000000:
+        size: 1000000
+      dual_spmv_gpu_N200000000:
+        size: 200000000
+      dual_cholesky_gpu_N2048:
+        size: 2048
+      dual_fft_gpu_N4096:
+        size: 4096
+      rodinia_kmeans_gpu_N350000_D34_K200:
+        n_points: 350000
+        n_features: 34
+        n_clusters: 200
 timeouts_seconds:
   ready: 15
   run: 300
