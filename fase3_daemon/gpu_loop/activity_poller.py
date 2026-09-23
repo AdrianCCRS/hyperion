@@ -63,6 +63,8 @@ def poll_phase_events(
     on_sample: Callable[[GpuFeatures], None] | None = None,
     max_events: int | None = None,
     should_continue: Callable[[], bool] | None = None,
+    min_active_s: float = 0.0,
+    on_active_start: Callable[[int], None] | None = None,
 ) -> Iterator[PhaseBeginEvent]:
     """Sondea `query_features_fn()` cada `poll_interval_s` segundos y genera
     un `PhaseBeginEvent` en cada transición idle -> activo
@@ -91,6 +93,15 @@ def poll_phase_events(
     indefinidamente. `now_fn`/`sleep_fn` son inyectables para poder probar
     sin reloj real ni esperas reales.
 
+    `min_active_s`: la decision se toma tras esta ventana de actividad
+    sostenida (util por encima del umbral de forma continua), no en el
+    flanco de subida. Medido (job 7606): en el flanco la muestra es un
+    arranque (util 8-87%, mem_util 0-97%) y el modelo, entrenado con
+    medianas de corridas completas, acierta 2 de 6 fases. Una actividad
+    que cae antes de `min_active_s` no genera evento (pero si `on_end`).
+    `on_active_start(now_ns)` se llama al detectar cada inicio de actividad,
+    ANTES de registrar su primera muestra en `on_sample`.
+
     `should_continue`, si se pasa, se consulta al INICIO de cada iteración
     (antes de sondear NVML) -- devolver `False` detiene el generador de
     inmediato, sin emitir un evento de cierre falso. Es el wiring del modo
@@ -101,18 +112,32 @@ def poll_phase_events(
     asignación de Slurm, sin atarse a un proceso concreto).
     """
     is_active = False
+    active_since_ns = 0
+    event_emitted = False  # ya se emitio el evento de la fase activa actual
+    min_active_ns = int(min_active_s * 1e9)
     emitted = 0
     while max_events is None or emitted < max_events:
         if should_continue is not None and not should_continue():
             return
         features = query_features_fn()
         if features is not None:
-            if on_sample is not None:
-                on_sample(features)
             active_now = features.gpu_util_pct > activity_threshold_pct
             now = now_fn()
             if active_now and not is_active:
                 is_active = True
+                active_since_ns = now
+                event_emitted = False
+                # Antes de registrar la primera muestra activa: el llamador puede vaciar el buffer del
+                # clasificador para que la ventana contenga solo muestras de ESTA fase, no del hueco ocioso.
+                if on_active_start is not None:
+                    on_active_start(now)
+            if on_sample is not None:
+                on_sample(features)
+            if active_now and not event_emitted and now - active_since_ns >= min_active_ns:
+                # `min_active_s` > 0: el evento (y por tanto la decision) se emite solo tras una ventana de
+                # actividad SOSTENIDA. Con 0 se emite en la primera muestra activa (comportamiento original,
+                # que clasifica con muestras instantaneas del flanco de subida).
+                event_emitted = True
                 emitted += 1
                 yield PhaseBeginEvent(now_ns=now, features=features)
             elif not active_now and is_active:

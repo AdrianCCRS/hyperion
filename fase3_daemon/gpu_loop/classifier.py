@@ -61,7 +61,7 @@ if str(_REPO_ROOT) not in sys.path:
 from fase3_daemon.gpu_loop.controller import GpuPhaseLabel  # noqa: E402
 from fase3_daemon.gpu_loop.loop import GpuFeatures  # noqa: E402
 
-DEFAULT_WINDOW_SIZE = 20  # ~1s de historia a DEFAULT_POLL_INTERVAL_S (50ms)
+DEFAULT_WINDOW_SIZE = 200  # ~10 s a DEFAULT_POLL_INTERVAL_S (50 ms); tras reset_window() solo hay muestras de la fase
 
 # Nombre de columna de entrenamiento -> cómo derivarla del buffer de GpuFeatures.
 # Debe cubrir exactamente metadata["features"] del modelo cargado, ni más ni menos
@@ -122,6 +122,13 @@ class HistoricalGpuClassifier:
         metadata = json.loads(metadata_path.read_text())
         model = joblib.load(model_path)
         return cls(model, list(metadata["features"]), window_size=window_size)
+
+    def reset_window(self, *_ignored) -> None:
+        """Vacia el buffer. Se engancha a `poll_phase_events(on_active_start=...)`
+        para que la mediana/std se calculen SOLO sobre las muestras de la fase
+        actual y no arrastren el hueco ocioso anterior (util ~0), que sesga
+        hacia abajo la mediana y hacia arriba la desviacion estandar."""
+        self._window.clear()
 
     def record_sample(self, features: GpuFeatures) -> None:
         """Callback para `activity_poller.poll_phase_events(on_sample=...)`

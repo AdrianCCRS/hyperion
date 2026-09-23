@@ -164,3 +164,57 @@ def test_sleep_fn_se_invoca_cada_iteracion():
             now_fn=lambda: 0, sleep_fn=sleeps.append, max_events=None,
         ))
     assert sleeps == [0.05, 0.05, 0.05]  # DEFAULT_POLL_INTERVAL_S, una vez por iteración
+
+
+def test_min_active_s_emite_solo_tras_actividad_sostenida():
+    # muestras cada 1 s (now en ns): activo desde t=1 s; con min_active_s=3 el evento sale en t=4 s
+    readings = [1.0, 50.0, 60.0, 70.0, 80.0, 90.0]
+    query = _fake_source(readings)
+    now_values = iter(i * 1_000_000_000 for i in range(len(readings)))
+    events = list(poll_phase_events(
+        query, activity_threshold_pct=5.0, now_fn=lambda: next(now_values), sleep_fn=lambda _s: None,
+        max_events=1, min_active_s=3.0,
+    ))
+    assert len(events) == 1
+    assert events[0].now_ns == 4_000_000_000
+    assert events[0].features.gpu_util_pct == 80.0  # la muestra del momento de decidir, no la del flanco
+
+
+def test_min_active_s_un_pico_corto_no_genera_evento_pero_si_on_end():
+    readings = [1.0, 50.0, 60.0, 1.0, 1.0]  # solo 2 s activo < 3 s
+    query = _fake_source(readings)
+    now_values = iter(i * 1_000_000_000 for i in range(len(readings)))
+    ends = []
+
+    def bounded():
+        try:
+            return query()
+        except StopIteration:
+            raise SystemExit
+
+    events = []
+    with pytest.raises(SystemExit):
+        for e in poll_phase_events(bounded, activity_threshold_pct=5.0, now_fn=lambda: next(now_values),
+                                   sleep_fn=lambda _s: None, on_end=ends.append, min_active_s=3.0):
+            events.append(e)
+    assert events == []
+    assert ends == [3_000_000_000]
+
+
+def test_min_active_s_un_evento_por_fase_y_on_active_start_antes_de_la_primera_muestra():
+    readings = [50.0, 60.0, 70.0, 1.0, 80.0, 90.0, 95.0]
+    query = _fake_source(readings)
+    now_values = iter(i * 1_000_000_000 for i in range(len(readings)))
+    log = []
+    events = list(poll_phase_events(
+        query, activity_threshold_pct=5.0, now_fn=lambda: next(now_values), sleep_fn=lambda _s: None,
+        max_events=2, min_active_s=2.0,
+        on_active_start=lambda now: log.append(("start", now)),
+        on_sample=lambda f: log.append(("sample", f.gpu_util_pct)),
+    ))
+    assert [e.now_ns for e in events] == [2_000_000_000, 6_000_000_000]  # uno por fase activa
+    # el buffer se vacia (start) ANTES de registrar la primera muestra de cada fase
+    assert log[0] == ("start", 0) and log[1] == ("sample", 50.0)
+    assert ("start", 4_000_000_000) in log
+    i = log.index(("start", 4_000_000_000))
+    assert log[i + 1] == ("sample", 80.0)

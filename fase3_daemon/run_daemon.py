@@ -120,6 +120,8 @@ def build_daemon_gpu_loop(
     gpu_active_signal: GpuActiveSignalWriter | None = None,
     delegated_cpus: str = "0",
     gpu_settle_s: float | None = None,
+    min_active_s: float = 0.0,
+    on_active_start=None,
 ):
     """Ensambla el loop de GPU real a partir de la tabla de política ya
     derivada (§3.4/§3.5) -- nunca recalcula EDP en línea (§3.4 punto 4:
@@ -190,12 +192,20 @@ def build_daemon_gpu_loop(
             gpu_active_signal.write(False)
         logger.debug("fin de fase GPU en t=%sns", now_ns)
 
+    def _active_start(now_ns: int) -> None:
+        # La senal de coordinacion CPU-GPU sube al INICIO de la actividad, no al tomar la decision (que
+        # con min_active_s > 0 llega segundos despues): el piso de CPU debe proteger la fase desde el arranque.
+        if gpu_active_signal is not None:
+            gpu_active_signal.write(True)
+        if on_active_start is not None:
+            on_active_start(now_ns)
+
     query_fn = query_features_fn or (lambda: gpu_loop_module.query_gpu_features(gpu_index))
     events = activity_poller.poll_phase_events(
         query_fn, poll_interval_s=poll_interval_s,
         activity_threshold_pct=activity_threshold_pct, on_end=on_end,
         max_events=max_events, sleep_fn=sleep_fn, on_sample=on_sample,
-        should_continue=should_continue,
+        should_continue=should_continue, min_active_s=min_active_s, on_active_start=_active_start,
     )
     return gpu_loop_module.run(events, controller, classify_fn=classify_fn, on_decision=on_decision)
 
@@ -225,6 +235,11 @@ def main() -> int:
     parser.add_argument("--policy-table", type=Path, required=True,
                          help="policy_table.yaml producido por fase3_daemon/policy/build_policy_table.py")
     parser.add_argument("--gpu-index", default=None)
+    parser.add_argument("--min-active-s", type=float, default=3.0,
+                         help="La clase de cada fase de GPU se decide tras esta ventana de actividad SOSTENIDA, con "
+                              "mediana/std solo sobre esa fase (default 3 s). 0 = decidir en el flanco de subida "
+                              "con una muestra instantanea (medido: acierta 2 de 6, job 7606). Retrasa la "
+                              "actuacion esa misma cantidad.")
     parser.add_argument("--gpu-settle-s", type=float, default=None,
                          help="Espera de asentamiento de NVML dentro de cada cambio de reloj (default: la de gpu_freqctl, "
                               "1.5 s). Medido (job 7599): el comando cuesta ~50 ms y el reloj llega ~80 ms despues; un "
@@ -330,6 +345,8 @@ def main() -> int:
             gpu_active_signal=gpu_active_signal,
             delegated_cpus=args.delegated_cpus,
             gpu_settle_s=args.gpu_settle_s,
+            min_active_s=args.min_active_s,
+            on_active_start=classifier.reset_window,
         )
     except KeyboardInterrupt:
         logger.info("interrumpido, saliendo")

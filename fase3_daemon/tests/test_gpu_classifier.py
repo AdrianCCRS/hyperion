@@ -115,3 +115,15 @@ def test_candidato_sin_reloj_no_usa_reloj_ni_potencia_y_no_depende_de_ellos():
         locked = HistoricalGpuClassifier.from_export_dir(_MODELS_DIR, name=_MODEL_SIN_RELOJ).classify(
             _features(util=util, mem=mem, clock=210.0, power=40000.0))
         assert native == locked
+
+
+def test_reset_window_vacia_el_buffer_para_que_la_ventana_sea_solo_de_la_fase():
+    model = _FakeModel(True)
+    clf = HistoricalGpuClassifier(model, ["gpu_util_pct_median"], window_size=50)
+    for _ in range(10):
+        clf.record_sample(_features(util=0.0))  # hueco ocioso previo
+    clf.reset_window(123)  # acepta el argumento now_ns de on_active_start
+    for u in (90.0, 100.0, 95.0):
+        clf.record_sample(_features(util=u))
+    clf.classify(_features(util=95.0))
+    assert model.last_row == [95.0]  # mediana de [90, 100, 95], sin los ceros del hueco
