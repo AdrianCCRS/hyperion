@@ -90,7 +90,7 @@ echo "min_dwell_ns = 10 x p50(apply_gpu_frequency, settle=$SETTLE) = $DWELL_NS"
 
 echo; echo "=== 3. CAOS: run_daemon.py --arm activo (carga con huecos ociosos entre fases de 20 s) ==="
 start_round() {  # $1 = nombre; deja TGT y DP definidos
-  "$T" alternate 20 400 2 > "$WORK/phases_$1.txt" 2>&1 & TGT=$!
+  "$T" alternate 20 600 2 > "$WORK/phases_$1.txt" 2>&1 & TGT=$!
   python3 "$ROOT/fase3_daemon/run_daemon.py" --policy-table "$ROOT/fase3_daemon/policy_table.yaml" \
     --arm activo --mode pid --pid $TGT --min-dwell-ns $DWELL_NS --gpu-settle-s $SETTLE --gpu-index $GPU \
     --delegated-cpus 0 --log-path "$WORK/daemon_$1.jsonl" -v > "$WORK/daemon_$1.out" 2>&1 & DP=$!
@@ -119,12 +119,12 @@ echo "--- ronda B: SIGINT justo al fijarse el candado (posible corte a mitad de 
 start_round B
 wait_lock B && stop_round INT || RC=1
 sleep 3
-echo "--- ronda C: ciclo completo memory -> compute -> memory (60 s), linea de tiempo del reloj ---"
+echo "--- ronda C: ciclo completo M-C-M-C-M (110 s), linea de tiempo del reloj ---"
 start_round C
-for t in $(seq 1 60); do
+for t in $(seq 1 110); do
   sleep 1
   ph=$(tail -1 "$WORK/phases_C.txt" | awk '{print $2}')
-  [ $((t % 3)) -eq 0 ] && echo "  t=${t}s fase_real=$ph clocks.sm=$(clk) util=$(nvidia-smi -i $GPU --query-gpu=utilization.gpu --format=csv,noheader,nounits)"
+  [ $((t % 5)) -eq 0 ] && echo "  t=${t}s fase_real=$ph clocks.sm=$(clk) util=$(nvidia-smi -i $GPU --query-gpu=utilization.gpu --format=csv,noheader,nounits)"
 done
 stop_round TERM || RC=1
 echo "decisiones registradas (ronda C):"
