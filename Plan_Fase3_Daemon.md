@@ -393,14 +393,20 @@ distinta a los nodos donde normalmente se verifica `telemetry`).
   (`fase3_daemon/composite_apps/tests/`, incluye una verificación contra
   el catálogo real -- sin mocks -- de que A y B son conjuntos de familias
   disjuntos).
-- **C3. En verificación en paccaA100.** `fase3_daemon/gpu_loop/verify_phase_detection_e2e.py`
-  lanza `gpu_dgemm_n4096` (checksum verificado, ~10s, compute_bound) como
+- **C3. Cerrado (job 7574, paccaA100).** `fase3_daemon/gpu_loop/verify_phase_detection_e2e.py`
+  lanza `gpu_dgemm_n4096` (checksum verificado, compute_bound) como
   subproceso real mientras un hilo aparte corre
   `activity_poller.poll_phase_events()` con `query_gpu_features()` real
   (NVML vía `nvidia-smi`, no `GpuFeatures` sintéticas como los tests
   unitarios existentes). Reutiliza `should_continue` (ítem C7) para
   detener el sondeo de forma limpia con un margen tras el fin del kernel,
-  en vez de un `for`/`break` sobre el generador infinito. 5 tests locales
+  en vez de un `for`/`break` sobre el generador infinito. Corrida real:
+  kernel exitoso (3.55s), inicio de fase detectado (latencia 687.5ms) y
+  fin de fase detectado (latencia 381.6ms) -- ambas dentro del orden de
+  magnitud esperado para un sondeo cada 50ms más el tiempo real que tarda
+  `gpu_util_pct` en cruzar el umbral, confirmando de punta a punta lo que
+  antes solo se sabía por tests unitarios con datos inyectados. 5 tests
+  locales
   (`fase3_daemon/gpu_loop/tests/test_verify_phase_detection_e2e.py`) cubren
   solo la lógica determinista (criterio de éxito, propiedades de
   `E2EResult`, rechazo por checksum) -- el camino feliz con hilos+GPU real
