@@ -334,9 +334,27 @@ distinta a los nodos donde normalmente se verifica `telemetry`).
   a la puerta dura y al smoke test). Los mismos 3 tests preexistentes de
   `common/telemetry` (`std::bad_alloc`, ver cierre de Bloque B) siguen sin
   investigar, sin bloquear.
-- **C2.** Aplicaciones compuestas A y B, con fronteras de fase
-  registradas (§0.1, requisito 3). Entran al catálogo con el mismo rigor
-  que Fase 1: binario, suma de verificación, warmup calibrado.
+- **C2a. Aplicación A (familias conocidas) — en verificación en paccaA100.**
+  `fase3_daemon/composite_apps/composite_known.py` encadena `dgemm_n2048`
+  (compute_bound puro, memory_share=0.0) y `npb_cg` (memory_bound puro,
+  memory_share=1.0) -- ambos del inventario de 30 familias
+  (`tmp/cpu_quality_20260918/full/inventory_by_family.csv`), ambos ya
+  vistos en el entrenamiento del clasificador de Fase 2, ambos con
+  `binary_checksum` declarado para `pacca-a100` en el catálogo. Nunca
+  corre un binario sin verificar su checksum antes de cada ejecución
+  (`common/hpc/catalog.py::verify_binary`, mismo rigor CAT-07 de Fase 1).
+  Fronteras de fase = `phase_label_hint` del catálogo (ground truth ya
+  derivado en Fase 1, no inventado aquí) + reloj monotónico real de
+  inicio/fin de cada kernel, registrado en JSONL
+  (`fase3_daemon/composite_apps/tests/test_composite_known.py`, 8 casos,
+  todos con `run_fn`/`now_fn` inyectados -- sin binarios reales, corrible
+  en cualquier máquina). No usa `telemetry_kernel_launcher`: la
+  telemetría de esta aplicación la produce el daemon que la observa
+  (`run_daemon.py`/`cpu_loop_main`), corriendo aparte -- este driver solo
+  orquesta y registra fronteras, no mide PMU. Aplicación B (familias
+  inéditas) queda pendiente, es la contraparte deliberada de esta (§0.1
+  Eje 1: si A gana y B no, el resultado es memorización, no
+  generalización).
 - **C3.** Detección de fase de GPU probada de punta a punta contra un
   kernel real de terceros (hoy solo hay pruebas unitarias del sondeo).
 - **C4.** Señal de coordinación probada entre ambos loops.
