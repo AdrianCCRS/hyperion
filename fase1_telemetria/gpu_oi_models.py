@@ -168,7 +168,12 @@ def spmv_operation_work(
     if kinds != ("memcpy", "memcpy", "memcpy", "memcpy", "kernel", "kernel", "memcpy"):
         raise ValueError(f"secuencia CUPTI inesperada para Dual-SpMV: {kinds!r}")
     names = (events[4][1], events[5][1])
-    if "csr_partition_kernel" not in names[0] or "csrmv_v3_kernel" not in names[1]:
+    # Nombres reales confirmados en paccaA100 (job 7588, 2026-09-23):
+    # cusparse::binary_search_partition_kernel<...> y
+    # cusparse::load_balancing_kernel<...> -- los nombres originales
+    # (csr_partition_kernel/csrmv_v3_kernel) eran de otra version de
+    # cuSPARSE y nunca coincidieron con el binario real de este nodo.
+    if "binary_search_partition_kernel" not in names[0] or "load_balancing_kernel" not in names[1]:
         raise ValueError(f"kernels internos inesperados para Dual-SpMV: {names!r}")
     observed_transfers = tuple(bytes_moved for _, _, bytes_moved in events)
     if observed_transfers != expected:

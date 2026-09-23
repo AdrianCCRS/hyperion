@@ -79,14 +79,28 @@ def test_modelos_nativos_y_cutlass_tienen_trabajo_analitico_reproducible():
     assert conv.bytes_moved == 108
 
 
+def test_spmv_rechaza_nombres_de_kernel_cusparse_desconocidos():
+    events = (
+        ("memcpy", "[memcpy]", 20),
+        ("memcpy", "[memcpy]", 112),
+        ("memcpy", "[memcpy]", 224),
+        ("memcpy", "[memcpy]", 32),
+        ("kernel", "csr_partition_kernel", 0),  # nombre viejo, ya no coincide (job 7588)
+        ("kernel", "csrmv_v3_kernel", 0),
+        ("memcpy", "[memcpy]", 32),
+    )
+    with pytest.raises(ValueError, match="kernels internos inesperados"):
+        gpu_oi_models.work_for_operation("dual_spmv_gpu_N1000000", events, 0, {"size": 4})
+
+
 def test_spmv_asigna_el_despacho_completo_a_sus_siete_eventos():
     events = (
         ("memcpy", "[memcpy]", 20),
         ("memcpy", "[memcpy]", 112),
         ("memcpy", "[memcpy]", 224),
         ("memcpy", "[memcpy]", 32),
-        ("kernel", "csr_partition_kernel", 0),
-        ("kernel", "csrmv_v3_kernel", 0),
+        ("kernel", "_ZN8cusparse30binary_search_partition_kernelI...", 0),
+        ("kernel", "_ZN8cusparse21load_balancing_kernelI...", 0),
         ("memcpy", "[memcpy]", 32),
     )
     work = gpu_oi_models.work_for_operation(
