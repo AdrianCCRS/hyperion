@@ -912,22 +912,50 @@ ventanas en línea, y el libro describe todavía el candidato anterior.
 
 ## 2. Criterios de cierre
 
-Los del checklist §8 del plan de realineación, más los de §0.1:
+Los del checklist §8 del plan de realineación, más los de §0.1. Estado al 2026-09-23:
 
-- [ ] Ambos loops funcionando y verificados por separado.
-- [ ] Detección de fase de GPU probada contra un kernel real de terceros.
-- [ ] Señal de coordinación probada, con la semántica corregida de §0.2.
-- [ ] Restauración verificada con prueba de caos real.
-- [ ] Sobrecarga del daemon medida y registrada.
-- [ ] Los tres brazos corren sobre las aplicaciones compuestas A y B, con
-      registro por decisión suficiente para puntuar clasificación (no solo
-      EDP) contra las fronteras de fase conocidas.
-- [ ] Ruta de GPU completa y validada en *sombra*, de modo que el brazo
-      *activo* no requiera cambios de código cuando H1 se repare.
-- [ ] Aplicación B (familias inéditas) mide, sobre las decisiones
-      reales del daemon, las tres capas de generalización sin validar
-      documentadas en A4: exactitud del clasificador con el buffer móvil
-      real (no la agregación offline de entrenamiento), y si la ganancia
-      de F1 en `memory_bound` (n=8, IC95 casi en cero) se sostiene fuera
-      del catálogo de política. Resultado negativo en cualquiera de las
-      dos es un hallazgo válido, no un bloqueador de cierre.
+- [x] Ambos loops funcionando y verificados por separado. CPU: `cpu_loop_main`
+      (jobs 7562-7623, actuador C++, caos, histéresis). GPU: `gpu_loop_main` en C++
+      (jobs 7609-7624; el daemon en Python se retiró).
+- [x] Detección de fase de GPU probada contra un kernel real de terceros (C3, job
+      7574; y con el rastreador C++ sobre la compuesta real dgemm + triad, jobs
+      7613-7624).
+- [x] Señal de coordinación probada, con la semántica corregida de §0.2: el piso de
+      CPU (3.2 GHz) se respeta el 99.2% del tiempo con la GPU activa (4 muestras de
+      ~0.24 s en los flancos de subida, job 7632); subir al piso no espera a la
+      histéresis (antes 97.6%, job 7630).
+- [x] Restauración verificada con prueba de caos real: CPU (job 7598), GPU
+      (SIGTERM/SIGINT con el candado puesto, jobs 7613/7624) y ambos daemons a la vez
+      (job 7632: ambos salen con código 0, turbo y rango de CPU idénticos al inicial,
+      reloj de GPU liberado).
+- [x] Sobrecarga del daemon medida y registrada: CPU p99 19.3 µs por inferencia y
+      conmutación 2.85 ms; GPU 30.6% de un núcleo en Python vs 0.0-0.1% en C++. La
+      energía de paquete del brazo *sombra* frente a *base* se mide en la Fase 4.
+- [ ] Los tres brazos corren sobre las aplicaciones compuestas A y B, con registro
+      por decisión suficiente para puntuar clasificación (no solo EDP) contra las
+      fronteras de fase conocidas. (Fase 4. Ambos daemons ya tienen los tres brazos y
+      el registro JSONL; las compuestas de CPU A/B y la de GPU A existen; falta la
+      de GPU B.)
+- [x] Ruta de GPU completa y validada: H1 se reparó y el brazo *activo* de GPU
+      escribe y restaura el reloj de verdad (jobs 7599-7624).
+- [ ] Aplicación B (familias inéditas) mide, sobre las decisiones reales del daemon,
+      las tres capas de generalización sin validar de A4 (Fase 4).
+
+**Compuestas de GPU (2026-09-23).** A (familias conocidas), por decisión del
+usuario: `gpu_cutlass_simt_dgemm_n4096` (compute, ~31 s) + `gpu_rajaperf_stream_triad`
+(memory, ~18 s), 3 ciclos (`composite_apps/composite_gpu_known.py`). B (inéditas):
+las familias Rodinia del conjunto sellado duran 0.7-4.2 s (lavamd 3.0, myocyte 4.2,
+backprop 0.7, dwt2d 0.8), menos que la ventana de decisión; candidatos sin
+`phase_label_hint` medidos (job 7627): `gpu_ert_probe_fp32` 10.5 s, `gpu_ert_probe_fp64`
+5.8 s, `gpu_stream_bw` 1.8 s, `gpu_dgemm_calibration` 0.56 s, `gpu_gemm_native_n4096`
+31.6 s (hint "intermedio"). No hay una familia inédita memory_bound larga.
+
+**Frecuencia de CPU vs cargas de GPU (job 7628, mediana de 3, orden aleatorizado,
+turbo apagado en los niveles fijos):** `gpu_cutlass_simt_dgemm` (dominado por GPU):
+F0 x1.003, F1 (2.9 GHz) x1.007, 2.0 GHz x1.004, 0.8 GHz x1.027 frente a REF.
+`gpu_rajaperf_stream_triad` (con ~5 s de inicialización en CPU): F0 x0.999, F1
+x1.057, 2.0 GHz x1.295, 0.8 GHz x2.435. F0 equivale a REF para cargas de GPU; F1
+cuesta hasta +5.7% en una aplicación con parte en CPU y +0.7% en una dominada por
+GPU. El daemon de CPU solo se mueve entre F0 y F1, así que el riesgo de degradar
+una carga de GPU es acotado.
+
