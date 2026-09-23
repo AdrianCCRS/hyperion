@@ -267,14 +267,46 @@ Construidos y probados (4/4 tests C++ en verde, además de los 3 de
   en el nodo de LOGIN de pacca, que no es cómputo; compilar/enlazar/correr
   sí lo es y fue todo dentro del job).
 
-**Lo que falta**: el ejecutable real que instancia `telemetry::Collector`
-(el productor de `CpuSample` de verdad, vía `perf_event_open`) y consume
-el anillo SPSC en vivo -- eso sí requiere hacerse en pacca (no se intentó
-localmente esta vez). El núcleo de inferencia queda listo para conectarse
-a ese productor sin cambios (`run_cpu_tick()` ya no asume de dónde vienen
-`prev`/`curr`); falta el bucle consumidor sobre
-`SPSCRing<Sample>::try_pop()`, filtrando `SampleTag::CPU`, y el CLI
-equivalente a `run_daemon.py` del lado GPU.
+**Cerrado (job 7565, paccaA100):** `cpu_loop_consumer.hpp` drena
+`telemetry::Collector::Ring` en vivo (probado también con muestras
+sintéticas empujadas al ring con `try_push()`, sin PMU ni modelo real,
+`cpu_loop_consumer_test`) y `cpu_loop_main.cpp` es el binario de
+producción real, equivalente C++ de `run_daemon.py`. Una prueba de humo
+de 10s contra PMU real en `paccaA100` (`--perf-cpus 0,1,2,3`,
+auto-monitoreo, sin escritura de frecuencia real) confirma el pipeline
+completo de punta a punta: **9886 de 9933 ticks (99.5%) construyeron
+features válidas y clasificaron con éxito** (9139 actuando con confianza
+≥0.85, 747 abstenidos; solo 47 fallos de construcción de features, 0
+reintentos de anillo lleno). La primera versión de este smoke test
+monitoreaba el PID equivocado (el shell padre, bloqueado esperando, sin
+actividad de CPU propia) y todos los ticks fallaban en silencio
+(`features_fallidas=9920/9920`) sin que el código de salida del proceso
+lo reflejara -- corregido monitoreando al propio `cpu_loop_main`
+(`target_pid=0`) y añadiendo una aserción explícita sobre el resumen, no
+solo sobre el código de salida.
+
+Tres decisiones de alcance quedaron documentadas explícitamente en el
+docstring de `cpu_loop_main.cpp`, no como huecos escondidos: (1) no
+parsea `policy_table.yaml` -- la política de CPU es `no_actuar` en ambas
+clases hoy, así que un script wrapper resolvería el YAML y pasaría flags
+concretos el día que cambie; (2) no escribe frecuencia real -- no existe
+todavía un escritor nativo de `scaling_min/max_freq` con verificación por
+relectura, y construirlo sin ninguna política en `actuar` sería código
+muerto; (3) `gpu_active` siempre `false` -- no hay mecanismo de
+coordinación entre este proceso C++ y `run_daemon.py` (Python, proceso
+separado, el plan original asumía un único proceso con ambos loops), y no
+hace falta uno mientras la política GPU siga bloqueada por H1.
+
+**Hallazgo colateral, fuera de alcance de Bloque B:** `add_subdirectory`
+sobre `common/telemetry` arrastra su propia suite de pruebas (20 tests en
+total); 3 de ellas, preexistentes y no escritas en esta ronda
+(`collector_no_perf_test`, `rapl_reader_test`, `cpu_freq_reader_test`),
+fallan con `std::bad_alloc` en `paccaA100` específicamente, reproducible
+en dos corridas independientes (jobs 7563 y 7564). No es una regresión de
+Bloque B (los 5 tests propios pasan 5/5) ni bloquea el cierre, pero queda
+como hallazgo real sin investigar -- posible causa: estas pruebas no se
+habían corrido antes en `paccaA100` (nodo GPU, topología de sysfs
+distinta a los nodos donde normalmente se verifica `telemetry`).
 
 ### Bloque C — Brazos de experimento e integración
 

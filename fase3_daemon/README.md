@@ -21,7 +21,7 @@ ejecución inferida. Ver `Plan_Detallado_Realineacion_Hyperion.md` §4.
 | `cpu_loop/include/onnx_cpu_classifier.hpp` + `cpu_loop_tick.hpp` | ✅ Compilados y probados EN paccaA100 vía sbatch (2/2, incluido contra `.joblib` real) | Inferencia ONNX C++ + ecuación de decisión selectiva; latencia real en paccaA100 (job 7562): p50=16.4µs, p99=19.3µs contra presupuesto ~1000µs |
 | `common/telemetry` con `-DWITH_GPU=ON` real | ✅ Recompilado y probado contra NVML/GPU reales (13/13 CTest, incluido `collector_gpu_cadence_test`) | Verificado con un entorno conda con CUDA real (`environment-hyperion-verify.yml`) |
 | `common/hpc/native/blocking_sync_shim.cpp` (mecanismo ARC-70, sin cambios) | ✅ Compila, enlaza y funciona contra `libcudart` real | Sigue siendo válido para forzar blocking-sync en campañas de Fase 1 -- ver más abajo por qué Fase 3 ya no depende de él |
-| Loop de CPU real en vivo (`telemetry::Collector` + anillo SPSC) | ❌ No construido | El núcleo de inferencia (features+ONNX+decisión) ya está listo y probado -- falta el consumidor real sobre `SPSCRing<Sample>::try_pop()`, bloqueado por falta de permisos de PMU en esta máquina (`perf_event_paranoid=2`), requiere `pacca` |
+| Loop de CPU real en vivo (`cpu_loop_consumer.hpp` + `cpu_loop_main.cpp`) | ✅ Construido y probado EN paccaA100 vía sbatch (job 7565) | Smoke test de 10s contra PMU real: 9886/9933 ticks (99.5%) con features válidas y clasificación correcta (9139 actuando, 747 abstenidos). Sin escritor de frecuencia real ni parseo de `policy_table.yaml` (decisiones de alcance documentadas en el docstring del archivo) |
 
 ## Historial de diseño: por qué la detección de fase de GPU es por sondeo, no por intercepción
 
@@ -189,6 +189,32 @@ python3 fase3_daemon/run_daemon.py \
 `--dry-run` clasifica y decide pero solo registra en log (§4.3 punto 9) —
 validar así antes de tocar hardware real. Sin `--dry-run`, escribe reloj
 GPU real e instala restauración por señal (`atexit`/`SIGINT`/`SIGTERM`).
+
+## Uso de `cpu_loop_main` (compilar y correr SOLO vía sbatch en pacca)
+
+```bash
+scripts/pacca/hyp_cpu_loop_cpp_build_test.sbatch
+```
+
+Compila todo `fase3_daemon/cpu_loop/` (incluido `cpu_loop_main`, que
+enlaza contra la biblioteca `telemetry` completa vía `add_subdirectory`),
+corre los 5 tests propios como puerta dura, la suite completa de
+`telemetry` como informativa, mide la latencia de inferencia
+(`cpu_loop_latency_bench`) y termina con una prueba de humo de 10s de
+`cpu_loop_main` contra PMU real. Invocación manual del binario:
+
+```bash
+LD_LIBRARY_PATH="$HOME/.conda/envs/hyperion-cpu-onnx/lib:$LD_LIBRARY_PATH" \
+  fase3_daemon/cpu_loop/build/cpu_loop_main \
+    --perf-cpus 0,1,2,3 --collector-cpu 4 --consumer-cpu 5
+```
+
+Sin `--compute-actuar`/`--memory-actuar`, corre en modo observación puro
+(clasifica y decide, nunca escribe frecuencia) — coherente con que la
+política de CPU medida hoy es `no_actuar` en ambas clases. No parsea
+`policy_table.yaml` directamente (ver el docstring de `cpu_loop_main.cpp`
+para por qué); un script wrapper resolvería el YAML y pasaría los valores
+concretos como flags si la política cambia.
 
 ## Tests
 
