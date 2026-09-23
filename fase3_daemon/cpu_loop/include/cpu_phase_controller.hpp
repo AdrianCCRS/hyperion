@@ -23,14 +23,29 @@
  * el comentario de archivo de gpu_clock_controller.hpp para el contraste).
  *
  * Señal de coordinación CPU-GPU (§4.1, "Señal de coordinación"): mientras
- * el loop de GPU reporte actividad, el loop de CPU debe forzar el piso de
- * frecuencia sin importar lo que diga el clasificador ese ciclo -- porque
- * un cudaDeviceSynchronize() bloqueante (forzado por el shim de
- * fase3_daemon/shim/) hace que la CPU aparezca "ocupada" cuando en
- * realidad solo espera a la GPU. `on_window()` recibe ese flag como
- * parámetro explícito -- esta clase no lee la variable atómica compartida
- * por sí sola, el llamador se la pasa ya resuelta (mismo principio de
- * "esta clase no descubre nada por su cuenta" que GpuClockController).
+ * el loop de GPU reporte actividad, el loop de CPU nunca debe pedir una
+ * frecuencia POR DEBAJO de `gpu_active_floor_khz`. Es una barrera, no un
+ * objetivo: el piso se usa para elevar una petición demasiado baja, nunca
+ * para bajar la frecuencia por su cuenta.
+ *
+ * Esta semántica corrige la que describe §4.1 del plan de realineación
+ * ("mientras gpu_util_pct reporte actividad, forzar el reloj de CPU al
+ * mínimo"), cuyo supuesto explícito --- "si la CPU está de verdad
+ * bloqueada esperando, bajar su reloj casi no afecta el consumo" ---
+ * quedó REFUTADO por medición (F1-XDEV-006, 2026-09-13): fijar la CPU al
+ * mínimo durante una carga GPU la alarga 63-66% (134/134 y 1632/1632
+ * pares más lentos en dos campañas), con la fase en régimen estacionario
+ * casi duplicada (+93.8%) y una degradación que crece con el tamaño del
+ * problema. La medida "defensiva" original, aplicada tal cual, degradaría
+ * el tiempo en vez de ahorrar energía. El shim de blocking-sync
+ * (common/hpc/native/blocking_sync_shim.cpp) sigue siendo la parte válida
+ * del mecanismo: evita que una espera bloqueante se vea como IPC alto
+ * ante el clasificador. Lo que se retira es bajar el reloj por esa señal.
+ *
+ * `on_window()` recibe el flag de actividad de GPU como parámetro
+ * explícito -- esta clase no lee la variable atómica compartida por sí
+ * sola, el llamador se la pasa ya resuelta (mismo principio de "esta
+ * clase no descubre nada por su cuenta" que GpuClockController).
  */
 namespace hyperion::cpu_loop {
 
@@ -46,9 +61,12 @@ namespace hyperion::cpu_loop {
     struct CpuPhaseControllerConfig {
         CpuPolicyEntry compute_bound;
         CpuPolicyEntry memory_bound;
-        /** Piso de frecuencia a forzar mientras gpu_active esté activo en
-         * on_window() (§4.1, "Señal de coordinación") -- 0 = no hay piso
-         * configurado, gpu_active se ignora. */
+        /** Frecuencia MÍNIMA que el loop puede pedir mientras gpu_active
+         * esté activo en on_window(): una petición de la política por
+         * debajo de este valor se eleva hasta él. Nunca baja la frecuencia
+         * por sí solo, y si la política de la clase es "no actuar" no se
+         * escribe nada (ver la nota sobre F1-XDEV-006 en la cabecera del
+         * archivo). 0 = sin barrera, gpu_active se ignora. */
         unsigned int gpu_active_floor_khz = 0;
     };
 
@@ -58,10 +76,10 @@ namespace hyperion::cpu_loop {
      * alrededor de la inferencia/de esta llamada, no esta clase). */
     struct CpuWindowDecision {
         CpuPhaseLabel label;
-        bool gpu_active_override;      // true si este tick se forzó el piso por señal de coordinación
+        bool gpu_floor_clamped;        // true si la barrera de GPU elevó la petición de la política este tick
         bool actuation_attempted;      // true si se llamó al FrequencySetter este tick
         bool actuation_failed;         // true si actuation_attempted y el setter devolvió false
-        unsigned int target_freq_khz;  // 0 si la política de la clase es "no actuar" y no hay override GPU
+        unsigned int target_freq_khz;  // 0 si la política de la clase es "no actuar" (nunca se escribe nada)
     };
 
     class CpuPhaseController {
@@ -82,62 +100,57 @@ namespace hyperion::cpu_loop {
         CpuWindowDecision on_window(CpuPhaseLabel label, bool gpu_active) {
             CpuWindowDecision decision{};
             decision.label = label;
-            decision.gpu_active_override = gpu_active && config_.gpu_active_floor_khz != 0;
+            current_label_ = label;
+            has_decided_once_ = true;
 
-            unsigned int desired_khz;
-            bool policy_actuar;
-            if (decision.gpu_active_override) {
-                desired_khz = config_.gpu_active_floor_khz;
-                policy_actuar = true;
-            } else {
-                const CpuPolicyEntry& policy =
-                    (label == CpuPhaseLabel::ComputeBound) ? config_.compute_bound : config_.memory_bound;
-                desired_khz = policy.target_freq_khz;
-                policy_actuar = policy.actuar;
-            }
-            decision.target_freq_khz = policy_actuar ? desired_khz : 0;
+            const CpuPolicyEntry& policy =
+                (label == CpuPhaseLabel::ComputeBound) ? config_.compute_bound : config_.memory_bound;
 
-            if (!policy_actuar) {
-                // Política "no actuar" para esta clase: nunca se llama al
-                // setter, sin importar si la clase cambió -- no hay nada
-                // que aplicar.
-                current_label_ = label;
-                has_decided_once_ = true;
+            if (!policy.actuar) {
+                // Política "no actuar" para esta clase: no se escribe nada,
+                // ni siquiera con la GPU activa. La barrera de GPU solo
+                // puede ELEVAR una petición que la política ya decidió
+                // hacer; nunca introduce una escritura por su cuenta,
+                // porque bajar el reloj durante carga GPU degrada el
+                // tiempo (F1-XDEV-006, ver cabecera del archivo).
                 return decision;
             }
 
-            // Actúa solo si: es la primera decisión, la clase efectiva
-            // cambió desde el último tick, o el override de GPU acaba de
-            // activarse/desactivarse (ambos casos cuentan como "cambio").
-            const bool effective_label_changed =
-                !has_decided_once_
-                || decision.gpu_active_override != last_gpu_active_override_
-                || (!decision.gpu_active_override && label != current_label_);
+            unsigned int desired_khz = policy.target_freq_khz;
+            if (gpu_active && config_.gpu_active_floor_khz > desired_khz) {
+                desired_khz = config_.gpu_active_floor_khz;
+                decision.gpu_floor_clamped = true;
+            }
+            decision.target_freq_khz = desired_khz;
 
-            if (!effective_label_changed) {
-                decision.actuation_attempted = false;
-                current_label_ = label;
-                has_decided_once_ = true;
+            // Actúa solo si la frecuencia pedida cambia respecto de la
+            // última efectivamente aplicada. Esto cubre de una sola vez el
+            // cambio de clase, el enganche/desenganche de la barrera de
+            // GPU y el arranque en frío, y evita reescribir el mismo valor
+            // cuando dos clases comparten nivel.
+            if (last_applied_khz_ == desired_khz) {
                 return decision;
             }
 
             const bool ok = set_frequency_(desired_khz);
             decision.actuation_attempted = true;
             decision.actuation_failed = !ok;
-            current_label_ = label;
-            last_gpu_active_override_ = decision.gpu_active_override;
-            has_decided_once_ = true;
+            if (ok) {
+                last_applied_khz_ = desired_khz;
+            }
             return decision;
         }
 
         CpuPhaseLabel current_label() const noexcept { return current_label_; }
         bool has_decided_once() const noexcept { return has_decided_once_; }
+        /** Última frecuencia efectivamente aplicada (0 = ninguna todavía). */
+        unsigned int last_applied_khz() const noexcept { return last_applied_khz_; }
 
     private:
         CpuPhaseControllerConfig config_;
         FrequencySetter set_frequency_;
         CpuPhaseLabel current_label_ = CpuPhaseLabel::ComputeBound;
-        bool last_gpu_active_override_ = false;
+        unsigned int last_applied_khz_ = 0;
         bool has_decided_once_ = false;
     };
 
