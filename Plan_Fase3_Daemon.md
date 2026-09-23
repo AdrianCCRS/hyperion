@@ -872,6 +872,19 @@ NVML por ventana (desviación/IQR de util, IQR de mem_util, temperatura,
 potencia normalizada por reloj) o se acepta esta exactitud y se documenta la
 limitación. Ningún modelo nuevo se exportó todavía.
 
+**Auditoría de `freq_khz_observed` en el clasificador de CPU (job 7619).** El
+informe de calidad de Fase 2 ya mostraba que quitar la variable no cambia la
+exactitud (XGBoost sin frecuencia 0.709, todas las variantes entre 0.68 y 0.71;
+AUC univariado de la frecuencia 0.572). Contrafactual sobre el modelo final
+(1.31 M filas, 49 kernels): forzar la frecuencia a un valor fijo cambia 4-11% de
+las predicciones (3.2 GHz: 10.6%, 2.9 GHz: 10.1%, 2.0 GHz: 4.5%, 0.8 GHz: 8.8%;
+kernel más sensible `dual_fft_cpu_N472`, hasta 69%), es decir, hay dependencia
+moderada de la frecuencia. Pero el cambio que hace el daemon es F0 -> F1
+(3.2 -> 2.9 GHz): sobre las filas observadas a ~3.2 GHz (179 774), solo cambia
+**0.42%** de las predicciones. Con el espacio de acción del daemon (F0/F1) la
+retroalimentación por esa variable es despreciable; no hace falta reentrenar el
+modelo de CPU para esta ronda.
+
 ---
 
 ## 2. Criterios de cierre
