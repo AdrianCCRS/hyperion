@@ -33,7 +33,7 @@ source "$HOME/hyperion-venv/bin/activate"
 hostname
 python3 --version
 echo "=== tests unitarios (sin binarios reales) ==="
-python3 -m pytest "$ROOT/fase3_daemon/composite_apps/tests/test_composite_known.py" -q
+python3 -m pytest "$ROOT/fase3_daemon/composite_apps/tests/" -q
 
 echo "=== smoke real: dgemm_n2048 + npb_cg, 2 ciclos, paccaA100 ==="
 python3 "$ROOT/fase3_daemon/composite_apps/composite_known.py" \

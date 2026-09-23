@@ -157,13 +157,19 @@ def run_composite(
     return records
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+def build_arg_parser(
+    *, default_sequence: tuple[str, ...], description: str | None, default_cycles: int = 3,
+) -> argparse.ArgumentParser:
+    """Parser compartido por `composite_known.py` (Aplicación A) y
+    `composite_unseen.py` (Aplicación B) -- ambas aceptan exactamente los
+    mismos flags, solo cambia qué secuencia trae por default y con qué
+    docstring se documenta."""
+    parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--catalog", type=Path, default=DEFAULT_CATALOG_PATH)
-    parser.add_argument("--sequence", nargs="+", default=list(DEFAULT_SEQUENCE),
+    parser.add_argument("--sequence", nargs="+", default=list(default_sequence),
                          help="IDs del catálogo a encadenar, en orden (default: %(default)s).")
-    parser.add_argument("--cycles", type=int, default=3,
-                         help="Cuántas veces repetir la secuencia completa (default: 3).")
+    parser.add_argument("--cycles", type=int, default=default_cycles,
+                         help=f"Cuántas veces repetir la secuencia completa (default: {default_cycles}).")
     parser.add_argument("--node-id", required=True,
                          help="Nodo para resolver binary_checksum (p.ej. 'pacca-a100'), mismo id que usa "
                               "fase1_telemetria/campaign.py -- sin default: elegirlo a propósito.")
@@ -172,6 +178,17 @@ def main() -> int:
                               "fase1_telemetria, ver el encabezado de catalog.yaml).")
     parser.add_argument("--boundaries-out", type=Path, required=True,
                          help="Ruta del registro JSONL de fronteras de fase reales (requisito 3, §0.1).")
+    return parser
+
+
+def main_with_defaults(
+    *, default_sequence: tuple[str, ...], description: str | None = None, default_cycles: int = 3,
+    label: str = "aplicación compuesta",
+) -> int:
+    """Cuerpo compartido de `main()` -- parsea argv, corre la secuencia
+    resultante y escribe el registro de fronteras. `label` solo cambia el
+    texto del resumen final (para distinguir A de B en el log)."""
+    parser = build_arg_parser(default_sequence=default_sequence, description=description, default_cycles=default_cycles)
     args = parser.parse_args()
 
     catalog = load_catalog(str(args.catalog))
@@ -194,9 +211,14 @@ def main() -> int:
         )
 
     n_failed = sum(1 for r in records if not r.success)
-    print(f"aplicación compuesta A: {len(records)} fases, {n_failed} fallidas, "
-          f"registro en {args.boundaries_out}")
+    print(f"{label}: {len(records)} fases, {n_failed} fallidas, registro en {args.boundaries_out}")
     return 1 if n_failed else 0
+
+
+def main() -> int:
+    return main_with_defaults(
+        default_sequence=DEFAULT_SEQUENCE, description=__doc__, label="aplicación compuesta A",
+    )
 
 
 if __name__ == "__main__":
