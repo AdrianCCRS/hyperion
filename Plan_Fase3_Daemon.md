@@ -334,7 +334,7 @@ distinta a los nodos donde normalmente se verifica `telemetry`).
   a la puerta dura y al smoke test). Los mismos 3 tests preexistentes de
   `common/telemetry` (`std::bad_alloc`, ver cierre de Bloque B) siguen sin
   investigar, sin bloquear.
-- **C2a. Aplicación A (familias conocidas) — en verificación en paccaA100.**
+- **C2a. Aplicación A (familias conocidas) — Cerrado (job 7572, paccaA100).**
   `fase3_daemon/composite_apps/composite_known.py` encadena `dgemm_n2048`
   (compute_bound puro, memory_share=0.0) y `npb_cg` (memory_bound puro,
   memory_share=1.0) -- ambos del inventario de 30 familias
@@ -345,13 +345,36 @@ distinta a los nodos donde normalmente se verifica `telemetry`).
   (`common/hpc/catalog.py::verify_binary`, mismo rigor CAT-07 de Fase 1).
   Fronteras de fase = `phase_label_hint` del catálogo (ground truth ya
   derivado en Fase 1, no inventado aquí) + reloj monotónico real de
-  inicio/fin de cada kernel, registrado en JSONL
-  (`fase3_daemon/composite_apps/tests/test_composite_known.py`, 8 casos,
-  todos con `run_fn`/`now_fn` inyectados -- sin binarios reales, corrible
-  en cualquier máquina). No usa `telemetry_kernel_launcher`: la
-  telemetría de esta aplicación la produce el daemon que la observa
+  inicio/fin de cada kernel, registrado en JSONL. Corrida real en
+  paccaA100 (2 ciclos, 4 fases): 4/4 exitosas, alternando compute_bound
+  (dgemm, ~1.7s) / memory_bound (npb_cg, ~2.7s), checksum verificado en
+  cada ejecución. 9/9 tests unitarios locales
+  (`fase3_daemon/composite_apps/tests/test_composite_known.py`, todos con
+  `run_fn`/`now_fn` inyectados -- sin binarios reales, corrible en
+  cualquier máquina). No usa `telemetry_kernel_launcher`: la telemetría de
+  esta aplicación la produce el daemon que la observa
   (`run_daemon.py`/`cpu_loop_main`), corriendo aparte -- este driver solo
-  orquesta y registra fronteras, no mide PMU. Aplicación B (familias
+  orquesta y registra fronteras, no mide PMU.
+
+  **Hallazgos colaterales durante la verificación (jobs 7567-7572), ambos
+  corregidos, ninguno afectó trabajo ya cerrado:**
+  - `common/hpc/catalog.py::verify_binary`/`verify_cupti_activity_binary` y
+    `fase1_telemetria/campaign.py::_launcher_checksum` usaban
+    `hashlib.file_digest` (stdlib 3.11+); reemplazado por lectura en
+    bloques de 1 MiB, portable. Verificado que esto NUNCA afectó campañas
+    reales: todas activan `~/hyperion-venv` (Python 3.11.13), nunca el
+    Python 3.10.20 del sistema -- el fix es una mejora de portabilidad
+    real (útil para scripts nuevos que, como el propio
+    `hyp_composite_known_smoke.sbatch` en su primer intento, no activen
+    ese venv), no una corrección de un bug en producción.
+  - `hyp_composite_known_smoke.sbatch` no replicaba el entorno real de
+    campaña (`module load ... openblas`, `LD_LIBRARY_PATH`,
+    `source ~/hyperion-venv/bin/activate`, ver `hyp_external_cpu.sbatch`)
+    -- causó los tres fallos en cadena (pytest ausente, `hashlib` roto,
+    `dgemm_bench` sin `libopenblas.so.0`). Corregido replicando ese mismo
+    patrón.
+
+  Aplicación B (familias
   inéditas) queda pendiente, es la contraparte deliberada de esta (§0.1
   Eje 1: si A gana y B no, el resultado es memorización, no
   generalización).
