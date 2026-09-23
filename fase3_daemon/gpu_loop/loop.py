@@ -171,27 +171,48 @@ def build_controller_from_policy(
     return GpuClockController(config, set_clock)
 
 
-def make_gpu_freqctl_setter(env: Any, gpu_index: int | str | None = None) -> Callable[[int], bool]:
+def make_gpu_freqctl_setter(
+    env: Any, gpu_index: int | str | None = None, *, settle_s: float | None = None,
+) -> Callable[[int], bool]:
     """Adaptador real de producción: `GpuClockController` espera
     `Callable[[int], bool]` (MHz -> éxito); `gpu_freqctl.apply_gpu_frequency`
     espera un `level` con `.mode`/`.fraction`. Se construye un nivel
     ``fixed`` sintético con la fracción exacta que da el MHz pedido sobre
     ``env.gpu_available_clocks_mhz`` -- reutiliza toda la lógica de
     relectura/verificación de `gpu_freqctl` en vez de reimplementarla.
+
+    `mhz <= 0` significa "no fijar el reloj" (política `no_actuar`, ver
+    `build_controller_from_policy`): se aplica el nivel `native_governor`
+    (`nvidia-smi -rgc`, idempotente), que además DESHACE un candado dejado por
+    una fase anterior. Antes, 0 caía en la rama `fixed` con fracción 0.0 y
+    fijaba el reloj MÍNIMO de la GPU (210 MHz) durante las fases compute_bound
+    (hallado en el preflight real, job 7599: el controlador llama a
+    `set_clock(0)` en la primera decisión y en cada vuelta a una clase
+    `no_actuar`).
+
+    `settle_s`: espera de asentamiento de NVML dentro de `apply_gpu_frequency`
+    (por defecto 1.5 s, validado para campañas). Medido: el comando cuesta
+    ~50 ms y el reloj observado llega al objetivo ~80 ms después, así que casi
+    todo el costo por cambio (~1.6 s) es esa espera. Un valor menor (p.ej.
+    0.3 s) es una decisión explícita del llamador, no un default silencioso.
     """
     from types import SimpleNamespace
 
     available = getattr(env, "gpu_available_clocks_mhz", None) or []
+    extra = {} if settle_s is None else {"sleep": lambda _s, _v=settle_s: time.sleep(_v)}
 
     def set_clock(mhz: int) -> bool:
-        if not available:
-            return False
-        lo, hi = min(available), max(available)
-        fraction = 1.0 if hi == lo else (mhz - lo) / (hi - lo)
-        fraction = max(0.0, min(1.0, fraction))
-        level = SimpleNamespace(id=f"gpu_loop_target_{mhz}mhz", mode="fixed", fraction=fraction)
+        if mhz <= 0:
+            level = SimpleNamespace(id="gpu_loop_native", mode="native_governor", fraction=None)
+        else:
+            if not available:
+                return False
+            lo, hi = min(available), max(available)
+            fraction = 1.0 if hi == lo else (mhz - lo) / (hi - lo)
+            fraction = max(0.0, min(1.0, fraction))
+            level = SimpleNamespace(id=f"gpu_loop_target_{mhz}mhz", mode="fixed", fraction=fraction)
         try:
-            applied = gpu_freqctl.apply_gpu_frequency(level, env, gpu_index=gpu_index)
+            applied = gpu_freqctl.apply_gpu_frequency(level, env, gpu_index=gpu_index, **extra)
         except gpu_freqctl.GpuFrequencyControlError:
             return False
         return applied.applied_mhz == mhz or applied.strategy != gpu_freqctl.STRATEGY_UNAVAILABLE

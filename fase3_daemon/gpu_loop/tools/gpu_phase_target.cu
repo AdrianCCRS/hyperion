@@ -1,10 +1,14 @@
 // Carga objetivo de GPU para el preflight del daemon (Bloque D). Un solo
 // proceso, un solo stream, TODO en el dispositivo. Modos:
-//   alternate [fase_s=3] [total_s=1e9]  alterna fases memory (triad) y compute
+//   alternate [fase_s=3] [total_s=1e9] [hueco_s=2]
+//                                       alterna fases memory (triad) y compute
 //                                       (cadenas FMA fp64 en registros) e imprime
 //                                       "<ns CLOCK_MONOTONIC> <M|C>" en cada frontera,
 //                                       para puntuar la clasificacion contra fronteras
 //                                       conocidas (mismo reloj que el registro de decisiones).
+//                                       Entre fases deja la GPU ociosa `hueco_s`: el daemon
+//                                       detecta fases por transiciones idle->activo del sondeo
+//                                       NVML, sin hueco no veria la frontera memory->compute.
 //   bench_memory  [segundos]            imprime GB/s del triad
 //   bench_compute [segundos]            imprime GFLOP/s de las cadenas FMA
 // bench_* sirve para medir el EFECTO REAL del candado de reloj: el rendimiento
@@ -15,6 +19,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <unistd.h>
 
 static int64_t now_ns() {
     timespec ts;
@@ -75,6 +80,7 @@ int main(int argc, char** argv) {
     }
     const double phase_s = argc > 2 ? std::atof(argv[2]) : 3.0;
     const double total_s = argc > 3 ? std::atof(argv[3]) : 1e9;
+    const double gap_s = argc > 4 ? std::atof(argv[4]) : 2.0;
     const int64_t t_end = now_ns() + (int64_t)(total_s * 1e9);
     bool memory = true;
     while (now_ns() < t_end) {
@@ -82,6 +88,9 @@ int main(int argc, char** argv) {
         std::fflush(stdout);
         run_phase(w, memory, phase_s);
         memory = !memory;
+        CK(cudaDeviceSynchronize());
+        const int64_t t_gap = now_ns() + (int64_t)(gap_s * 1e9);
+        while (now_ns() < t_gap) usleep(10000);
     }
     return 0;
 }

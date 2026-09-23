@@ -119,6 +119,7 @@ def build_daemon_gpu_loop(
     should_continue=None,
     gpu_active_signal: GpuActiveSignalWriter | None = None,
     delegated_cpus: str = "0",
+    gpu_settle_s: float | None = None,
 ):
     """Ensambla el loop de GPU real a partir de la tabla de política ya
     derivada (§3.4/§3.5) -- nunca recalcula EDP en línea (§3.4 punto 4:
@@ -147,7 +148,7 @@ def build_daemon_gpu_loop(
         # `lambda: fake_env` que aceptaba cero argumentos. El loop de GPU no toca CPU: el valor solo sirve
         # para que la deteccion de entorno tenga un cpuset que leer.
         env = environment_module.detect_environment(delegated_cpus)
-        set_clock = gpu_loop_module.make_gpu_freqctl_setter(env, gpu_index=gpu_index)
+        set_clock = gpu_loop_module.make_gpu_freqctl_setter(env, gpu_index=gpu_index, settle_s=gpu_settle_s)
         _install_restore_handlers(env, gpu_index)
 
     controller = gpu_loop_module.build_controller_from_policy(policy, min_dwell_ns, set_clock)
@@ -224,6 +225,10 @@ def main() -> int:
     parser.add_argument("--policy-table", type=Path, required=True,
                          help="policy_table.yaml producido por fase3_daemon/policy/build_policy_table.py")
     parser.add_argument("--gpu-index", default=None)
+    parser.add_argument("--gpu-settle-s", type=float, default=None,
+                         help="Espera de asentamiento de NVML dentro de cada cambio de reloj (default: la de gpu_freqctl, "
+                              "1.5 s). Medido (job 7599): el comando cuesta ~50 ms y el reloj llega ~80 ms despues; un "
+                              "valor menor reduce el costo por cambio, pero es decision explicita.")
     parser.add_argument("--delegated-cpus", default="0",
                          help="cpuset que lee detect_environment() (solo lectura). El loop de GPU no escribe en CPU; "
                               "el valor solo tiene que existir en el nodo (default '0').")
@@ -324,6 +329,7 @@ def main() -> int:
             should_continue=should_continue,
             gpu_active_signal=gpu_active_signal,
             delegated_cpus=args.delegated_cpus,
+            gpu_settle_s=args.gpu_settle_s,
         )
     except KeyboardInterrupt:
         logger.info("interrumpido, saliendo")

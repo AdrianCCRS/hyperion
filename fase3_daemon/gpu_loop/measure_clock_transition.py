@@ -61,6 +61,8 @@ def main() -> int:
     ap.add_argument("--clocks", default="1410,1260", help="dos relojes MHz entre los que alternar")
     ap.add_argument("--cycles", type=int, default=10)
     ap.add_argument("--delegated-cpus", default="0")
+    ap.add_argument("--settle-s", type=float, default=None, help="espera de asentamiento dentro de apply_gpu_frequency "
+                    "(default: la de gpu_freqctl, 1.5 s)")
     ap.add_argument("--out", type=Path, default=None)
     a = ap.parse_args()
     lo_hi = [int(x) for x in a.clocks.split(",")]
@@ -90,7 +92,8 @@ def main() -> int:
                                      fraction=(target - min(env.gpu_available_clocks_mhz)) /
                                               (max(env.gpu_available_clocks_mhz) - min(env.gpu_available_clocks_mhz)))
                 t1 = time.monotonic()
-                applied = gpu_freqctl.apply_gpu_frequency(lv, env, gpu_index=a.gpu_index)
+                extra = {} if a.settle_s is None else {"sleep": lambda _s: time.sleep(a.settle_s)}
+                applied = gpu_freqctl.apply_gpu_frequency(lv, env, gpu_index=a.gpu_index, **extra)
                 full.append((time.monotonic() - t1) * 1000.0)
                 if applied.applied_mhz != target:
                     print(f"aplicado {applied.applied_mhz} != pedido {target} (observado {applied.observed_sm_mhz})")

@@ -119,6 +119,49 @@ def test_make_gpu_freqctl_setter_construye_nivel_fixed_y_aplica(monkeypatch):
     assert 0.0 <= captured["level"].fraction <= 1.0
 
 
+def test_make_gpu_freqctl_setter_cero_restaura_el_reloj_nativo_en_vez_de_fijar_el_minimo(monkeypatch):
+    # Regresion (preflight real, job 7599): mhz=0 significa "no actuar" y antes caia en la rama fixed con
+    # fraccion 0.0, es decir, fijaba el reloj MINIMO de la GPU durante las fases compute_bound.
+    from common.hpc import gpu_freqctl
+
+    captured = []
+
+    def fake_apply(level, env, *, gpu_index=None):
+        captured.append(level)
+        return SimpleNamespace(applied_mhz=None, strategy=gpu_freqctl.STRATEGY_LOCKED_CLOCKS)
+
+    monkeypatch.setattr(gpu_freqctl, "apply_gpu_frequency", fake_apply)
+    setter = make_gpu_freqctl_setter(SimpleNamespace(gpu_available_clocks_mhz=[210, 1410]))
+    assert setter(0) is True
+    assert captured[0].mode == "native_governor"
+
+
+def test_make_gpu_freqctl_setter_cero_no_necesita_relojes_disponibles(monkeypatch):
+    from common.hpc import gpu_freqctl
+
+    monkeypatch.setattr(
+        gpu_freqctl, "apply_gpu_frequency",
+        lambda level, env, *, gpu_index=None: SimpleNamespace(applied_mhz=None, strategy=gpu_freqctl.STRATEGY_LOCKED_CLOCKS),
+    )
+    assert make_gpu_freqctl_setter(SimpleNamespace(gpu_available_clocks_mhz=[]))(0) is True
+
+
+def test_make_gpu_freqctl_setter_settle_s_solo_se_pasa_si_se_pide(monkeypatch):
+    from common.hpc import gpu_freqctl
+
+    seen = []
+
+    def fake_apply(level, env, *, gpu_index=None, **kw):
+        seen.append(kw)
+        return SimpleNamespace(applied_mhz=1200, strategy=gpu_freqctl.STRATEGY_LOCKED_CLOCKS)
+
+    monkeypatch.setattr(gpu_freqctl, "apply_gpu_frequency", fake_apply)
+    env = SimpleNamespace(gpu_available_clocks_mhz=[800, 1200, 1600])
+    make_gpu_freqctl_setter(env)(1200)
+    make_gpu_freqctl_setter(env, settle_s=0.3)(1200)
+    assert seen[0] == {} and "sleep" in seen[1]
+
+
 def test_make_gpu_freqctl_setter_sin_relojes_disponibles_falla_sin_llamar_apply():
     env = SimpleNamespace(gpu_available_clocks_mhz=[])
     setter = make_gpu_freqctl_setter(env)
