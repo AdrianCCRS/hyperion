@@ -950,12 +950,27 @@ backprop 0.7, dwt2d 0.8), menos que la ventana de decisión; candidatos sin
 5.8 s, `gpu_stream_bw` 1.8 s, `gpu_dgemm_calibration` 0.56 s, `gpu_gemm_native_n4096`
 31.6 s (hint "intermedio"). No hay una familia inédita memory_bound larga.
 
-**Frecuencia de CPU vs cargas de GPU (job 7628, mediana de 3, orden aleatorizado,
-turbo apagado en los niveles fijos):** `gpu_cutlass_simt_dgemm` (dominado por GPU):
-F0 x1.003, F1 (2.9 GHz) x1.007, 2.0 GHz x1.004, 0.8 GHz x1.027 frente a REF.
-`gpu_rajaperf_stream_triad` (con ~5 s de inicialización en CPU): F0 x0.999, F1
-x1.057, 2.0 GHz x1.295, 0.8 GHz x2.435. F0 equivale a REF para cargas de GPU; F1
-cuesta hasta +5.7% en una aplicación con parte en CPU y +0.7% en una dominada por
-GPU. El daemon de CPU solo se mueve entre F0 y F1, así que el riesgo de degradar
-una carga de GPU es acotado.
+**Ahorro posible al bajar la CPU durante cargas de GPU (jobs 7628 y 7633, mediana de
+3 corridas, orden aleatorizado, turbo apagado en los niveles fijos; energía de
+CPU = RAPL de ambos paquetes, energía de GPU = contador de NVML; EDP del nodo =
+(E_cpu + E_gpu) x T; razones frente a REF, menor es mejor).** El primer intento (job
+7628) solo midió la duración; el 7633 añadió la energía.
+
+| Kernel | Nivel de CPU | T | E_cpu | E_total | EDP |
+|---|---|---|---|---|---|
+| cutlass_dgemm (dominado por GPU) | F0 3.2 GHz | x1.000 | x0.999 | x1.000 | x1.000 |
+| | F1 2.9 GHz | x1.005 | x0.933 | x0.978 | **x0.983** |
+| | 2.0 GHz | x1.003 | x0.919 | x0.972 | **x0.975** |
+| | 0.8 GHz | x1.024 | x0.946 | x0.991 | x1.015 |
+| stream_triad (con ~5 s de CPU) | F0 3.2 GHz | x0.998 | x0.997 | x0.986 | x0.991 |
+| | F1 2.9 GHz | x1.062 | x0.980 | x0.989 | **x1.046** |
+| | 2.0 GHz | x1.296 | x1.181 | x1.151 | x1.503 |
+| | 0.8 GHz | x2.444 | x2.203 | x1.956 | x4.798 |
+
+Lectura: en una carga dominada por la GPU, bajar la CPU a F1 ahorra ~6.7% de la
+energía de CPU y ~1.7% del EDP del nodo (el máximo es ~2.5% a 2.0 GHz); con la parte
+de CPU de la aplicación (triad, ~5 s de inicialización) F1 cuesta +6.2% de tiempo y
++4.6% de EDP. F0 (turbo apagado) equivale a REF en ambos. El ahorro posible es
+pequeño y depende de cuánto de la aplicación sea CPU; coherente con el piso de
+potencia de CPU (la mayor parte de la potencia no escala con la frecuencia).
 
