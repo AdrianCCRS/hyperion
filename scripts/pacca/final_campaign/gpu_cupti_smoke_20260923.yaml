@@ -73,6 +73,9 @@ gpu:
   activity_trace:
     enabled: true
     library_path: /home/latorresn/hyperion/common/telemetry/build-cupti/libhyperion_cupti_activity.so
+    parameters_by_kernel:
+      rodinia_gaussian:
+        size: 4096
 timeouts_seconds:
   ready: 15
   run: 300
