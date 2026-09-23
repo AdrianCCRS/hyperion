@@ -752,7 +752,35 @@ variables del clasificador de GPU, o clasificar con las que no dependen de la
 frecuencia. Pendiente de decisión antes del brazo activo de GPU en Fase 4.
 La rejilla de la política (F1 = 1260 MHz, pasos de 150 MHz) coincide con la de
 la campaña, pero la Tabla de frecuencias del libro lista otra rejilla de
-GPU (1410, 1350, 1290, ...); revisar cuál es la vigente.
+GPU (1410, 1350, 1290, ...). Decisión del usuario (2026-09-23): la vigente es la que se
+usó en la campaña (pasos de 150 MHz, F1 = 1260); la tabla del libro está por corregir.
+
+**Auditoría del reloj y reentrenamiento (jobs 7601/7602/7606).** El clasificador
+GPU vigente (regresión logística, 5 variables) SÍ dependía del reloj, aunque no
+como fuga de etiqueta (la etiqueta ncu es constante por kernel entre niveles):
+forzar el reloj a 1410 MHz cambia el 26.7% de sus predicciones (49% de las filas
+compute pasan a memory) y quitarlo baja su exactitud por celda (LOFO) de 0.792
+a 0.654 (Δ −0.135, IC95 [−0.305, +0.037]). Random forest no lo necesita: 0.807
+con reloj, 0.812 sin reloj, 0.819 sin reloj ni potencia (Δ +0.012, IC95
+[−0.003, +0.032]). Se exportó `gpu_random_forest_historical_20260923_sin_reloj`
+(variables: util, mem_util, mem_util_std; sin reloj ni potencia porque el daemon
+cambia el primero y la segunda depende de él), latencia p50 4.7 ms / p99 5.0 ms
+medida en paccaA100 (una clasificación por fase, aceptable), y es el default de
+`run_daemon.py`. El modelo anterior se conserva pero no se usa.
+
+**Hallazgo abierto, ahora más importante: la decisión se toma en el flanco de
+subida de la fase.** Con el candidato nuevo, sobre fases sintéticas de 20 s con
+huecos ociosos (job 7606), el daemon acertó 2 de 6 decisiones. Las variables
+registradas en cada decisión son muestras instantáneas del arranque (util 8-87%,
+mem_util 0-97%), no el régimen estable, mientras que el modelo se entrenó con
+medianas de corridas completas. Es la limitación documentada de A4 (buffer móvil
+en frío), y aquí decide el resultado. Propuesta pendiente: decidir tras una
+ventana de actividad sostenida (p.ej. unos segundos) con mediana/std sobre esa
+ventana, a costa de retrasar la actuación esa cantidad (aceptable para fases
+largas). Además `gpu_mem_util_pct` casi no separa las clases en los datos
+históricos (mediana 1% en ambas), así que el modelo depende sobre todo de util y
+su desviación. La validación honesta requiere kernels reales del catálogo, no
+mis kernels sintéticos de extremos.
 
 ---
 
