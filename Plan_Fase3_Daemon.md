@@ -782,6 +782,27 @@ históricos (mediana 1% en ambas), así que el modelo depende sobre todo de util
 su desviación. La validación honesta requiere kernels reales del catálogo, no
 mis kernels sintéticos de extremos.
 
+**Decisión tras actividad sostenida, con kernels reales (jobs 7607/7608).**
+`poll_phase_events(min_active_s=...)` (`run_daemon.py --min-active-s`, default
+3 s) emite la decisión solo tras una ventana de actividad sostenida, y
+`HistoricalGpuClassifier.reset_window()` vacía el buffer al inicio de cada
+actividad, de modo que mediana/std se calculan solo sobre la fase (antes
+arrastraban el hueco ocioso). La señal `gpu_active` sube al inicio de la
+actividad. Sobre una compuesta REAL del catálogo (`gpu_dgemm_n4096`
+compute_bound, 3.4 s; `gpu_rajaperf_stream_triad` memory_bound, 18 s; 3
+ciclos): la clasificación acertó 3 de 4 decisiones en sombra y 3 de 4 en
+activo (antes, con kernels sintéticos y decisión en el flanco, 2 de 6). En
+activo el reloj se fijó a 1260 MHz en las fases memory acertadas y se liberó
+(`-rgc`) al clasificar una como compute. Límites: (1) n=4, consistente con la
+exactitud LOFO de ~0.8 del modelo, no una medición de ella; (2) 4 decisiones
+para 6 fases: `gpu_dgemm_n4096` dura 3.4 s y la decisión llega a los 3 s, así
+que solo 1 de 3 fases dgemm se clasificó (fases más cortas que la ventana no
+se actúan, por diseño); (3) el triad decide a los ~8 s de arrancar el proceso
+porque RAJAPerf tarda ~5 s en inicializar en CPU con la GPU ociosa. Un error de
+clasificación cuesta: F1 sobre una fase compute alarga ~11% su tiempo, y
+liberar el reloj en una fase memory pierde el ahorro. Esa relación costo/beneficio
+es justo lo que mide la Fase 4.
+
 ---
 
 ## 2. Criterios de cierre
