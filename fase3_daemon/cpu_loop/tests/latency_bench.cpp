@@ -8,20 +8,19 @@
 using namespace hyperion::cpu_loop;
 
 /**
- * Mide el orden de magnitud de la latencia de una sola inferencia ONNX
- * (fila a fila, no en lote -- así decide el loop real, un tick a la vez,
- * mismo patrón que export_gpu_historical_candidate.py::measure_latency).
+ * Mide la latencia de una sola inferencia ONNX (fila a fila, no en lote --
+ * así decide el loop real, un tick a la vez, mismo patrón que
+ * export_gpu_historical_candidate.py::measure_latency).
  *
- * ADVERTENCIA -- leer antes de citar este número en cualquier parte:
- * corre en la laptop local de desarrollo, NO en paccaA100 (el nodo de
- * destino real del daemon). Sirve únicamente para una comprobación de
- * orden de magnitud ("¿esto cabe conceptualmente en un presupuesto de
- * ~1ms, o ni de lejos?") antes de invertir en integrar el camino caliente
- * completo con collector.hpp. La cifra AUTORITATIVA que decide si el loop
- * de CPU es viable en el presupuesto real debe medirse en paccaA100, igual
- * que se hizo para el candidato GPU (ver fase2_clasificador/models/
- * gpu_regresion_log_historical_20260922.metadata.json::latency_provenance
- * para el mismo principio aplicado del otro lado).
+ * Debe correr SIEMPRE vía sbatch en paccaA100 (ver
+ * scripts/pacca/hyp_cpu_loop_cpp_build_test.sbatch), el nodo de destino
+ * real del daemon -- nunca en la laptop local (feedback-never-run-compute-locally).
+ * Resultado real medido ahí (job 7562, 2026-09-22, cpu0 taskset,
+ * gobernador performance, turbo activo): p50=16.4us, p95=18.4us,
+ * p99=19.3us contra un presupuesto de ~1000us -- ~2%. No es una condición
+ * de reloj fijo/turbo-desactivado (no hace falta para esta comprobación:
+ * no se compara entre niveles de frecuencia, solo si la inferencia cabe
+ * en el presupuesto bajo el estado nativo del nodo).
  */
 int main() {
     OnnxCpuClassifier classifier("xgboost_cpu.onnx");
@@ -45,7 +44,7 @@ int main() {
     std::sort(timings_us.begin(), timings_us.end());
     auto pctl = [&](double p) { return timings_us[static_cast<size_t>(p * (timings_us.size() - 1))]; };
 
-    std::printf("[LOCAL, NO paccaA100 -- solo orden de magnitud] n=%d p50=%.1fus p95=%.1fus p99=%.1fus\n",
+    std::printf("[paccaA100] n=%d p50=%.1fus p95=%.1fus p99=%.1fus\n",
                 kRepeats, pctl(0.50), pctl(0.95), pctl(0.99));
     std::printf("presupuesto del tick del loop de CPU: 1000us (~1ms, granularidad de Fase 1)\n");
     return 0;

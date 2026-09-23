@@ -254,23 +254,25 @@ Construidos y probados (4/4 tests C++ en verde, además de los 3 de
   frecuencia queda en lo último aplicado, coherente con la conclusión del
   libro de que la utilidad del clasificador está en decidir cuándo
   abstenerse. Probado con `predict_proba` inyectado, sin modelo real.
-- [x] **Latencia de inferencia medida** (`latency_bench.cpp`, fila a fila,
-  2000 repeticiones): **p50=14.8µs, p95=15.9µs, p99=25.2µs**, contra un
-  presupuesto de ~1000µs -- margen amplio (~2.5% del presupuesto en el
-  peor caso). ⚠️ Medido en la laptop local de desarrollo, NO en
-  `paccaA100`; sirve para descartar que ONNX sea el cuello de botella
-  antes de invertir en la integración completa, no como cifra
-  autoritativa (mismo principio que la latencia GPU de A3).
+- [x] **Latencia de inferencia medida en `paccaA100` real**
+  (`scripts/pacca/hyp_cpu_loop_cpp_build_test.sbatch`, job 7562,
+  `latency_bench.cpp`, fila a fila, 2000 repeticiones, `taskset -c 0`,
+  gobernador `performance`, turbo activo): **p50=16.4µs, p95=18.4µs,
+  p99=19.3µs**, contra un presupuesto de ~1000µs -- **~2% del presupuesto
+  en el peor caso**. Cifra autoritativa, no una estimación de orden de
+  magnitud: corrida vía `sbatch` en el nodo de destino real, nunca en la
+  laptop local (ver [[feedback-never-run-compute-locally]] -- el
+  ONNX Runtime C++ SDK y el propio `cmake` se instalaron con
+  `conda create -n hyperion-cpu-onnx -c conda-forge cmake onnxruntime-cpp onnx`
+  en el nodo de LOGIN de pacca, que no es cómputo; compilar/enlazar/correr
+  sí lo es y fue todo dentro del job).
 
-**Lo que falta, y por qué no se cerró hoy**: el ejecutable real que
-instancia `telemetry::Collector` (el productor de `CpuSample` de verdad,
-vía `perf_event_open`) y consume el anillo SPSC en vivo. Requiere permisos
-de PMU (`perf_event_paranoid`, o `CAP_PERFMON`) que esta laptop no tiene
-(`perf_event_paranoid=2`, sin binario `perf` instalado) -- consistente con
-la convención ya establecida del proyecto de que la telemetría real corre
-siempre en `pacca`, nunca en local. El núcleo de inferencia queda listo
-para conectarse a ese productor sin cambios (`run_cpu_tick()` ya no asume
-de dónde vienen `prev`/`curr`); falta el bucle consumidor sobre
+**Lo que falta**: el ejecutable real que instancia `telemetry::Collector`
+(el productor de `CpuSample` de verdad, vía `perf_event_open`) y consume
+el anillo SPSC en vivo -- eso sí requiere hacerse en pacca (no se intentó
+localmente esta vez). El núcleo de inferencia queda listo para conectarse
+a ese productor sin cambios (`run_cpu_tick()` ya no asume de dónde vienen
+`prev`/`curr`); falta el bucle consumidor sobre
 `SPSCRing<Sample>::try_pop()`, filtrando `SampleTag::CPU`, y el CLI
 equivalente a `run_daemon.py` del lado GPU.
 
