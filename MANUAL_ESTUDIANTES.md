@@ -464,24 +464,27 @@ nivel) que se observó en esos datos.
 ### 4.3 Correr el daemon (modo de prueba, sin tocar hardware)
 
 ```bash
-python3 /ruta/al/repo/fase3_daemon/run_daemon.py \
+python3 /ruta/al/repo/fase3_daemon/gpu_loop_cpp/launch_gpu_daemon.py \
     --policy-table /ruta/al/repo/fase3_daemon/policy_table.yaml \
-    --min-dwell-ns 10000000000 \
-    --dry-run
+    --binary /ruta/al/repo/fase3_daemon/gpu_loop_cpp/build/gpu_loop_main \
+    --arm sombra -- \
+    --model /ruta/al/repo/fase3_daemon/gpu_loop_cpp/gpu_rf_sin_reloj.onnx \
+    --features /ruta/al/repo/fase3_daemon/gpu_loop_cpp/gpu_rf_sin_reloj.features.txt \
+    --min-dwell-ns 10000000000
 ```
 
-`--dry-run` hace que el daemon clasifique y decida normalmente, pero
+`--arm sombra` hace que el daemon clasifique y decida normalmente, pero
 **nunca escriba una frecuencia real** — solo registra en el log qué
-habría hecho. Siempre valida así antes de correr sin `--dry-run` en
+habría hecho. Siempre valida así antes de correr con `--arm activo` en
 hardware real. `--min-dwell-ns` es el tiempo mínimo (en nanosegundos) que
 el reloj de GPU debe quedarse en un valor antes de poder cambiar de
 nuevo — hoy no hay un valor medido real para esto (ver §6), así que
 cualquier valor que uses es un placeholder, no un número confiable
 todavía.
 
-⚠️ Con la limitación de §4.1, correr `run_daemon.py` hoy arranca **solo el
-loop de GPU** — vas a ver en el log una advertencia explícita de que el
-loop de CPU no está integrado todavía.
+El daemon de GPU (`gpu_loop_main`) y el de CPU (`cpu_loop_main`) son dos binarios en C++ que se coordinan
+por un archivo de señal (`--gpu-active-signal-path`). El daemon de GPU antes era `run_daemon.py` (Python),
+retirado el 2026-09-23 porque solo el sondeo consumía ~30% de un núcleo.
 
 ---
 
@@ -637,7 +640,7 @@ mano) — un cambio focalizado, no una reescritura.
 | `pytest` no se encuentra tras `pip install -e .` | Faltó el extra `[dev]` | `pip install -e ".[dev]"` |
 | Falla la compilación C++ (`cmake`) | Falta `g++`/`cmake` del sistema | Ver la sección Rocky Linux/Fedora del `README.md` raíz |
 | `check-readiness` marca la escritura de frecuencia como no disponible | Falta el permiso del administrador del clúster | Escalar al administrador -- no hay workaround del lado del usuario, y no se debe fabricar un dato de frecuencia no verificado |
-| El daemon (`run_daemon.py`) no hace nada visible | Es normal en `--dry-run` si la GPU está inactiva -- el loop de GPU solo actúa cuando `gpu_util_pct` supera el umbral | Lanzar una carga GPU real en paralelo para ver actividad en el log |
+| El daemon (`gpu_loop_main`) no hace nada visible | Es normal en `--arm sombra` si la GPU está inactiva -- el loop de GPU solo actúa cuando `gpu_util_pct` supera el umbral | Lanzar una carga GPU real en paralelo para ver actividad en el log |
 
 ---
 
@@ -659,7 +662,7 @@ python3 <repo>/fase2_clasificador/run_training.py --campaign-dir <D> --campaign-
 
 # Fase 3
 python3 <repo>/fase3_daemon/policy/derive_policy_table.py <D>/*/windows.csv --campaign-id <ID> --output policy_table.yaml
-python3 <repo>/fase3_daemon/run_daemon.py --policy-table policy_table.yaml --min-dwell-ns <N> --dry-run
+python3 <repo>/fase3_daemon/gpu_loop_cpp/launch_gpu_daemon.py --policy-table policy_table.yaml --binary <build>/gpu_loop_main --arm sombra -- --model <onnx> --features <features.txt> --min-dwell-ns <N>
 
 # Fase 4
 python3 <repo>/fase4_evaluacion/run_evaluation.py --scenario <nombre> <glob> [--scenario ... repetible] --agent-scenario <nombre> --output reporte.txt

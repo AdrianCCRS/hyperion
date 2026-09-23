@@ -41,7 +41,7 @@ trap cleanup EXIT
 hostname; git -C "$ROOT" log --oneline -1
 [ -x "$BIN" ] || { echo "falta $BIN (correr hyp_gpu_loop_cpp_build_test.sbatch)" >&2; exit 1; }
 sudo -n nvidia-smi -i $GPU -rgc || { echo "sudo -n nvidia-smi -rgc NO permitido" >&2; exit 1; }
-"$NVCC" -O2 -arch=sm_80 -o "$WORK/gpu_phase_target" "$ROOT/fase3_daemon/gpu_loop/tools/gpu_phase_target.cu" || exit 1
+"$NVCC" -O2 -arch=sm_80 -o "$WORK/gpu_phase_target" "$CPP/tools/gpu_phase_target.cu" || exit 1
 T="$WORK/gpu_phase_target"
 launch() {  # $1 = arm ; resto = flags extra. Traduce policy_table.yaml y hace exec. Se llama SIEMPRE en segundo plano
   # (subshell): el `exec` reemplaza ese subshell, asi que $! es el PID del propio gpu_loop_main y las senales le llegan a el
@@ -52,16 +52,11 @@ launch() {  # $1 = arm ; resto = flags extra. Traduce policy_table.yaml y hace e
 }
 ticks() { awk '{print $14+$15+$16+$17}' /proc/$1/stat; }   # utime+stime+cutime+cstime (ticks de 10 ms)
 
-echo; echo "=== 1. costo de CPU del sondeo, GPU ociosa, 30 s, brazo sombra ==="
-sleep 40 & SP=$!
-python3 "$ROOT/fase3_daemon/run_daemon.py" --policy-table "$ROOT/fase3_daemon/policy_table.yaml" --arm sombra --mode pid --pid $SP \
-  --min-dwell-ns $DWELL_NS --gpu-index $GPU --delegated-cpus 0 > "$WORK/idle_python.out" 2>&1 & PP=$!
-sleep 2; t0=$(ticks $PP); sleep 30; t1=$(ticks $PP); kill $PP 2>/dev/null; wait $PP 2>/dev/null; kill $SP 2>/dev/null
-echo "Python (run_daemon.py + nvidia-smi por sondeo): $(( t1 - t0 )) ticks = $(awk -v a=$((t1-t0)) 'BEGIN{printf "%.2f", a/100}') s de CPU en 30 s = $(awk -v a=$((t1-t0)) 'BEGIN{printf "%.1f", a/30}')% de un nucleo"
+echo; echo "=== 1. costo de CPU del sondeo, GPU ociosa, 30 s, brazo sombra (C++; el daemon Python, ya retirado, medio 30.6% de un nucleo en el job 7613) ==="
 sleep 40 & SP=$!
 launch sombra --target-pid $SP > "$WORK/idle_cpp.out" 2>&1 & CP=$!
 sleep 2; t0=$(ticks $CP); sleep 30; t1=$(ticks $CP); kill $CP 2>/dev/null; wait $CP 2>/dev/null; kill $SP 2>/dev/null
-echo "C++ (gpu_loop_main, NVML directo):               $(( t1 - t0 )) ticks = $(awk -v a=$((t1-t0)) 'BEGIN{printf "%.2f", a/100}') s de CPU en 30 s = $(awk -v a=$((t1-t0)) 'BEGIN{printf "%.1f", a/30}')% de un nucleo"
+echo "C++ (gpu_loop_main, NVML directo): $(( t1 - t0 )) ticks = $(awk -v a=$((t1-t0)) 'BEGIN{printf "%.2f", a/100}') s de CPU en 30 s = $(awk -v a=$((t1-t0)) 'BEGIN{printf "%.1f", a/30}')% de un nucleo"
 
 echo; echo "=== 2. caos con el candado puesto (carga sintetica con huecos: fases de 20 s) ==="
 chaos_round() {  # $1 = TERM|INT

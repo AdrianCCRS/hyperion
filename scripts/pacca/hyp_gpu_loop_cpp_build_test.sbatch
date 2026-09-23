@@ -34,7 +34,7 @@ test -x "$BUILD/gpu_loop_main" || { echo "gpu_loop_main NO se construyo" >&2; ex
 echo "=== 3. ctest del nucleo (puerta dura) ==="
 "$CTEST" --test-dir "$BUILD" --output-on-failure
 
-echo "=== 4. pytest del lanzador ==="
+echo "=== 4. pytest de fase3_daemon/tests (tras retirar el daemon en Python) ==="
 source "$HOME/hyperion-venv/bin/activate"
-(cd "$ROOT" && python3 -m pytest -q fase3_daemon/tests/test_launch_gpu_daemon.py 2>&1 | tail -4)
+(cd "$ROOT" && python3 -m pytest -q fase3_daemon/tests 2>&1 | tail -8)
 echo "=== FIN ==="

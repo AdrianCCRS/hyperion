@@ -58,7 +58,7 @@ pip install -e ".[dev]"
 #        verificación completa (incluye CUDA real -- nvcc/cudart/nvml --
 #        y el SDK C++ de ONNX Runtime, no solo las dependencias Python de
 #        pyproject.toml). Recomendado si se va a correr ./run_all.sh test
-#        con -DWITH_GPU=ON o a tocar fase3_daemon/gpu_loop/.
+#        con -DWITH_GPU=ON o a tocar fase3_daemon/gpu_loop_cpp/.
 #   conda env create -f environment-hyperion-verify.yml
 #   conda activate hyperion-verify
 
@@ -155,7 +155,7 @@ de asumirlo.
 
 ### 5. Delegación de cpuset/cgroup (para el daemon de Fase 3)
 
-El daemon (`fase3_daemon/run_daemon.py`, modo `cpuset` por defecto) opera
+Los daemons (`gpu_loop_main` y `cpu_loop_main`, en C++; se lanzan con `fase3_daemon/gpu_loop_cpp/launch_gpu_daemon.py` y `fase3_daemon/cpu_loop/launch_cpu_daemon.py`) operan
 sobre un cpuset/cgroup ya delegado — no lo crea ni lo descubre por sí solo.
 En un clúster con Slurm, esto lo da la propia asignación del job
 (`--cpus-per-task`, `--exclusive` según el caso); en una máquina sin
@@ -198,7 +198,7 @@ blocking-sync) no depende de esa intercepción y sigue funcionando
 correctamente; Fase 1 lo sigue usando sin cambios. Se evaluaron 3 caminos
 de arreglo y se implementó el más simple y robusto (sondeo de
 `gpu_util_pct` desde el propio daemon, sin instrumentar el binario
-objetivo, `fase3_daemon/gpu_loop/activity_poller.py`); los otros dos
+objetivo, `fase3_daemon/gpu_loop_cpp/include/gpu_activity_tracker.hpp`); los otros dos
 (intercepción a nivel de driver CUDA, y el mecanismo oficial de NVIDIA
 `CUDA_INJECTION64_PATH`/CUPTI) quedan documentados como trabajo futuro en
 `fase3_daemon/README.md`, con la razón de por qué no se eligieron ahora.

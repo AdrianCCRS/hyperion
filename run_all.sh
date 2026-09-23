@@ -29,7 +29,8 @@ Comandos:
   check-readiness              Chequeo de solo lectura de permisos (perf/RAPL/NVML/cpuset).
   fase1 -- <args>               fase1_telemetria/run_campaign.py (ver --help propio).
   fase2 -- <args>               fase2_clasificador/run_training.py.
-  fase3 -- <args>               fase3_daemon/run_daemon.py.
+  fase3 -- <args>               fase3_daemon/gpu_loop_cpp/launch_gpu_daemon.py (daemon de GPU en C++; el de CPU:
+                                fase3_daemon/cpu_loop/launch_cpu_daemon.py).
   fase4 -- <args>               fase4_evaluacion/run_evaluation.py.
   all --manifest M --node-id N --reference-kernel-ref K --campaign-dir D --campaign-id C
                                 Fase 1 (run-campaign) -> Fase 2 (entrenar+serializar,
@@ -42,7 +43,7 @@ Cada fase también es invocable directamente, sin este script -- ver el
 README.md de cada una para el uso completo:
   python3 fase1_telemetria/run_campaign.py --help
   python3 fase2_clasificador/run_training.py --help
-  python3 fase3_daemon/run_daemon.py --help
+  python3 fase3_daemon/gpu_loop_cpp/launch_gpu_daemon.py --help
   python3 fase4_evaluacion/run_evaluation.py --help
 USAGE
 }
@@ -60,7 +61,7 @@ cmd_fase2() {
 }
 
 cmd_fase3() {
-    "$PYTHON" "$REPO_ROOT/fase3_daemon/run_daemon.py" "$@"
+    "$PYTHON" "$REPO_ROOT/fase3_daemon/gpu_loop_cpp/launch_gpu_daemon.py" "$@"
 }
 
 cmd_fase4() {
