@@ -646,9 +646,22 @@ base si memory actúa.
   fijos (misma semántica de candado que las campañas medidas); `--switch-pin-min 0`
   queda como opción, con 200/200 asentamientos correctos bajo carga pero sin
   usarse por defecto para no cambiar la condición frente a las mediciones.
-- Pendiente: el target `dd` del caos produjo 96% de ventanas con
-  `zero_cycles` (5171 de ~5400): no es representativo; el caos y la
-  clasificación deben repetirse con un target real de las aplicaciones A/B.
+- El target `dd` del caos era inadecuado, no el collector: vive en el kernel
+  y el collector abre los contadores con `exclude_kernel=1`
+  (`perf_reader.cpp`), así que veía ~0 ciclos (96% de ventanas con
+  `zero_cycles`). Se sustituyó por `tools/phase_target.c` (fases memory y
+  compute de 3 s, todo en espacio de usuario, con las transiciones
+  registradas contra el mismo reloj `CLOCK_MONOTONIC` del registro de
+  decisiones). Job 7598: 0 ventanas fallidas, **exactitud 1.000** contra la
+  fase real (n=4989 y n=4384, sin contar 300 ms tras cada frontera), 3
+  escrituras reales por ronda, restauración por SIGTERM y SIGINT con estado
+  IDÉNTICO al inicial. Es una carga sintética de extremos limpios: prueba el
+  mecanismo, NO la exactitud esperada sobre las aplicaciones A y B.
+- Vigilar: la escritura más lenta de la ronda de caos fue ~100 ms, lo que
+  corresponde a reintentos de relectura (2 x 50 ms, ARC-108: el HWP rechaza
+  transitoriamente una escritura). En la sonda con 200 cambios no ocurrió.
+  Bloquea al consumidor ~100 ticks; si aparece seguido en Fase 4, reducir la
+  espera entre reintentos.
 
 **Qué construir**
 1. Actuador C++ (port de `freqctl.py`, con prueba de paridad) + control de
