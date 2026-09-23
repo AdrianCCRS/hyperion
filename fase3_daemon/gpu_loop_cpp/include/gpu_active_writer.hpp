@@ -1,6 +1,8 @@
 #pragma once
 #include <cstdio>
-#include <filesystem>
+#include <sys/stat.h>
+
+#include <cerrno>
 #include <fstream>
 #include <string>
 
@@ -17,8 +19,8 @@ namespace hyperion::gpu_loop {
 class GpuActiveWriter {
 public:
     explicit GpuActiveWriter(std::string path) : path_(std::move(path)), tmp_(path_ + ".tmp") {
-        const auto parent = std::filesystem::path(path_).parent_path();
-        if (!parent.empty()) std::filesystem::create_directories(parent);
+        const auto slash = path_.find_last_of('/');
+        if (slash != std::string::npos && slash > 0) mkdir_p(path_.substr(0, slash));
     }
 
     /** true si la escritura y el rename tuvieron éxito. */
@@ -36,6 +38,16 @@ public:
     const std::string& path() const { return path_; }
 
 private:
+    // mkdir -p sin std::filesystem: con GCC 8 exige enlazar -lstdc++fs y el test fallaba con SIGSEGV.
+    static void mkdir_p(const std::string& dir) {
+        for (size_t i = 1; i <= dir.size(); ++i) {
+            if (i == dir.size() || dir[i] == '/') {
+                const std::string part = dir.substr(0, i);
+                if (::mkdir(part.c_str(), 0755) != 0 && errno != EEXIST) return;
+            }
+        }
+    }
+
     std::string path_;
     std::string tmp_;
 };
