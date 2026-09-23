@@ -62,7 +62,7 @@ recover() {  # red de seguridad: si algo quedo distinto del inicial, se deja com
     sudo -n /usr/local/bin/set_turbo_state "$ORIG_NO_TURBO" || true
   fi
   pkill -P $$ yes 2>/dev/null || true
-  pkill -P $$ dd 2>/dev/null || true
+  pkill -P $$ phase_target 2>/dev/null || true
   pkill -9 cpu_loop_main 2>/dev/null || true
 }
 trap recover EXIT
@@ -93,10 +93,13 @@ policy:
   cpu-compute_bound: {action: actuar_experimental, chosen_level: F0, resolved_freq_khz: 3200000}
   cpu-memory_bound: {action: actuar_experimental, chosen_level: F1, resolved_freq_khz: 2900000}
 Y
-# Carga objetivo (copia de memoria, tipicamente memory_bound) fijada a los nucleos 0-3: cpu_loop_main la
-# observa con --target-pid en vez de monitorearse a si mismo.
-taskset -c 0-3 dd if=/dev/zero of=/dev/null bs=256M count=1000000 2>/dev/null &
+# Carga objetivo REAL en espacio de usuario (phase_target.c): alterna fases memory/compute de 3 s en el
+# nucleo 0 y registra cada transicion, para puntuar la clasificacion contra fronteras conocidas. (El target
+# anterior, dd desde /dev/zero, vivia en el kernel y el collector abre los contadores con exclude_kernel=1.)
+gcc -O2 -o "$WORK/phase_target" "$ROOT/fase3_daemon/cpu_loop/tools/phase_target.c"
+taskset -c 0 "$WORK/phase_target" 3 > "$WORK/phases.txt" &
 DD_PID=$!
+sleep 1
 run_chaos() {  # $1 = SIGTERM|SIGINT
   local sig=$1 out="$WORK/chaos_$1.out"
   echo "--- corte con $sig ---"
@@ -118,7 +121,30 @@ run_chaos() {  # $1 = SIGTERM|SIGINT
   diff "$WORK/state_inicial.txt" "$WORK/state_tras_$1.txt" || { echo "!!! estado NO restaurado tras $sig" >&2; exit 1; }
   echo "tras $sig: estado IDENTICO al inicial"
   grep -c '"written":true' "$WORK/chaos_$1.jsonl" | sed 's/^/decisiones con written=true: /' || true
-  grep -o '"label":"[a-z_]*"' "$WORK/chaos_$1.jsonl" | sort | uniq -c
+  grep -o '"error":"[a-z_]*"' "$WORK/chaos_$1.jsonl" | sort | uniq -c | sed 's/^/ventanas con error: /'
+  python3 - "$WORK/phases.txt" "$WORK/chaos_$1.jsonl" <<'PY'
+import json, sys
+phases = [(int(a), b) for a, b in (l.split() for l in open(sys.argv[1]) if l.strip())]
+def truth(ts):
+    cur = start = None
+    for t, c in phases:
+        if t <= ts: cur, start = c, t
+        else: break
+    return cur, start
+tp = tn = fp = fn = skipped = 0
+for line in open(sys.argv[2]):
+    r = json.loads(line)
+    if r.get("label") is None: continue
+    c, start = truth(r["ts_ns"])
+    if c is None or r["ts_ns"] - start < 300_000_000: skipped += 1; continue  # ignora 300 ms tras cada frontera
+    pred_mem = r["label"] == "memory_bound"; real_mem = c == "M"
+    if real_mem and pred_mem: tp += 1
+    elif real_mem: fn += 1
+    elif pred_mem: fp += 1
+    else: tn += 1
+n = tp + tn + fp + fn
+print(f"clasificacion vs fase real: n={n} exactitud={(tp+tn)/n:.3f} memory(tp={tp},fn={fn}) compute(tn={tn},fp={fp}) omitidas_en_frontera={skipped}" if n else "sin ventanas clasificadas")
+PY
   grep -o '"actuation_time_ns":[0-9]*' "$WORK/chaos_$1.jsonl" | grep -v null | cut -d: -f2 | sort -n | awk '{a[NR]=$1} END{if(NR) printf "actuaciones=%d p50=%.1fms max=%.1fms\n", NR, a[int(NR/2)+1]/1e6, a[NR]/1e6}'
 }
 run_chaos SIGTERM
