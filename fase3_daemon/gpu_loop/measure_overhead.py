@@ -149,7 +149,7 @@ def main() -> int:
     parser.add_argument("--catalog", type=Path, default=_DEFAULT_CATALOG_PATH)
     parser.add_argument("--policy-table", type=Path, default=_DEFAULT_POLICY_TABLE_PATH)
     parser.add_argument("--models-dir", type=Path, default=_DEFAULT_MODELS_DIR)
-    parser.add_argument("--model-name", default="gpu_regresion_log_historical_20260922")
+    parser.add_argument("--model-name", default="gpu_random_forest_historical_20260923_sin_reloj")
     parser.add_argument("--kernel-id", default=_DEFAULT_KERNEL_ID)
     parser.add_argument("--node-id", required=True)
     parser.add_argument("--kernels-root", type=Path, default=Path.cwd())

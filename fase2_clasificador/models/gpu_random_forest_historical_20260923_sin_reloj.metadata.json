@@ -1,0 +1,37 @@
+{
+  "schema": "gpu_historical_candidate/1",
+  "model": "random_forest",
+  "features": [
+    "gpu_util_pct_median",
+    "gpu_mem_util_pct_median",
+    "gpu_mem_util_pct_std"
+  ],
+  "dropped_features": [
+    "gpu_sm_clock_mhz_median",
+    "gpu_power_mw_median"
+  ],
+  "rationale": "Auditoria job 7601: la regresion logistica depende del reloj (0.79 -> 0.65 sin el); random_forest no (0.807 -> 0.812 sin reloj, 0.819 sin reloj ni potencia). El daemon cambia el reloj y la potencia depende de el, asi que se excluyen ambos. Un unico candidato (random_forest) por decision explicita, no por desempate de latencia; la clasificacion ocurre una vez por fase, la latencia de ms es aceptable.",
+  "label": "phase_label_train",
+  "candidates_compared": [
+    "random_forest"
+  ],
+  "candidates_cell_balanced_acc": {
+    "random_forest": 0.8191
+  },
+  "candidates_latency_us": {
+    "random_forest": {
+      "p50": 4732.99715667963,
+      "p95": 4846.751899458468,
+      "p99": 4972.861786372957
+    }
+  },
+  "selection_criterion": "empate estadistico por bootstrap pareado de familias (P entre 0.53 y 0.60 entre los 3); desempate por score=(1-cell_balanced_acc)+latency_weight*(p99/max_p99), mismo criterio que train_phase.py/train_phase_gpu.py::select_best_model",
+  "latency_weight": 0.2,
+  "n_rows": 483,
+  "n_families": 16,
+  "source": "/home/latorresn/hyperion_c8/docs/libro/datos/gpu_calidad_20260922/historical_gpu_relaxed020_20260922.csv",
+  "seed": 2000,
+  "dataset_contract": "granularity=run, etiqueta ncu constante -- NO el dataset por ventana CUPTI",
+  "fitted_on": "todas las filas disponibles (sin retener ninguna familia), igual que el modelo final de CPU",
+  "measured_on_node": "paccaA100 (nodo de destino real para el daemon GPU)"
+}

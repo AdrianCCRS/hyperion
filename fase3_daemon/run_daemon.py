@@ -268,7 +268,7 @@ def main() -> int:
     parser.add_argument("--models-dir", type=Path, default=_DEFAULT_MODELS_DIR,
                          help=f"Directorio con {{nombre}}.joblib + {{nombre}}.metadata.json del candidato GPU "
                               f"(default: {_DEFAULT_MODELS_DIR}).")
-    parser.add_argument("--model-name", default="gpu_regresion_log_historical_20260922",
+    parser.add_argument("--model-name", default="gpu_random_forest_historical_20260923_sin_reloj",
                          help="Nombre base del candidato exportado (sin extensión).")
     parser.add_argument("--classifier-window", type=int, default=None,
                          help="Muestras NVML del buffer movil para mediana/std (default: "

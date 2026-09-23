@@ -101,7 +101,7 @@ class HistoricalGpuClassifier:
 
     @classmethod
     def from_export_dir(
-        cls, models_dir: Path, name: str = "gpu_regresion_log_historical_20260922",
+        cls, models_dir: Path, name: str = "gpu_random_forest_historical_20260923_sin_reloj",
         window_size: int = DEFAULT_WINDOW_SIZE,
     ) -> "HistoricalGpuClassifier":
         """Carga `{name}.joblib` + `{name}.metadata.json` de

@@ -100,3 +100,18 @@ def test_from_export_dir_loads_real_model_and_classifies():
 def test_from_export_dir_missing_model_raises():
     with pytest.raises(FileNotFoundError):
         HistoricalGpuClassifier.from_export_dir(_MODELS_DIR, name="no_existe_este_modelo")
+
+
+_MODEL_SIN_RELOJ = "gpu_random_forest_historical_20260923_sin_reloj"
+
+
+def test_candidato_sin_reloj_no_usa_reloj_ni_potencia_y_no_depende_de_ellos():
+    # Auditoria job 7601: el daemon fija el reloj y la potencia depende de el; el candidato vigente no debe
+    # incluir ninguna de las dos, y por tanto su decision no puede cambiar al variarlas.
+    clf = HistoricalGpuClassifier.from_export_dir(_MODELS_DIR, name=_MODEL_SIN_RELOJ)
+    assert not ({"gpu_sm_clock_mhz_median", "gpu_power_mw_median"} & set(clf._feature_names))
+    for util, mem in ((100.0, 5.0), (100.0, 80.0), (30.0, 60.0)):
+        native = clf.classify(_features(util=util, mem=mem, clock=1410.0, power=250000.0))
+        locked = HistoricalGpuClassifier.from_export_dir(_MODELS_DIR, name=_MODEL_SIN_RELOJ).classify(
+            _features(util=util, mem=mem, clock=210.0, power=40000.0))
+        assert native == locked
