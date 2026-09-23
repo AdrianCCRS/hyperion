@@ -393,8 +393,20 @@ distinta a los nodos donde normalmente se verifica `telemetry`).
   (`fase3_daemon/composite_apps/tests/`, incluye una verificación contra
   el catálogo real -- sin mocks -- de que A y B son conjuntos de familias
   disjuntos).
-- **C3.** Detección de fase de GPU probada de punta a punta contra un
-  kernel real de terceros (hoy solo hay pruebas unitarias del sondeo).
+- **C3. En verificación en paccaA100.** `fase3_daemon/gpu_loop/verify_phase_detection_e2e.py`
+  lanza `gpu_dgemm_n4096` (checksum verificado, ~10s, compute_bound) como
+  subproceso real mientras un hilo aparte corre
+  `activity_poller.poll_phase_events()` con `query_gpu_features()` real
+  (NVML vía `nvidia-smi`, no `GpuFeatures` sintéticas como los tests
+  unitarios existentes). Reutiliza `should_continue` (ítem C7) para
+  detener el sondeo de forma limpia con un margen tras el fin del kernel,
+  en vez de un `for`/`break` sobre el generador infinito. 5 tests locales
+  (`fase3_daemon/gpu_loop/tests/test_verify_phase_detection_e2e.py`) cubren
+  solo la lógica determinista (criterio de éxito, propiedades de
+  `E2EResult`, rechazo por checksum) -- el camino feliz con hilos+GPU real
+  es intrínsecamente de punta a punta y se verifica en el cluster, no con
+  relojes falsos (decisión de alcance explícita, evita un test frágil sin
+  garantía real adicional).
 - **C4.** Señal de coordinación probada entre ambos loops.
 - **C5.** Prueba de caos de restauración, en los tres brazos.
 - **C6.** Sobrecarga del daemon medida y registrada.
