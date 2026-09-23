@@ -118,6 +118,7 @@ def build_daemon_gpu_loop(
     decision_log: DecisionLogWriter | None = None,
     should_continue=None,
     gpu_active_signal: GpuActiveSignalWriter | None = None,
+    delegated_cpus: str = "0",
 ):
     """Ensambla el loop de GPU real a partir de la tabla de política ya
     derivada (§3.4/§3.5) -- nunca recalcula EDP en línea (§3.4 punto 4:
@@ -141,7 +142,11 @@ def build_daemon_gpu_loop(
     if dry_run:
         set_clock = _dry_run_setter("gpu")
     else:
-        env = environment_module.detect_environment()
+        # detect_environment exige `delegated_cpus` (posicional). Antes se llamaba sin argumentos, lo que
+        # habria lanzado TypeError al arrancar el brazo 'activo': la prueba lo enmascaraba con un
+        # `lambda: fake_env` que aceptaba cero argumentos. El loop de GPU no toca CPU: el valor solo sirve
+        # para que la deteccion de entorno tenga un cpuset que leer.
+        env = environment_module.detect_environment(delegated_cpus)
         set_clock = gpu_loop_module.make_gpu_freqctl_setter(env, gpu_index=gpu_index)
         _install_restore_handlers(env, gpu_index)
 
@@ -219,6 +224,9 @@ def main() -> int:
     parser.add_argument("--policy-table", type=Path, required=True,
                          help="policy_table.yaml producido por fase3_daemon/policy/build_policy_table.py")
     parser.add_argument("--gpu-index", default=None)
+    parser.add_argument("--delegated-cpus", default="0",
+                         help="cpuset que lee detect_environment() (solo lectura). El loop de GPU no escribe en CPU; "
+                              "el valor solo tiene que existir en el nodo (default '0').")
     parser.add_argument("--min-dwell-ns", type=int, required=True,
                          help="Piso de permanencia de reloj GPU (§2.4.1) -- debe venir de T_transición_gpu "
                               "MEDIDO, nunca de un valor arbitrario. No hay default a propósito.")
@@ -315,6 +323,7 @@ def main() -> int:
             decision_log=decision_log,
             should_continue=should_continue,
             gpu_active_signal=gpu_active_signal,
+            delegated_cpus=args.delegated_cpus,
         )
     except KeyboardInterrupt:
         logger.info("interrumpido, saliendo")

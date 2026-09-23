@@ -192,7 +192,13 @@ def test_arm_activo_instala_manejador_que_restaura_gpu(policy_table_path, monkey
     import fase3_daemon.run_daemon as run_daemon_module
 
     fake_env = object()
-    monkeypatch.setattr(run_daemon_module.environment_module, "detect_environment", lambda: fake_env)
+    detect_calls = []
+    # Firma REAL: detect_environment(delegated_cpus, ...) exige el cpuset. Un lambda sin parametros
+    # enmascaro durante meses que run_daemon lo llamaba sin argumentos (TypeError al arrancar 'activo').
+    monkeypatch.setattr(
+        run_daemon_module.environment_module, "detect_environment",
+        lambda delegated_cpus, *_a, **_kw: detect_calls.append(delegated_cpus) or fake_env,
+    )
     monkeypatch.setattr(
         run_daemon_module.gpu_loop_module, "make_gpu_freqctl_setter", lambda *_a, **_kw: (lambda _mhz: True),
     )
@@ -210,8 +216,9 @@ def test_arm_activo_instala_manejador_que_restaura_gpu(policy_table_path, monkey
         policy_table_path, gpu_index="7", min_dwell_ns=0, dry_run=False,
         classify_fn=lambda _f: GpuPhaseLabel.COMPUTE_BOUND,
         query_features_fn=_active_features, max_events=1, sleep_fn=lambda _s: None,
-        arm="activo",
+        arm="activo", delegated_cpus="0-5",
     )
+    assert detect_calls == ["0-5"]
 
     assert "restore_fn" in registered
     assert registered["restore_fn"]() is True
