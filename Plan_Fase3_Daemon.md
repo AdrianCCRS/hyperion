@@ -468,9 +468,9 @@ distinta a los nodos donde normalmente se verifica `telemetry`).
   no probaría nada. El wiring de software (qué se llama, cuándo, con qué
   argumentos) es exactamente lo que sí se puede y se debe verificar ahora,
   independiente de H1.
-- **C6. En verificación en paccaA100.** Lado CPU ya medido en Bloque B
-  (`cpu_loop_latency_bench`: p50=16.4µs/p99=19.3µs contra un presupuesto
-  de ~1ms por tick, ~1.6-1.9%). Lado GPU:
+- **C6. Cerrado (jobs 7576/7577, paccaA100).** Lado CPU ya medido en
+  Bloque B (`cpu_loop_latency_bench`: p50=16.4µs/p99=19.3µs contra un
+  presupuesto de ~1ms por tick, ~1.6-1.9%). Lado GPU:
   `fase3_daemon/gpu_loop/measure_overhead.py` corre `build_daemon_gpu_loop`
   real (brazo *sombra*, clasificador real, `policy_table.yaml` real) en un
   hilo mientras `gpu_dgemm_n4096` (mismo kernel de C3, checksum verificado)
@@ -483,6 +483,28 @@ distinta a los nodos donde normalmente se verifica `telemetry`).
   contra la duración típica de la fase, no contra un budget fijo. 5 tests
   locales (`fase3_daemon/gpu_loop/tests/test_measure_overhead.py`) cubren
   la agregación de percentiles con datos sintéticos.
+
+  **Resultado real (job 7577, 5/5 decisiones medidas):**
+  `actuation_ns` p50=10.6µs/p99=26.9µs (mismo orden de magnitud que el
+  lado CPU). `inference_ns` p50≈898µs, con un arranque en frío de 7.76ms
+  en la primera llamada (probablemente JIT/caché de numpy del primer
+  `model.predict()`) y consistentemente ~850-910µs en las 4 siguientes --
+  **~50-60x más lento que la inferencia ONNX C++ del lado CPU (16µs)**,
+  esperable: el candidato GPU es sklearn puro en Python, no ONNX, y corrió
+  concurrente con un kernel que satura CPU (contención real de
+  scheduling). Aun así, insignificante frente a la duración real de una
+  fase (~1.7s del kernel): <0.1% de sobrecarga -- no amenaza la
+  comparación *sombra − base* que hará Fase 4.
+
+  **Hallazgo colateral, no bloqueante, corregido en el camino:** el primer
+  intento (job 7576) exigía `n_decisions == cycles` y falló pese a medir
+  3 decisiones reales válidas -- el sondeo por umbral (`activity_poller.py`)
+  fusiona lanzamientos consecutivos del kernel en una sola fase si el
+  hueco entre ellos dura menos que `poll_interval_s` (50ms), limitación de
+  granularidad ya documentada, no un fallo de la medición. Corregido para
+  exigir solo `n_decisions >= 1`.
+
+**Bloque C completo: C1, C2a, C2b, C3, C4, C5, C6, C7 todos cerrados.**
 - **C7. Cerrado.** Modo `--pid` ahora ata el ciclo de vida del loop de GPU
   al proceso objetivo: `activity_poller.poll_phase_events()` acepta
   `should_continue` (consultado al inicio de cada iteración, antes de
