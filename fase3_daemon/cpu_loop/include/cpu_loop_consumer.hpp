@@ -1,6 +1,8 @@
 #pragma once
 #include <atomic>
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <optional>
 #include <thread>
@@ -41,6 +43,9 @@ namespace hyperion::cpu_loop {
 using GpuActiveFn = std::function<bool()>;
 using TickObserver = std::function<void(const TickResult&)>;
 
+/** Tope del drenaje final tras `stop` (ver run_consumer_loop). */
+constexpr size_t kFinalDrainMaxItems = 64;  // a ~28 ms por escritura, 64 ticks ya son ~2 s de apagado
+
 /**
  * @brief Bucle de consumo. Corre hasta que `stop` se active.
  *
@@ -67,9 +72,20 @@ inline void run_consumer_loop(
 ) {
     std::optional<telemetry::CpuSample> prev;
 
-    const auto drain_once = [&]() -> bool {
+    // `honor_stop`: dentro del drenaje se consulta `stop` en CADA muestra. Antes
+    // solo se miraba entre drenajes, y si el consumidor iba mas lento que el
+    // productor (p.ej. una escritura de frecuencia de ~28 ms por tick) el ring
+    // nunca se vaciaba y SIGTERM/SIGINT no detenian el proceso, con lo que la
+    // restauracion por senal no corria (preflight C8, job 7592). El drenaje
+    // final tras `stop` se acota a `max_items` por la misma razon: el productor
+    // sigue empujando hasta que el llamador detiene el collector.
+    const auto drain_once = [&](bool honor_stop, size_t max_items) -> bool {
         bool drained_any = false;
-        while (auto sample = ring.try_pop()) {
+        size_t n = 0;
+        while ((!honor_stop || !stop.load(std::memory_order_relaxed)) && n < max_items) {
+            auto sample = ring.try_pop();
+            if (!sample) break;
+            ++n;
             drained_any = true;
             if (sample->tag != telemetry::SampleTag::CPU) continue;
             if (prev) {
@@ -85,11 +101,11 @@ inline void run_consumer_loop(
     };
 
     while (!stop.load(std::memory_order_relaxed)) {
-        if (!drain_once()) {
+        if (!drain_once(/*honor_stop=*/true, SIZE_MAX)) {
             std::this_thread::sleep_for(idle_sleep);
         }
     }
-    drain_once();  // drenaje final tras stop, no perder lo ya empujado al ring
+    drain_once(/*honor_stop=*/false, kFinalDrainMaxItems);  // drenaje final acotado, ver arriba
 }
 
 }  // namespace hyperion::cpu_loop

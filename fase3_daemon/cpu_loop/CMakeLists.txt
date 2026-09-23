@@ -33,6 +33,9 @@ add_compile_options(-Wall -Wextra -O2)
 
 add_library(cpu_loop INTERFACE)
 target_include_directories(cpu_loop INTERFACE include)
+# cpu_freq_actuator.hpp usa std::thread (escrituras en paralelo)
+find_package(Threads REQUIRED)
+target_link_libraries(cpu_loop INTERFACE Threads::Threads)
 # Solo para telemetry/metrics.hpp (CpuSample) -- header-only, no se enlaza
 # la biblioteca estática `telemetry` completa (esa arrastra perf_reader.cpp
 # y compañía, con sus propias dependencias de sistema/PMU que este target

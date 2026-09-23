@@ -68,6 +68,14 @@ namespace hyperion::cpu_loop {
          * escribe nada (ver la nota sobre F1-XDEV-006 en la cabecera del
          * archivo). 0 = sin barrera, gpu_active se ignora. */
         unsigned int gpu_active_floor_khz = 0;
+        /** Histéresis (Bloque C8): ventanas CONSECUTIVAS que debe pedir la
+         * política el mismo nivel nuevo antes de escribirlo. Una escritura
+         * real de frecuencia cuesta ~28 ms (preflight en paccaA100, job 7592)
+         * frente a un tick de ~1 ms, y una clase que oscila entre ventanas
+         * dispararía una escritura por cambio. 1 = sin histéresis (comportamiento
+         * original). Una petición distinta reinicia la cuenta; volver al nivel
+         * ya aplicado la cancela. */
+        unsigned int min_consecutive_windows = 1;
     };
 
     /** Resultado de un tick, para logging/CSV (§4.3 punto 10: "features
@@ -129,7 +137,18 @@ namespace hyperion::cpu_loop {
             // GPU y el arranque en frío, y evita reescribir el mismo valor
             // cuando dos clases comparten nivel.
             if (last_applied_khz_ == desired_khz) {
+                pending_khz_ = 0;
+                pending_windows_ = 0;
                 return decision;
+            }
+            if (config_.min_consecutive_windows > 1) {
+                if (pending_khz_ != desired_khz) {
+                    pending_khz_ = desired_khz;
+                    pending_windows_ = 0;
+                }
+                if (++pending_windows_ < config_.min_consecutive_windows) {
+                    return decision;  // todavia no es estable: target reportado, sin escribir
+                }
             }
 
             const bool ok = set_frequency_(desired_khz);
@@ -138,11 +157,17 @@ namespace hyperion::cpu_loop {
             if (ok) {
                 last_applied_khz_ = desired_khz;
             }
+            pending_khz_ = 0;
+            pending_windows_ = 0;
             return decision;
         }
 
         CpuPhaseLabel current_label() const noexcept { return current_label_; }
         bool has_decided_once() const noexcept { return has_decided_once_; }
+        /** Declara una frecuencia ya aplicada fuera del controlador (p.ej. el
+         * nivel base que fija el actuador al arrancar), para que la primera
+         * ventana no la reescriba ni la trate como un cambio. */
+        void mark_applied(unsigned int khz) noexcept { last_applied_khz_ = khz; }
         /** Última frecuencia efectivamente aplicada (0 = ninguna todavía). */
         unsigned int last_applied_khz() const noexcept { return last_applied_khz_; }
 
@@ -151,6 +176,8 @@ namespace hyperion::cpu_loop {
         FrequencySetter set_frequency_;
         CpuPhaseLabel current_label_ = CpuPhaseLabel::ComputeBound;
         unsigned int last_applied_khz_ = 0;
+        unsigned int pending_khz_ = 0;
+        unsigned int pending_windows_ = 0;
         bool has_decided_once_ = false;
     };
 

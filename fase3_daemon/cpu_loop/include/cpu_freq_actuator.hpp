@@ -3,6 +3,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -74,6 +75,19 @@ struct CpuFreqActuatorConfig {
     /** Comando + argumentos previos al valor ("0"/"1"). `-n`: si sudo pidiera
      * contraseña, falla en vez de quedarse esperando. */
     std::vector<std::string> turbo_command = {"sudo", "-n", "/usr/local/bin/set_turbo_state"};
+    /** Optimizaciones del costo de conmutar (una escritura real cuesta ~1.15 ms
+     * por atributo; con 12 CPU y min+max eran ~28 ms por cambio, preflight
+     * job 7592). Ambas conservan la verificacion por relectura de cada
+     * escritura, y los defaults son el comportamiento original y validado.
+     *  - pin_min=false: solo se escribe scaling_max_freq (la mitad de
+     *    escrituras) y el piso original queda intacto. Bajo el governor
+     *    `performance` de paccaA100 el reloj sigue al techo, pero eso debe
+     *    confirmarse midiendo scaling_cur_freq (ver la sonda), no asumirse;
+     *    si el piso vigente quedara por encima del objetivo, igual se baja.
+     *  - parallel=true: un hilo por CPU; las escrituras de politicas
+     *    distintas pueden solaparse en el kernel. */
+    bool pin_min = true;
+    bool parallel = false;
     int write_verify_retries = 3;
     int write_verify_retry_delay_ms = 50;
 };
@@ -189,10 +203,25 @@ public:
         auto hi = detail::read_long(attr_path(cpus_.front(), "cpuinfo_max_freq"));
         if (lo && target < *lo) target = *lo;
         if (hi && target > *hi) target = *hi;
-        for (int cpu : cpus_) {
-            if (!write_range_safe(cpu, target, target)) {
-                return fail_and_restore("cpu" + std::to_string(cpu) + ": escritura/relectura de rango falló");
+        int failed_cpu = -1;
+        if (cfg_.parallel && cpus_.size() > 1) {
+            std::atomic<int> failed{-1};
+            std::vector<std::thread> threads;
+            threads.reserve(cpus_.size());
+            for (int cpu : cpus_) {
+                threads.emplace_back([this, cpu, target, &failed] {
+                    if (!apply_target(cpu, target)) failed.store(cpu);
+                });
             }
+            for (auto& t : threads) t.join();
+            failed_cpu = failed.load();
+        } else {
+            for (int cpu : cpus_) {
+                if (!apply_target(cpu, target)) { failed_cpu = cpu; break; }
+            }
+        }
+        if (failed_cpu >= 0) {
+            return fail_and_restore("cpu" + std::to_string(failed_cpu) + ": escritura/relectura de rango falló");
         }
         last_written_khz_ = static_cast<unsigned int>(target);
         return true;
@@ -267,6 +296,15 @@ private:
         }
         bool ok = write_and_verify(max_path, max_v);
         return write_and_verify(min_path, min_v) && ok;
+    }
+
+    /** Un cambio de nivel en un CPU: rango fijo min=max, o solo el techo si
+     * pin_min=false y el piso vigente no lo impide. */
+    bool apply_target(int cpu, long target) const {
+        if (cfg_.pin_min) return write_range_safe(cpu, target, target);
+        const auto cur_min = detail::read_long(attr_path(cpu, "scaling_min_freq"));
+        if (cur_min && *cur_min > target) return write_range_safe(cpu, target, target);
+        return write_and_verify(attr_path(cpu, "scaling_max_freq"), std::to_string(target));
     }
 
     bool verify_no_turbo(const std::string& expected) const {

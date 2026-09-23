@@ -82,6 +82,11 @@ struct Args {
     std::string gpu_active_signal_path;  // senal de coordinacion CPU-GPU (item C4); vacio = gpu_active siempre false
     std::string sysfs_cpu_root = "/sys/devices/system/cpu";  // solo para pruebas con sysfs simulado
     bool manage_turbo = true;  // --no-manage-turbo solo para pruebas; en produccion el turbo se apaga en 'activo'
+    // Histeresis: ventanas consecutivas con el mismo nivel pedido antes de escribirlo. Una escritura real
+    // cuesta ~28 ms (preflight job 7592) vs un tick de ~1 ms; 50 ventanas ~ 50 ms de estabilidad.
+    unsigned int min_dwell_windows = 50;
+    bool switch_pin_min = true;   // false: solo se escribe el techo (ver CpuFreqActuatorConfig::pin_min)
+    bool switch_parallel = false; // true: escrituras por CPU en hilos (ver CpuFreqActuatorConfig::parallel)
 };
 
 [[noreturn]] void usage_and_exit(const char* prog) {
@@ -89,6 +94,7 @@ struct Args {
         "uso: %s --arm {sombra|activo} --perf-cpus 0,1,2,3 [--model xgboost_cpu.onnx] [--threshold 0.85]\n"
         "  [--target-pid PID] [--collector-cpu N] [--consumer-cpu N] [--log-path RUTA]\n"
         "  [--gpu-active-signal-path RUTA] [--sysfs-cpu-root RUTA] [--no-manage-turbo]\n"
+        "  [--min-dwell-windows N] [--switch-pin-min 0|1] [--switch-parallel 0|1]\n"
         "  [--interval-ns 1000000] [--cpu-freq-sysfs-path RUTA]\n"
         "  [--compute-actuar --compute-freq-khz N] [--memory-actuar --memory-freq-khz N] [-v]\n"
         "--arm es obligatorio (Plan_Fase3_Daemon.md SS0.1, requisito 1): 'sombra' corre exactamente\n"
@@ -137,6 +143,9 @@ Args parse_args(int argc, char** argv) {
         else if (arg == "--gpu-active-signal-path") a.gpu_active_signal_path = need("--gpu-active-signal-path");
         else if (arg == "--sysfs-cpu-root") a.sysfs_cpu_root = need("--sysfs-cpu-root");
         else if (arg == "--no-manage-turbo") a.manage_turbo = false;
+        else if (arg == "--min-dwell-windows") a.min_dwell_windows = std::stoul(need("--min-dwell-windows"));
+        else if (arg == "--switch-pin-min") a.switch_pin_min = (need("--switch-pin-min") == "1");
+        else if (arg == "--switch-parallel") a.switch_parallel = (need("--switch-parallel") == "1");
         else if (arg == "-v" || arg == "--verbose") a.verbose = true;
         else if (arg == "-h" || arg == "--help") usage_and_exit(argv[0]);
         else { std::fprintf(stderr, "flag desconocida: %s\n", arg.c_str()); usage_and_exit(argv[0]); }
@@ -192,6 +201,7 @@ int main(int argc, char** argv) {
     CpuPhaseControllerConfig ctrl_cfg{};
     ctrl_cfg.compute_bound = {args.compute_actuar, args.compute_freq_khz};
     ctrl_cfg.memory_bound = {args.memory_actuar, args.memory_freq_khz};
+    ctrl_cfg.min_consecutive_windows = args.min_dwell_windows;
     // Brazo 'activo' con alguna clase en actuar: actuador real (punto 2 del
     // docstring). En 'sombra', o 'activo' sin nada que escribir, el setter
     // solo registra (mismo patron que run_daemon.py::_dry_run_setter).
@@ -202,6 +212,8 @@ int main(int argc, char** argv) {
         acfg.sysfs_cpu_root = args.sysfs_cpu_root;
         acfg.cpus = args.perf_cpus;
         acfg.manage_turbo = args.manage_turbo;
+        acfg.pin_min = args.switch_pin_min;
+        acfg.parallel = args.switch_parallel;
         actuator.emplace(acfg);
         if (!actuator->snapshot() || !actuator->enter()) {
             std::fprintf(stderr, "no se pudo preparar el actuador de frecuencia (%s); abortando sin tocar nada\n",
@@ -214,8 +226,9 @@ int main(int argc, char** argv) {
                          args.compute_freq_khz, actuator->last_error().c_str());
             return 3;
         }
-        std::printf("actuador activo: cpus=%zu turbo_administrado=%d nivel_base=%u kHz\n",
-                    actuator->cpus().size(), (int)args.manage_turbo, args.compute_freq_khz);
+        std::printf("actuador activo: cpus=%zu turbo_administrado=%d nivel_base=%u kHz min_dwell=%u pin_min=%d parallel=%d\n",
+                    actuator->cpus().size(), (int)args.manage_turbo, args.compute_freq_khz,
+                    args.min_dwell_windows, (int)args.switch_pin_min, (int)args.switch_parallel);
     }
     int64_t last_actuation_ns = 0;
     CpuPhaseController controller(ctrl_cfg, [&](unsigned int khz) {
@@ -228,6 +241,8 @@ int main(int argc, char** argv) {
         last_actuation_ns = now_ns() - t0;
         return ok;
     });
+    // El nivel base ya lo fijo el actuador al arrancar: la primera ventana no debe reescribirlo.
+    if (actuator && args.compute_actuar) controller.mark_applied(args.compute_freq_khz);
 
     telemetry::CollectorConfig cfg{};
     cfg.producer_cpu = args.collector_cpu;

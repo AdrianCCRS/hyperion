@@ -57,6 +57,8 @@ int main(int argc, char** argv) {
         else if (k == "--manage-turbo") cfg.manage_turbo = (v == "1");
         else if (k == "--iterations") iterations = std::stoi(v);
         else if (k == "--settle-cpu") settle_cpu = std::stoi(v);
+        else if (k == "--pin-min") cfg.pin_min = (v == "1");
+        else if (k == "--parallel") cfg.parallel = (v == "1");
     }
     CpuFreqActuator a(cfg);
     auto t0 = Clock::now();

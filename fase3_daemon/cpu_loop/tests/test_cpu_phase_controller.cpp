@@ -112,5 +112,46 @@ int main() {
     if (!d.actuation_attempted) return 29;  // reintenta tras el fallo
     if (attempted.size() != 2) return 30;
 
+    // Histeresis (Bloque C8): con min_consecutive_windows=3 una clase que
+    // oscila NUNCA escribe (una escritura real cuesta ~28 ms), y solo un
+    // cambio sostenido 3 ventanas seguidas se aplica.
+    CpuPhaseControllerConfig dwell_cfg{};
+    dwell_cfg.compute_bound = {true, 3200000};
+    dwell_cfg.memory_bound = {true, 2900000};
+    dwell_cfg.min_consecutive_windows = 3;
+    std::vector<unsigned int> dwell_applied;
+    CpuPhaseController dwell(dwell_cfg, [&dwell_applied](unsigned int khz) { dwell_applied.push_back(khz); return true; });
+    dwell.mark_applied(3200000);  // nivel base ya fijado por el actuador al arrancar
+    for (int i = 0; i < 20; ++i) {  // oscilacion: memory, compute, memory, ...
+        dwell.on_window(i % 2 == 0 ? CpuPhaseLabel::MemoryBound : CpuPhaseLabel::ComputeBound, false);
+    }
+    if (!dwell_applied.empty()) return 31;  // ni una escritura por oscilar
+    d = dwell.on_window(CpuPhaseLabel::MemoryBound, false);  // 1a ventana estable
+    if (d.actuation_attempted) return 32;
+    if (d.target_freq_khz != 2900000) return 33;  // igual reporta el objetivo
+    d = dwell.on_window(CpuPhaseLabel::MemoryBound, false);  // 2a
+    if (d.actuation_attempted) return 34;
+    d = dwell.on_window(CpuPhaseLabel::MemoryBound, false);  // 3a: escribe
+    if (!d.actuation_attempted || dwell_applied.size() != 1 || dwell_applied[0] != 2900000) return 35;
+    d = dwell.on_window(CpuPhaseLabel::MemoryBound, false);  // ya aplicado: no reescribe
+    if (d.actuation_attempted || dwell_applied.size() != 1) return 36;
+    // Volver al nivel aplicado a mitad de cuenta cancela la cuenta pendiente.
+    dwell.on_window(CpuPhaseLabel::ComputeBound, false);
+    dwell.on_window(CpuPhaseLabel::ComputeBound, false);
+    dwell.on_window(CpuPhaseLabel::MemoryBound, false);  // vuelve a lo ya aplicado: cancela
+    dwell.on_window(CpuPhaseLabel::ComputeBound, false);
+    d = dwell.on_window(CpuPhaseLabel::ComputeBound, false);
+    if (d.actuation_attempted) return 37;  // la cuenta de compute se reinicio, faltan ventanas
+    d = dwell.on_window(CpuPhaseLabel::ComputeBound, false);
+    if (!d.actuation_attempted || dwell_applied.size() != 2 || dwell_applied[1] != 3200000) return 38;
+
+    // Sin mark_applied, con histeresis 1 (default), la primera ventana escribe: no cambia.
+    CpuPhaseControllerConfig plain{};
+    plain.compute_bound = {true, 3200000};
+    std::vector<unsigned int> plain_applied;
+    CpuPhaseController pc(plain, [&plain_applied](unsigned int khz) { plain_applied.push_back(khz); return true; });
+    pc.on_window(CpuPhaseLabel::ComputeBound, false);
+    if (plain_applied.size() != 1) return 39;
+
     return 0;
 }

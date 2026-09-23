@@ -61,6 +61,8 @@ recover() {  # red de seguridad: si algo quedo distinto del inicial, se deja com
     sudo -n /usr/local/bin/set_turbo_state "$ORIG_NO_TURBO" || true
   fi
   pkill -P $$ yes 2>/dev/null || true
+  pkill -P $$ dd 2>/dev/null || true
+  pkill -9 cpu_loop_main 2>/dev/null || true
 }
 trap recover EXIT
 
@@ -71,15 +73,18 @@ rm -rf "$BUILD_DIR/cmake_out"
 "$CMAKE" --build "$BUILD_DIR/cmake_out" -j 8 --target cpu_freq_actuator_probe cpu_loop_main 2>&1 | tail -3
 BIN="$BUILD_DIR/cmake_out"
 
-echo "=== SONDA REAL: latencia y asentamiento (turbo incluido, carga en 0-5) ==="
+echo "=== SONDA REAL: costo de conmutar, 4 variantes (turbo incluido, carga en 0-5) ==="
 for c in 0 1 2 3 4 5; do taskset -c $c yes > /dev/null & done
 sleep 1
-"$BIN/cpu_freq_actuator_probe" --root "$CPUFREQ" --cpus 0,1,2,3,4,5 --khz-seq 3200000,2900000 \
-  --manage-turbo 1 --iterations 100 --settle-cpu 0
+for pin in 1 0; do for par in 0 1; do
+  echo "--- pin_min=$pin parallel=$par ---"
+  "$BIN/cpu_freq_actuator_probe" --root "$CPUFREQ" --cpus 0,1,2,3,4,5 --khz-seq 3200000,2900000 \
+    --manage-turbo 1 --iterations 100 --settle-cpu 0 --pin-min $pin --parallel $par 2>&1
+  state > "$WORK/state_tras_sonda_${pin}${par}.txt"
+  diff "$WORK/state_inicial.txt" "$WORK/state_tras_sonda_${pin}${par}.txt" && echo "estado IDENTICO al inicial"
+done; done
 pkill -P $$ yes || true
 sleep 1
-state > "$WORK/state_tras_sonda.txt"
-diff "$WORK/state_inicial.txt" "$WORK/state_tras_sonda.txt" && echo "tras la sonda: estado IDENTICO al inicial"
 
 echo "=== CAOS: cpu_loop_main --arm activo real, cortado por senal ==="
 cat > "$WORK/policy_c8.yaml" <<Y
@@ -87,23 +92,35 @@ policy:
   cpu-compute_bound: {action: actuar_experimental, chosen_level: F0, resolved_freq_khz: 3200000}
   cpu-memory_bound: {action: actuar_experimental, chosen_level: F1, resolved_freq_khz: 2900000}
 Y
+# Carga objetivo (copia de memoria, tipicamente memory_bound) fijada a los nucleos 0-3: cpu_loop_main la
+# observa con --target-pid en vez de monitorearse a si mismo.
+taskset -c 0-3 dd if=/dev/zero of=/dev/null bs=256M count=1000000 2>/dev/null &
+DD_PID=$!
 run_chaos() {  # $1 = SIGTERM|SIGINT
   local sig=$1 out="$WORK/chaos_$1.out"
   echo "--- corte con $sig ---"
   ( cd "$ROOT/fase3_daemon/cpu_loop" && LD_LIBRARY_PATH="$ONNXRUNTIME_ROOT/lib:${LD_LIBRARY_PATH:-}" \
     python3 launch_cpu_daemon.py --policy-table "$WORK/policy_c8.yaml" --binary "$BIN/cpu_loop_main" --arm activo -- \
-      --perf-cpus 0,1,2,3 --collector-cpu 6 --consumer-cpu 7 --log-path "$WORK/chaos_$1.jsonl" -v ) > "$out" 2>&1 &
+      --perf-cpus 0,1,2,3 --collector-cpu 6 --consumer-cpu 7 --target-pid $DD_PID \
+      --log-path "$WORK/chaos_$1.jsonl" -v ) > "$out" 2>&1 &
   local pid=$!
   sleep 6
   echo "en pleno vuelo: no_turbo=$(cat $CPUFREQ/intel_pstate/no_turbo) cpu0 min=$(cat $CPUFREQ/cpu0/cpufreq/scaling_min_freq) max=$(cat $CPUFREQ/cpu0/cpufreq/scaling_max_freq) hermano cpu16 max=$(cat $CPUFREQ/cpu16/cpufreq/scaling_max_freq)"
   [ "$(cat $CPUFREQ/intel_pstate/no_turbo)" = "1" ] || { echo "el turbo NO estaba apagado en pleno vuelo" >&2; exit 1; }
   pkill -"${sig#SIG}" -P $pid cpu_loop_main 2>/dev/null || kill -"${sig#SIG}" $pid
+  # Debe terminar SOLO tras la senal. Si no lo hace en 20 s es un fallo (bug de parada), no se espera indefinidamente.
+  for i in $(seq 1 40); do kill -0 $pid 2>/dev/null || break; sleep 0.5; done
+  if kill -0 $pid 2>/dev/null; then echo "!!! cpu_loop_main NO atendio $sig en 20 s" >&2; pkill -9 -P $pid cpu_loop_main; kill -9 $pid; exit 1; fi
   wait $pid || true
-  tail -4 "$out"
+  grep -E "^(resumen|actuador:|deteniendo)" "$out"
   state > "$WORK/state_tras_$1.txt"
-  diff "$WORK/state_inicial.txt" "$WORK/state_tras_$1.txt" && echo "tras $sig: estado IDENTICO al inicial"
-  grep -c '"written":true' "$WORK/chaos_$1.jsonl" | sed 's/^/decisiones con written=true: /'
+  diff "$WORK/state_inicial.txt" "$WORK/state_tras_$1.txt" || { echo "!!! estado NO restaurado tras $sig" >&2; exit 1; }
+  echo "tras $sig: estado IDENTICO al inicial"
+  grep -c '"written":true' "$WORK/chaos_$1.jsonl" | sed 's/^/decisiones con written=true: /' || true
+  grep -o '"label":"[a-z_]*"' "$WORK/chaos_$1.jsonl" | sort | uniq -c
+  grep -o '"actuation_time_ns":[0-9]*' "$WORK/chaos_$1.jsonl" | grep -v null | cut -d: -f2 | sort -n | awk '{a[NR]=$1} END{if(NR) printf "actuaciones=%d p50=%.1fms max=%.1fms\n", NR, a[int(NR/2)+1]/1e6, a[NR]/1e6}'
 }
 run_chaos SIGTERM
 run_chaos SIGINT
+kill $DD_PID 2>/dev/null || true
 echo "=== FIN: preflight del actuador OK ==="

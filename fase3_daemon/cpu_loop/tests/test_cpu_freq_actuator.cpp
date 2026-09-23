@@ -197,6 +197,67 @@ void test_sin_administrar_turbo_no_lo_toca() {
     CHECK(get(fs.root + "/intel_pstate/no_turbo") == "0");
 }
 
+void test_paralelo_da_el_mismo_estado_que_secuencial() {
+    for (bool parallel : {false, true}) {
+        FakeSysfs fs;
+        auto c = fs.cfg();
+        c.parallel = parallel;
+        CpuFreqActuator a(c);
+        CHECK(a.snapshot() && a.enter());
+        CHECK(a.set_khz(3200000));
+        CHECK(a.set_khz(2900000));
+        for (int cpu : {0, 1, 6}) {
+            CHECK(get(fs.f(cpu, "scaling_min_freq")) == "2900000");
+            CHECK(get(fs.f(cpu, "scaling_max_freq")) == "2900000");
+        }
+        CHECK(a.restore());
+        for (int cpu : {0, 1, 6}) CHECK(get(fs.f(cpu, "scaling_max_freq")) == "3600000");
+    }
+}
+
+void test_paralelo_falla_cerrado_ante_un_cpu_no_escribible() {
+    if (geteuid() == 0) return;
+    FakeSysfs fs;
+    auto c = fs.cfg();
+    c.parallel = true;
+    CpuFreqActuator a(c);
+    CHECK(a.snapshot() && a.enter());
+    CHECK(chmod(fs.f(6, "scaling_max_freq").c_str(), 0444) == 0);
+    CHECK(!a.set_khz(2900000));
+    CHECK(a.disabled());
+    CHECK(get(fs.f(0, "scaling_max_freq")) == "3600000");  // los demas volvieron a su estado
+    chmod(fs.f(6, "scaling_max_freq").c_str(), 0644);
+}
+
+void test_solo_techo_no_toca_el_piso() {
+    FakeSysfs fs;
+    auto c = fs.cfg();
+    c.pin_min = false;
+    CpuFreqActuator a(c);
+    CHECK(a.snapshot() && a.enter());
+    CHECK(a.set_khz(3200000));
+    CHECK(get(fs.f(0, "scaling_max_freq")) == "3200000");
+    CHECK(get(fs.f(0, "scaling_min_freq")) == "800000");  // piso original intacto
+    CHECK(a.set_khz(2900000));
+    CHECK(get(fs.f(6, "scaling_max_freq")) == "2900000");
+    CHECK(get(fs.f(6, "scaling_min_freq")) == "800000");
+    CHECK(a.restore());
+    CHECK(get(fs.f(0, "scaling_max_freq")) == "3600000");
+    CHECK(get(fs.f(0, "scaling_min_freq")) == "800000");
+}
+
+void test_solo_techo_baja_el_piso_si_hiciera_falta() {
+    FakeSysfs fs;
+    put(fs.f(0, "scaling_min_freq"), "3200000");  // piso vigente por encima del objetivo
+    auto c = fs.cfg();
+    c.pin_min = false;
+    CpuFreqActuator a(c);
+    CHECK(a.snapshot() && a.enter());
+    CHECK(a.set_khz(2900000));
+    CHECK(get(fs.f(0, "scaling_min_freq")) == "2900000");  // min<=max se respeta
+    CHECK(get(fs.f(0, "scaling_max_freq")) == "2900000");
+}
+
 }  // namespace
 
 int main() {
@@ -210,6 +271,10 @@ int main() {
     test_falla_cerrado_ante_escritura_no_verificable();
     test_sin_cpufreq_falla_el_snapshot();
     test_sin_administrar_turbo_no_lo_toca();
+    test_paralelo_da_el_mismo_estado_que_secuencial();
+    test_paralelo_falla_cerrado_ante_un_cpu_no_escribible();
+    test_solo_techo_no_toca_el_piso();
+    test_solo_techo_baja_el_piso_si_hiciera_falta();
     std::printf("cpu_freq_actuator_test: OK\n");
     return 0;
 }
