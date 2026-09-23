@@ -1,4 +1,5 @@
-# SMOKE de gpu_cupti_20260923.yaml -- 1 kernel, 1 nivel GPU (REF), 1 repeticion.
+# SMOKE de gpu_cupti_20260923.yaml -- 1 kernel, 1 nivel GPU (REF), 3
+# repeticiones (MAN-02: repetitions_per_combination minimo es 3).
 # Verifica de punta a punta que --cupti-activity-lib produce datos validos
 # antes de encolar las 570 corridas de la campana completa.
 campaign_id: pacca_gpu_cupti_smoke_20260923
@@ -19,7 +20,7 @@ frequency_levels:
 gpu_frequency_levels:
 - id: REF
   mode: native_governor
-repetitions_per_combination: 1
+repetitions_per_combination: 3
 baseline_repetition_indices:
 - 1
 target_windows_per_repetition: 5

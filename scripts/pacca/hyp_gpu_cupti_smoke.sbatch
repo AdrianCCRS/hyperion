@@ -35,9 +35,13 @@ python3 "$ROOT/fase1_telemetria/run_campaign.py" run-campaign \
   --reference-kernel-ref npb_mg
 STATUS=$?
 
-echo "=== reporte ==="
-python3 "$ROOT/fase1_telemetria/run_campaign.py" report \
-  --campaign-dir "/home/latorresn/hyperion-results/final/campaigns/gpu_cupti_smoke_20260923" 2>&1 || true
+CAMPAIGN_DIR="/home/latorresn/hyperion-results/final/campaigns/gpu_cupti_smoke_20260923"
+if [ -f "$CAMPAIGN_DIR/campaign_metadata.json" ]; then
+  echo "=== reporte ==="
+  python3 "$ROOT/fase1_telemetria/run_campaign.py" report --campaign-dir "$CAMPAIGN_DIR" 2>&1 || true
+else
+  echo "=== sin campaign_metadata.json, run-campaign no llego a completar (status=$STATUS) ==="
+fi
 
 echo "run-campaign status=$STATUS"
 exit "$STATUS"
