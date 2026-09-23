@@ -121,7 +121,7 @@ run_chaos() {  # $1 = SIGTERM|SIGINT
   diff "$WORK/state_inicial.txt" "$WORK/state_tras_$1.txt" || { echo "!!! estado NO restaurado tras $sig" >&2; exit 1; }
   echo "tras $sig: estado IDENTICO al inicial"
   grep -c '"written":true' "$WORK/chaos_$1.jsonl" | sed 's/^/decisiones con written=true: /' || true
-  grep -o '"error":"[a-z_]*"' "$WORK/chaos_$1.jsonl" | sort | uniq -c | sed 's/^/ventanas con error: /'
+  grep -o '"error":"[a-z_]*"' "$WORK/chaos_$1.jsonl" | sort | uniq -c | sed 's/^/ventanas con error: /' || true
   python3 - "$WORK/phases.txt" "$WORK/chaos_$1.jsonl" <<'PY'
 import json, sys
 phases = [(int(a), b) for a, b in (l.split() for l in open(sys.argv[1]) if l.strip())]
@@ -145,7 +145,7 @@ for line in open(sys.argv[2]):
 n = tp + tn + fp + fn
 print(f"clasificacion vs fase real: n={n} exactitud={(tp+tn)/n:.3f} memory(tp={tp},fn={fn}) compute(tn={tn},fp={fp}) omitidas_en_frontera={skipped}" if n else "sin ventanas clasificadas")
 PY
-  grep -o '"actuation_time_ns":[0-9]*' "$WORK/chaos_$1.jsonl" | grep -v null | cut -d: -f2 | sort -n | awk '{a[NR]=$1} END{if(NR) printf "actuaciones=%d p50=%.1fms max=%.1fms\n", NR, a[int(NR/2)+1]/1e6, a[NR]/1e6}'
+  { grep -o '"actuation_time_ns":[0-9]*' "$WORK/chaos_$1.jsonl" || true; } | cut -d: -f2 | sort -n | awk '{a[NR]=$1} END{if(NR) printf "actuaciones=%d p50=%.1fms max=%.1fms\n", NR, a[int(NR/2)+1]/1e6, a[NR]/1e6}'
 }
 run_chaos SIGTERM
 run_chaos SIGINT
