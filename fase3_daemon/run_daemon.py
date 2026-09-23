@@ -53,6 +53,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 from common.hpc import environment as environment_module  # noqa: E402
 from common.hpc import freqctl, gpu_freqctl  # noqa: E402
+from fase3_daemon.decision_log import ARMS, DecisionLogWriter, DecisionRecord  # noqa: E402
 from fase3_daemon.gpu_loop import activity_poller  # noqa: E402
 from fase3_daemon.gpu_loop import loop as gpu_loop_module  # noqa: E402
 from fase3_daemon.gpu_loop.classifier import HistoricalGpuClassifier  # noqa: E402
@@ -82,11 +83,25 @@ def build_daemon_gpu_loop(
     max_events: int | None = None,
     sleep_fn=time.sleep,
     on_sample=None,
+    arm: str = "sombra",
+    decision_log: DecisionLogWriter | None = None,
 ):
     """Ensambla el loop de GPU real a partir de la tabla de política ya
     derivada (§3.4/§3.5) -- nunca recalcula EDP en línea (§3.4 punto 4:
     "el daemon nunca recalcula el EDP... solo aplica la tabla ya derivada
     offline")."""
+    if arm not in ARMS or arm == "base":
+        raise ValueError(
+            f"arm={arm!r} inválido para build_daemon_gpu_loop -- debe ser 'sombra' o 'activo' "
+            "('base' significa, literalmente, no correr este script, ver Plan_Fase3_Daemon.md §0.1)"
+        )
+    if (arm == "sombra") != dry_run:
+        raise ValueError(
+            f"arm={arm!r} inconsistente con dry_run={dry_run!r} -- 'sombra' implica dry_run=True, "
+            "'activo' implica dry_run=False (requisito 1 §0.1: sombra hace el mismo trabajo que "
+            "activo y se detiene justo antes de escribir)"
+        )
+
     policy_doc = yaml.safe_load(policy_table_path.read_text())
     policy = policy_doc["policy"]
 
@@ -105,6 +120,29 @@ def build_daemon_gpu_loop(
             label.value, decision.target_clock_mhz, decision.applied_clock_mhz,
             decision.clock_changed, decision.dwell_remaining_ns,
         )
+        if decision_log is not None:
+            decision_log.write(DecisionRecord(
+                ts_ns=event.now_ns,
+                arm=arm,
+                device="gpu",
+                label=label.value,
+                confidence=None,  # HistoricalGpuClassifier.classify() no expone proba, ver su docstring
+                features={
+                    "gpu_util_pct": event.features.gpu_util_pct,
+                    "gpu_mem_util_pct": event.features.gpu_mem_util_pct,
+                    "gpu_power_mw": event.features.gpu_power_mw,
+                    "gpu_sm_clock_mhz": event.features.gpu_sm_clock_mhz,
+                    "gpu_temperature_c": event.features.gpu_temperature_c,
+                },
+                policy_action="actuar" if decision.target_clock_mhz else "no_actuar",
+                target_freq_khz=decision.target_clock_mhz * 1000,
+                applied_freq_khz=decision.applied_clock_mhz * 1000,
+                written=decision.clock_changed and not decision.clock_setter_failed and not dry_run,
+                write_failed=decision.clock_changed and decision.clock_setter_failed,
+                inference_time_ns=decision.inference_time_ns,
+                actuation_time_ns=decision.actuation_time_ns,
+                extra={"dwell_remaining_ns": decision.dwell_remaining_ns},
+            ))
 
     def on_end(now_ns: int) -> None:
         logger.debug("fin de fase GPU en t=%sns", now_ns)
@@ -156,10 +194,16 @@ def main() -> int:
     parser.add_argument("--mode", choices=["cpuset", "pid"], default="cpuset")
     parser.add_argument("--pid", type=int, default=None,
                          help="Requerido si --mode pid (§4.3 punto 1, modo de prueba dirigida).")
-    parser.add_argument("--dry-run", action="store_true",
-                         help="Brazo 'sombra' (Plan_Fase3_Daemon.md SS0.1): clasifica y decide igual que en "
-                              "produccion, pero se detiene justo antes de escribir el reloj real -- no un atajo "
-                              "que se salte la inferencia. Sin esta bandera: brazo 'activo'.")
+    parser.add_argument("--arm", choices=["sombra", "activo"], required=True,
+                         help="Brazo de primera clase del experimento de Fase 4 (Plan_Fase3_Daemon.md SS0.1, "
+                              "requisito 1). 'sombra': clasifica y decide exactamente igual que 'activo', pero "
+                              "se detiene justo antes de escribir el reloj real. 'activo': escribe de verdad. "
+                              "El brazo 'base' es, literalmente, no correr este script. Sin default: elegir el "
+                              "brazo a propósito, nunca por accidente.")
+    parser.add_argument("--log-path", type=Path, default=None,
+                         help="Ruta del registro JSONL de decisiones (requisito 2 SS0.1) -- una linea por fase "
+                              "de GPU, mismo esquema que el lado CPU (decision_log.py/decision_log.hpp). Si se "
+                              "omite, no se escribe registro estructurado (solo el log de texto habitual).")
     parser.add_argument("--models-dir", type=Path, default=_DEFAULT_MODELS_DIR,
                          help=f"Directorio con {{nombre}}.joblib + {{nombre}}.metadata.json del candidato GPU "
                               f"(default: {_DEFAULT_MODELS_DIR}).")
@@ -194,23 +238,29 @@ def main() -> int:
     )
     logger.info(
         "clasificador GPU cargado: %s (variables=%s, brazo=%s)",
-        args.model_name, classifier._feature_names, "sombra" if args.dry_run else "activo",
+        args.model_name, classifier._feature_names, args.arm,
     )
 
+    decision_log = DecisionLogWriter(args.log_path) if args.log_path is not None else None
     try:
         build_daemon_gpu_loop(
             args.policy_table,
             gpu_index=args.gpu_index,
             min_dwell_ns=args.min_dwell_ns,
-            dry_run=args.dry_run,
+            dry_run=(args.arm == "sombra"),
             classify_fn=classifier.classify,
             on_sample=classifier.record_sample,
             poll_interval_s=args.poll_interval_s,
             activity_threshold_pct=args.activity_threshold_pct,
+            arm=args.arm,
+            decision_log=decision_log,
         )
     except KeyboardInterrupt:
         logger.info("interrumpido, saliendo")
         return 130
+    finally:
+        if decision_log is not None:
+            decision_log.close()
     return 0
 
 

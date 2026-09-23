@@ -33,7 +33,9 @@
  *    proceso separado), y no hace falta uno mientras la política GPU siga
  *    bloqueada por H1.
  */
+#include <array>
 #include <atomic>
+#include <chrono>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
@@ -42,6 +44,7 @@
 #include <vector>
 
 #include "cpu_loop_consumer.hpp"
+#include "decision_log.hpp"
 #include "onnx_cpu_classifier.hpp"
 #include "telemetry/collector.hpp"
 
@@ -65,17 +68,21 @@ struct Args {
     bool memory_actuar = false;
     unsigned int memory_freq_khz = 0;
     bool verbose = false;
+    std::string arm;       // "sombra" | "activo", obligatorio (Plan_Fase3_Daemon.md SS0.1, requisito 1)
+    std::string log_path;  // ruta del registro JSONL de decisiones (requisito 2); vacio = sin registro
 };
 
 [[noreturn]] void usage_and_exit(const char* prog) {
     std::fprintf(stderr,
-        "uso: %s --perf-cpus 0,1,2,3 [--model xgboost_cpu.onnx] [--threshold 0.85]\n"
-        "  [--target-pid PID] [--collector-cpu N] [--consumer-cpu N]\n"
+        "uso: %s --arm {sombra|activo} --perf-cpus 0,1,2,3 [--model xgboost_cpu.onnx] [--threshold 0.85]\n"
+        "  [--target-pid PID] [--collector-cpu N] [--consumer-cpu N] [--log-path RUTA]\n"
         "  [--interval-ns 1000000] [--cpu-freq-sysfs-path RUTA]\n"
         "  [--compute-actuar --compute-freq-khz N] [--memory-actuar --memory-freq-khz N] [-v]\n"
-        "Escribe frecuencia SOLO si se pasan --compute-actuar/--memory-actuar; sin eso,\n"
-        "corre en modo observacion (clasifica y decide, nunca escribe) -- la politica de\n"
-        "CPU medida hoy es no_actuar en ambas clases, ver Plan_Fase3_Daemon.md.\n",
+        "--arm es obligatorio (Plan_Fase3_Daemon.md SS0.1, requisito 1): 'sombra' corre exactamente\n"
+        "el mismo trabajo que 'activo' pero nunca pasa --compute-actuar/--memory-actuar de verdad al\n"
+        "FrequencySetter (hoy este binario no tiene escritor nativo, ver el docstring del archivo, asi\n"
+        "que en la practica ambos brazos solo registran lo que harian). --log-path activa el registro\n"
+        "JSONL de decisiones (requisito 2), mismo esquema que decision_log.py del lado GPU.\n",
         prog);
     std::exit(2);
 }
@@ -112,16 +119,46 @@ Args parse_args(int argc, char** argv) {
         else if (arg == "--compute-freq-khz") a.compute_freq_khz = std::stoul(need("--compute-freq-khz"));
         else if (arg == "--memory-actuar") a.memory_actuar = true;
         else if (arg == "--memory-freq-khz") a.memory_freq_khz = std::stoul(need("--memory-freq-khz"));
+        else if (arg == "--arm") a.arm = need("--arm");
+        else if (arg == "--log-path") a.log_path = need("--log-path");
         else if (arg == "-v" || arg == "--verbose") a.verbose = true;
         else if (arg == "-h" || arg == "--help") usage_and_exit(argv[0]);
         else { std::fprintf(stderr, "flag desconocida: %s\n", arg.c_str()); usage_and_exit(argv[0]); }
     }
     if (a.perf_cpus.empty()) { std::fprintf(stderr, "--perf-cpus es obligatorio\n"); usage_and_exit(argv[0]); }
+    if (a.arm != "sombra" && a.arm != "activo") {
+        std::fprintf(stderr, "--arm es obligatorio y debe ser 'sombra' o 'activo' (valor recibido: '%s')\n",
+                      a.arm.c_str());
+        usage_and_exit(argv[0]);
+    }
     return a;
 }
 
 const char* label_name(hyperion::cpu_loop::CpuPhaseLabel l) {
     return l == hyperion::cpu_loop::CpuPhaseLabel::MemoryBound ? "memory_bound" : "compute_bound";
+}
+
+const char* feature_error_name(hyperion::cpu_loop::FeatureBuildError e) {
+    using hyperion::cpu_loop::FeatureBuildError;
+    switch (e) {
+        case FeatureBuildError::kNegativeOrZeroDeltaT: return "negative_or_zero_delta_t";
+        case FeatureBuildError::kZeroCycles: return "zero_cycles";
+        case FeatureBuildError::kZeroInstructions: return "zero_instructions";
+        case FeatureBuildError::kZeroCacheReferences: return "zero_cache_references";
+        case FeatureBuildError::kNegativeCounterDelta: return "negative_counter_delta";
+    }
+    return "unknown";
+}
+
+// Mismo orden que cpu_feature_builder.hpp -- ver su comentario de archivo.
+constexpr std::array<const char*, 6> kFeatureNames = {
+    "ipc", "mpki", "cache_miss_rate", "stall_mem_ratio", "ips", "freq_khz_observed",
+};
+
+int64_t now_ns() {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
 }
 
 }  // namespace
@@ -164,11 +201,35 @@ int main(int argc, char** argv) {
     collector.start();
     std::printf("collector activo. has_stalled_cycles_mem_any=%d\n", collector.has_stalled_cycles_mem_any());
 
+    std::optional<DecisionLogWriter> decision_log;
+    if (!args.log_path.empty()) {
+        decision_log.emplace(args.log_path);
+    }
+
     uint64_t n_acted = 0, n_abstained = 0, n_feature_failed = 0;
     auto on_tick = [&](const TickResult& r) {
+        DecisionRecord rec;
+        rec.ts_ns = now_ns();
+        rec.arm = args.arm;
+        if (r.features) {
+            for (size_t i = 0; i < kFeatureNames.size(); ++i) {
+                rec.features.push_back({kFeatureNames[i], (*r.features)[i]});
+            }
+        }
+        if (r.p_memory_bound) {
+            rec.confidence = (*r.p_memory_bound >= 0.5f) ? *r.p_memory_bound : (1.0f - *r.p_memory_bound);
+        }
+
         switch (r.outcome) {
             case TickOutcome::kActed:
                 n_acted++;
+                rec.label = label_name(r.decision->label);
+                rec.policy_action = r.decision->target_freq_khz ? "actuar" : "no_actuar";
+                rec.target_freq_khz = r.decision->target_freq_khz;
+                // Sin escritor nativo todavia (ver docstring del archivo, punto 2): nunca se escribe
+                // frecuencia de verdad, en ningun brazo -- el registro debe reflejar eso, no fingir.
+                rec.written = false;
+                rec.write_failed = r.decision->actuation_attempted && r.decision->actuation_failed;
                 if (args.verbose) {
                     std::printf("[actuo] p_memory_bound=%.3f clase=%s target_khz=%u\n",
                                 *r.p_memory_bound, label_name(r.decision->label), r.decision->target_freq_khz);
@@ -176,12 +237,16 @@ int main(int argc, char** argv) {
                 break;
             case TickOutcome::kAbstained:
                 n_abstained++;
+                rec.policy_action = "n/a";
                 if (args.verbose) std::printf("[abstuvo] p_memory_bound=%.3f\n", *r.p_memory_bound);
                 break;
             case TickOutcome::kFeatureBuildFailed:
                 n_feature_failed++;
+                rec.policy_action = "n/a";
+                rec.error = feature_error_name(*r.feature_error);
                 break;
         }
+        if (decision_log) decision_log->write(rec);
     };
 
     run_consumer_loop(

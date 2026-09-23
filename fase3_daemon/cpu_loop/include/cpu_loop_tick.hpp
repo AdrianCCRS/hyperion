@@ -42,6 +42,7 @@ enum class TickOutcome : uint8_t { kActed, kAbstained, kFeatureBuildFailed };
 struct TickResult {
     TickOutcome outcome;
     std::optional<FeatureBuildError> feature_error;  // solo si outcome == kFeatureBuildFailed
+    std::optional<FeatureVector> features;            // solo si se llegó a construir (kActed/kAbstained)
     std::optional<float> p_memory_bound;              // solo si se llegó a inferir
     std::optional<CpuWindowDecision> decision;         // solo si outcome == kActed
 };
@@ -58,19 +59,19 @@ inline TickResult run_cpu_tick(
 ) {
     auto built = build_cpu_features(prev, curr, delta_t_ns);
     if (!built.ok()) {
-        return {TickOutcome::kFeatureBuildFailed, built.error, std::nullopt, std::nullopt};
+        return {TickOutcome::kFeatureBuildFailed, built.error, std::nullopt, std::nullopt, std::nullopt};
     }
 
     const float p_memory_bound = predict_proba(*built.features);
     const float confidence = (p_memory_bound >= 0.5f) ? p_memory_bound : (1.0f - p_memory_bound);
     if (confidence < threshold) {
-        return {TickOutcome::kAbstained, std::nullopt, p_memory_bound, std::nullopt};
+        return {TickOutcome::kAbstained, std::nullopt, built.features, p_memory_bound, std::nullopt};
     }
 
     const CpuPhaseLabel label =
         (p_memory_bound >= 0.5f) ? CpuPhaseLabel::MemoryBound : CpuPhaseLabel::ComputeBound;
     CpuWindowDecision decision = controller.on_window(label, gpu_active);
-    return {TickOutcome::kActed, std::nullopt, p_memory_bound, decision};
+    return {TickOutcome::kActed, std::nullopt, built.features, p_memory_bound, decision};
 }
 
 }  // namespace hyperion::cpu_loop

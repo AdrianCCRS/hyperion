@@ -37,7 +37,7 @@ rm -rf "$BUILD_DIR"
 
 echo "=== ctest: tests propios de fase3_daemon/cpu_loop (puerta dura) ==="
 "$CTEST" --test-dir "$BUILD_DIR" --output-on-failure -R \
-  '^(cpu_phase_controller_test|cpu_feature_builder_test|cpu_loop_tick_test|cpu_loop_consumer_test|onnx_cpu_classifier_test)$'
+  '^(cpu_phase_controller_test|cpu_feature_builder_test|cpu_loop_tick_test|cpu_loop_consumer_test|onnx_cpu_classifier_test|decision_log_test)$'
 
 echo "=== ctest: suite completa (incluye common/telemetry, arrastrada por add_subdirectory) ==="
 # Informativo, NO bloquea el job: common/telemetry ya tenia su propia suite
@@ -81,7 +81,8 @@ SMOKE_OUT="$BUILD_DIR/cpu_loop_main_smoke.out"
 (cd "$ROOT/fase3_daemon/cpu_loop" && \
   LD_LIBRARY_PATH="$ONNXRUNTIME_ROOT/lib:${LD_LIBRARY_PATH:-}" \
   timeout --signal=TERM 10s "$BUILD_DIR/cpu_loop_main" \
-    --perf-cpus 0,1,2,3 --collector-cpu 4 --consumer-cpu 5 --verbose) \
+    --arm sombra --perf-cpus 0,1,2,3 --collector-cpu 4 --consumer-cpu 5 \
+    --log-path "$BUILD_DIR/cpu_loop_main_smoke_decisions.jsonl" --verbose) \
   > "$SMOKE_OUT" 2>&1 || smoke_status=$?
 cat "$SMOKE_OUT"
 # 0 = cpu_loop_main atendio SIGTERM y salio limpio por su cuenta; 124/143 =
@@ -112,3 +113,20 @@ if [ "$decided" -eq 0 ]; then
   exit 1
 fi
 echo "smoke test de cpu_loop_main: OK ($decided ticks con features validas)"
+
+echo "=== registro estructurado de decisiones (Bloque C, requisito 2 SS0.1) ==="
+LOG_PATH="$BUILD_DIR/cpu_loop_main_smoke_decisions.jsonl"
+if [ ! -s "$LOG_PATH" ]; then
+  echo "registro de decisiones: vacio o ausente en $LOG_PATH" >&2; exit 1
+fi
+log_lines=$(wc -l < "$LOG_PATH")
+# total de ticks decididos (actuo+abstuvo+features_fallidas) -- el
+# registro escribe una linea por tick sin importar el desenlace, ver
+# cpu_loop_main.cpp::on_tick.
+feature_failed=$(echo "$resumen" | grep -oP 'features_fallidas=\K[0-9]+')
+total_ticks=$((decided + feature_failed))
+if [ "$log_lines" -ne "$total_ticks" ]; then
+  echo "registro de decisiones: $log_lines lineas, se esperaban $total_ticks (actuo+abstuvo+features_fallidas)" >&2
+  exit 1
+fi
+echo "registro de decisiones: OK ($log_lines lineas en $LOG_PATH)"

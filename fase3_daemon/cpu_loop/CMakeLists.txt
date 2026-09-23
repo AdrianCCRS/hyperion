@@ -60,6 +60,13 @@ add_executable(cpu_loop_consumer_test tests/test_cpu_loop_consumer.cpp)
 target_link_libraries(cpu_loop_consumer_test PRIVATE cpu_loop)
 add_test(NAME cpu_loop_consumer_test COMMAND cpu_loop_consumer_test)
 
+# decision_log.hpp no depende de ONNX Runtime ni de PMU -- se prueba
+# siempre, igual que el resto del nucleo (Bloque C, registro estructurado
+# por decision, Plan_Fase3_Daemon.md SS0.1 requisito 2).
+add_executable(decision_log_test tests/test_decision_log.cpp)
+target_link_libraries(decision_log_test PRIVATE cpu_loop)
+add_test(NAME decision_log_test COMMAND decision_log_test)
+
 if(DEFINED ONNXRUNTIME_ROOT)
   find_path(ONNXRUNTIME_INCLUDE_DIR onnxruntime_cxx_api.h
             PATHS ${ONNXRUNTIME_ROOT}/include/onnxruntime/core/session)

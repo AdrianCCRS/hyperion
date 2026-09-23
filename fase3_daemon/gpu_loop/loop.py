@@ -215,8 +215,13 @@ def run(
     classify = classify_fn or _placeholder_classify
     decisions: list[GpuPhaseDecision] = []
     for event in phase_events:
+        t0 = time.monotonic_ns()
         label = classify(event.features)
+        t1 = time.monotonic_ns()
         decision = controller.on_phase_begin(label, event.now_ns)
+        t2 = time.monotonic_ns()
+        decision.inference_time_ns = t1 - t0
+        decision.actuation_time_ns = t2 - t1
         decisions.append(decision)
         if on_decision is not None:
             on_decision(event, label, decision)

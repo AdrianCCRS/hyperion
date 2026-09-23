@@ -44,13 +44,21 @@ class GpuClockControllerConfig:
 @dataclass
 class GpuPhaseDecision:
     """Resultado de una llamada a on_phase_begin(), para logging/export a CSV
-    -- mismo propósito que GpuPhaseDecision en el header original."""
+    -- mismo propósito que GpuPhaseDecision en el header original.
+
+    `inference_time_ns`/`actuation_time_ns` no los llena el controller (no
+    mide su propia clasificación ni tiene acceso al reloj de llamada) --
+    los llena `gpu_loop.run()` alrededor de `classify_fn()` y de esta
+    misma llamada a `on_phase_begin()`, para el registro estructurado de
+    `decision_log.py` (Plan_Fase3_Daemon.md §0.1, requisito 2)."""
     label: GpuPhaseLabel
     target_clock_mhz: int
     applied_clock_mhz: int = 0
     clock_changed: bool = False
     clock_setter_failed: bool = False
     dwell_remaining_ns: int = 0
+    inference_time_ns: int | None = None
+    actuation_time_ns: int | None = None
 
 
 class GpuClockController:
