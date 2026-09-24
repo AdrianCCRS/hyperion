@@ -7,7 +7,7 @@
 # y de GPU (NVML) POR SEPARADO (el EDP del nodo se calcula luego), mas las fronteras de fase y las decisiones de cada daemon
 # para puntuar clasificacion. Orden aleatorizado, reanudable (salta celdas ya hechas). Toca turbo, frecuencias y reloj de GPU:
 # nodo libre, restaura desde un snapshot. NUNCA local. Sin --time. No intervenir a mano.
-# Variables: CYCLES (2) GAP_S (1) REPS_GENERAL (3) REPS_JOINT (5) ONLY_SCOPES ONLY_SETS ONLY_ARMS (listas separadas por espacio)
+# Variables: INTERVAL_NS (1000000, muestreo del daemon de CPU) CYCLES (2) GAP_S (1) REPS_GENERAL (3) REPS_JOINT (5) ONLY_SCOPES ONLY_SETS ONLY_ARMS (listas separadas por espacio)
 #            OUT (carpeta de resultados; para reanudar, misma carpeta)
 #SBATCH --job-name=hyp_fase4_matrix
 #SBATCH --partition=GPU
@@ -21,7 +21,7 @@
 #SBATCH --error=/home/latorresn/hyperion-results/final/logs/fase4_matrix_%j.err
 set -uo pipefail
 ROOT="${HYPERION_ROOT:-$HOME/hyperion_c8}"; KERNEL_ROOT="$HOME/hyperion-kernels"
-CYCLES="${CYCLES:-2}"; GAP_S="${GAP_S:-1}"; REPS_GENERAL="${REPS_GENERAL:-3}"; REPS_JOINT="${REPS_JOINT:-5}"
+INTERVAL_NS="${INTERVAL_NS:-1000000}"; CYCLES="${CYCLES:-2}"; GAP_S="${GAP_S:-1}"; REPS_GENERAL="${REPS_GENERAL:-3}"; REPS_JOINT="${REPS_JOINT:-5}"
 ONLY_SCOPES="${ONLY_SCOPES:-cpu gpu joint}"; ONLY_SETS="${ONLY_SETS:-known unseen}"; ONLY_ARMS="${ONLY_ARMS:-base sombra activo activo_f0 activo_nofloor}"
 OUT="${OUT:-$HOME/hyperion-results/final/fase4_matrix_${SLURM_JOB_ID:-manual}}"; mkdir -p "$OUT/cells"
 ORT="$HOME/.conda/envs/hyperion-cpu-onnx"; CMAKE="$ORT/bin/cmake"; CUDA=/opt/ohpc/pub/devtools/nvidia/hpc_sdk/Linux_x86_64/23.1/cuda/12.0
@@ -112,7 +112,7 @@ run_cell() {
   fi
   if [ "$arm" != base ] && { [ "$scope" = cpu ] || [ "$scope" = joint ]; }; then
     ( exec python3 "$ROOT/fase3_daemon/cpu_loop/launch_cpu_daemon.py" --policy-table "$pol" --binary "$CPU_BIN" --arm $dm_arm -- \
-        --model "$ROOT/fase3_daemon/cpu_loop/xgboost_cpu.onnx" --perf-cpus 0,1,2,3 --collector-cpu 6 --consumer-cpu 7 --target-pid $COMP \
+        --model "$ROOT/fase3_daemon/cpu_loop/xgboost_cpu.onnx" --perf-cpus 0,1,2,3 --collector-cpu 6 --consumer-cpu 7 --target-pid $COMP --interval-ns $INTERVAL_NS \
         "${sigflag[@]}" --gpu-active-floor-khz $floor --log-path "$D/cpu_decisions.jsonl" ) > "$D/cpu_daemon.out" 2>&1 & cpu_d=$!
   fi
   sleep 3
