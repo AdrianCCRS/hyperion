@@ -26,9 +26,9 @@ def test_resuelve_en_el_catalogo_y_es_de_gpu(which):
     assert [e.phase_label_hint for e in entries] == [h for _, _, h in PHASES[which]]
 
 
-@pytest.mark.parametrize("which", ["known", "unseen"])
-def test_domina_la_memoria(which):
-    assert sum(h == "memory_bound" for _, _, h in PHASES[which]) == 3
+@pytest.mark.parametrize("which,n_mem", [("known", 3), ("unseen", 2)])
+def test_domina_la_memoria(which, n_mem):
+    assert sum(h == "memory_bound" for _, _, h in PHASES[which]) == n_mem
     assert sum(h == "compute_bound" for _, _, h in PHASES[which]) == 1
 
 

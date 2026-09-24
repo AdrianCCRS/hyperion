@@ -8,7 +8,8 @@ F1 y una de 50 s pasa el 84%.
   --set known   familias vistas en la Fase 2 con ganancia de EDP con F1 >= 10%: dual_stencil, dual_spmv, dual_axpy, más
                 una fase compute corta (DGEMM de CUTLASS) para que haya conmutación.
   --set unseen  familias memory_bound del catálogo que NO están entre las 16 del entrenamiento (BabelStream escalado,
-                RAJAPerf indexlist_3loop, Rodinia backprop escalado), más una fase compute inédita (LavaMD escalado).
+                Rodinia myocyte escalado; solo dos porque no hay un tercer kernel inédito de memoria que dure 25 s o más), más una fase
+                compute inédita (LavaMD escalado).
 
 La verdad de fase de los dual_* se declara aquí desde su clase de la Fase 2 (`kernel_class.csv`, margen 1.0, no ambigua;
 OI de 0.09 a 0.27 frente a un ridge fp64 de 3.36), porque el catálogo los marca `intermedio`. Los de la variante inédita
@@ -38,11 +39,12 @@ KNOWN = (
     ("dual_spmv_gpu_N200000000", None, "memory_bound"),
     ("dual_axpy_gpu_N1280000000", None, "memory_bound"),
 )
+# Duraciones medidas en el sondeo (job 7651): BabelStream numtimes 5000 = 36 s, myocyte 1000000 = 48 s. Descartados: backprop
+# (falla con los dos tamanos probados), indexlist_3loop y reduce3_int (5 a 6 s, sin argumentos para alargarlos).
 UNSEEN = (
     ("gpu_stream_bw", "--arraysize 100000000 --numtimes 5000", "memory_bound"),
     ("rodinia_lavamd", "-boxes1d 100", "compute_bound"),
-    ("gpu_rajaperf_indexlist_3loop", None, "memory_bound"),
-    ("rodinia_backprop", "8388480", "memory_bound"),
+    ("rodinia_myocyte", "1000000 1 0", "memory_bound"),
 )
 PHASES = {"known": KNOWN, "unseen": UNSEEN}
 
