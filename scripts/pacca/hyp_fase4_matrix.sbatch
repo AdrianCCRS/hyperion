@@ -3,12 +3,12 @@
 #   cpu   : base, sombra, activo, activo_f0                   (solo daemon de CPU)         3 repeticiones
 #   gpu   : base, sombra, activo                              (solo daemon de GPU)         3 repeticiones
 #   (diagnostico, solo si se piden en ONLY_ARMS: sombra_pin, sombra_ort1, sombra_pin_ort1 = sombra con el consumidor fijado a --consumer-cpu y/o ORT con 1 hilo sin espera activa)
-#   joint : base, sombra, activo (con piso), activo_nofloor   (ambos daemons, app que alterna CPU y GPU)  5 repeticiones
+#   joint : base, sombra, activo (con piso), activo_nofloor   (ambos daemons, app que alterna CPU y GPU)  3 repeticiones
 # base = REF (gobernador nativo con turbo, sin daemon). Por celda se registra duracion, energia de CPU (RAPL, ambos paquetes)
 # y de GPU (NVML) POR SEPARADO (el EDP del nodo se calcula luego), mas las fronteras de fase y las decisiones de cada daemon
 # para puntuar clasificacion. Orden aleatorizado, reanudable (salta celdas ya hechas). Toca turbo, frecuencias y reloj de GPU:
 # nodo libre, restaura desde un snapshot. NUNCA local. Sin --time. No intervenir a mano.
-# Variables: INTERVAL_NS (1000000, muestreo del daemon de CPU) CYCLES (2) GAP_S (1) REPS_GENERAL (3) REPS_JOINT (5) ONLY_SCOPES ONLY_SETS ONLY_ARMS (listas separadas por espacio)
+# Variables: INTERVAL_NS (1000000, muestreo del daemon de CPU) CYCLES (2) GAP_S (1) REPS_GENERAL (3) REPS_JOINT (3) ONLY_SCOPES ONLY_SETS ONLY_ARMS (listas separadas por espacio)
 #            OUT (carpeta de resultados; para reanudar, misma carpeta)
 #SBATCH --job-name=hyp_fase4_matrix
 #SBATCH --partition=GPU
@@ -22,7 +22,7 @@
 #SBATCH --error=/home/latorresn/hyperion-results/final/logs/fase4_matrix_%j.err
 set -uo pipefail
 ROOT="${HYPERION_ROOT:-$HOME/hyperion_c8}"; KERNEL_ROOT="$HOME/hyperion-kernels"
-INTERVAL_NS="${INTERVAL_NS:-1000000}"; CYCLES="${CYCLES:-2}"; GAP_S="${GAP_S:-1}"; REPS_GENERAL="${REPS_GENERAL:-3}"; REPS_JOINT="${REPS_JOINT:-5}"
+INTERVAL_NS="${INTERVAL_NS:-1000000}"; CYCLES="${CYCLES:-2}"; GAP_S="${GAP_S:-1}"; REPS_GENERAL="${REPS_GENERAL:-3}"; REPS_JOINT="${REPS_JOINT:-3}"
 ONLY_SCOPES="${ONLY_SCOPES:-cpu gpu joint}"; ONLY_SETS="${ONLY_SETS:-known unseen}"; ONLY_ARMS="${ONLY_ARMS:-base sombra activo activo_f0 activo_nofloor}"
 OUT="${OUT:-$HOME/hyperion-results/final/fase4_matrix_${SLURM_JOB_ID:-manual}}"; mkdir -p "$OUT/cells"
 ORT="$HOME/.conda/envs/hyperion-cpu-onnx"; CMAKE="$ORT/bin/cmake"; CUDA=/opt/ohpc/pub/devtools/nvidia/hpc_sdk/Linux_x86_64/23.1/cuda/12.0
