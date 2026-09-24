@@ -54,3 +54,13 @@ def test_noturbo_no_depende_de_las_aplicaciones_de_e(tmp_path):
     _make(tmp_path, memory_decision=False)  # E fallaria, el complemento sin turbo no
     assert check(tmp_path) != []
     assert check_noturbo(tmp_path) == []
+
+
+def test_la_variante_inedita_sin_f1_no_bloquea_pero_la_vista_si(tmp_path):
+    _make(tmp_path)
+    for cell in tmp_path.glob("cells/gpumem_unseen_activo*"):
+        (cell / "gpu_decisions.jsonl").write_text(json.dumps({"ts_ns": 10 * S, "label": "revisar", "written": True}))
+    assert check(tmp_path) == []
+    for cell in tmp_path.glob("cells/gpumem_known_activo*"):
+        (cell / "gpu_decisions.jsonl").write_text(json.dumps({"ts_ns": 10 * S, "label": "revisar", "written": True}))
+    assert any("known" in p for p in check(tmp_path))

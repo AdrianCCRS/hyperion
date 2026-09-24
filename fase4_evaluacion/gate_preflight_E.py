@@ -5,8 +5,10 @@ Lee la carpeta del pre-vuelo (`results.csv` y `cells/*/{phases,gpu_decisions}.js
   1. falta alguna celda esperada, o alguna tiene app_rc, rc de daemon distinto de 0 o state_ok distinto de 1;
   2. alguna fase de memoria dura menos de MIN_MEM_S (el agente decide una vez por fase, ~8 s despues del inicio);
   3. la fraccion del ciclo en fases memory_bound es menor que MIN_MEM_FRAC;
-  4. en los brazos activos, menos de 2/3 de las fases de memoria recibieron una decision memory_bound con escritura de reloj
-     (mas abstenciones que eso: parar y consultar, no cambiar el umbral).
+  4. en los brazos activos de la variante VISTA (known), menos de 2/3 de las fases de memoria recibieron una decision
+     memory_bound con escritura de reloj (mas abstenciones que eso: parar y consultar, no cambiar el umbral). Para la variante
+     INEDITA (unseen) el criterio es solo informativo: el pre-vuelo mostro abstencion (BabelStream) y ausencia de decision
+     (myocyte), y el usuario decidio el 2026-09-24 medirla igual y reportarla como resultado.
 Uso: python3 gate_preflight_E.py CARPETA_PREVUELO
 """
 from __future__ import annotations
@@ -72,7 +74,11 @@ def check(root: Path) -> list[str]:
                     applied[r["set"]][0] += 1
     for st, (ok, n) in applied.items():
         if n == 0 or ok / n < MIN_APPLIED:
-            problems.append(f"{st}: F1 aplicado en {ok} de {n} fases de memoria (< {MIN_APPLIED:.2f})")
+            msg = f"{st}: F1 aplicado en {ok} de {n} fases de memoria (< {MIN_APPLIED:.2f})"
+            if st == "known":
+                problems.append(msg)
+            else:
+                print("GATE INFO (no bloquea):", msg)
     return problems
 
 

@@ -269,3 +269,20 @@ Estimar la duración con los tiempos de fase medidos en el pre-vuelo y avisar al
   lo que sí se ve es un ahorro de energía de CPU de ~4% con F0, sin costo de tiempo. `base_noturbo` lo confirma o lo refuta.
 - **Error latente corregido**: `analyze_matrix.py` trataba como CPU los `dual_*_gpu_*`; ahora `is_gpu_kernel` usa el
   dispositivo del id (con test).
+
+## 13. Resultado del pre-vuelo y desviación decidida por el usuario (2026-09-24)
+
+Pre-vuelo (job 7652, 8 celdas, 20 min, sin errores; `fase4_E_preflight`):
+- **E-A**: el agente aplicó F1 en 2 de las 3 fases de memoria (la tercera, dual_axpy, quedó con una decisión memory_bound sin
+  escritura, es decir sin cambio de reloj). La primera decisión llegó a los 13 a 16 s del inicio de la fase (no 8 s). Con una
+  repetición, la energía de GPU bajó 6.5% (15 293 J frente a 16 363 J de REF) con la misma duración (187.2 s frente a 187.4 s).
+  Es un solo dato, sin valor estadístico.
+- **E-B**: BabelStream se abstuvo (`revisar`, confianza 0.57 y 0.67); myocyte no generó ninguna decisión en 40 s (el agente no
+  vio actividad de GPU suficiente para abrir fase). El agente no actuó en ninguna fase de memoria inédita.
+- **REF sin turbo**: en E-A `base_noturbo` fue igual a `base` (186.8 s y 28 574 J de CPU frente a 187.4 s y 28 621 J); en E-B
+  93.2 s frente a 88.4 s (una repetición). Turbo restaurado en todas las celdas (`state_ok=1`).
+
+La compuerta bloqueó las corridas largas (7653 y 7654) por E-B, como está diseñada. Decisión del usuario, consultado según
+la regla de este plan: **correr E-A y E-B tal cual**, con la compuerta informativa (no bloqueante) para E-B y estricta para
+E-A, y reportar E-B como resultado (límite de generalización del clasificador de GPU a memoria inédita, no un fallo de
+la corrida). El complemento sin turbo (7654) se rehízo como job 7656 con una compuerta que solo exige `base_noturbo` sano.
