@@ -3,67 +3,71 @@
 \section{Marco Conceptual}
 \label{sec:marco-conceptual}
 
-El ajuste dinámico de la frecuencia y del voltaje para reducir el consumo energético parte de una relación física entre el punto de operación del hardware, la potencia requerida y el tiempo de ejecución. Su efecto depende del régimen de la carga, porque una fase limitada por cómputo no responde de la misma forma que una fase condicionada por el acceso a memoria. En este trabajo, el régimen se define con el modelo Roofline y deja señales indirectas en la telemetría disponible; esas señales alimentan un clasificador ligero que debe inferir la clase con una latencia compatible con el lazo de control. La clase inferida se utiliza como contexto para una política DVFS, cuyo efecto se juzga mediante el Producto Energía--Retardo. Esta cadena separa la magnitud física empleada para construir la etiqueta de las señales accesibles durante la ejecución y delimita qué puede observarse, inferirse y controlarse en CPU y GPU.
+El marco conceptual parte de la relación entre el ajuste de la frecuencia y del voltaje (DVFS), la potencia requerida por el hardware y el tiempo de ejecución, cuyo comportamiento depende del régimen que limita cada carga. Régimen que puede estar condicionado por capacidad de cómputo (compute-bound) o de memoria (memory-bound), dos límites que se pueden distinguir mediante el modelo Roofline y algunas señales del sistema asociadas con este comportamiento durante la ejecución. Señales que funcionan como vector de entrada a un clasificador ligero que intenta inferir el régimen, permitiendo así tomar decisiones de ajuste de frecuencia, teniendo en cuenta el Producto Energía–Retardo (EDP), el cual permite relacionar el consumo energético con el tiempo de ejecución para valorar el efecto de dichas decisiones.
 
 \subsection{Potencia CMOS y fundamento de DVFS}
+
 \label{sec:marco-cmos}
 
-La potencia dinámica de un circuito CMOS se asocia con la conmutación de cargas capacitivas y depende del factor de actividad, de la capacitancia efectiva, del voltaje de alimentación y de la frecuencia. La relación utilizada como fundamento de DVFS se expresa como:
+La potencia dinámica de un circuito CMOS depende del factor de actividad, la capacitancia efectiva, el voltaje de alimentación y la frecuencia de operación. Esta relación es la base física de DVFS y se expresa como:
 
 \begin{equation}
 P_{\text{dyn}} = \alpha \cdot C \cdot V^{2} \cdot f
 \end{equation}
 
-donde $\alpha$ representa el factor de actividad, $C$ la capacitancia efectiva conmutada, $V$ el voltaje y $f$ la frecuencia de operación \cite{Gonzalez1997}. El voltaje y la frecuencia no son variables independientes en los estados de rendimiento, ya que los niveles de frecuencia más altos suelen requerir mayor voltaje para mantener las restricciones temporales del circuito. Por ello, una reducción de frecuencia que admita disminuir el voltaje puede reducir de forma apreciable la potencia dinámica debido a la dependencia cuadrática con $V$.
+donde $\alpha$ representa el factor de actividad, $C$ la capacitancia efectiva conmutada, $V$ el voltaje de alimentación y $f$ la frecuencia de operación \cite{Gonzalez1997}. El voltaje y la frecuencia están relacionados dentro de los estados de rendimiento, ya que para trabajar a frecuencias más altas normalmente se necesita un mayor voltaje. Por esto, al reducir la frecuencia también puede disminuir el voltaje, lo que afecta directamente la potencia dinámica debido a la relación cuadrática de \(V\) en la ecuación.
 
-El beneficio energético no se deduce únicamente de esa reducción de potencia. La energía acumulada depende también del tiempo durante el cual se mantiene el consumo, de modo que una frecuencia menor puede resultar desfavorable si prolonga la ejecución en una proporción comparable o superior. La potencia estática permanece además como una contribución que DVFS no elimina, por lo que una ejecución más larga puede acumular un costo que reduzca el ahorro obtenido sobre la componente dinámica. La sensibilidad del tiempo a la frecuencia queda condicionada por el recurso que limita la fase. Una fase cuyo rendimiento depende de las unidades aritméticas suele responder con mayor intensidad a una reducción del reloj de cómputo, mientras que una fase condicionada por el tráfico de memoria puede conservar parte de su rendimiento al operar a menor frecuencia. Esta diferencia exige identificar el régimen antes de asociar una reducción de frecuencia con un beneficio energético.
+Sin embargo, esta reducción de potencia por sí sola no asegura un menor consumo de energía, porque también interviene el tiempo de ejecución. Si la aplicación tarda más en finalizar al trabajar a una frecuencia menor, parte del ahorro obtenido puede perderse por ese tiempo adicional. Además, durante toda la ejecución sigue existiendo consumo asociado a la potencia estática. Por eso, el efecto energético de cambiar la frecuencia también depende de cómo responda la carga de trabajo.
 
 \subsection{Modelo Roofline y regímenes de ejecución}
 \label{sec:roofline}
 
-El modelo Roofline relaciona el rendimiento alcanzable con la intensidad operacional de la carga y con dos límites de la plataforma, el rendimiento aritmético pico y el ancho de banda pico de memoria. Su formulación básica es:
+El modelo Roofline relaciona el rendimiento alcanzable de una carga con la capacidad de cómputo y el ancho de banda de memoria de la plataforma. La intensidad operacional determina cuál de estos dos límites condiciona el rendimiento y se incorpora al modelo como:
 
 \begin{equation}
 P = \min\left(P_{\text{pico}},\; I \cdot BW_{\text{pico}}\right)
 \label{eq:roofline}
 \end{equation}
 
-donde $P_{\text{pico}}$ es el techo de cómputo, $BW_{\text{pico}}$ el techo de ancho de banda e $I$ la intensidad operacional \cite{Williams2009}. Cuando el límite activo es $I\cdot BW_{\text{pico}}$, el rendimiento queda condicionado por el movimiento de datos y la carga se clasifica como \textit{memory-bound}. Cuando el límite activo es $P_{\text{pico}}$, la capacidad aritmética domina y la carga se clasifica como \textit{compute-bound}. La Figura~\ref{fig:modelo-roofline-conceptual} representa esta separación.
+donde $P_{\text{pico}}$ representa el rendimiento aritmético pico, $BW_{\text{pico}}$ el ancho de banda pico de memoria e $I$ la intensidad operacional \cite{Williams2009}. Cuando el rendimiento queda limitado por $I \cdot BW_{\text{pico}}$, la carga se encuentra en régimen \textit{memory-bound}. Si el límite corresponde a $P_{\text{pico}}$, la carga se encuentra en régimen \textit{compute-bound}. La Figura~\ref{fig:modelo-roofline-conceptual} muestra esta separación entre ambos regímenes.
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.75\textwidth]
+    \includegraphics[width=0.69\textwidth]
         {figuras/fig_modelo_roofline_conceptual_williams2009.png}
     \caption[Modelo Roofline conceptual]{Modelo Roofline conceptual con el techo de ancho de banda de memoria y el techo de rendimiento de cómputo. Nota. Tomado de Williams et al. \cite[Fig.~1(a)]{Williams2009}.}
     \label{fig:modelo-roofline-conceptual}
 \end{figure}
 
-La intensidad operacional expresa operaciones por byte transferido desde el nivel de memoria considerado y, por ello, no equivale al tamaño nominal del conjunto de datos ni puede inferirse únicamente a partir de si este cabe en caché \cite[p.~66]{Williams2009}. La reutilización modifica el tráfico efectivo y puede elevar la intensidad incluso cuando el conjunto de trabajo completo excede la caché, como ocurre en implementaciones bloqueadas de multiplicación de matrices \cite[Secs.~3--4]{Goto2008}. Esta distinción evita usar propiedades estáticas del kernel como sustituto de una clasificación que depende del comportamiento medido sobre la plataforma. Roofline establece además un límite de rendimiento, no una predicción exacta del tiempo de ejecución. Una observación puede situarse por debajo de ambos techos por ineficiencias distintas del cuello de botella dominante, por lo que el uso del modelo en este trabajo se concentra en la separación de regímenes y en la construcción de una referencia física, sin interpretar la distancia al techo como una medida única de eficiencia.
+La intensidad operacional expresa la cantidad de operaciones realizadas por cada byte transferido desde el nivel de memoria considerado \cite[p.~66]{Williams2009}. Por ello, no depende únicamente del tamaño del conjunto de datos ni de si este cabe o no en caché. La reutilización de datos puede reducir el tráfico hacia memoria y aumentar la intensidad operacional, incluso cuando el conjunto de trabajo supera la capacidad de la caché \cite[Secs.~3--4]{Goto2008}. El modelo establece así un límite de rendimiento para cada intensidad, aunque una carga puede permanecer por debajo de ese límite por otros efectos de la ejecución.
 
-La frontera entre ambos regímenes se encuentra en el punto de inflexión \label{sec:marco-ridge} o \textit{ridge point}, donde las dos ramas de la ecuación \eqref{eq:roofline} se igualan. El umbral se obtiene como:
+La separación entre los dos regímenes ocurre en el punto de inflexión \label{sec:marco-ridge}, también denominado \textit{ridge point}. En ese punto, el techo de cómputo y el límite impuesto por el ancho de banda tienen el mismo valor, por lo que el umbral se obtiene como:
 
 \begin{equation}
-I_{\text{ridge}} = \frac{P_{\text{pico}}}{BW_{\text{pico}}}
+I_{\text{ridge}} =
+\frac{P_{\text{pico}}}{BW_{\text{pico}}}
 \label{eq:ridge}
 \end{equation}
 
-Una intensidad inferior a $I_{\text{ridge}}$ corresponde al régimen \textit{memory-bound}, mientras que una intensidad superior corresponde al régimen \textit{compute-bound} \cite{Williams2009}. El punto de inflexión no representa una frecuencia óptima ni el máximo rendimiento de una aplicación. Marca la intensidad para la cual los dos límites del modelo tienen el mismo valor; una carga situada cerca de esa frontera puede cambiar de régimen ante variaciones del techo aritmético, del ancho de banda o de su propio patrón de acceso. Su función en este trabajo es proporcionar un criterio físico de etiquetado, no una política de control por sí misma.
+Una intensidad inferior a $I_{\text{ridge}}$ corresponde al régimen \textit{memory-bound}, mientras que una intensidad superior corresponde al régimen \textit{compute-bound} \cite{Williams2009}. El \textit{ridge point} funciona como frontera entre ambos regímenes y no como una frecuencia óptima de ejecución. Si alguno de los techos cambia, también puede cambiar la posición de esta frontera.
 
-El valor del umbral debe corresponder a la precisión aritmética de las operaciones observadas, porque los techos de cómputo pueden diferir entre tipos de dato y precisiones \cite{Antepara2025}. También depende del punto de operación. El techo aritmético responde al reloj de las unidades de cómputo y el ancho de banda de memoria pertenece a otro dominio, por lo que ambos términos no tienen que variar en la misma proporción cuando cambia la frecuencia \cite{Guerreiro2019,Ali2023}. En consecuencia, el \textit{ridge point} utilizado para etiquetar una observación debe ser coherente con la precisión y con la configuración de frecuencia bajo la cual se obtuvo. Los valores nominales de la plataforma sirven como referencia, aunque la frontera empleada para clasificar observaciones debe corresponder a techos alcanzables bajo las condiciones de ejecución consideradas, razón por la que la caracterización experimental del Roofline precede al etiquetado \cite{NERSC2026}.
+El techo de cómputo depende de la capacidad aritmética disponible y puede variar con la precisión de las operaciones y con la frecuencia de las unidades de cómputo \cite{Antepara2025}. El ancho de banda de memoria pertenece a otro dominio de la arquitectura y no tiene que cambiar en la misma proporción cuando se modifica la frecuencia \cite{Guerreiro2019,Ali2023}. Por ello, el valor de $I_{\text{ridge}}$ utilizado para clasificar una carga debe corresponder a la precisión y al punto de operación bajo el cual se realiza la observación. Los valores nominales sirven como referencia, pero la clasificación requiere techos representativos de las condiciones de ejecución consideradas \cite{NERSC2026}.
 
-La intensidad operacional observada \label{sec:intensidad} se calcula sobre magnitudes que representan el mismo intervalo temporal. Para un intervalo $i$ se utiliza:
+La intensidad operacional observada \label{sec:intensidad} se obtiene a partir del trabajo aritmético y del tráfico hacia memoria medidos durante el mismo intervalo. Para un intervalo $i$ se calcula como:
 
 \begin{equation}
-I_i = \frac{\text{FLOPs}_i}{B_i^{\text{DRAM}}}
+I_i =
+\frac{\text{FLOPs}_i}{B_i^{\text{DRAM}}}
 \label{eq:intensidad}
 \end{equation}
 
-donde $\text{FLOPs}_i$ representa el trabajo aritmético y $B_i^{\text{DRAM}}$ los bytes transferidos hacia o desde memoria principal durante el mismo intervalo \cite{Williams2009}. Los eventos PMU que se convierten en FLOPs dependen de la microarquitectura y su semántica debe verificarse antes de interpretar el conteo \cite{Weaver2008}. El tráfico DRAM se obtiene desde contadores asociados al controlador de memoria, cuyo alcance y granularidad pueden diferir de los contadores de núcleo. Esta diferencia obliga a alinear temporalmente ambos términos antes de aplicar la ecuación \eqref{eq:intensidad} y explica por qué la etiqueta Roofline se construye fuera del lazo ligero de inferencia.
+donde $\text{FLOPs}_i$ representa las operaciones realizadas y $B_i^{\text{DRAM}}$ los bytes transferidos hacia o desde memoria principal durante ese intervalo \cite{Williams2009}. Los eventos utilizados para obtener los FLOPs dependen de la microarquitectura y deben interpretarse de acuerdo con la semántica de la PMU \cite{Weaver2008}. El tráfico de DRAM se obtiene desde contadores asociados al controlador de memoria, cuyo ámbito puede ser diferente al de los contadores de núcleo. Ambas mediciones deben corresponder al mismo intervalo para que la intensidad operacional conserve su significado físico.
 
 \subsection{Telemetría microarquitectónica con PMU}
 \label{sec:marco-telemetria}
 
-La clasificación en CPU requiere señales que describan el comportamiento de la ejecución sin reconstruir en línea la intensidad operacional. Las Unidades de Monitorización de Rendimiento, o PMU, proporcionan esa observabilidad mediante contadores de hardware que acumulan eventos como instrucciones retiradas, ciclos y actividad de la jerarquía de memoria. Los contadores pueden ser fijos o programables, y los segundos seleccionan eventos mediante códigos definidos por la arquitectura y calificadores específicos \cite{IntelSDM2026}. La Figura~\ref{fig:pmu-conceptual} resume esta organización. La PMU no interpreta el comportamiento de la aplicación, sino que entrega conteos cuya semántica depende del evento y del dominio observado. Por ello, el mismo valor numérico solo adquiere significado después de considerar qué recurso cuenta, durante qué intervalo y con qué alcance. Los conteos funcionan como señales para la inferencia, pero no constituyen una medición directa de la intensidad operacional ni de la etiqueta Roofline.
+La clasificación en CPU requiere señales que describan el comportamiento de la ejecución sin reconstruir en línea la intensidad operacional. Las Unidades de Monitorización de Rendimiento(PMU), proporcionan esa observabilidad mediante contadores de hardware que acumulan eventos como instrucciones retiradas, ciclos y actividad de la jerarquía de memoria. Estos contadores pueden ser fijos, asociados a eventos arquitectónicos predefinidos, o programables, configurados para registrar eventos específicos de la arquitectura  \cite{Weaver2015,IntelSDM2026}. La siguiente figura resume esta organización: 
+
 
 \begin{figure}[H]
     \centering
@@ -123,20 +127,21 @@ La clasificación en CPU requiere señales que describan el comportamiento de la
     \draw[arrow] (control.north) -- (programmable.south);
 
     \end{tikzpicture}
-
-    \caption[Unidad de Monitorización de Rendimiento (PMU)]{Organización conceptual de una Unidad de Monitorización de Rendimiento (PMU) con contadores fijos y programables. Nota. Elaboración propia.}
+    \caption[Unidad de Monitorización de Rendimiento (PMU)]{Organización conceptual de una Unidad de Monitorización de
+    Rendimiento (PMU) con contadores fijos y programables.
+    Fuente: elaboración propia.}
     \label{fig:pmu-conceptual}
 \end{figure}
 
-La multiplexación aparece cuando se solicitan más eventos de los que pueden mantenerse simultáneamente en contadores físicos \label{sec:multiplexacion}. En ese caso, el sistema alterna grupos de eventos y escala los conteos a partir del tiempo durante el cual cada grupo permaneció activo \cite{Liu2024,LinuxPerfEventOpen2026}. El escalado conserva utilidad cuando el comportamiento es suficientemente estable durante la ventana, aunque puede introducir error si las fases cambian mientras un evento no está siendo contado. Esta limitación condiciona la cantidad de señales que conviene observar de forma simultánea.
+Sin embargo,  PMU no interpreta el comportamiento de la aplicación, sino que entrega conteos cuyo valor depende del evento y del dominio observado. Por ello, el mismo valor numérico solo adquiere significado después de considerar qué recurso cuenta, durante qué intervalo y con qué alcance.
 
-Los eventos genéricos y los eventos crudos representan dos niveles de abstracción de la misma PMU \label{sec:eventos-genericos-crudos}. Los eventos genéricos ofrecen nombres comunes que el kernel traduce a cada procesador, mientras que los eventos crudos emplean directamente la codificación de la microarquitectura cuando se necesita una señal que la abstracción genérica no expone \cite{Weaver2015,IntelSDM2026}. La segunda opción exige verificar plataforma, código de evento, máscara y semántica, ya que una codificación válida en una microarquitectura no puede trasladarse automáticamente a otra. Esta diferencia también afecta la portabilidad del vector de características. Una señal expresada mediante un evento genérico puede mantener un contrato similar entre plataformas aunque cambie su implementación, mientras que una señal cruda conserva un significado más específico y exige validar de nuevo la correspondencia física cuando cambia la microarquitectura. Para el clasificador, esa distinción delimita cuáles características pueden considerarse generales y cuáles quedan ligadas al procesador donde fueron medidas.
+Un problema que presentan estos contadores es la multiplexación, que ocurre cuando se solicitan más eventos de los que el hardware puede medir al mismo tiempo. En estas condiciones, el sistema alterna distintos grupos de eventos y cada contador permanece activo solo durante una parte de la ventana de medición, por lo que el valor registrado se ajusta teniendo en cuenta el tiempo durante el cual estuvo realmente activo \cite{Liu2024,LinuxPerfEventOpen2026}. Aunque este mecanismo permite trabajar con más eventos de los disponibles físicamente, la estimación puede perder precisión si la aplicación cambia de fase durante los periodos en los que un evento no está siendo medido, lo que hace conveniente limitar la cantidad de señales observadas de forma simultánea.
 
-Los contadores de núcleo y los contadores de \textit{uncore} difieren por su ámbito de atribución \label{sec:uncore}. Los primeros observan recursos asociados a un núcleo y pueden vincularse con la ejecución de una tarea, mientras que los de \textit{uncore} cubren componentes compartidos del zócalo, entre ellos el controlador de memoria integrado y partes de la interconexión. Los eventos del controlador de memoria permiten observar el tráfico que alcanza DRAM, incluidos accesos de demanda y tráfico generado por mecanismos de precarga \cite{IntelUncore2021}. Esta señal resulta útil para el denominador de la intensidad operacional porque representa movimiento efectivo hacia memoria principal, pero su alcance de sistema impide atribuir el tráfico a un proceso individual sin condiciones de aislamiento adecuadas. La diferencia entre una medida local de núcleo y una medida compartida también explica por qué ambas fuentes pueden tener granularidades temporales distintas y no deben combinarse fila a fila sin una correspondencia temporal explícita. La Figura~\ref{fig:core-uncore-counters} muestra esta diferencia estructural.
+Otro detalle que también es importante tener en cuenta es el dominio de los contadores, puesto que existen contadores de núcleo y contadores de \textit{uncore} que difieren en su nivel de acceso y alcance. Los primeros observan recursos asociados a un núcleo y pueden vincularse con la ejecución de una tarea, mientras que los de \textit{uncore} cubren componentes compartidos del zócalo, entre ellos el controlador de memoria integrado y partes de la interconexión, desde donde se puede observar el movimiento efectivo de datos hacia memoria principal. Sin embargo, al tratarse de medidas con alcance compartido, el tráfico registrado por los contadores de \textit{uncore} no puede atribuirse directamente a un proceso individual sin condiciones adecuadas de aislamiento. Esta diferencia entre una medida local de núcleo y una medida compartida también hace que ambas fuentes puedan trabajar con granularidades temporales distintas, por lo que no deben combinarse fila a fila sin establecer antes una correspondencia temporal. La siguiente figura muestra esta diferencia estructural.
 
 \begin{figure}[H]
 \centering
-\begin{adjustbox}{max width=\textwidth}
+\begin{adjustbox}{width=0.64\textwidth}
 \begin{tikzpicture}[
     every node/.style={font=\small},
     unit/.style={rectangle, draw=blue!45!black, fill=white,
@@ -222,117 +227,144 @@ Los contadores de núcleo y los contadores de \textit{uncore} difieren por su á
     \draw[arr] (uz.east) -- (ucount.west);
 \end{tikzpicture}
 \end{adjustbox}
-\caption[Contadores de núcleo y contadores de \textit{uncore}]{Ámbito de atribución de los contadores de núcleo y de \textit{uncore} dentro del paquete del procesador. Los primeros observan eventos locales de un núcleo, mientras que los segundos observan recursos compartidos del zócalo. Nota. Elaboración propia.}
+\caption[Contadores de núcleo y contadores de \textit{uncore}]{Ámbito de atribución de los contadores de núcleo y de \textit{uncore} dentro del paquete del procesador. Fuente: Elaboración propia.}
 \label{fig:core-uncore-counters}
 \end{figure}
-
-A partir de los conteos pueden derivarse métricas compactas para describir la ejecución, entre ellas IPC y MPKI, sin que ninguna de ellas determine por sí sola si la carga es \textit{compute-bound} o \textit{memory-bound} \cite{Gregg2020,LinuxPerfEventOpen2026}.
-
-Una ventana de muestreo convierte los contadores acumulativos en una observación temporal mediante diferencias entre lecturas consecutivas \label{sec:ventanas}. Su duración determina un compromiso entre resolución y sobrecarga, porque ventanas cortas localizan mejor los cambios de comportamiento, mientras que ventanas largas pueden mezclar fases distintas y reducen la frecuencia de lectura \cite{LinuxPerfEventOpen2026,LinuxPerfStat2026}. Las tasas deben usar el tiempo realmente transcurrido entre lecturas y una referencia temporal monotónica \cite{LinuxClockGettime2026}. La ventana define también la unidad temporal sobre la que el clasificador interpreta el estado. Si la fase cambia varias veces dentro del intervalo, la observación resume comportamientos distintos y la etiqueta pierde una correspondencia clara con un único régimen. Si el intervalo es demasiado corto, la medición puede quedar dominada por ruido de conteo, costos de lectura o señales que se actualizan con menor frecuencia. Cuando una señal compartida se actualiza con menor granularidad que los contadores de núcleo, las magnitudes que se combinan deben agregarse al intervalo común antes de interpretar la observación.
-
-La lectura de estas señales no depende únicamente del hardware disponible. El mecanismo que las consulta opera en un espacio de ejecución con permisos y fronteras definidas por el sistema operativo, condición que determina qué contadores e interfaces puede utilizar el agente.
 
 \subsection{Espacios de ejecución \textit{user-space} y \textit{kernel-space}}
 \label{sec:marco-espacios-ejecucion}
 
-El agente se ubica en \textit{user-space}, por lo que no accede directamente a los recursos reservados al kernel ni modifica sus estructuras internas. El sistema operativo media las operaciones sensibles y expone interfaces controladas para consultar contadores, leer energía o solicitar cambios de frecuencia \cite[ch.~2]{Kerrisk2010}. Esta frontera, representada en la Figura~\ref{fig:user-kernel-space}, permite mantener el control fuera del kernel y al mismo tiempo impone restricciones de privilegio, alcance y latencia sobre las observaciones y actuaciones disponibles \cite{McCarty2015}. La arquitectura del proyecto depende, por tanto, de las interfaces que atraviesan esa frontera sin requerir instrumentación dentro del núcleo del sistema operativo.
+Los sistemas operativos modernos emplean distintos niveles de privilegio para regular el acceso a los recursos del sistema, lo que permite distinguir entre los procesos que se ejecutan en \textit{user-space} y aquellos que operan en \textit{kernel-space}. Los procesos en \textit{user-space} trabajan con acceso restringido, mientras que el \textit{kernel-space} concentra las operaciones que requieren acceso directo a recursos protegidos, como la gestión de memoria, la entrada/salida o ciertas funciones del hardware \cite[ch.~2]{Kerrisk2010}. Debido a esta separación, una aplicación en espacio de usuario no accede directamente a estos recursos y depende de las interfaces que el sistema operativo expone para realizar operaciones controladas \cite{McCarty2015}, y es esta condición la cual también influye en la ubicación de programas de monitoreo y control, ya que determina la forma en que pueden consultar contadores, leer información de energía o solicitar cambios de frecuencia sin modificar estructuras internas del kernel. La siguiente figura detalla más la estructura de estos espacios y la relación conceptual entre ellos y el hardware físico.
 
 \begin{figure}[H]
 \centering
+\begin{adjustbox}{width=0.85\textwidth}
 \begin{tikzpicture}[
     every node/.style={font=\small},
-    app/.style={rectangle, draw=green!45!black, fill=white,
-        minimum width=2.2cm, minimum height=0.90cm, align=center, rounded corners=1pt},
-    kmod/.style={rectangle, draw=blue!45!black, fill=white,
-        minimum width=2.3cm, minimum height=0.95cm, align=center, rounded corners=1pt},
-    zoneuser/.style={rectangle, draw=green!45!black, thick, fill=green!12,
-        rounded corners=2pt, inner xsep=0.4cm, inner ysep=0.4cm},
-    zonekernel/.style={rectangle, draw=blue!45!black, thick, fill=blue!8,
-        rounded corners=2pt, inner xsep=0.4cm, inner ysep=0.4cm},
-    hw/.style={rectangle, draw=black!55, thick, fill=black!8,
-        minimum width=6.4cm, minimum height=1.05cm, align=center, rounded corners=2pt},
-    arr/.style={-{Stealth[length=2mm]}, thick}
+    userbox/.style={
+        rectangle,
+        draw=green!45!black,
+        thick,
+        fill=green!12,
+        minimum width=2.8cm,
+        minimum height=2.3cm,
+        align=center,
+        rounded corners=2pt
+    },
+    kernelbox/.style={
+        rectangle,
+        draw=blue!45!black,
+        thick,
+        fill=blue!8,
+        minimum width=2.9cm,
+        minimum height=2.3cm,
+        align=center,
+        rounded corners=2pt
+    },
+    hwbox/.style={
+        rectangle,
+        draw=black!55,
+        thick,
+        fill=black!8,
+        minimum width=2.7cm,
+        minimum height=2.3cm,
+        align=center,
+        rounded corners=2pt
+    }
 ]
-    \node[app] (app1) {Aplicación 1};
-    \node[app, right=0.5cm of app1] (app2) {Aplicación 2};
-    \node[font=\large, right=0.4cm of app2] (dots1) {$\cdots$};
-    \node[app, right=0.4cm of dots1] (appn) {Aplicación N};
-    \coordinate (uhead) at ($(app1.north)+(0,0.85)$);
 
-    \node[kmod, below=3.4cm of app1] (proc) {Gestión de\\procesos};
-    \node[kmod, right=0.4cm of proc] (mem) {Gestión de\\memoria};
-    \node[kmod, right=0.4cm of mem] (fs) {Sistema de\\archivos};
-    \node[kmod, right=0.4cm of fs] (drv) {Controladores\\de dispositivos};
-    \node[font=\large, right=0.3cm of drv] (dots2) {$\cdots$};
-    \coordinate (khead) at ($(proc.north)+(0,0.85)$);
+\node[userbox] (user) at (0,0) {
+    \textbf{USER SPACE}\\[5pt]
+    Aplicaciones\\
+    Agente de monitoreo\\
+    y control
+};
 
-    \begin{pgfonlayer}{background}
-        % Se elimina la etiqueta 'label=above:...' para que no dibuje fuera del recuadro
-        \node[zoneuser, fit=(app1)(app2)(dots1)(appn)(uhead)] (userzone) {};
-        \node[zonekernel, fit=(proc)(mem)(fs)(drv)(dots2)(khead)] (kernelzone) {};
-        \node[fit=(userzone)(kernelzone), inner sep=0pt] (span) {};
-    \end{pgfonlayer}
+% Se aumenta la posición X de 4.3 a 5.6 para alargar la flecha
+\node[kernelbox] (kernel) at (5.6,0) {
+    \textbf{KERNEL SPACE}\\[5pt]
+    Gestión del sistema\\
+    Interfaces y\\
+    controladores
+};
 
-    % Títulos internos de USER SPACE
-    \node[font=\bfseries] at ([yshift=-0.28cm]userzone.north) {USER SPACE};
-    \node[font=\small] at ([yshift=-0.80cm]userzone.north) {(Espacio de usuario)};
+% Se aumenta la posición X de 8.4 a 11.2 para alargar la flecha
+\node[hwbox] (hardware) at (11.2,0) {
+    \textbf{HARDWARE}\\[5pt]
+    CPU / GPU\\
+    Memoria\\
+    Dispositivos
+};
 
-    % Títulos internos de KERNEL SPACE
-    \node[font=\bfseries] at ([yshift=-0.28cm]kernelzone.north) {KERNEL SPACE};
-    \node[font=\small] at ([yshift=-0.80cm]kernelzone.north) {(Espacio del kernel)};
+% USER SPACE -> KERNEL SPACE
+\draw[-{Stealth[length=2mm]}, thick]
+    (user.east) --
+    node[midway, below=3pt, font=\scriptsize, align=center]
+    {Llamadas al\\sistemas}
+    (kernel.west);
 
-    \coordinate (boundaryY) at ($(userzone.south)!0.5!(kernelzone.north)$);
-    \draw[dashed, thick] (span.west |- boundaryY) -- (span.east |- boundaryY);
-    \node[font=\small, align=left, anchor=west]
-        at ($(span.east |- boundaryY)+(0.3,0)$)
-        {Interfaz de\\llamadas al sistema\\(límite)};
+% KERNEL SPACE <-> HARDWARE
+\draw[
+    {Stealth[length=2mm]}-{Stealth[length=2mm]},
+    thick
+]
+    (kernel.east) --
+    node[midway, below=3pt, font=\scriptsize, align=center]
+    {Acceso al\\hardware}
+    (hardware.west);
 
-    \draw[arr] (app1.south) -- (app1.south |- kernelzone.north);
-    \draw[arr] (appn.south |- kernelzone.north) -- (appn.south);
-
-    \node[hw, below=1.2cm of kernelzone] (hardware) {\textbf{HARDWARE}\\\small(Hardware físico)};
-    \draw[{Stealth[length=2mm]}-{Stealth[length=2mm]}, thick] (kernelzone.south) -- (hardware.north);
 \end{tikzpicture}
-\caption[Espacios de usuario y de kernel]{Relación conceptual entre \textit{user-space}, \textit{kernel-space} y el hardware físico. Nota. Elaboración propia.}
+\end{adjustbox}
+
+\caption[Espacios de usuario y de kernel]
+{Relación conceptual entre \textit{user-space}, \textit{kernel-space} y el hardware físico. Fuente: Elaboración propia.}
+
 \label{fig:user-kernel-space}
+
 \end{figure}
 
 \subsection{Interfaces de observabilidad}
 \label{sec:marco-interfaces}
 
-Linux expone los contadores de CPU mediante \texttt{perf\_event} \label{sec:perfevent}, interfaz con la que el kernel configura eventos de la PMU, administra su asignación sobre los contadores físicos y devuelve los conteos a procesos en espacio de usuario \cite{LinuxPerfEventOpen2026}. Esta capa evita que el agente manipule directamente registros de la PMU y conserva las restricciones de alcance asociadas a cada evento. Un conteo puede asociarse a una tarea o a una CPU, y esa elección modifica qué actividad contribuye a la medida. En consecuencia, la interfaz no solo transporta un valor, también define el contexto de atribución con el que debe interpretarse. La disponibilidad efectiva depende tanto del soporte del procesador como de la política de acceso configurada en el sistema.
+Algunos sistemas operativos proporcionan interfaces que permiten a los programas en espacio de usuario consultar información del hardware sin acceder directamente a sus estructuras internas. En Linux, los eventos de la PMU pueden obtenerse mediante \texttt{perf\_event\_open}, una interfaz que permite configurar los contadores disponibles y consultar sus valores durante la ejecución \cite{LinuxPerfEventOpen2026}, aunque su disponibilidad depende del soporte del procesador y de los permisos definidos en el sistema.
 
-Intel RAPL proporciona contadores energéticos para los dominios que exponga la plataforma, entre ellos el paquete del procesador y, cuando está disponible, DRAM \cite{David2010,Thamm2025}. Los valores se expresan como energía acumulada, de modo que el consumo de un intervalo se obtiene a partir de diferencias entre lecturas. La energía del dominio de paquete representa el consumo del paquete completo y no el consumo exclusivo de los núcleos reservados a la aplicación. Esta diferencia de alcance debe conservarse al interpretar el EDP, especialmente cuando la medición de rendimiento se atribuye a una carga y la energía cubre recursos compartidos. El dominio DRAM, cuando existe, añade una medida separada de la energía asociada a memoria, pero tampoco identifica por sí mismo el régimen de ejecución. RAPL actúa así como fuente energética del sistema observado y no como contador microarquitectónico de la clase de régimen.
+Estos conteos permiten observar la actividad del procesador, pero no cubren por sí solos la información energética. Para ello puede utilizarse Intel RAPL (\textit{Running Average Power Limit}), un mecanismo incorporado en procesadores Intel que expone contadores de energía para distintos dominios, entre ellos el paquete del procesador y, cuando está disponible, la memoria DRAM \cite{David2010,Thamm2025}. Sus valores representan energía acumulada durante la ejecución, por lo que pueden utilizarse para conocer el consumo asociado a un intervalo y posteriormente relacionarlo con métricas como el EDP.
 
-En GPU, NVML ofrece telemetría agregada del dispositivo, como utilización, potencia, energía y frecuencia, pero no entrega directamente los FLOPs y bytes requeridos por la intensidad operacional \cite{NVML2026}. Sus métricas reflejan actividad y estado del acelerador durante ventanas internas del controlador, por lo que valores altos de utilización no bastan para distinguir si la limitación procede del cómputo o de la memoria. Nsight Compute accede a contadores de hardware con granularidad de kernel y puede obtener métricas necesarias para una caracterización Roofline más detallada, a costa de una instrumentación que puede requerir múltiples pasadas y una intrusión mayor \cite{Nsight2026}. En este marco, la diferencia relevante es de función conceptual. La caracterización detallada puede construir la referencia física fuera de línea, mientras que la inferencia durante la ejecución debe apoyarse en señales que puedan consultarse con baja intrusión. Esta asimetría entre la verdad de entrenamiento y la telemetría de producción forma parte de la limitación del problema, no de una equivalencia entre ambas fuentes. Observar el comportamiento resuelve solo una parte del lazo, porque la decisión resultante debe materializarse mediante los mecanismos de control de frecuencia de cada dispositivo.
+\subsection{DVFS, P-states y mecanismos de actuación}
+\label{sec:marco-dvfs}
 
-\subsection{P-states, gobernadores y DVFS}
-\label{sec:dvfs-cpu}
+El escalado dinámico de voltaje y frecuencia (\textit{Dynamic Voltage and Frequency Scaling}, DVFS) permite modificar el punto operativo del procesador para adaptar su capacidad de cómputo y su consumo energético a las necesidades de la carga. Estos cambios se apoyan en mecanismos de gestión de potencia que reciben una solicitud de rendimiento y la materializan sobre el hardware \cite{Hebbar2022}.
 
-DVFS modifica el punto operativo del procesador mediante mecanismos de hardware y software que coordinan una solicitud de rendimiento con la actuación efectiva sobre el reloj y, cuando corresponde, el voltaje \cite{Hebbar2022}. En CPU, los P-states representan niveles de rendimiento mientras el procesador permanece activo, mientras que los C-states representan niveles de inactividad con diferentes costos de reactivación. Los primeros modifican la capacidad disponible para una carga activa y los segundos reducen consumo cuando no existe trabajo suficiente para mantener el núcleo en actividad. Esta diferencia importa porque una política de frecuencia opera sobre capacidad de cómputo durante C0 y no sustituye a los mecanismos de reposo.
+En CPU, los \textit{Performance States} o P-states representan distintos niveles de rendimiento mientras el procesador permanece activo en C0. P0 corresponde al mayor nivel de rendimiento y los estados siguientes reducen progresivamente la capacidad disponible. Los C-states, en cambio, representan estados de inactividad con distintos compromisos entre ahorro energético y latencia de reactivación. Sobre los P-states operan los \textit{governors}, políticas software que deciden qué nivel de rendimiento solicitar según el estado del sistema. En Linux, \texttt{performance} y \texttt{powersave} favorecen extremos distintos del rango disponible, mientras que \texttt{ondemand}, \texttt{conservative} y \texttt{schedutil} ajustan la solicitud de forma dinámica; \texttt{userspace}, por su parte, permite que una aplicación solicite explícitamente el nivel deseado \cite{Hebbar2022,LinuxCPUFreq2026}.
 
-Sobre los P-states operan políticas de selección de rendimiento. Los gobernadores \texttt{performance} y \texttt{powersave} fijan solicitudes hacia extremos distintos del rango disponible, mientras que políticas reactivas como \texttt{ondemand} o \texttt{schedutil} ajustan el nivel solicitado a partir de señales administradas por el sistema operativo \cite{LinuxCPUFreq2026}. La política decide qué nivel pedir, pero el controlador y el hardware determinan cómo esa solicitud se materializa. La decisión atraviesa el controlador, el firmware y la lógica de gestión del procesador antes de convertirse en una frecuencia efectiva, por lo que la frecuencia solicitada y la observada no tienen que coincidir en todo instante \cite{Hebbar2022,LinuxIntelPstate2026}. Además, mecanismos autónomos del procesador pueden desplazar el reloj dentro de los límites permitidos según condiciones térmicas, de potencia y de actividad. Esta separación es necesaria al comparar una política propia con los gobernadores nativos, porque el objeto de la comparación es la decisión de control y no la suposición de que cada solicitud se cumple de manera instantánea.
-
+La Figura~\ref{fig:pstates-cstates} reúne estos dos niveles de funcionamiento. En la parte (a) se representa la relación entre los estados de rendimiento y de inactividad del procesador, mientras que la parte (b) muestra el recorrido de una solicitud desde la interfaz de espacio de usuario, pasando por las políticas y los controladores del sistema, hasta los mecanismos que actúan sobre el hardware. Esta separación permite entender también por qué una decisión de rendimiento no se traduce necesariamente de forma inmediata en la frecuencia observada.
 \begin{figure}[H]
     \centering
-    \begin{minipage}[t]{0.38\textwidth}
+    \begin{adjustbox}{width=0.9\textwidth}
+    \begin{minipage}[t]{0.4\textwidth}
         \centering
-        \includegraphics[width=\textwidth]{figuras/fig_pstates_cstates_hebbar_2022.png}
+        \includegraphics[width=\textwidth]
+            {figuras/fig_pstates_cstates_hebbar_2022.png}
+
         \small (a) Estados de rendimiento e inactividad
-    \end{minipage}\hfill
+    \end{minipage}
+    \hspace{0.015\textwidth}
     \begin{minipage}[t]{0.57\textwidth}
         \centering
-        \includegraphics[width=\textwidth]{figuras/fig_jerarquia_dvfs_hebbar_2022.png}
+        \includegraphics[width=\textwidth]
+            {figuras/fig_jerarquia_dvfs_hebbar_2022.png}
+
         \small (b) Jerarquía de solicitud y actuación
     \end{minipage}
-    \caption[P-states, C-states y jerarquía DVFS]{Relación entre P-states y C-states e integración de la solicitud de rendimiento desde espacio de usuario con los mecanismos que materializan el cambio en hardware. Nota. Tomado de Hebbar y Milenković \cite{Hebbar2022}.}
+    \end{adjustbox}
+    \caption[P-states, C-states y jerarquía DVFS]
+    {Relación entre los estados de rendimiento e inactividad del procesador y la jerarquía mediante la cual una política de rendimiento solicita cambios que posteriormente son materializados por el hardware. Fuente: Tomado de Hebbar y Milenković \cite{Hebbar2022}.}
+
     \label{fig:pstates-cstates}
-    \label{fig:jerarquia-dvfs}
+  
 \end{figure}
 
-El alcance de una solicitud de frecuencia depende de los dominios de control definidos por la plataforma \label{sec:dominios}. Con SMT habilitado, dos procesadores lógicos hermanos comparten un núcleo físico y una solicitud de mayor rendimiento de uno de ellos puede influir sobre la frecuencia efectiva observada por el otro \cite{LinuxIntelPstate2026}. Por ello, la afinidad de una carga y el dominio sobre el que actúa la política no son equivalentes, y la frecuencia efectiva debe interpretarse según la topología y el controlador activos \cite{LinuxCPUFreq2026}.
-
-En GPU, DVFS presenta dominios de actuación distintos \label{sec:dvfs-gpu}, principalmente los relojes asociados al cómputo y a la memoria. La sensibilidad del tiempo de ejecución a cada dominio depende del comportamiento de la carga, por lo que una modificación del reloj de cómputo afecta con mayor intensidad a unas fases que a otras \cite{Guerreiro2019,Ali2023}. Una carga limitada por el trabajo de los SM puede perder rendimiento al reducir ese reloj, mientras que una fase condicionada por el movimiento de datos puede mostrar una respuesta menor si el subsistema de memoria continúa siendo el límite. Esta relación no implica que el reloj de memoria sea siempre independiente ni que exista una regla universal de frecuencia, porque el efecto depende de la arquitectura y de la aplicación. Además, el cambio de frecuencia tiene una latencia de actuación propia, de modo que una política que conmute con mayor rapidez que la respuesta del dispositivo puede introducir un costo comparable al beneficio esperado \cite{Velicka2025}. Estas restricciones hacen necesaria una señal de decisión que identifique el régimen sin repetir en línea la caracterización Roofline completa.
+En GPU, DVFS mantiene el mismo principio general de ajustar el punto de operación del dispositivo, aunque la actuación suele realizarse sobre dominios de reloj distintos, principalmente el reloj de cómputo y el de memoria \label{sec:dvfs-gpu}. Estos cambios dependen de los mecanismos de gestión propios de la arquitectura y del controlador, que determinan los niveles de frecuencia disponibles y la forma en que una solicitud se aplica sobre el hardware \cite{Guerreiro2019,Ali2023}. Al igual que en CPU, la transición entre niveles requiere un tiempo de actuación, por lo que el cambio de frecuencia no es instantáneo \cite{Velicka2025}.
 
 \subsection{Cargas de calibración y modelos de clasificación ligera}
 \label{sec:marco-cargas}
