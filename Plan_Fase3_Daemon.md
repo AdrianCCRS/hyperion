@@ -941,6 +941,15 @@ parte de su duración es CPU. Con el rastreador actual la app B de GPU no es via
 repetición; requiere decidir (a) tolerancia a huecos cortos en el rastreador, (b) copias
 paralelas escalonadas, o (c) dejar B solo en CPU.
 
+**Un solo kernel con parámetros mayores (job 7635, daemon C++ en sombra, mismo binario del
+catálogo con argumentos escalados; decisión del usuario: la B puede ser un solo kernel por
+fase).** `rodinia_lavamd -boxes1d 70` (3.5 s): sin decisión. `-boxes1d 100` (10.2 s) y
+`-boxes1d 130` (18.7 s): decide compute_bound con confianza 1.00, correcta, sobre una familia
+inédita. `rodinia_myocyte` con 100000, 400000 y 1000000 pasos (4.9, 19.6 y 47.5 s): sin
+decisión, porque su uso de GPU no supera el umbral de actividad (es casi todo CPU), así que no
+sirve como fase de GPU. Fase compute inédita resuelta; **fase memory inédita larga sigue sin
+resolverse** (dwt2d y backprop no crecen con sus parámetros del catálogo).
+
 ---
 
 ## 2. Criterios de cierre
