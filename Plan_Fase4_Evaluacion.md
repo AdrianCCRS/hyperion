@@ -64,3 +64,19 @@ intervalo, no solo en el p).
 
 Nota sobre niveles de GPU: bajar más que F1 no ayuda. Con los datos de Fase 2, F3 en adelante empeora el EDP en fases
 de memoria (F8 llega a -76 %), así que el escenario B mantiene F1 y no explora relojes más bajos.
+
+### Escenario E declarado (2026-09-24, antes de correrse)
+
+Detalle de ejecución en `Plan_Fase4_Escenario_E.md`. Escenario de **aplicabilidad**: aplicación de GPU dominada por fases
+memory_bound largas, con el criterio de selección *"familias memory_bound cuya ganancia de EDP con F1 en la Fase 2 fue de al
+menos 10%, más una variante con familias no vistas en el entrenamiento"*. E-A (vistos): dual_stencil N36864 (60 s), dual_spmv
+N200M (55 s), dual_axpy N1.28G (50 s) y DGEMM de CUTLASS (31 s), 1 ciclo. E-B (inéditos): BabelStream escalado, RAJAPerf
+indexlist_3loop, Rodinia backprop escalado y LavaMD escalado (compute), 1 ciclo. Brazos: base (REF con turbo, principal),
+base_noturbo (línea base secundaria), sombra, activo_gpu (sin agente de CPU) y activo_gpu_cpuobs (agente de CPU en
+observación), 3 repeticiones. Política de GPU congelada: F1 = 1260 MHz en memory, nativo en compute. Ganancia esperada: 6 a 7%
+de EDP del nodo (unos 12% de EDP de GPU sola) si la fase pasa >= 80% de su duración en F1. Se reporta salga como salga; A y C
+siguen siendo la referencia.
+
+Medición previa que motiva la duración de las fases: en la matriz A el agente de GPU aplicó F1 unos 8 s después del inicio de
+cada fase de memoria (una decisión por fase; tras una abstención la fase completa queda en el reloj nativo), de modo que
+una fase de 18 s pasa solo el 55% de su tiempo en F1.
