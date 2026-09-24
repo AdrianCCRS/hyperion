@@ -38,6 +38,7 @@ fi
 LMP=/opt/ohpc/pub/lammps/2023_gpu/bin/lmp
 NV=/opt/ohpc/pub/devtools/nvidia/hpc_sdk/Linux_x86_64/23.1
 export LD_LIBRARY_PATH="/opt/ohpc/pub/lammps/2023_gpu/lib64:/opt/ohpc/pub/libs/gnu12/openmpi4/fftw/3.3.10/lib:$NV/comm_libs/openmpi/openmpi-3.1.5/lib:$NV/math_libs/12.0/lib64:$LD_LIBRARY_PATH" LAMMPS_POTENTIALS=/opt/ohpc/pub/lammps/2023_gpu/share/lammps/potentials
+export OPAL_PREFIX="$NV/comm_libs/openmpi/openmpi-3.1.5" OMPI_MCA_btl_vader_single_copy_mechanism=none  # el openmpi de nvhpc busca sus archivos de ayuda en una ruta de compilacion
 ls -l "$LMP"; ldd "$LMP" | grep -i "not found" || echo "ldd: todas las librerias resueltas"; "$LMP" -h 2>&1 | grep -i -m4 "gpu\|MPI\|OpenMP" || true
 for b in lj eam chain rhodo; do
   W="$OUT/lammps_$b"; rm -rf "$W"; mkdir -p "$W"; cp -r "$BENCH"/* "$W"/ 2>/dev/null; cd "$W"
