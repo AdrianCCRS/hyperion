@@ -25,22 +25,26 @@ GPU_BIN="$HOME/hyperion-results/final/fase4_E/build/gpu_build/gpu_loop_main"; [ 
 sudo -n nvidia-smi -i 0 -rgc >/dev/null 2>&1
 sampler() { nvidia-smi -i 0 --query-gpu=timestamp,utilization.gpu,utilization.memory,clocks.sm,power.draw --format=csv,noheader -lms 250 > "$1" & echo $!; }
 
-# (1) secuencia de la aplicacion E-B (BabelStream, LavaMD, myocyte) con utilizacion de GPU y sin agente
+# (1) secuencia de la aplicacion E-B (BabelStream, LavaMD, myocyte) con utilizacion de GPU y sin agente (SKIP_EB=1 la omite)
+if [ "${SKIP_EB:-0}" != 1 ]; then
 S=$(sampler "$OUT/util_eb.csv")
 ( cd "$KERNEL_ROOT" && python3 "$ROOT/fase3_daemon/composite_apps/composite_gpu_memdom.py" --set unseen --node-id pacca-a100 \
     --kernels-root "$KERNEL_ROOT" --cycles 1 --gap-s 1 --boundaries-out "$OUT/phases_eb.jsonl" ) > "$OUT/eb.out" 2>&1
 kill $S 2>/dev/null; sleep 3
+fi
 
 # (2) LAMMPS: cada benchmark con el paquete GPU, entradas escaladas y acotadas en tiempo, con el agente de GPU en sombra
-module load lammps/2023_GPU 2>&1 || true
-which lmp; lmp -h 2>&1 | grep -i -m3 "gpu\|MPI" || true
+# el modulo lammps/2023_GPU no carga bajo `set -u` (Lmod lee LD_PRELOAD sin definir): rutas absolutas
+LMP=/opt/ohpc/pub/lammps/2023_gpu/bin/lmp
+export LD_LIBRARY_PATH="/opt/ohpc/pub/lammps/2023_gpu/lib64:$LD_LIBRARY_PATH" LAMMPS_POTENTIALS=/opt/ohpc/pub/lammps/2023_gpu/share/lammps/potentials
+ls -l "$LMP"; "$LMP" -h 2>&1 | grep -i -m4 "gpu\|MPI\|OpenMP" || true
 for b in lj eam chain rhodo; do
   W="$OUT/lammps_$b"; rm -rf "$W"; mkdir -p "$W"; cp -r "$BENCH"/* "$W"/ 2>/dev/null; cd "$W"
   sed -i -E "s/^run[[:space:]]+100$/run\t\t$STEPS/" "in.$b"
   VARS=""; [ "$b" = lj ] || [ "$b" = eam ] && VARS="-var x 4 -var y 4 -var z 4"
   S=$(sampler "$OUT/util_$b.csv")
   T0=$(date +%s.%N)
-  timeout $MAXS lmp -sf gpu -pk gpu 1 -in "in.$b" $VARS -log "$W/log.lammps" > "$W/stdout.txt" 2> "$W/stderr.txt" &
+  timeout $MAXS "$LMP" -sf gpu -pk gpu 1 -in "in.$b" $VARS -log "$W/log.lammps" > "$W/stdout.txt" 2> "$W/stderr.txt" &
   L=$!; sleep 2
   if [ -x "$GPU_BIN" ]; then
     ( exec python3 "$ROOT/fase3_daemon/gpu_loop_cpp/launch_gpu_daemon.py" --policy-table "$ROOT/fase3_daemon/policy_table.yaml" --binary "$GPU_BIN" --arm sombra -- \
