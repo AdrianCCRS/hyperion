@@ -12,7 +12,7 @@ paréntesis). Donde este resumen y el plan discrepen, manda el plan.
 | Daemon de GPU (C++) | `fase3_daemon/gpu_loop_cpp/` | Cerrado. Mismos tres brazos. NVML directo, modelo en ONNX, abstención. |
 | Tabla de política | `fase3_daemon/policy/build_policy_table.py`, `policy_table.yaml` | Cerrado. Un único derivador, consumido por ambos lanzadores. |
 | Lanzadores | `cpu_loop/launch_cpu_daemon.py`, `gpu_loop_cpp/launch_gpu_daemon.py` | Cerrado. Traducen la tabla a banderas de cada binario. |
-| Aplicaciones compuestas | `fase3_daemon/composite_apps/` | CPU A y B, GPU A. GPU B queda como variante de la Fase 4. |
+| Aplicaciones compuestas | `fase3_daemon/composite_apps/` | CPU A y B, GPU A y GPU B (BabelStream memory + `rodinia_lavamd -boxes1d 100` compute, un kernel inédito por fase). |
 | Pruebas | `fase3_daemon/tests/`, `cpu_loop/tests/`, `gpu_loop_cpp/tests/` | Python y C++ en verde. |
 
 Se decidió mantener **dos binarios** (uno por dispositivo) y no fusionarlos: se evita
@@ -105,8 +105,7 @@ solo ahorraba la señal por archivo.
    muestreo (a 5 ms todo sale compute; se mantiene 50 ms). La abstención elimina los
    errores blandos y con kernels reales dio 0 errores en las fases principales, pero en
    muestras pequeñas. No arregla la exactitud de fondo.
-2. **No hay familia inédita memory_bound larga** para la aplicación B de GPU (las de
-   Rodinia duran menos que la ventana de decisión de 3 s).
+2. **Aplicación B de GPU:** repetir lanzamientos cortos no sirve (la actividad cae bajo el umbral entre procesos y el daemon no decide, job 7634). Se resolvió con un kernel por fase con argumentos escalados (jobs 7635-7637). En la primera corrida en sombra, `lavamd` 3 de 3 correctas y BabelStream 1 abstención y 2 ciclos sin decisión (hipótesis: fases pegadas sin bajar del umbral); se resuelve o documenta en la Fase 4.
 3. **Ahorro de CPU posible pequeño** y nulo o negativo con partes de CPU en la aplicación.
 4. **El libro** sigue describiendo el candidato anterior de GPU (regresión logística con
    reloj, umbral 0.70). Se actualiza cuando se retome el libro.
@@ -122,7 +121,7 @@ con registro por decisión, y la validación de generalización de la aplicació
 
 - Tres brazos (base, sombra, activo) más activo-F0 sobre las compuestas, con al menos 3
   repeticiones.
-- Variantes de piso de CPU (`--gpu-active-floor-khz` 3200000 frente a 0) y de GPU B.
+- Variantes de piso de CPU (`--gpu-active-floor-khz` 3200000 frente a 0).
 - Medir la sobrecarga sombra menos base con RAPL.
 - Para lanzar: sbatch en `scripts/pacca/`, desde el clon `~/hyperion_c8` con
   `HYPERION_ROOT` (nunca `git pull` en `~/hyperion`), sin `--time`, prefijo `hyp_`.
