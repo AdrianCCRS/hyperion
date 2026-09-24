@@ -134,6 +134,13 @@
 \input{secciones/04_discusion}
 \input{secciones/05_conclusiones}
 
+\appendix
+\renewcommand{\thechapter}{\Alph{chapter}}
+\renewcommand{\thefigure}{\thechapter.\arabic{figure}}
+\renewcommand{\thetable}{\thechapter.\arabic{table}}
+\renewcommand{\theequation}{\thechapter.\arabic{equation}}
+\input{secciones/A1_anexo_metodologia_detalle}
+
 %==============================================================================
 % REFERENCIAS BIBLIOGRÁFICAS
 %==============================================================================
