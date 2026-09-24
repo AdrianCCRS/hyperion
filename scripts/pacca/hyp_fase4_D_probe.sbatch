@@ -36,8 +36,9 @@ fi
 # (2) LAMMPS: cada benchmark con el paquete GPU, entradas escaladas y acotadas en tiempo, con el agente de GPU en sombra
 # el modulo lammps/2023_GPU no carga bajo `set -u` (Lmod lee LD_PRELOAD sin definir): rutas absolutas
 LMP=/opt/ohpc/pub/lammps/2023_gpu/bin/lmp
-export LD_LIBRARY_PATH="/opt/ohpc/pub/lammps/2023_gpu/lib64:$LD_LIBRARY_PATH" LAMMPS_POTENTIALS=/opt/ohpc/pub/lammps/2023_gpu/share/lammps/potentials
-ls -l "$LMP"; "$LMP" -h 2>&1 | grep -i -m4 "gpu\|MPI\|OpenMP" || true
+NV=/opt/ohpc/pub/devtools/nvidia/hpc_sdk/Linux_x86_64/23.1
+export LD_LIBRARY_PATH="/opt/ohpc/pub/lammps/2023_gpu/lib64:/opt/ohpc/pub/libs/gnu12/openmpi4/fftw/3.3.10/lib:$NV/comm_libs/openmpi/openmpi-3.1.5/lib:$NV/math_libs/12.0/lib64:$LD_LIBRARY_PATH" LAMMPS_POTENTIALS=/opt/ohpc/pub/lammps/2023_gpu/share/lammps/potentials
+ls -l "$LMP"; ldd "$LMP" | grep -i "not found" || echo "ldd: todas las librerias resueltas"; "$LMP" -h 2>&1 | grep -i -m4 "gpu\|MPI\|OpenMP" || true
 for b in lj eam chain rhodo; do
   W="$OUT/lammps_$b"; rm -rf "$W"; mkdir -p "$W"; cp -r "$BENCH"/* "$W"/ 2>/dev/null; cd "$W"
   sed -i -E "s/^run[[:space:]]+100$/run\t\t$STEPS/" "in.$b"
