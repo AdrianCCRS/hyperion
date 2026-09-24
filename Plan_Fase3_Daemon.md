@@ -950,6 +950,17 @@ decisión, porque su uso de GPU no supera el umbral de actividad (es casi todo C
 sirve como fase de GPU. Fase compute inédita resuelta; **fase memory inédita larga sigue sin
 resolverse** (dwt2d y backprop no crecen con sus parámetros del catálogo).
 
+**Fase memory inédita resuelta con BabelStream (decisión del usuario: opción 1, 2026-09-23;
+jobs 7636 y 7637).** `gpu_stream_bw` (suite BabelStream, fuera del entrenamiento) con
+`--arraysize 100000000 --numtimes 1000`: ~8.4 s, y con 500 pasos (4.8 s) ya decide memory_bound
+con confianza 1.00. Su verdad de fase (memory_bound, un STREAM) la aprobó el usuario porque el
+catálogo no declara hint. La compuesta B queda como `composite_gpu_unseen.py`: BabelStream
+(memory, ~8.4 s) + `rodinia_lavamd -boxes1d 100` (compute, ~9.7 s), un kernel por fase, 3 ciclos.
+Primera corrida completa con el daemon en sombra (job 7637): lavamd 3 de 3 correctas (conf
+1.00); BabelStream 1 decisión y fue abstención (conf 0.61 < 0.90); en los ciclos 1 y 2 no hubo
+decisión sobre BabelStream. Sin causa confirmada (hipótesis: entre lavamd y BabelStream la
+actividad no baja del umbral y el rastreador no abre una fase nueva); queda para la Fase 4.
+
 ---
 
 ## 2. Criterios de cierre
