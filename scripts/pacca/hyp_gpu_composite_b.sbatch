@@ -1,5 +1,5 @@
 #!/bin/bash
-# Compuesta B de GPU (familias inéditas Rodinia repetidas: dwt2d memory x10 + lavamd compute x4, 2 ciclos) con el daemon de
+# Compuesta B de GPU (un kernel inédito por fase: BabelStream memory + rodinia_lavamd -boxes1d 100 compute, 3 ciclos) con el daemon de
 # GPU en C++ en brazo SOMBRA (decide, nunca escribe). Comprueba que el rastreador mantiene la fase sostenida entre repeticiones
 # y puntua la clasificacion contra las fronteras reales. Solo con el nodo libre. Sin --time.
 #SBATCH --job-name=hyp_gpu_composite_b
