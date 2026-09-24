@@ -765,7 +765,23 @@ La derivación sigue el mismo principio que la sección \ref{sec:metodologia-pol
 
 El agente se implementó en C++ como dos procesos independientes, uno para la CPU y otro para la GPU, coordinados por una señal de un solo bit. La decisión de separarlos, y no fusionarlos en un único proceso, respondió a tres razones: los dos bucles operan a escalas de tiempo distintas (ventanas de milisegundos en CPU, fases de segundos en GPU), un fallo en uno de los procesos no impide que el otro restaure el estado del dispositivo que le corresponde, y los experimentos que ejercitan un solo dispositivo no cargan la biblioteca de gestión del otro. Ambos procesos se implementaron en el mismo lenguaje que el colector de telemetría, de modo que no hay cruces entre entornos de ejecución en el camino crítico, y consumen los clasificadores exportados a formato ONNX.
 
-Cada proceso admite tres brazos. En el brazo \textit{base} el agente no corre y el dispositivo queda bajo su gobierno nativo (gobernador de \texttt{intel\_pstate} con turbo en CPU, gestión automática del controlador en GPU); es la referencia contra la que se compara todo. En el brazo \textit{sombra} el agente muestrea, clasifica y decide, y registra cada decisión, pero nunca escribe sobre el hardware; mide la sobrecarga del agente sin su efecto. En el brazo \textit{activo} escribe la frecuencia decidida.
+Cada proceso admite los tres brazos de la Tabla \ref{tab:agente-brazos}. El brazo \textit{base} es la referencia contra la que se compara todo, y el brazo \textit{sombra} permite medir la sobrecarga del agente sin su efecto sobre el hardware.
+
+\begin{table}[H]
+\centering
+\caption{Brazos del agente.}
+\label{tab:agente-brazos}
+\small
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{2.2cm}>{\raggedright\arraybackslash}p{3.3cm}>{\raggedright\arraybackslash}p{7.3cm}@{}}
+\toprule
+\textbf{Brazo} & \textbf{Agente} & \textbf{Comportamiento} \\
+\midrule
+Base & No corre & El dispositivo queda bajo su gobierno nativo (\texttt{intel\_pstate} con turbo en CPU, gestión automática del controlador en GPU) \\
+Sombra & Muestrea, clasifica y decide & Registra cada decisión y nunca escribe sobre el hardware \\
+Activo & Muestrea, clasifica, decide y escribe & Aplica la frecuencia decidida y restaura el estado al terminar \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{Detección de fase y clasificación en GPU}
 \label{sec:metodologia-agente-gpu}
@@ -780,7 +796,25 @@ El bucle de CPU recibe las muestras del colector de contadores de rendimiento so
 \subsection{Consumo de la tabla de política}
 \label{sec:metodologia-agente-politica}
 
-El agente no deriva la tabla de política: la consume ya resuelta. La derivación se describe en las secciones \ref{sec:metodologia-politica-cpu} y \ref{sec:metodologia-politica-gpu}, dentro de la Fase 2, porque es una traducción de la clase de régimen a una frecuencia recomendada, previa e independiente de la implementación del bucle. Un lanzador traduce la tabla a las banderas de cada proceso. En GPU, \textit{memory\_bound} fija el reloj en 1260~MHz (nivel F1) y \textit{compute\_bound} no actúa, es decir, libera el reloj al gobierno nativo. En CPU la medición de la Fase 2 resultó \textit{no actuar} en ambas clases; aun así, para explorar el espacio de acción, se define un brazo experimental, marcado como tal en la tabla y sin alterar la acción medida, que fija F0 (3.2~GHz, con turbo desactivado) como nivel base y baja a F1 (2.9~GHz) cuando la clase es \textit{memory\_bound} con confianza mínima de 0.85. Como variante, el brazo \textit{activo-F0} fija F0 en ambas clases. La comparación se hace siempre contra el gobierno nativo, nunca contra F0.
+El agente no deriva la tabla de política: la consume ya resuelta. La derivación se describe en las secciones \ref{sec:metodologia-politica-cpu} y \ref{sec:metodologia-politica-gpu}, dentro de la Fase 2, porque es una traducción de la clase de régimen a una frecuencia recomendada, previa e independiente de la implementación del bucle. Un lanzador traduce la tabla a las banderas de cada proceso (Tabla \ref{tab:agente-politica}). En CPU la medición de la Fase 2 resultó \textit{no actuar} en ambas clases; aun así, para explorar el espacio de acción, se define un brazo experimental, marcado como tal en la tabla y sin alterar la acción medida. Como variante, el brazo \textit{activo-F0} fija F0 en ambas clases. La comparación se hace siempre contra el gobierno nativo, nunca contra F0.
+
+\begin{table}[H]
+\centering
+\caption{Política que consume el agente en el brazo activo.}
+\label{tab:agente-politica}
+\small
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{1.8cm}>{\raggedright\arraybackslash}p{3.2cm}>{\raggedright\arraybackslash}p{7.8cm}@{}}
+\toprule
+\textbf{Dispositivo} & \textbf{Clase} & \textbf{Acción} \\
+\midrule
+CPU & \textit{compute\_bound} & Fija F0 (3.2~GHz, turbo desactivado); experimental \\
+CPU & \textit{memory\_bound} & Baja a F1 (2.9~GHz) con confianza mínima de 0.85; experimental \\
+GPU & \textit{memory\_bound} & Fija el reloj en 1260~MHz (F1) \\
+GPU & \textit{compute\_bound} & No actúa: libera el reloj al gobierno nativo \\
+GPU & \textit{revisar} (abstención) & No actúa: libera el reloj al gobierno nativo \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{Actuación, restauración y coordinación}
 \label{sec:metodologia-agente-actuacion}
@@ -792,7 +826,24 @@ La coordinación entre los dos procesos es una señal escrita de forma atómica:
 \subsection{Aplicaciones compuestas y verificación previa}
 \label{sec:metodologia-agente-compuestas}
 
-Para puntuar la clasificación contra una verdad de fase conocida se construyeron aplicaciones compuestas que encadenan kernels del catálogo y registran, con el reloj monotónico del sistema, la frontera exacta de cada fase. La aplicación A usa familias vistas por el clasificador durante su entrenamiento y la aplicación B familias inéditas, en el mismo sentido del protocolo \textit{leave-one-familia-out}: si el agente acierta en A y no en B, el resultado es memorización y no generalización. En CPU, A encadena \texttt{dgemm\_n2048} y \texttt{npb\_cg}, y B \texttt{cpu\_xsbench\_omp} y \texttt{cpu\_rsbench\_omp}. En GPU, A encadena \texttt{gpu\_cutlass\_simt\_dgemm\_n4096} (\textit{compute\_bound}) y \texttt{gpu\_rajaperf\_stream\_triad} (\textit{memory\_bound}), y B encadena BabelStream (\textit{memory\_bound}) y \texttt{rodinia\_lavamd} (\textit{compute\_bound}). Como cada fase debe durar más que la ventana de decisión de 3~s, los dos kernels inéditos de GPU se ejecutan con parámetros ampliados (\texttt{--numtimes 1000} en BabelStream y \texttt{-boxes1d 100} en LavaMD, con los mismos binarios verificados por suma de comprobación); repetir lanzamientos cortos no funciona porque la actividad de GPU cae por debajo del umbral entre procesos y el detector no abre una fase sostenida. Entre fases consecutivas se deja un reposo de 1~s por la misma razón. La verdad de fase de BabelStream se declara como \textit{memory\_bound} por tratarse de un núcleo de tipo STREAM. Una aplicación conjunta alterna dos fases de CPU y dos de GPU en un mismo proceso para ejecutar ambos procesos del agente a la vez.
+Para puntuar la clasificación contra una verdad de fase conocida se construyeron aplicaciones compuestas que encadenan kernels del catálogo y registran, con el reloj monotónico del sistema, la frontera exacta de cada fase (Tabla \ref{tab:agente-compuestas}). La aplicación A usa familias vistas por el clasificador durante su entrenamiento y la aplicación B familias inéditas, en el mismo sentido del protocolo \textit{leave-one-familia-out}: si el agente acierta en A y no en B, el resultado es memorización y no generalización. Como cada fase debe durar más que la ventana de decisión de 3~s, los dos kernels inéditos de GPU se ejecutan con parámetros ampliados, con los mismos binarios verificados por suma de comprobación; repetir lanzamientos cortos no funciona porque la actividad de GPU cae por debajo del umbral entre procesos y el detector no abre una fase sostenida. Entre fases consecutivas se deja un reposo de 1~s por la misma razón. La verdad de fase de BabelStream se declara \textit{memory\_bound} por tratarse de un núcleo de tipo STREAM. Una aplicación conjunta alterna dos fases de CPU y dos de GPU en un mismo proceso para ejecutar ambos procesos del agente a la vez.
+
+\begin{table}[H]
+\centering
+\caption{Aplicaciones compuestas con verdad de fase.}
+\label{tab:agente-compuestas}
+\small
+\begin{tabular}{@{}llp{5.6cm}@{}}
+\toprule
+\textbf{Alcance} & \textbf{Aplicación} & \textbf{Fases (clase)} \\
+\midrule
+CPU & A (vistos) & \texttt{dgemm\_n2048} (\textit{compute}), \texttt{npb\_cg} (\textit{memory}) \\
+CPU & B (inéditos) & \texttt{cpu\_xsbench\_omp} (\textit{memory}), \texttt{cpu\_rsbench\_omp} (\textit{compute}) \\
+GPU & A (vistos) & \texttt{gpu\_cutlass\_simt\_dgemm\_n4096} (\textit{compute}), \texttt{gpu\_rajaperf\_stream\_triad} (\textit{memory}) \\
+GPU & B (inéditos) & BabelStream con \texttt{--numtimes 1000} (\textit{memory}), \texttt{rodinia\_lavamd} con \texttt{-boxes1d 100} (\textit{compute}) \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 Antes de habilitar escrituras reales en la evaluación se verificó el agente por separado en cada dispositivo y con ambos a la vez: latencia de conmutación, sobrecarga, restauración bajo terminación anómala inducida y cumplimiento del piso de coordinación (sección \ref{sec:resultados-agente}).
 

@@ -610,7 +610,25 @@ Dado que la clase agregada mezcla cargas con respuestas de signo opuesto, se eva
 \subsection{Invarianza del clasificador de CPU frente a la acción del agente}
 \label{sec:resultados-cpu-frecuencia-contrafactual}
 
-La frecuencia observada es una de las seis variables del clasificador de CPU y el agente la modifica, de modo que se aplicó la misma auditoría contrafactual de la GPU. Sobre el modelo final y sus 1.31 millones de intervalos de 49 kernels, forzar la frecuencia a un valor fijo cambia entre 4 y 11\% de las predicciones según el valor (3.2~GHz: 10.6\%; 2.9~GHz: 10.1\%; 2.0~GHz: 4.5\%; 0.8~GHz: 8.8\%), de modo que existe una dependencia moderada. Pero el cambio que el agente ejecuta es acotado, de F0 (3.2~GHz) a F1 (2.9~GHz): sobre las 179\,774 filas observadas cerca de 3.2~GHz, solo cambia el 0.42\% de las predicciones. Con ese espacio de acción la retroalimentación por esta variable es despreciable, y el modelo de CPU se despliega sin modificaciones.
+La frecuencia observada es una de las seis variables del clasificador de CPU y el agente la modifica, de modo que se aplicó la misma auditoría contrafactual de la GPU. Sobre el modelo final y sus 1.31 millones de intervalos de 49 kernels, forzar la frecuencia a un valor fijo cambia entre 4 y 11\% de las predicciones (Tabla \ref{tab:cpu-contrafactual-frecuencia}), de modo que existe una dependencia moderada. Pero el cambio que el agente ejecuta es acotado, de F0 (3.2~GHz) a F1 (2.9~GHz): sobre las 179\,774 filas observadas cerca de 3.2~GHz solo cambia el 0.42\% de las predicciones. Con ese espacio de acción la retroalimentación por esta variable es despreciable, y el modelo de CPU se despliega sin modificaciones.
+
+\begin{table}[H]
+\centering
+\caption{Proporción de predicciones del clasificador de CPU que cambia de clase al forzar la frecuencia.}
+\label{tab:cpu-contrafactual-frecuencia}
+\small
+\begin{tabular}{@{}lc@{}}
+\toprule
+\textbf{Frecuencia forzada} & \textbf{Predicciones que cambian} \\
+\midrule
+3.2~GHz & 10.6\% \\
+2.9~GHz & 10.1\% \\
+2.0~GHz & 4.5\% \\
+0.8~GHz & 8.8\% \\
+De F0 a F1, sobre filas observadas a $\approx$ 3.2~GHz (179\,774) & \textbf{0.42\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \section{Resultados de GPU}
 \label{sec:resultados-gpu}
@@ -744,22 +762,14 @@ Con el candidato por desempeño ya congelado (modelo, variables y decisión) se 
 \subsection{Candidato operativo de GPU: invarianza frente a la acción del agente}
 \label{sec:resultados-gpu-invarianza}
 
-El candidato de la subsección anterior es el mejor por desempeño fuera de familia y rapidez de inferencia, pero el agente exige además que sus entradas no dependan del reloj que él mismo fija (sección \ref{sec:metodologia-invarianza-gpu}). La auditoría, sobre las mismas 483 corridas y sin mediciones nuevas, muestra que ese requisito separa a los modelos que la exactitud no distinguía (Tabla \ref{tab:gpu-invarianza}). Al fijar de forma contrafactual el reloj de cada observación en 1410~MHz, la regresión logística cambia de clase el 26.7\% de sus predicciones (el 49\% de las filas \textit{compute\_bound} pasan a \textit{memory\_bound}), y su exactitud baja de 0.792 a 0.654 al excluir el reloj; la diferencia (-0.135, IC95 de -0.305 a +0.037) no se separa de cero con 16 familias, pero el contrafactual muestra la dependencia de forma directa. El \textit{random forest} no la presenta: 0.807 con las cinco variables, 0.812 sin reloj y 0.819 sin reloj ni potencia (diferencia +0.012, IC95 de -0.003 a +0.032).
+El candidato de la subsección anterior es el mejor por desempeño fuera de familia y rapidez de inferencia, pero el agente exige además que sus entradas no dependan del reloj que él mismo fija (sección \ref{sec:metodologia-invarianza-gpu}). La auditoría, sobre las mismas 483 corridas y sin mediciones nuevas, muestra que ese requisito separa a los modelos que la exactitud no distinguía (Figura \ref{fig:gpu-invarianza}). Al fijar de forma contrafactual el reloj de cada observación en 1410~MHz, la regresión logística cambia de clase el 26.7\% de sus predicciones (el 49\% de las filas \textit{compute\_bound} pasan a \textit{memory\_bound}), y su exactitud baja de 0.792 a 0.654 al excluir el reloj; la diferencia (-0.135, IC95 de -0.305 a +0.037) no se separa de cero con 16 familias, pero el contrafactual muestra la dependencia de forma directa. El \textit{random forest} no la presenta: 0.807 con las cinco variables, 0.812 sin reloj y 0.819 sin reloj ni potencia (diferencia +0.012, IC95 de -0.003 a +0.032).
 
-\begin{table}[H]
-\centering
-\caption{Exactitud balanceada por celda (LOFO, 483 corridas, 16 familias) al excluir las variables que dependen de la acción del agente.}
-\label{tab:gpu-invarianza}
-\small
-\begin{tabular}{@{}lccc@{}}
-\toprule
-\textbf{Modelo} & \textbf{Cinco variables} & \textbf{Sin reloj} & \textbf{Sin reloj ni potencia} \\
-\midrule
-Regresión logística & 0.792 & 0.654 & \textemdash{} \\
-\textit{Random forest} & 0.807 & 0.812 & 0.819 \\
-\bottomrule
-\end{tabular}
-\end{table}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figuras/fig_gpu_invarianza_reloj_20260923.png}
+    \caption[Invarianza de los candidatos GPU frente al reloj]{Exactitud balanceada por celda (LOFO, 483 corridas, 16 familias) al excluir las variables que dependen de la acción del agente. Fuente: elaboración propia.}
+    \label{fig:gpu-invarianza}
+\end{figure}
 
 En consecuencia, el candidato desplegado en el agente es un \textit{random forest} con tres variables (mediana de la utilización de GPU, mediana de la utilización de memoria y desviación estándar intracorrida de la utilización de memoria), sin reloj ni potencia, ajustado sobre todas las corridas disponibles. Su latencia de inferencia de una fila en \texttt{paccaA100} es de 4.7~ms en el percentil 50 y 5.0~ms en el 99, aceptable porque el agente clasifica una vez por fase. Con el procedimiento de la sección \ref{sec:metodologia-calibracion-confianza}, el umbral de abstención que cumple la cobertura media por celda no inferior a 0.60 es 0.90: la exactitud balanceada por celda sube de 0.819 a 0.900 reteniendo el 65.7\% de las corridas. Este es el modelo y el umbral que consume el agente; la regresión logística y su umbral de 0.70 quedan como el candidato de mejor desempeño puro, no como el desplegado.
 
@@ -844,38 +854,78 @@ Esta sección reporta la verificación del agente de la Fase 3 en \texttt{paccaA
 \subsection{Candado de reloj de GPU y premisa física de la política}
 \label{sec:resultados-agente-candado}
 
-Con una carga sintética de fases controladas se comprobó que, al fijar el reloj con \texttt{nvidia-smi -lgc}, el reloj observado coincide con el solicitado en los seis valores probados (1410, 1260, 1110, 810, 510 y 210~MHz), y que el rendimiento responde con la forma que supone la política (Tabla \ref{tab:agente-candado}): el de una carga \textit{compute\_bound} escala aproximadamente con el reloj, mientras que el de una carga \textit{memory\_bound} no cae hasta llegar a 510~MHz. Es la premisa física de bajar el reloj en la clase \textit{memory\_bound} sin costo de tiempo, medida sobre el mismo instrumento que aplicará el agente.
+Con una carga sintética de fases controladas se comprobó que, al fijar el reloj con \texttt{nvidia-smi -lgc}, el reloj observado coincide con el solicitado en los seis valores probados (1410, 1260, 1110, 810, 510 y 210~MHz), y que el rendimiento responde con la forma que supone la política (Figura \ref{fig:agente-candado}): el de una carga \textit{compute\_bound} escala aproximadamente con el reloj, mientras que el de una carga \textit{memory\_bound} no cae hasta llegar a 510~MHz. Es la premisa física de bajar el reloj en la clase \textit{memory\_bound} sin costo de tiempo, medida sobre el mismo instrumento que aplicará el agente.
 
-\begin{table}[H]
-\centering
-\caption{Rendimiento relativo al reloj de 1410~MHz con el reloj de GPU fijado.}
-\label{tab:agente-candado}
-\small
-\begin{tabular}{@{}rcc@{}}
-\toprule
-\textbf{Reloj (MHz)} & \textbf{\textit{Compute} (GFLOP/s)} & \textbf{\textit{Memory} (GB/s)} \\
-\midrule
-1410 & 1.00 & 1.00 \\
-1260 & 0.89 & 1.01 \\
-1110 & 0.79 & 1.01 \\
-810 & 0.58 & 1.01 \\
-510 & 0.37 & 0.98 \\
-210 & 0.15 & 0.72 \\
-\bottomrule
-\end{tabular}
-\end{table}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figuras/fig_gpu_candado_rendimiento_20260923.png}
+    \caption[Rendimiento de GPU con el reloj fijado]{Rendimiento relativo al reloj de 1410~MHz con el reloj de GPU fijado, para una carga \textit{compute\_bound} y una \textit{memory\_bound}; la línea discontinua es la proporcionalidad exacta al reloj. Fuente: elaboración propia.}
+    \label{fig:agente-candado}
+\end{figure}
 
 \subsection{Latencias de conmutación y sobrecarga}
 \label{sec:resultados-agente-latencias}
 
-En GPU, el comando de fijado de reloj cuesta unos 50~ms y el reloj observado alcanza el valor pedido entre 70 y 80~ms después del comando; la permanencia mínima entre cambios se fijó en 10 veces esa latencia, 3.7~s. En CPU, la escritura secuencial de los límites de frecuencia de los núcleos delegados tarda 27.9~ms; escribirlos en paralelo, un hilo por núcleo, la reduce a 2.85~ms. La inferencia del clasificador de CPU cuesta 16.4~$\mu$s en el percentil 50 y 19.3~$\mu$s en el 99, alrededor del 2\% del presupuesto de 1~ms por ventana. El proceso de GPU, con lectura directa de NVML, consume entre 0.0 y 0.1\% de un núcleo con la GPU en reposo. La sobrecarga en energía de paquete del brazo \textit{sombra} frente al \textit{base} se mide en la Fase 4.
+La Tabla \ref{tab:agente-latencias} resume las latencias de conmutación y la sobrecarga de cada proceso. La permanencia mínima entre cambios de reloj en GPU se fijó en 10 veces la latencia de conmutación observada, es decir, 3.7~s. La sobrecarga en energía de paquete del brazo \textit{sombra} frente al \textit{base} se mide en la Fase 4.
+
+\begin{table}[H]
+\centering
+\caption{Latencias de conmutación y sobrecarga del agente en \texttt{paccaA100}.}
+\label{tab:agente-latencias}
+\small
+\begin{tabular}{@{}llc@{}}
+\toprule
+\textbf{Dispositivo} & \textbf{Magnitud} & \textbf{Valor} \\
+\midrule
+GPU & Comando de fijado de reloj & $\approx$ 50~ms \\
+GPU & Reloj observado en el valor pedido (tras el comando) & 70 a 80~ms \\
+GPU & Uso de CPU del proceso con la GPU en reposo & 0.0 a 0.1\% de un núcleo \\
+CPU & Escritura secuencial de límites en los núcleos delegados & 27.9~ms \\
+CPU & Escritura en paralelo, un hilo por núcleo & 2.85~ms \\
+CPU & Inferencia del clasificador (percentil 50 / 99) & 16.4 / 19.3~$\mu$s \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{Restauración bajo terminación anómala y coordinación}
 \label{sec:resultados-agente-restauracion}
 
-Se indujo la terminación anómala de cada proceso (\texttt{SIGTERM} o \texttt{SIGINT}) con la frecuencia ya modificada, en el caso de GPU con el candado puesto. En todos los casos el agente atendió la señal y devolvió el dispositivo a su estado inicial: el reloj de GPU volvió al valor nativo y el turbo y el rango de frecuencia de la CPU quedaron idénticos al snapshot inicial, con código de salida 0. La prueba de coexistencia ejecutó los dos procesos en brazo activo sobre la aplicación compuesta A de GPU con el piso de CPU en 3.2~GHz; ambos salieron con código 0, y con la GPU activa el piso se respetó en el 99.2\% de las muestras (las restantes, cuatro muestras de unos 0.24~s, se concentran en los flancos de subida).
+La Tabla \ref{tab:agente-restauracion} resume las pruebas de restauración y de coordinación. En cada prueba de terminación anómala inducida (\texttt{SIGTERM} o \texttt{SIGINT}) el agente atendió la señal y devolvió el dispositivo a su estado inicial, con código de salida 0. La prueba de coexistencia ejecutó ambos procesos en brazo activo sobre la aplicación compuesta A de GPU con el piso de CPU en 3.2~GHz.
+
+\begin{table}[H]
+\centering
+\caption{Restauración bajo terminación anómala y coordinación entre procesos.}
+\label{tab:agente-restauracion}
+\small
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{4.4cm}>{\raggedright\arraybackslash}p{8.4cm}@{}}
+\toprule
+\textbf{Prueba} & \textbf{Resultado} \\
+\midrule
+Proceso de GPU, candado puesto & El reloj vuelve al valor nativo; código de salida 0 \\
+Proceso de CPU, frecuencia modificada & Turbo y rango de frecuencia idénticos al estado inicial; código de salida 0 \\
+Ambos procesos a la vez & Ambos salen con código 0; estado de CPU idéntico al inicial y reloj de GPU liberado \\
+Piso de CPU con GPU activa (3.2~GHz) & Respetado en el 99.2\% de las muestras; las restantes (cuatro, de $\approx$ 0.24~s) están en los flancos de subida \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{Detección y clasificación de fase de GPU sobre aplicaciones compuestas}
 \label{sec:resultados-agente-deteccion}
 
-Sobre la aplicación compuesta A de GPU (\texttt{gpu\_cutlass\_simt\_dgemm\_n4096} y \texttt{gpu\_rajaperf\_stream\_triad}, tres ciclos) con el umbral de abstención de 0.90, ambos brazos registraron 3 decisiones correctas, ninguna errónea y 2 abstenciones; las decisiones correctas tuvieron confianza 1.00 y las abstenciones entre 0.57 y 0.67. En la aplicación B (BabelStream y \texttt{rodinia\_lavamd} ampliados), el brazo sombra decidió las cuatro fases con 2 decisiones correctas y 2 abstenciones, sin errores, de modo que \textit{LavaMD}, una familia inédita, se clasificó correctamente con confianza 1.00. Estos conteos son pequeños y sirven para verificar el funcionamiento del detector y de la abstención; la exactitud de clasificación con muestra suficiente es lo que mide la Fase 4.
+La Tabla \ref{tab:agente-deteccion} reporta la clasificación de fase de GPU del agente sobre las dos aplicaciones compuestas, con el umbral de abstención de 0.90. En la aplicación A, las decisiones correctas tuvieron confianza 1.00 y las abstenciones entre 0.57 y 0.67; en la aplicación B, \textit{LavaMD}, una familia inédita, se clasificó correctamente con confianza 1.00. Los conteos son pequeños y sirven para verificar el funcionamiento del detector y de la abstención; la exactitud con muestra suficiente es lo que mide la Fase 4.
+
+\begin{table}[H]
+\centering
+\caption{Decisiones del agente de GPU sobre las aplicaciones compuestas (umbral de abstención 0.90).}
+\label{tab:agente-deteccion}
+\small
+\begin{tabular}{@{}llccc@{}}
+\toprule
+\textbf{Aplicación} & \textbf{Brazo} & \textbf{Correctas} & \textbf{Erróneas} & \textbf{Abstenciones} \\
+\midrule
+A: dgemm de CUTLASS y \textit{triad} (3 ciclos) & sombra & 3 & 0 & 2 \\
+A: dgemm de CUTLASS y \textit{triad} (3 ciclos) & activo & 3 & 0 & 2 \\
+B: BabelStream y LavaMD (2 ciclos) & sombra & 2 & 0 & 2 \\
+\bottomrule
+\end{tabular}
+\end{table}
