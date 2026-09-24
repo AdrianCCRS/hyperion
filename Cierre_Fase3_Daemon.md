@@ -70,7 +70,7 @@ solo ahorraba la señal por archivo.
   medida (`measured_action`), para que nadie lo lea como política ganadora. La
   comparación es siempre contra el gobernador nativo (REF), no contra F0.
 - **Variantes que se llevan a la Fase 4:** piso de CPU con la GPU activa (F0 frente a
-  ninguno) y, para GPU B, solo CPU documentado frente a `gpu_gemm_native_n4096`.
+  ninguno). La aplicación B de GPU ya se resolvió (ver §1 y §4.2).
 
 ### 2.5 Actuador de CPU y coordinación
 
