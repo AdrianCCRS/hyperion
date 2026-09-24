@@ -72,7 +72,7 @@ struct Args {
     int collector_cpu = -1;
     int consumer_cpu = -1;
     bool pin_consumer = false;  // aplica --consumer-cpu al hilo principal (y a los hilos que cree despues, p.ej. ORT)
-    int ort_threads = 0;        // hilos intra-op de ORT sin espera activa; 0 = por defecto de ORT
+    int ort_threads = 1;        // hilos intra-op de ORT sin espera activa (job 7645: con el pool por defecto, sombra costaba +20% de tiempo); 0 = por defecto de ORT
     long interval_ns = 1'000'000;
     std::string cpu_freq_sysfs_path;
     bool compute_actuar = false;
