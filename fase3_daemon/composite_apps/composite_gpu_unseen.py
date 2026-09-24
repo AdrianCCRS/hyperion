@@ -53,7 +53,7 @@ def main() -> int:
             print(f"[ciclo {r.cycle}] {r.kernel_id} ({r.phase_label_hint}) {'OK' if r.success else 'FALLÓ'} "
                   f"en {(r.end_ns - r.begin_ns) / 1e9:.2f}s", flush=True)
         records = run_composite(entries, cycles=args.cycles, node_id=args.node_id,
-                                kernels_root=args.kernels_root, on_phase=on_phase)
+                                kernels_root=args.kernels_root, on_phase=on_phase, gap_s=args.gap_s)
     n_failed = sum(1 for r in records if not r.success)
     print(f"aplicación compuesta B de GPU: {len(records)} fases, {n_failed} fallidas, registro en {args.boundaries_out}")
     return 1 if n_failed else 0

@@ -111,6 +111,8 @@ def run_composite(
     on_phase: Callable[[PhaseRecord], None] | None = None,
     run_fn: Callable[..., Any] = subprocess.run,
     now_fn: Callable[[], int] = time.monotonic_ns,
+    gap_s: float = 0.0,
+    sleep_fn: Callable[[float], None] = time.sleep,
 ) -> list[PhaseRecord]:
     """Corre `entries` en orden, `cycles` veces, y devuelve un `PhaseRecord`
     por ejecución con las fronteras REALES (reloj monotónico) de cada fase.
@@ -154,6 +156,10 @@ def run_composite(
             records.append(record)
             if on_phase is not None:
                 on_phase(record)
+            if gap_s > 0:
+                # hueco de reposo entre fases: sin el, la actividad de GPU de dos fases pegadas no baja del umbral y el
+                # rastreador del daemon no abre una fase nueva (job 7637, BabelStream tras lavamd)
+                sleep_fn(gap_s)
     return records
 
 
@@ -178,6 +184,8 @@ def build_arg_parser(
                               "fase1_telemetria, ver el encabezado de catalog.yaml).")
     parser.add_argument("--boundaries-out", type=Path, required=True,
                          help="Ruta del registro JSONL de fronteras de fase reales (requisito 3, §0.1).")
+    parser.add_argument("--gap-s", type=float, default=0.0,
+                         help="Segundos de reposo entre fases consecutivas (default: 0, sin hueco).")
     return parser
 
 
@@ -207,7 +215,7 @@ def main_with_defaults(
 
         records = run_composite(
             entries, cycles=args.cycles, node_id=args.node_id,
-            kernels_root=args.kernels_root, on_phase=on_phase,
+            kernels_root=args.kernels_root, on_phase=on_phase, gap_s=args.gap_s,
         )
 
     n_failed = sum(1 for r in records if not r.success)
