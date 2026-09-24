@@ -7,6 +7,8 @@
 #           base_noturbo = sin agentes y turbo apagado (linea base secundaria; REF con turbo sigue siendo la principal); tambien acepta
 #           en cpu y joint si se pide en ONLY_ARMS. activo_gpu = agente de GPU activo sin agente de CPU; activo_gpu_cpuobs = igual mas
 #           el agente de CPU en sombra con la politica versionada (no_actuar, no escribe).
+#   lammps: base, sombra, activo_gpu, activo_gpu_cpuobs (escenario D: LAMMPS 2023 con paquete GPU del cluster, aplicacion real de terceros;
+#           sets lj eam chain rhodo, LAMMPS_SETS; pasos por benchmark en STEPS_lj STEPS_eam STEPS_chain STEPS_rhodo; misma politica que gpumem)
 #   joint : base, sombra, activo (con piso), activo_nofloor   (ambos daemons, app que alterna CPU y GPU)  3 repeticiones
 # base = REF (gobernador nativo con turbo, sin daemon). Por celda se registra duracion, energia de CPU (RAPL, ambos paquetes)
 # y de GPU (NVML) POR SEPARADO (el EDP del nodo se calcula luego), mas las fronteras de fase y las decisiones de cada daemon
@@ -26,7 +28,7 @@
 #SBATCH --error=/home/latorresn/hyperion-results/final/logs/fase4_matrix_%j.err
 set -uo pipefail
 ROOT="${HYPERION_ROOT:-$HOME/hyperion_c8}"; KERNEL_ROOT="$HOME/hyperion-kernels"
-INTERVAL_NS="${INTERVAL_NS:-1000000}"; CYCLES="${CYCLES:-2}"; CYCLES_GPUMEM="${CYCLES_GPUMEM:-1}"; GAP_S="${GAP_S:-1}"; REPS_GENERAL="${REPS_GENERAL:-3}"; REPS_JOINT="${REPS_JOINT:-3}"
+INTERVAL_NS="${INTERVAL_NS:-1000000}"; CYCLES="${CYCLES:-2}"; CYCLES_GPUMEM="${CYCLES_GPUMEM:-1}"; LAMMPS_SETS="${LAMMPS_SETS:-lj eam chain rhodo}"; GAP_S="${GAP_S:-1}"; REPS_GENERAL="${REPS_GENERAL:-3}"; REPS_JOINT="${REPS_JOINT:-3}"
 ONLY_SCOPES="${ONLY_SCOPES:-cpu gpu joint}"; ONLY_SETS="${ONLY_SETS:-known unseen}"; ONLY_ARMS="${ONLY_ARMS:-base sombra activo activo_f0 activo_nofloor}"
 OUT="${OUT:-$HOME/hyperion-results/final/fase4_matrix_${SLURM_JOB_ID:-manual}}"; mkdir -p "$OUT/cells"
 ORT="$HOME/.conda/envs/hyperion-cpu-onnx"; CMAKE="$ORT/bin/cmake"; CUDA=/opt/ohpc/pub/devtools/nvidia/hpc_sdk/Linux_x86_64/23.1/cuda/12.0
@@ -71,15 +73,24 @@ cleanup() { pkill -P $$ -f "cpu_loop_main|gpu_loop_main|composite_" 2>/dev/null 
 trap cleanup EXIT
 sudo -n nvidia-smi -i $GPU -rgc || { echo "sudo -n nvidia-smi -rgc NO permitido" >&2; exit 1; }
 
+NV=/opt/ohpc/pub/devtools/nvidia/hpc_sdk/Linux_x86_64/23.1
+LAMMPS_LD="/opt/ohpc/pub/lammps/2023_gpu/lib64:/opt/ohpc/pub/libs/gnu12/openmpi4/fftw/3.3.10/lib:$NV/comm_libs/openmpi/openmpi-3.1.5/lib:$NV/math_libs/12.0/lib64"
+case " $ONLY_SCOPES " in *" lammps "*)  # copia de los benchmarks con los pasos de cada uno (el modulo de LAMMPS no carga bajo set -u: rutas absolutas)
+  for b in $LAMMPS_SETS; do
+    W="$OUT/lammps_work/$b"; rm -rf "$W"; mkdir -p "$W"; cp -r /usr/local/src/lammps/lammps-23Jun2022/bench/* "$W"/
+    eval "st=\${STEPS_$b:?falta STEPS_$b}"; sed -i -E "s/^run[[:space:]]+100$/run\t\t$st/" "$W/in.$b"
+  done;; esac
 RES="$OUT/results.csv"
 [ -f "$RES" ] || echo "cell,scope,set,arm,rep,wall_s,e_cpu_j,e_gpu_j,app_rc,rc_cpu_daemon,rc_gpu_daemon,state_ok" > "$RES"
-python3 - "$ONLY_SCOPES" "$ONLY_SETS" "$ONLY_ARMS" "$REPS_GENERAL" "$REPS_JOINT" > "$OUT/cells.txt" <<'PY'
+python3 - "$ONLY_SCOPES" "$ONLY_SETS" "$ONLY_ARMS" "$REPS_GENERAL" "$REPS_JOINT" "$LAMMPS_SETS" > "$OUT/cells.txt" <<'PY'
 import random, sys
 scopes, sets, arms = (set(a.split()) for a in sys.argv[1:4]); rg, rj = int(sys.argv[4]), int(sys.argv[5])
 plan = {"cpu": (["base", "base_noturbo", "sombra", "activo", "activo_f0", "sombra_pin", "sombra_ort1", "sombra_pin_ort1"], rg),
         "gpu": (["base", "sombra", "activo"], rg), "joint": (["base", "base_noturbo", "sombra", "activo", "activo_nofloor"], rj),
-        "gpumem": (["base", "base_noturbo", "sombra", "activo_gpu", "activo_gpu_cpuobs"], rg)}
-cells = [(sc, st, arm, r) for sc, (al, n) in plan.items() if sc in scopes for st in ("known", "unseen") if st in sets
+        "gpumem": (["base", "base_noturbo", "sombra", "activo_gpu", "activo_gpu_cpuobs"], rg),
+        "lammps": (["base", "sombra", "activo_gpu", "activo_gpu_cpuobs"], rg)}
+cells = [(sc, st, arm, r) for sc, (al, n) in plan.items() if sc in scopes
+         for st in (sys.argv[6].split() if sc == "lammps" else ("known", "unseen")) if sc == "lammps" or st in sets
          for arm in al if arm in arms for r in range(1, n + 1)]
 random.Random(20260924).shuffle(cells)
 for c in cells: print(*c)
@@ -109,9 +120,9 @@ run_cell() {
   # escenario E: politica versionada (CPU no_actuar, GPU F1 en memory); el agente de CPU solo observa
   local use_gpu=0 use_cpu=0 cpu_arm=$dm_arm cycles=$CYCLES
   case "$arm" in base|base_noturbo) ;; *)
-    { [ "$scope" = gpu ] || [ "$scope" = joint ] || [ "$scope" = gpumem ]; } && use_gpu=1
+    { [ "$scope" = gpu ] || [ "$scope" = joint ] || [ "$scope" = gpumem ] || [ "$scope" = lammps ]; } && use_gpu=1
     { [ "$scope" = cpu ] || [ "$scope" = joint ]; } && use_cpu=1;; esac
-  if [ "$scope" = gpumem ]; then
+  if [ "$scope" = gpumem ] || [ "$scope" = lammps ]; then
     cycles=$CYCLES_GPUMEM; pol="$ROOT/fase3_daemon/policy_table.yaml"; floor=0; cpu_arm=sombra
     case "$arm" in activo_gpu|activo_gpu_cpuobs) dm_arm=activo;; *) dm_arm=sombra;; esac
     [ "$arm" = activo_gpu_cpuobs ] && use_cpu=1
@@ -125,8 +136,16 @@ run_cell() {
   local cpu_d="" gpu_d="" rc_c=NA rc_g=NA
   local sigflag=(); [ "$scope" = joint ] && sigflag=(--gpu-active-signal-path "$SIG")
   local cmd; cmd=$(app_cmd "$scope" "$set")
+  if [ "$scope" = lammps ]; then  # aplicacion real: un proceso de LAMMPS (paquete GPU) en los nucleos 0-3, sin fronteras de fase registradas
+    local lvars=""; case "$set" in lj|eam) lvars="-var x 2 -var y 2 -var z 2";; esac
+    ( cd "$OUT/lammps_work/$set" && exec env LD_LIBRARY_PATH="$LAMMPS_LD:$LD_LIBRARY_PATH" LAMMPS_POTENTIALS=/opt/ohpc/pub/lammps/2023_gpu/share/lammps/potentials \
+        OPAL_PREFIX="$NV/comm_libs/openmpi/openmpi-3.1.5" OMPI_MCA_btl=self,vader OMPI_MCA_pml=ob1 OMPI_MCA_mtl=^ofi OMPI_MCA_btl_vader_single_copy_mechanism=none \
+        taskset -c 0-3 "$NV/comm_libs/openmpi/openmpi-3.1.5/bin/mpirun" -np 1 --oversubscribe /opt/ohpc/pub/lammps/2023_gpu/bin/lmp \
+        -sf gpu -pk gpu 1 -in "in.$set" $lvars -log "$D/log.lammps" > "$D/app.out" 2>&1 ) & local COMP=$!
+  else
   ( cd "$KERNEL_ROOT" && exec taskset -c 0-3 python3 $cmd --node-id pacca-a100 --kernels-root "$KERNEL_ROOT" --cycles "$cycles" --gap-s "$GAP_S" \
       --boundaries-out "$D/phases.jsonl" > "$D/app.out" 2>&1 ) & local COMP=$!
+  fi
   # el brazo base no arranca daemons; los demas, segun el alcance
   kill -STOP $COMP   # la app espera a que los daemons esten listos
   if [ $use_gpu = 1 ]; then
