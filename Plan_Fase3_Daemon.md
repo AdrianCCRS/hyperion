@@ -928,6 +928,19 @@ experimentales en vez de elegir una a priori:
    verdad que el catálogo no declara.
 Ambas se ejecutan en la Fase 4; el código de la Fase 3 ya soporta todas las variantes.
 
+**Revisión de la aplicación B de GPU (2026-09-23, job 7634).** La afirmación "no hay una
+familia inédita memory_bound larga" era incompleta: solo se habían medido los kernels con
+los parámetros del catálogo. Familias inéditas con hint: `rodinia_dwt2d` y `backprop`
+(memory, 0.7-0.8 s), `myocyte` (memory, 4.2 s), `lavamd` (compute, 3.0-3.4 s). Se probó
+armar fases repitiendo el lanzamiento (`composite_gpu_unseen.py`: dwt2d x10 + lavamd x4,
+2 ciclos, daemon C++ en sombra): las 28 ejecuciones salieron bien, pero el daemon emitió
+**0 decisiones**. Causa: el rastreador de actividad cierra la fase en la primera muestra
+con `util` <= 5%, y entre procesos consecutivos (arranque y CUDA init) la GPU baja de ese
+umbral, así que nunca se sostienen 3 s; ni siquiera un `lavamd` de 3.4 s los alcanza porque
+parte de su duración es CPU. Con el rastreador actual la app B de GPU no es viable por
+repetición; requiere decidir (a) tolerancia a huecos cortos en el rastreador, (b) copias
+paralelas escalonadas, o (c) dejar B solo en CPU.
+
 ---
 
 ## 2. Criterios de cierre
