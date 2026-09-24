@@ -26,6 +26,7 @@ def load_results(path: Path) -> list[dict]:
             r[k] = float(r[k])
         r["e_total_j"] = r["e_cpu_j"] + r["e_gpu_j"]
         r["edp"] = r["e_total_j"] * r["wall_s"]
+        r["edp_gpu"] = r["e_gpu_j"] * r["wall_s"]
         rows.append(r)
     return rows
 
@@ -37,12 +38,19 @@ def summarize(rows: list[dict]) -> list[dict]:
     out = []
     for (scope, kset, arm), rs in sorted(groups.items()):
         ref = groups.get((scope, kset, "base"), [])
-        med = {m: st.median(x[m] for x in rs) for m in ("wall_s", "e_cpu_j", "e_gpu_j", "e_total_j", "edp")}
+        metrics = ("wall_s", "e_cpu_j", "e_gpu_j", "e_total_j", "edp", "edp_gpu")
+        med = {m: st.median(x[m] for x in rs if m in x) for m in metrics if all(m in x for x in rs)}
         row = {"scope": scope, "set": kset, "arm": arm, "n": len(rs), **{k: round(v, 2) for k, v in med.items()}}
-        if ref:
-            for m, name in (("wall_s", "T"), ("e_cpu_j", "E_cpu"), ("e_gpu_j", "E_gpu"), ("e_total_j", "E_tot"), ("edp", "EDP")):
-                row[f"ratio_{name}"] = round(med[m] / st.median(x[m] for x in ref), 3)
-            row["p_edp"] = _p_value([x["edp"] for x in rs], [x["edp"] for x in ref]) if arm != "base" else None
+        # razones frente a REF con turbo (`base`, la referencia principal) y, si existe, frente a REF sin turbo (`base_noturbo`,
+        # linea base secundaria: responde si conmutar por fase le gana a un nivel fijo, no reemplaza a la principal)
+        for suffix, refarm in (("", "base"), ("_nt", "base_noturbo")):
+            ref = groups.get((scope, kset, refarm), [])
+            if not ref:
+                continue
+            for m, name in (("wall_s", "T"), ("e_cpu_j", "E_cpu"), ("e_gpu_j", "E_gpu"), ("e_total_j", "E_tot"), ("edp", "EDP"), ("edp_gpu", "EDPgpu")):
+                if m in med and all(m in x for x in ref):
+                    row[f"ratio_{name}{suffix}"] = round(med[m] / st.median(x[m] for x in ref), 3)
+            row[f"p_edp{suffix}"] = _p_value([x["edp"] for x in rs], [x["edp"] for x in ref]) if arm != refarm else None
         out.append(row)
     return out
 
@@ -84,6 +92,14 @@ def score_cell(phases: list[dict], decisions: list[dict]) -> dict:
     return {"ok": ok, "wrong": wrong, "abst": abst, "phases": len(phases), "covered": len(covered)}
 
 
+def is_gpu_kernel(kernel_id: str) -> bool:
+    """Los kernels de GPU del catalogo empiezan con gpu_, rodinia_ (salvo las variantes _omp), minibude_cuda o llevan _gpu_
+    (familias dual_*_gpu_N...); los de CPU con cpu_ o sin prefijo de dispositivo (dgemm_n2048, npb_cg)."""
+    if kernel_id.startswith("cpu_") or kernel_id.endswith("_omp"):
+        return False
+    return kernel_id.startswith(("gpu_", "rodinia_", "minibude_cuda")) or "_gpu_" in kernel_id
+
+
 def score_all(root: Path, rows: list[dict]) -> list[dict]:
     agg: dict[tuple, dict] = defaultdict(lambda: {"ok": 0, "wrong": 0, "abst": 0, "phases": 0, "covered": 0})
     for r in rows:
@@ -96,7 +112,7 @@ def score_all(root: Path, rows: list[dict]) -> list[dict]:
             if not decisions:
                 continue
             # los daemons de CPU miran solo fases de CPU y los de GPU solo de GPU: se puntua contra las fases del dispositivo
-            phases_dev = [p for p in phases if p["kernel_id"].startswith(("gpu_", "rodinia_")) == (device == "gpu")]
+            phases_dev = [p for p in phases if is_gpu_kernel(p["kernel_id"]) == (device == "gpu")]
             s = score_cell(phases_dev, decisions)
             a = agg[(r["scope"], r["set"], device, r["arm"])]
             for k, v in s.items():
@@ -113,11 +129,18 @@ def main() -> int:
     a = ap.parse_args()
     rows = load_results(a.root / "results.csv")
     summ = summarize(rows)
-    print(f"{'alcance':6s} {'kernels':7s} {'brazo':14s} {'n':>2s} {'T(s)':>7s} {'E_cpu(J)':>9s} {'E_gpu(J)':>9s} | {'T':>6s} {'E_cpu':>6s} {'E_gpu':>6s} {'E_tot':>6s} {'EDP':>6s} {'p':>7s}")
+    print("Razones frente a REF con turbo (`base`); EDPg = EDP de la GPU sola, E_gpu * T")
+    print(f"{'alcance':6s} {'kernels':7s} {'brazo':18s} {'n':>2s} {'T(s)':>7s} {'E_cpu(J)':>9s} {'E_gpu(J)':>9s} | {'T':>6s} {'E_cpu':>6s} {'E_gpu':>6s} {'E_tot':>6s} {'EDP':>6s} {'EDPg':>6s} {'p':>7s}")
     for s in summ:
-        print(f"{s['scope']:6s} {s['set']:7s} {s['arm']:14s} {s['n']:2d} {s['wall_s']:7.1f} {s['e_cpu_j']:9.0f} {s['e_gpu_j']:9.0f} | "
-              + " ".join(f"{s.get('ratio_' + k, float('nan')):6.3f}" for k in ("T", "E_cpu", "E_gpu", "E_tot", "EDP"))
+        print(f"{s['scope']:6s} {s['set']:7s} {s['arm']:18s} {s['n']:2d} {s['wall_s']:7.1f} {s['e_cpu_j']:9.0f} {s['e_gpu_j']:9.0f} | "
+              + " ".join(f"{s.get('ratio_' + k, float('nan')):6.3f}" for k in ("T", "E_cpu", "E_gpu", "E_tot", "EDP", "EDPgpu"))
               + f" {s['p_edp'] if s.get('p_edp') is not None else '-':>7}")
+    if any("ratio_EDP_nt" in s for s in summ):
+        print("\nRazones frente a REF sin turbo (`base_noturbo`, linea base secundaria)")
+        for s in summ:
+            if "ratio_EDP_nt" in s:
+                print(f"{s['scope']:6s} {s['set']:7s} {s['arm']:18s} {s['n']:2d} | "
+                      + " ".join(f"{s.get('ratio_' + k + '_nt', float('nan')):6.3f}" for k in ("T", "E_cpu", "E_gpu", "E_tot", "EDP", "EDPgpu")))
     print("\nClasificación contra las fronteras reales (decisiones atribuidas por ts_ns):")
     for s in score_all(a.root, rows):
         print(f"  {s['scope']:6s} {s['set']:7s} {s['device']} {s['arm']:14s} correctas={s['ok']} erroneas={s['wrong']} abstenciones={s['abst']} "

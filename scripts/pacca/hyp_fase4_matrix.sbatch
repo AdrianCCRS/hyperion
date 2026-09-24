@@ -3,6 +3,10 @@
 #   cpu   : base, sombra, activo, activo_f0                   (solo daemon de CPU)         3 repeticiones
 #   gpu   : base, sombra, activo                              (solo daemon de GPU)         3 repeticiones
 #   (diagnostico, solo si se piden en ONLY_ARMS: sombra_pin, sombra_ort1, sombra_pin_ort1 = sombra con el consumidor fijado a --consumer-cpu y/o ORT con 1 hilo sin espera activa)
+#   gpumem: base, base_noturbo, sombra, activo_gpu, activo_gpu_cpuobs (escenario E, GPU dominada por memoria; 1 ciclo; Plan_Fase4_Escenario_E.md)
+#           base_noturbo = sin agentes y turbo apagado (linea base secundaria; REF con turbo sigue siendo la principal); tambien acepta
+#           en cpu y joint si se pide en ONLY_ARMS. activo_gpu = agente de GPU activo sin agente de CPU; activo_gpu_cpuobs = igual mas
+#           el agente de CPU en sombra con la politica versionada (no_actuar, no escribe).
 #   joint : base, sombra, activo (con piso), activo_nofloor   (ambos daemons, app que alterna CPU y GPU)  3 repeticiones
 # base = REF (gobernador nativo con turbo, sin daemon). Por celda se registra duracion, energia de CPU (RAPL, ambos paquetes)
 # y de GPU (NVML) POR SEPARADO (el EDP del nodo se calcula luego), mas las fronteras de fase y las decisiones de cada daemon
@@ -22,7 +26,7 @@
 #SBATCH --error=/home/latorresn/hyperion-results/final/logs/fase4_matrix_%j.err
 set -uo pipefail
 ROOT="${HYPERION_ROOT:-$HOME/hyperion_c8}"; KERNEL_ROOT="$HOME/hyperion-kernels"
-INTERVAL_NS="${INTERVAL_NS:-1000000}"; CYCLES="${CYCLES:-2}"; GAP_S="${GAP_S:-1}"; REPS_GENERAL="${REPS_GENERAL:-3}"; REPS_JOINT="${REPS_JOINT:-3}"
+INTERVAL_NS="${INTERVAL_NS:-1000000}"; CYCLES="${CYCLES:-2}"; CYCLES_GPUMEM="${CYCLES_GPUMEM:-1}"; GAP_S="${GAP_S:-1}"; REPS_GENERAL="${REPS_GENERAL:-3}"; REPS_JOINT="${REPS_JOINT:-3}"
 ONLY_SCOPES="${ONLY_SCOPES:-cpu gpu joint}"; ONLY_SETS="${ONLY_SETS:-known unseen}"; ONLY_ARMS="${ONLY_ARMS:-base sombra activo activo_f0 activo_nofloor}"
 OUT="${OUT:-$HOME/hyperion-results/final/fase4_matrix_${SLURM_JOB_ID:-manual}}"; mkdir -p "$OUT/cells"
 ORT="$HOME/.conda/envs/hyperion-cpu-onnx"; CMAKE="$ORT/bin/cmake"; CUDA=/opt/ohpc/pub/devtools/nvidia/hpc_sdk/Linux_x86_64/23.1/cuda/12.0
@@ -72,8 +76,9 @@ RES="$OUT/results.csv"
 python3 - "$ONLY_SCOPES" "$ONLY_SETS" "$ONLY_ARMS" "$REPS_GENERAL" "$REPS_JOINT" > "$OUT/cells.txt" <<'PY'
 import random, sys
 scopes, sets, arms = (set(a.split()) for a in sys.argv[1:4]); rg, rj = int(sys.argv[4]), int(sys.argv[5])
-plan = {"cpu": (["base", "sombra", "activo", "activo_f0", "sombra_pin", "sombra_ort1", "sombra_pin_ort1"], rg), "gpu": (["base", "sombra", "activo"], rg),
-        "joint": (["base", "sombra", "activo", "activo_nofloor"], rj)}
+plan = {"cpu": (["base", "base_noturbo", "sombra", "activo", "activo_f0", "sombra_pin", "sombra_ort1", "sombra_pin_ort1"], rg),
+        "gpu": (["base", "sombra", "activo"], rg), "joint": (["base", "base_noturbo", "sombra", "activo", "activo_nofloor"], rj),
+        "gpumem": (["base", "base_noturbo", "sombra", "activo_gpu", "activo_gpu_cpuobs"], rg)}
 cells = [(sc, st, arm, r) for sc, (al, n) in plan.items() if sc in scopes for st in ("known", "unseen") if st in sets
          for arm in al if arm in arms for r in range(1, n + 1)]
 random.Random(20260924).shuffle(cells)
@@ -89,6 +94,7 @@ app_cmd() {  # $1 scope $2 set -> imprime el comando de la aplicacion
     gpu:known)   echo "$A/composite_gpu_known.py" ;;
     gpu:unseen)  echo "$A/composite_gpu_unseen.py" ;;
     joint:*)     echo "$A/composite_joint.py --set $2" ;;
+    gpumem:*)    echo "$A/composite_gpu_memdom.py --set $2" ;;
   esac
 }
 run_cell() {
@@ -100,21 +106,36 @@ run_cell() {
   [ "$arm" = activo_nofloor ] && floor=0
   pol="$OUT/policy_activo.yaml"; [ "$arm" = activo_f0 ] && pol="$OUT/policy_activo_f0.yaml"; [ "$arm" = sombra ] && pol="$OUT/policy_activo.yaml"
   [ "$arm" = activo_nofloor ] && pol="$OUT/policy_activo.yaml"
+  # escenario E: politica versionada (CPU no_actuar, GPU F1 en memory); el agente de CPU solo observa
+  local use_gpu=0 use_cpu=0 cpu_arm=$dm_arm cycles=$CYCLES
+  case "$arm" in base|base_noturbo) ;; *)
+    { [ "$scope" = gpu ] || [ "$scope" = joint ] || [ "$scope" = gpumem ]; } && use_gpu=1
+    { [ "$scope" = cpu ] || [ "$scope" = joint ]; } && use_cpu=1;; esac
+  if [ "$scope" = gpumem ]; then
+    cycles=$CYCLES_GPUMEM; pol="$ROOT/fase3_daemon/policy_table.yaml"; floor=0; cpu_arm=sombra
+    case "$arm" in activo_gpu|activo_gpu_cpuobs) dm_arm=activo;; *) dm_arm=sombra;; esac
+    [ "$arm" = activo_gpu_cpuobs ] && use_cpu=1
+  fi
+  # base_noturbo: sin agentes y con el turbo apagado durante la medicion (se restaura al terminar la celda)
+  if [ "$arm" = base_noturbo ]; then
+    sudo -n /usr/local/bin/set_turbo_state 1
+    [ "$(cat $C/intel_pstate/no_turbo)" = 1 ] || { echo "  !!! no se pudo apagar el turbo ($id)" >&2; sudo -n /usr/local/bin/set_turbo_state "$ORIG_NO_TURBO"; return 1; }
+  fi
   sudo -n nvidia-smi -i $GPU -rgc >/dev/null 2>&1; sleep 5
   local cpu_d="" gpu_d="" rc_c=NA rc_g=NA
   local sigflag=(); [ "$scope" = joint ] && sigflag=(--gpu-active-signal-path "$SIG")
   local cmd; cmd=$(app_cmd "$scope" "$set")
-  ( cd "$KERNEL_ROOT" && exec taskset -c 0-3 python3 $cmd --node-id pacca-a100 --kernels-root "$KERNEL_ROOT" --cycles "$CYCLES" --gap-s "$GAP_S" \
+  ( cd "$KERNEL_ROOT" && exec taskset -c 0-3 python3 $cmd --node-id pacca-a100 --kernels-root "$KERNEL_ROOT" --cycles "$cycles" --gap-s "$GAP_S" \
       --boundaries-out "$D/phases.jsonl" > "$D/app.out" 2>&1 ) & local COMP=$!
   # el brazo base no arranca daemons; los demas, segun el alcance
   kill -STOP $COMP   # la app espera a que los daemons esten listos
-  if [ "$arm" != base ] && { [ "$scope" = gpu ] || [ "$scope" = joint ]; }; then
+  if [ $use_gpu = 1 ]; then
     ( exec python3 "$ROOT/fase3_daemon/gpu_loop_cpp/launch_gpu_daemon.py" --policy-table "$pol" --binary "$GPU_BIN" --arm $dm_arm -- \
         --model "$ROOT/fase3_daemon/gpu_loop_cpp/gpu_rf_sin_reloj.onnx" --features "$ROOT/fase3_daemon/gpu_loop_cpp/gpu_rf_sin_reloj.features.txt" \
         --gpu-index $GPU --min-dwell-ns 3700000000 --settle-s 0.3 --target-pid $COMP "${sigflag[@]}" --log-path "$D/gpu_decisions.jsonl" ) > "$D/gpu_daemon.out" 2>&1 & gpu_d=$!
   fi
-  if [ "$arm" != base ] && { [ "$scope" = cpu ] || [ "$scope" = joint ]; }; then
-    ( exec python3 "$ROOT/fase3_daemon/cpu_loop/launch_cpu_daemon.py" --policy-table "$pol" --binary "$CPU_BIN" --arm $dm_arm -- \
+  if [ $use_cpu = 1 ]; then
+    ( exec python3 "$ROOT/fase3_daemon/cpu_loop/launch_cpu_daemon.py" --policy-table "$pol" --binary "$CPU_BIN" --arm $cpu_arm -- \
         --model "$ROOT/fase3_daemon/cpu_loop/xgboost_cpu.onnx" --perf-cpus 0,1,2,3 --collector-cpu 6 --consumer-cpu 7 --target-pid $COMP --interval-ns $INTERVAL_NS "${xflags[@]}" \
         "${sigflag[@]}" --gpu-active-floor-khz $floor --log-path "$D/cpu_decisions.jsonl" ) > "$D/cpu_daemon.out" 2>&1 & cpu_d=$!
   fi
@@ -124,6 +145,7 @@ run_cell() {
   local e0 f0 g0 t0; e0=$(cat $R0/energy_uj); f0=$(cat $R1/energy_uj); g0=$("$GER" $GPU); t0=$(date +%s.%N)
   kill -CONT $COMP; wait $COMP; local app_rc=$?
   local t1 e1 f1 g1; t1=$(date +%s.%N); e1=$(cat $R0/energy_uj); f1=$(cat $R1/energy_uj); g1=$("$GER" $GPU)
+  [ "$arm" = base_noturbo ] && sudo -n /usr/local/bin/set_turbo_state "$ORIG_NO_TURBO"
   sleep 1
   [ -n "$cpu_d" ] && kill -TERM $cpu_d 2>/dev/null; [ -n "$gpu_d" ] && kill -TERM $gpu_d 2>/dev/null
   [ -n "$cpu_d" ] && { wait $cpu_d; rc_c=$?; }; [ -n "$gpu_d" ] && { wait $gpu_d; rc_g=$?; }
