@@ -30,6 +30,18 @@ def _jsonl(path: Path) -> list[dict]:
         return []
 
 
+def check_noturbo(root: Path) -> list[str]:
+    """Para el complemento REF sin turbo (cpu y conjunta): solo exige que el brazo base_noturbo haya corrido bien, apagando y
+    restaurando el turbo, en el pre-vuelo. No depende de las aplicaciones de E."""
+    rows = list(csv.DictReader((root / "results.csv").open())) if (root / "results.csv").exists() else []
+    nt = [r for r in rows if r["arm"] == "base_noturbo"]
+    problems = [] if nt else ["no hay celdas base_noturbo en el pre-vuelo"]
+    for r in nt:
+        if r["app_rc"] != "0" or r["state_ok"] != "1":
+            problems.append(f"{r['cell']}: app_rc={r['app_rc']} state_ok={r['state_ok']}")
+    return problems
+
+
 def check(root: Path) -> list[str]:
     problems: list[str] = []
     rows = list(csv.DictReader((root / "results.csv").open())) if (root / "results.csv").exists() else []
@@ -65,7 +77,7 @@ def check(root: Path) -> list[str]:
 
 
 def main() -> int:
-    problems = check(Path(sys.argv[1]))
+    problems = (check_noturbo if "--noturbo" in sys.argv else check)(Path([a for a in sys.argv[1:] if not a.startswith("--")][0]))
     for p in problems:
         print("GATE FALLA:", p)
     print("GATE OK" if not problems else f"GATE: {len(problems)} problema(s), las corridas largas NO arrancan")

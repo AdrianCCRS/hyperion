@@ -5,7 +5,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from fase4_evaluacion.gate_preflight_E import check
+from fase4_evaluacion.gate_preflight_E import check, check_noturbo
 
 S = 1_000_000_000
 
@@ -48,3 +48,9 @@ def test_falla_si_el_agente_se_abstiene(tmp_path):
 def test_falla_si_falta_un_brazo(tmp_path):
     _make(tmp_path, arms=("base", "activo_gpu", "activo_gpu_cpuobs"))
     assert any("base_noturbo" in p for p in check(tmp_path))
+
+
+def test_noturbo_no_depende_de_las_aplicaciones_de_e(tmp_path):
+    _make(tmp_path, memory_decision=False)  # E fallaria, el complemento sin turbo no
+    assert check(tmp_path) != []
+    assert check_noturbo(tmp_path) == []

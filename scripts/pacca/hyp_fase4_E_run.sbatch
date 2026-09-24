@@ -17,7 +17,8 @@
 set -uo pipefail
 ROOT="${HYPERION_ROOT:-$HOME/hyperion_c8}"; RES="$HOME/hyperion-results/final"; source "$HOME/hyperion-venv/bin/activate"
 hostname; git -C "$ROOT" log --oneline -1
-python3 "$ROOT/fase4_evaluacion/gate_preflight_E.py" "$RES/fase4_E_preflight" || { echo "compuerta cerrada: no se mide nada" >&2; exit 2; }
+GATE_FLAG=""; [ "${RUN_KIND:-}" = noturbo ] && GATE_FLAG="--noturbo"  # el complemento sin turbo solo exige base_noturbo sano
+python3 "$ROOT/fase4_evaluacion/gate_preflight_E.py" "$RES/fase4_E_preflight" $GATE_FLAG || { echo "compuerta cerrada: no se mide nada" >&2; exit 2; }
 export CYCLES_GPUMEM=1 REPS_GENERAL=3 REPS_JOINT=3
 case "${RUN_KIND:?RUN_KIND=E|noturbo}" in
   E)       export ONLY_SCOPES="gpumem" ONLY_ARMS="base base_noturbo sombra activo_gpu activo_gpu_cpuobs" OUT="$RES/fase4_E" ;;
