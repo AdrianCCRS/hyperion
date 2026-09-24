@@ -29,12 +29,16 @@ def main() -> int:
     a = ap.parse_args()
     catalog = load_catalog(str(a.catalog))
     rc = 0
-    for kid in a.kernels:
+    for spec in a.kernels:
+        # "id" usa los argumentos del catalogo; "id::argumentos" los reemplaza (para medir tamanos escalados)
+        kid, _, override = spec.partition("::")
         if kid not in catalog:
             print(f"{kid}: NO esta en el catalogo")
             rc = 1
             continue
         e = catalog[kid]
+        if override:
+            e = replace(e, exec_args=override)
         exe = str(a.kernels_root / e.exec_path)
         if not verify_binary(replace(e, exec_path=exe), node_id=a.node_id):
             print(f"{kid}: checksum NO verificado")
@@ -43,7 +47,7 @@ def main() -> int:
         t0 = time.monotonic()
         p = subprocess.run([exe, *shlex.split(e.exec_args)], cwd=str(a.kernels_root), capture_output=True, text=True)
         dt = time.monotonic() - t0
-        print(f"{kid} ({e.phase_label_hint or 'sin hint'}) {'OK' if _check_success(e, p.returncode, p.stdout) else 'FALLO'} en {dt:.2f}s", flush=True)
+        print(f"{spec} ({e.phase_label_hint or 'sin hint'}) {'OK' if _check_success(e, p.returncode, p.stdout) else 'FALLO'} en {dt:.2f}s", flush=True)
     return rc
 
 
