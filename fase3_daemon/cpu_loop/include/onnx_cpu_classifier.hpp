@@ -33,9 +33,9 @@ public:
      * grafo no tiene exactamente la forma de entrada/salida esperada -- un
      * modelo con una firma distinta debe fallar en la carga, no en el
      * primer tick de inferencia con un error de ORT poco claro. */
-    explicit OnnxCpuClassifier(const std::string& model_path)
+    explicit OnnxCpuClassifier(const std::string& model_path, int intra_op_threads = 0)
         : env_(ORT_LOGGING_LEVEL_WARNING, "hyperion_cpu_loop"),
-          session_(env_, model_path.c_str(), Ort::SessionOptions{nullptr}) {
+          session_(env_, model_path.c_str(), make_options(intra_op_threads)) {
         if (session_.GetInputCount() != 1) {
             throw std::runtime_error("OnnxCpuClassifier: se esperaba exactamente 1 entrada, el grafo tiene "
                                      + std::to_string(session_.GetInputCount()));
@@ -76,6 +76,16 @@ public:
     }
 
 private:
+    /** intra_op_threads > 0: pool acotado y sin espera activa (por defecto ORT crea un hilo por core que gira
+     * entre inferencias); 0 = valores por defecto de ORT. */
+    static Ort::SessionOptions make_options(int intra_op_threads) {
+        Ort::SessionOptions o;
+        if (intra_op_threads > 0) {
+            o.SetIntraOpNumThreads(intra_op_threads);
+            o.AddConfigEntry("session.intra_op.allow_spinning", "0");
+        }
+        return o;
+    }
     Ort::Env env_;
     Ort::Session session_;
     std::string input_name_;

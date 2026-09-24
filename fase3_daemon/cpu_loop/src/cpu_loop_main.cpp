@@ -39,6 +39,7 @@
  *    siga bloqueada por H1 (no hay ningún escenario real donde el loop de
  *    GPU esté aplicando reloj todavía).
  */
+#include <sched.h>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -70,6 +71,8 @@ struct Args {
     std::vector<int> perf_cpus;
     int collector_cpu = -1;
     int consumer_cpu = -1;
+    bool pin_consumer = false;  // aplica --consumer-cpu al hilo principal (y a los hilos que cree despues, p.ej. ORT)
+    int ort_threads = 0;        // hilos intra-op de ORT sin espera activa; 0 = por defecto de ORT
     long interval_ns = 1'000'000;
     std::string cpu_freq_sysfs_path;
     bool compute_actuar = false;
@@ -133,6 +136,8 @@ Args parse_args(int argc, char** argv) {
         else if (arg == "--perf-cpus") a.perf_cpus = parse_int_list(need("--perf-cpus"));
         else if (arg == "--collector-cpu") a.collector_cpu = std::stoi(need("--collector-cpu"));
         else if (arg == "--consumer-cpu") a.consumer_cpu = std::stoi(need("--consumer-cpu"));
+        else if (arg == "--pin-consumer") a.pin_consumer = true;
+        else if (arg == "--ort-threads") a.ort_threads = std::stoi(need("--ort-threads"));
         else if (arg == "--interval-ns") a.interval_ns = std::stol(need("--interval-ns"));
         else if (arg == "--cpu-freq-sysfs-path") a.cpu_freq_sysfs_path = need("--cpu-freq-sysfs-path");
         else if (arg == "--compute-actuar") a.compute_actuar = true;
@@ -198,7 +203,12 @@ int main(int argc, char** argv) {
     std::signal(SIGTERM, handle_signal);
 
     std::printf("cargando clasificador: %s\n", args.model_path.c_str());
-    OnnxCpuClassifier classifier(args.model_path);
+    if (args.pin_consumer && args.consumer_cpu >= 0) {
+        // Antes de crear el clasificador: los hilos de ORT heredan esta mascara.
+        cpu_set_t set; CPU_ZERO(&set); CPU_SET(args.consumer_cpu, &set);
+        if (sched_setaffinity(0, sizeof(set), &set) != 0) std::perror("sched_setaffinity(consumer)");
+    }
+    OnnxCpuClassifier classifier(args.model_path, args.ort_threads);
 
     CpuPhaseControllerConfig ctrl_cfg{};
     ctrl_cfg.compute_bound = {args.compute_actuar, args.compute_freq_khz};

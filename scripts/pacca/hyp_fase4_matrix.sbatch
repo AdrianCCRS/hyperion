@@ -2,6 +2,7 @@
 # FASE 4: matriz de experimentos daemon vs REF. Ejes: alcance {cpu, gpu, joint} x kernels {known, unseen} x brazo.
 #   cpu   : base, sombra, activo, activo_f0                   (solo daemon de CPU)         3 repeticiones
 #   gpu   : base, sombra, activo                              (solo daemon de GPU)         3 repeticiones
+#   (diagnostico, solo si se piden en ONLY_ARMS: sombra_pin, sombra_ort1, sombra_pin_ort1 = sombra con el consumidor fijado a --consumer-cpu y/o ORT con 1 hilo sin espera activa)
 #   joint : base, sombra, activo (con piso), activo_nofloor   (ambos daemons, app que alterna CPU y GPU)  5 repeticiones
 # base = REF (gobernador nativo con turbo, sin daemon). Por celda se registra duracion, energia de CPU (RAPL, ambos paquetes)
 # y de GPU (NVML) POR SEPARADO (el EDP del nodo se calcula luego), mas las fronteras de fase y las decisiones de cada daemon
@@ -71,7 +72,7 @@ RES="$OUT/results.csv"
 python3 - "$ONLY_SCOPES" "$ONLY_SETS" "$ONLY_ARMS" "$REPS_GENERAL" "$REPS_JOINT" > "$OUT/cells.txt" <<'PY'
 import random, sys
 scopes, sets, arms = (set(a.split()) for a in sys.argv[1:4]); rg, rj = int(sys.argv[4]), int(sys.argv[5])
-plan = {"cpu": (["base", "sombra", "activo", "activo_f0"], rg), "gpu": (["base", "sombra", "activo"], rg),
+plan = {"cpu": (["base", "sombra", "activo", "activo_f0", "sombra_pin", "sombra_ort1", "sombra_pin_ort1"], rg), "gpu": (["base", "sombra", "activo"], rg),
         "joint": (["base", "sombra", "activo", "activo_nofloor"], rj)}
 cells = [(sc, st, arm, r) for sc, (al, n) in plan.items() if sc in scopes for st in ("known", "unseen") if st in sets
          for arm in al if arm in arms for r in range(1, n + 1)]
@@ -94,6 +95,8 @@ run_cell() {
   local scope=$1 set=$2 arm=$3 rep=$4 id="$1_$2_$3_$4" D="$OUT/cells/$1_$2_$3_$4"
   mkdir -p "$D"; local SIG="$D/sig" pol dm_arm=sombra floor=$FLOOR_KHZ
   case "$arm" in activo|activo_f0|activo_nofloor) dm_arm=activo;; esac
+  local xflags=()  # variantes de diagnostico del sobrecosto del daemon de CPU (solo brazo sombra)
+  case "$arm" in sombra_pin) xflags=(--pin-consumer);; sombra_ort1) xflags=(--ort-threads 1);; sombra_pin_ort1) xflags=(--pin-consumer --ort-threads 1);; esac
   [ "$arm" = activo_nofloor ] && floor=0
   pol="$OUT/policy_activo.yaml"; [ "$arm" = activo_f0 ] && pol="$OUT/policy_activo_f0.yaml"; [ "$arm" = sombra ] && pol="$OUT/policy_activo.yaml"
   [ "$arm" = activo_nofloor ] && pol="$OUT/policy_activo.yaml"
@@ -112,7 +115,7 @@ run_cell() {
   fi
   if [ "$arm" != base ] && { [ "$scope" = cpu ] || [ "$scope" = joint ]; }; then
     ( exec python3 "$ROOT/fase3_daemon/cpu_loop/launch_cpu_daemon.py" --policy-table "$pol" --binary "$CPU_BIN" --arm $dm_arm -- \
-        --model "$ROOT/fase3_daemon/cpu_loop/xgboost_cpu.onnx" --perf-cpus 0,1,2,3 --collector-cpu 6 --consumer-cpu 7 --target-pid $COMP --interval-ns $INTERVAL_NS \
+        --model "$ROOT/fase3_daemon/cpu_loop/xgboost_cpu.onnx" --perf-cpus 0,1,2,3 --collector-cpu 6 --consumer-cpu 7 --target-pid $COMP --interval-ns $INTERVAL_NS "${xflags[@]}" \
         "${sigflag[@]}" --gpu-active-floor-khz $floor --log-path "$D/cpu_decisions.jsonl" ) > "$D/cpu_daemon.out" 2>&1 & cpu_d=$!
   fi
   sleep 3
