@@ -38,15 +38,27 @@ fi
 LMP=/opt/ohpc/pub/lammps/2023_gpu/bin/lmp
 NV=/opt/ohpc/pub/devtools/nvidia/hpc_sdk/Linux_x86_64/23.1
 export LD_LIBRARY_PATH="/opt/ohpc/pub/lammps/2023_gpu/lib64:/opt/ohpc/pub/libs/gnu12/openmpi4/fftw/3.3.10/lib:$NV/comm_libs/openmpi/openmpi-3.1.5/lib:$NV/math_libs/12.0/lib64:$LD_LIBRARY_PATH" LAMMPS_POTENTIALS=/opt/ohpc/pub/lammps/2023_gpu/share/lammps/potentials
-export OPAL_PREFIX="$NV/comm_libs/openmpi/openmpi-3.1.5" OMPI_MCA_btl_vader_single_copy_mechanism=none  # el openmpi de nvhpc busca sus archivos de ayuda en una ruta de compilacion
-ls -l "$LMP"; ldd "$LMP" | grep -i "not found" || echo "ldd: todas las librerias resueltas"; "$LMP" -h 2>&1 | grep -i -m4 "gpu\|MPI\|OpenMP" || true
+export OPAL_PREFIX="$NV/comm_libs/openmpi/openmpi-3.1.5"  # el openmpi de nvhpc busca sus archivos de ayuda en una ruta de compilacion
+MPIRUN="$OPAL_PREFIX/bin/mpirun"
+ls -l "$LMP"; ldd "$LMP" | grep -i "not found" || echo "ldd: todas las librerias resueltas"
+# `lmp` sin lanzador se cuelga en MPI_Init con este openmpi; se prueban variantes con limite de tiempo y se usa la primera que responde
+LMPCMD=""
+try() {  # $1 nombre; resto: comando (con env ya exportado)
+  local name=$1; shift
+  if timeout 25 "$@" -h > "$OUT/lmp_h_$name.txt" 2>&1 && grep -q "Large-scale Atomic" "$OUT/lmp_h_$name.txt"; then echo "variante $name: OK"; LMPCMD="$*"; return 0; fi
+  echo "variante $name: falla o se cuelga ($(head -c 200 "$OUT/lmp_h_$name.txt" | tr '\n' ' '))"; pkill -f "lmp -h" 2>/dev/null; return 1
+}
+export OMPI_MCA_btl=self,vader OMPI_MCA_pml=ob1 OMPI_MCA_mtl=^ofi OMPI_MCA_btl_vader_single_copy_mechanism=none
+try mpirun1 "$MPIRUN" -np 1 --oversubscribe "$LMP" || try directo "$LMP" || try mpirun_host "$MPIRUN" -np 1 --oversubscribe --host localhost "$LMP" || { echo "!!! LAMMPS no arranca con ninguna variante" >&2; exit 3; }
+echo "comando LAMMPS: $LMPCMD"
+
 for b in lj eam chain rhodo; do
   W="$OUT/lammps_$b"; rm -rf "$W"; mkdir -p "$W"; cp -r "$BENCH"/* "$W"/ 2>/dev/null; cd "$W"
   sed -i -E "s/^run[[:space:]]+100$/run\t\t$STEPS/" "in.$b"
   VARS=""; [ "$b" = lj ] || [ "$b" = eam ] && VARS="-var x 4 -var y 4 -var z 4"
   S=$(sampler "$OUT/util_$b.csv")
   T0=$(date +%s.%N)
-  timeout $MAXS "$LMP" -sf gpu -pk gpu 1 -in "in.$b" $VARS -log "$W/log.lammps" > "$W/stdout.txt" 2> "$W/stderr.txt" &
+  timeout $MAXS $LMPCMD -sf gpu -pk gpu 1 -in "in.$b" $VARS -log "$W/log.lammps" > "$W/stdout.txt" 2> "$W/stderr.txt" &
   L=$!; sleep 2
   if [ -x "$GPU_BIN" ]; then
     ( exec python3 "$ROOT/fase3_daemon/gpu_loop_cpp/launch_gpu_daemon.py" --policy-table "$ROOT/fase3_daemon/policy_table.yaml" --binary "$GPU_BIN" --arm sombra -- \
