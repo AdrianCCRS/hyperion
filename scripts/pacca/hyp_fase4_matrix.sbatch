@@ -177,6 +177,6 @@ run_cell() {
 }
 while read -r scope set arm rep; do
   grep -q "^${scope}_${set}_${arm}_${rep}," "$RES" && continue
-  run_cell "$scope" "$set" "$arm" "$rep"
+  run_cell "$scope" "$set" "$arm" "$rep" < /dev/null  # mpirun (LAMMPS) lee stdin y consumiria la lista de celdas
 done < "$OUT/cells.txt"
 echo "=== FIN: $(($(wc -l < "$RES")-1)) celdas en $RES ==="
