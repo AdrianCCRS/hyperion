@@ -62,13 +62,22 @@ def forest_politica() -> None:
         y = np.arange(len(names))[::-1]
         xerr = [np.array(gain) - np.array(lo), np.array(hi) - np.array(gain)]
         ax.errorbar(gain, y, xerr=xerr, fmt="o", color=color, ecolor="#b0b0b0", elinewidth=1.6, capsize=3, ms=5)
+        # F1 determina la política del daemon. Etiquetar el punto evita leer el
+        # extremo positivo del IC95 como si fuera la ganancia estimada.
+        if "F1" in names:
+            f1 = names.index("F1")
+            ax.annotate(f"{gain[f1]:+.1f}%",
+                        xy=(gain[f1], y[f1]), xytext=(0, 10),
+                        textcoords="offset points", ha="center", va="bottom",
+                        fontsize=8, color=color, fontweight="bold")
         ax.axvline(0, color="#333", lw=1)
         ax.set_yticks(y); ax.set_yticklabels(names)
         ax.set_title(titulo, fontsize=10)
         ax.set_xlabel("Ganancia del EDP frente a REF (%)")
     for ax in axes:
         ax.set_xscale("symlog", linthresh=1.0)
-    fig.suptitle("Ganancia del producto energía--retardo GPU por nivel, con IC95 (bootstrap de familias)", fontsize=10)
+    fig.suptitle("Ganancia estimada del producto energía--retardo GPU por nivel\n"
+                 "Punto: estimación; barra gris: IC95 por bootstrap de familias", fontsize=10)
     fig.tight_layout(rect=(0, 0, 1, 0.95))
     fig.savefig(F / "fig_gpu_politica_forest_20260922.png", bbox_inches="tight")
     plt.close(fig)

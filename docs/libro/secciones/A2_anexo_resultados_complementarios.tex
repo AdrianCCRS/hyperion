@@ -1,0 +1,615 @@
+\chapter{Resultados complementarios}
+\label{anexo:resultados-complementarios}
+
+Este anexo conserva las tablas de desglose, sensibilidad y trazabilidad que respaldan el capítulo \ref{sec:resultados}. El cuerpo principal mantiene las tablas de política, el modelo operativo y los resultados confirmatorios.
+
+\section{Detalle del clasificador de CPU}
+
+\begin{table}[H]
+\centering
+\caption{Variantes del vector de entrada bajo el mismo modelo y el mismo protocolo. La diferencia se calcula frente al vector de 6 variables.}
+\label{tab:cpu-variantes-entrada}
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}p{4.9cm}rrp{5.3cm}@{}}
+\toprule
+\textbf{Vector de entrada} & \textbf{Exact. bal.} & \textbf{F1 macro} & \textbf{Diferencia (IC95)} \\
+\midrule
+6 variables (configuración final) & 0.728 & 0.760 & referencia \\
+12 variables (seis transformaciones adicionales) & 0.724 & 0.783 & $-0.004$ \;($-0.026$ a $+0.011$) \\
+6 variables sin frecuencia & 0.720 & 0.752 & $-0.008$ \;($-0.018$ a $+0.001$) \\
+Solo frecuencia observada & 0.592 & 0.504 & $-0.136$ \;($-0.208$ a $-0.065$) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Efecto del esquema de partición sobre el resultado, con el mismo modelo y los mismos datos. El $\pm$ es la desviación estándar entre las cinco semillas de muestreo.}
+\label{tab:cpu-protocolos}
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}p{5.8cm}p{4.1cm}p{3.6cm}@{}}
+\toprule
+\textbf{Esquema de partición} & \textbf{Qué mide} & \textbf{Exactitud balanceada} \\
+\midrule
+Intervalos repartidos al azar (80/20) & Memorización de la carga & 0.874 $\pm$ 0.024 \\
+Dejar un kernel fuera (49 pliegues) & Otro tamaño o variante & 0.733 $\pm$ 0.016 \\
+Dejar una familia fuera (30 pliegues) & Algoritmo nunca visto & \textbf{0.728 $\pm$ 0.015} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Métricas de evaluación empleadas y pregunta que responde cada una.}
+\label{tab:cpu-metricas-definicion}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}p{3.0cm}p{4.2cm}p{5.9cm}@{}}
+\toprule
+\textbf{Métrica} & \textbf{Definición} & \textbf{Pregunta que responde y límite} \\
+\midrule
+Exactitud & $\dfrac{\sum_c \mathrm{VP}_c}{N}$ & ¿Qué fracción de todos los intervalos se clasifica bien? Premia predecir la clase mayoritaria y la dominan las familias con más intervalos \\[6pt]
+Precisión de la clase $c$ & $\dfrac{\mathrm{VP}_c}{\mathrm{VP}_c+\mathrm{FP}_c}$ & Cuando el modelo dice $c$, ¿cuántas veces acierta? \\[6pt]
+Sensibilidad de la clase $c$ & $\dfrac{\mathrm{VP}_c}{\mathrm{VP}_c+\mathrm{FN}_c}$ & De los intervalos que son $c$, ¿cuántos detecta? \\[6pt]
+F1 de la clase $c$ & $\dfrac{2\,P_cS_c}{P_c+S_c}$ & Media armónica de precisión y sensibilidad de esa clase \\[6pt]
+F1 macro agrupada & $\tfrac{1}{2}(F1_{\mathrm{compute}}+F1_{\mathrm{memory}})$ & Promedio de las F1 de las dos clases, calculadas sobre todos los intervalos concatenados \\[6pt]
+Exactitud balanceada clásica & $\tfrac{1}{2}(S_{\mathrm{compute}}+S_{\mathrm{memory}})$ & Promedio de las dos sensibilidades; corrige el desbalance entre clases pero no el volumen entre familias \\[6pt]
+AUC-ROC & Área bajo la curva sensibilidad frente a tasa de falsos positivos & ¿Ordena el modelo los intervalos \textit{memory-bound} por encima de los \textit{compute-bound}? No depende del umbral de decisión \\[6pt]
+Coeficiente de Matthews (MCC) & Correlación de Pearson entre la clase predicha y la clase real & Vale 0 para un modelo sin información y 1 para uno perfecto; usa las cuatro casillas de la matriz de confusión \\[6pt]
+\textbf{Exactitud balanceada por celda} & $\dfrac{1}{|\mathcal{C}|}\sum_{(f,c)\in\mathcal{C}}\dfrac{a_{fc}}{n_{fc}}$ & ¿Con qué fracción de aciertos se resuelve una celda típica de familia y clase? Ecuación \eqref{eq:exactitud-balanceada-celda} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Valores de todas las métricas para el modelo final, sin abstención. Media de cinco semillas de muestreo, desviación entre semillas e intervalo de confianza del 95\% por remuestreo de las 30 familias.}
+\label{tab:cpu-metricas-valores}
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}p{4.7cm}rrp{3.7cm}@{}}
+\toprule
+\textbf{Métrica} & \textbf{Valor} & \textbf{Desv. semillas} & \textbf{IC95 familias} \\
+\midrule
+Exactitud & 0.769 & 0.011 & 0.678 a 0.840 \\
+Precisión \textit{compute-bound} & 0.712 & 0.016 & -- \\
+Sensibilidad \textit{compute-bound} & 0.714 & 0.026 & -- \\
+F1 \textit{compute-bound} & 0.713 & 0.015 & -- \\
+Precisión \textit{memory-bound} & 0.808 & 0.013 & -- \\
+Sensibilidad \textit{memory-bound} & 0.806 & 0.017 & -- \\
+F1 \textit{memory-bound} & 0.807 & 0.010 & -- \\
+F1 macro agrupada & 0.760 & 0.012 & -- \\
+Exactitud balanceada clásica & 0.760 & 0.012 & 0.670 a 0.846 \\
+AUC-ROC agrupada & 0.842 & 0.008 & -- \\
+Coeficiente de Matthews & 0.520 & 0.023 & -- \\
+\textbf{Exactitud balanceada por celda} & \textbf{0.728} & \textbf{0.015} & 0.653 a 0.785 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Resultado del modelo final por nivel de frecuencia. La cobertura es la fracción de intervalos con confianza $\geq 0.85$; la exactitud es global y depende de la composición de clases de cada nivel, a diferencia de la exactitud balanceada por celda.}
+\label{tab:cpu-resultado-frecuencia}
+\footnotesize
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+\textbf{Nivel} & \textbf{Intervalos} & \textbf{Frac. memoria} & \textbf{Exact. bal. celda} & \textbf{Exactitud} & \textbf{Cobertura} \\
+\midrule
+REF & 94\,426 & 0.710 & 0.823 & 0.860 & 0.848 \\
+F0 & 85\,447 & 0.685 & 0.777 & 0.849 & 0.844 \\
+F1 & 90\,079 & 0.682 & 0.768 & 0.842 & 0.843 \\
+F2 & 96\,045 & 0.664 & 0.753 & 0.818 & 0.819 \\
+F3 & 103\,404 & 0.641 & 0.730 & 0.799 & 0.766 \\
+F4 & 114\,253 & 0.588 & 0.751 & 0.753 & 0.718 \\
+F5 & 129\,985 & 0.580 & 0.702 & 0.728 & 0.684 \\
+F6 & 153\,276 & 0.564 & 0.692 & 0.712 & 0.668 \\
+F7 & 186\,309 & 0.537 & 0.657 & 0.710 & 0.649 \\
+F8 & 256\,531 & 0.536 & 0.659 & 0.757 & 0.643 \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Rejilla del umbral de confianza. Exactitud balanceada por celda sobre lo decidido y cobertura media por celda, promedio de cinco semillas. La regla elige el máximo con cobertura de al menos 0.60; se congeló 0.85.}
+\label{tab:cpu-umbral-rejilla}
+\footnotesize
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{@{}rrr@{}}
+\toprule
+\textbf{Umbral} & \textbf{Cobertura por celda} & \textbf{Exact. bal. sobre lo decidido} \\
+\midrule
+0.50 & 1.000 & 0.728 \\
+0.80 & 0.770 & 0.742 \\
+\textbf{0.85 (congelado)} & \textbf{0.714} & \textbf{0.749} \\
+0.90 (regla) & 0.649 & 0.752 \\
+0.93 & 0.600 & 0.753 \\
+0.95 & 0.557 & 0.757 \\
+0.98 & 0.453 & 0.764 \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Efecto de la decisión selectiva con umbral de confianza 0.85.}
+\label{tab:cpu-selectiva}
+\small
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\textbf{Medida} & \textbf{Sin abstención} & \textbf{Con umbral 0.85} \\
+\midrule
+Cobertura & 1.000 & 0.722 \\
+Cobertura media por familia & 1.000 & 0.751 \\
+Cobertura de la familia peor cubierta & 1.000 & 0.293 \\
+Exactitud balanceada por celda & 0.728 & 0.738 \\
+F1 macro agrupada & 0.760 & 0.842 \\
+Exactitud & 0.769 & 0.850 \\
+Sensibilidad \textit{compute-bound} & 0.714 & 0.762 \\
+Sensibilidad \textit{memory-bound} & 0.806 & 0.910 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Proporción de predicciones del clasificador de CPU que cambia de clase al forzar la frecuencia.}
+\label{tab:cpu-contrafactual-frecuencia}
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}p{10.8cm}c@{}}
+\toprule
+\textbf{Frecuencia forzada} & \textbf{Predicciones que cambian} \\
+\midrule
+3.2~GHz & 10.6\% \\
+2.9~GHz & 10.1\% \\
+2.0~GHz & 4.5\% \\
+0.8~GHz & 8.8\% \\
+De F0 a F1, sobre filas observadas a $\approx$ 3.2~GHz (179\,774) & \textbf{0.42\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Detalle del clasificador de GPU}
+
+\begin{table}[H]
+\centering
+\caption{Comparación de modelos candidatos sobre el conjunto GPU ampliado (483 corridas, 16 familias), exactitud balanceada por celda familia por clase.}
+\label{tab:gpu-modelos-2026-09-22}
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{3.8cm}>{\centering\arraybackslash}p{3.6cm}>{\centering\arraybackslash}p{3.7cm}@{}}
+\toprule
+\textbf{Modelo} & \textbf{Exact. balanceada} & \textbf{IC95} \\
+\midrule
+Mayoritaria & 0.526 & [0.333, 0.722] \\
+Árbol profundidad 1 & 0.555 & [0.382, 0.733] \\
+Regresión logística & 0.792 & [0.680, 0.898] \\
+Árbol profundidad 6 & 0.727 & [0.625, 0.835] \\
+\textit{Random forest} & 0.807 & [0.697, 0.917] \\
+\textit{Extra trees} & 0.806 & [0.684, 0.917] \\
+XGBoost & 0.740 & [0.634, 0.872] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Factor de inflación de varianza (VIF) de las cinco variables de la referencia estática GPU.}
+\label{tab:gpu-vif}
+\small
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{6.5cm}c@{}}
+\toprule
+\textbf{Variable} & \textbf{VIF} \\
+\midrule
+Utilización GPU (mediana) & 1.89 \\
+Utilización de memoria (mediana) & 1.76 \\
+Potencia (mediana) & 2.26 \\
+Reloj SM (mediana) & 1.37 \\
+Desviación estándar de utilización de memoria & 1.32 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Detalle de la evaluación del agente}
+
+\begin{table}[H]
+\centering
+\caption{Decisiones del agente de GPU sobre las aplicaciones compuestas (umbral de abstención 0.90).}
+\label{tab:agente-deteccion}
+\footnotesize
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{@{}llccc@{}}
+\toprule
+\textbf{Aplicación} & \textbf{Brazo} & \textbf{Correctas} & \textbf{Erróneas} & \textbf{Abstenciones} \\
+\midrule
+A: dgemm de CUTLASS y \textit{triad} (3 ciclos) & sombra & 3 & 0 & 2 \\
+A: dgemm de CUTLASS y \textit{triad} (3 ciclos) & activo & 3 & 0 & 2 \\
+B: BabelStream y LavaMD (2 ciclos) & sombra & 2 & 0 & 2 \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Fases de las aplicaciones compuestas. Duración media por fase medida en las celdas del brazo REF (6 a 10 fases por kernel); cada aplicación ejecuta dos ciclos.}
+\label{tab:fase4-apps}
+\footnotesize
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{@{}lllcc@{}}
+\toprule
+\textbf{Alcance} & \textbf{Aplicación} & \textbf{Kernel} & \textbf{Clase} & \textbf{Duración (s)} \\
+\midrule
+CPU & A & DGEMM $n = 2048$ & compute & 4.2 \\
+ & & NPB CG & memory & 10.1 \\
+CPU & B & RSBench & compute & 65.7 \\
+ & & XSBench & memory & 12.0 \\
+GPU & A & DGEMM de CUTLASS ($n = 4096$) & compute & 31.5 \\
+ & & \textit{triad} de RAJAPerf & memory & 18.0 \\
+GPU & B & BabelStream & memory & 8.2 \\
+ & & LavaMD (entrada escalada) & compute & 8.7 \\
+Conjunto & A & DGEMM, NPB CG, CUTLASS, \textit{triad} & c, m, c, m & 4.2, 10.1, 31.5, 18.0 \\
+Conjunto & B & RSBench, XSBench, BabelStream, LavaMD & c, m, m, c & 65.6, 12.0, 8.3, 8.7 \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Clasificación de fase del agente en la matriz inicial (muestreo de 1~ms en CPU). Correctas y erróneas cuentan decisiones; la exactitud es sobre las decididas y la cobertura es el número de fases con al menos una decisión.}
+\label{tab:fase4-clasificacion}
+\small
+\begin{adjustbox}{max width=\textwidth}
+\input{datos/fase4_20260924/tabla_clasificacion.tex}
+\end{adjustbox}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Resultados de la matriz inicial. Duración y energías son medianas; las razones son frente a REF. $E_{\mathrm{tot}} = E_{\mathrm{CPU}} + E_{\mathrm{GPU}}$. El valor $p$ es de Mann--Whitney bilateral y solo se calcula con al menos cinco repeticiones por brazo.}
+\label{tab:fase4-resultados}
+\footnotesize
+\begin{adjustbox}{max width=\textwidth}
+\input{datos/fase4_20260924/tabla_resultados.tex}
+\end{adjustbox}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Efecto atribuible a la acción de frecuencia: EDP frente a REF del brazo sombra (sin escribir) y del activo, y su cociente. Un cociente menor que 1 indica que actuar mejora el EDP respecto de solo observar.}
+\label{tab:fase4-activo-sombra}
+\small
+\begin{adjustbox}{max width=\textwidth}
+\input{datos/fase4_20260924/tabla_activo_vs_sombra.tex}
+\end{adjustbox}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Costo del brazo sombra frente a REF en CPU, aplicación A (tres repeticiones por configuración), según la configuración del motor de inferencia y del proceso consumidor.}
+\label{tab:fase4-costo}
+\small
+\begin{adjustbox}{max width=\textwidth}
+\input{datos/fase4_20260924/tabla_costo_agente.tex}
+\end{adjustbox}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Escenario C (tres repeticiones por brazo). Duración y energías son medianas y las razones son frente a REF.}
+\label{tab:fase4-C}
+\footnotesize
+\resizebox{\textwidth}{!}{\input{datos/fase4_20260924/tabla_C.tex}}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{REF sin turbo relativo a REF, por aplicación compuesta y alcance incluido en C o E. Las razones son medianas de tres repeticiones.}
+\label{tab:fase4-noturbo}
+\small
+\begin{adjustbox}{max width=\textwidth}
+\input{datos/fase4_20260924/tabla_noturbo.tex}
+\end{adjustbox}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Escenario E (tres repeticiones por brazo). Duración y energías son medianas; las razones son frente a REF y la última columna frente a REF sin turbo.}
+\label{tab:fase4-E}
+\scriptsize
+\resizebox{\textwidth}{!}{\input{datos/fase4_20260924/tabla_E.tex}}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Clasificación de fase del agente en los escenarios C y E, contra las fronteras reales de cada fase.}
+\label{tab:fase4-clasificacion-CE}
+\scriptsize
+\begin{adjustbox}{max width=\textwidth}
+\input{datos/fase4_20260924/tabla_clasificacion_CE.tex}
+\end{adjustbox}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Resultados del escenario D con LAMMPS. Las razones se calculan frente a REF para cada entrada.}
+\label{tab:fase4-D}
+\small
+\begin{adjustbox}{max width=\textwidth}
+\input{datos/fase4_20260924/tabla_D.tex}
+\end{adjustbox}
+\end{table}
+
+\section{Tablas complementarias de CPU}
+
+\begin{table}[H]
+\centering
+\caption{Cobertura y composición del conjunto de intervalos CPU.}
+\label{tab:cpu-cobertura-conjunto}
+\small
+\begin{tabular}{@{}lr@{}}
+\toprule
+\textbf{Medida} & \textbf{Valor} \\
+\midrule
+Configuraciones de kernel & 49 \\
+Niveles de frecuencia & 10 \\
+Corridas aceptadas & 1470 de 1470 \\
+Intervalos procesados & 1\,424\,531 \\
+Intervalos elegibles & 1\,309\,755 \;(91.9\%) \\
+Intervalos \textit{compute\_bound} & 526\,279 \;(40.2\%) \\
+Intervalos \textit{memory\_bound} & 783\,476 \;(59.8\%) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Intervalos procesados, rechazados por causa y elegibles en la campaña CPU.}
+\label{tab:cpu-rechazos}
+\small
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\textbf{Categoría} & \textbf{Intervalos} & \textbf{Proporción} \\
+\midrule
+Procesados & 1\,424\,531 & 100.0\% \\
+Rechazados por frecuencia no utilizable & 71\,658 & 5.03\% \\
+Rechazados por ventana de origen no válida & 43\,118 & 3.03\% \\
+\textbf{Elegibles} & \textbf{1\,309\,755} & \textbf{91.9\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Flujo de observaciones desde la campaña CPU hasta la evaluación del modelo.}
+\label{tab:cpu-flujo-modelo}
+\small
+\begin{tabular}{@{}p{7.1cm}r p{5.0cm}@{}}
+\toprule
+\textbf{Etapa} & \textbf{Intervalos} & \textbf{Cálculo o criterio} \\
+\midrule
+Intervalos elegibles & 1\,309\,755 & Estado de entrenamiento correcto y frecuencia utilizable \\
+Intervalos evaluados & 1\,309\,755 & Todos los elegibles: las seis variables de entrada están definidas en cada intervalo \\
+Muestra reproducible & 42\,458 & Suma de $\min(n_{fc},1000)$ para cada celda observada \\
+Clase \textit{compute-bound} en la muestra & 21\,350 & Conteo posterior al límite por familia y clase \\
+Clase \textit{memory-bound} en la muestra & 21\,108 & Conteo posterior al límite por familia y clase \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Sensibilidad del resultado al tope de intervalos por celda de familia y clase.}
+\label{tab:cpu-tope-muestreo}
+\small
+\begin{tabular}{@{}rrr@{}}
+\toprule
+\textbf{Tope por celda} & \textbf{Intervalos de ajuste} & \textbf{Exactitud balanceada} \\
+\midrule
+100 & 4\,728 & 0.732 \\
+300 & 13\,430 & 0.729 \\
+1000 & 42\,458 & 0.723 \\
+3000 & 122\,135 & 0.739 \\
+10\,000 & 355\,228 & 0.737 \\
+30\,000 & 730\,974 & 0.720 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Configuración final del clasificador CPU.}
+\label{tab:cpu-configuracion-final}
+\small
+\begin{tabular}{@{}p{5.2cm}p{8.6cm}@{}}
+\toprule
+\textbf{Elemento} & \textbf{Valor} \\
+\midrule
+Modelo & XGBoost, 100 árboles, profundidad máxima 6, objetivo \texttt{binary:logistic} \\
+Entradas & 6 variables PMU de la Tabla \ref{tab:cpu-features-modelo} \\
+Ponderación & Peso total igual por celda de familia y clase, ecuación \eqref{eq:peso-familia-clase}, con \texttt{scale\_pos\_weight}${}=1$ \\
+Salida & Probabilidad de \textit{memory-bound}; clase con confianza $\geq 0.85$ y \textit{revisar} por debajo \\
+Semilla & 20260918 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Métricas por clase del modelo final sobre los 1\,309\,755 intervalos evaluados.}
+\label{tab:cpu-metricas-clase}
+\small
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+\textbf{Clase} & \textbf{Intervalos} & \textbf{Precisión} & \textbf{Sensibilidad} & \textbf{F1} \\
+\midrule
+\textit{compute-bound} & 526\,279 & 0.712 & 0.714 & 0.713 \\
+\textit{memory-bound} & 783\,476 & 0.808 & 0.806 & 0.807 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Verificaciones complementarias del agente}
+
+\begin{table}[H]
+\centering
+\caption{Restauración bajo terminación anómala y coordinación entre procesos.}
+\label{tab:agente-restauracion}
+\small
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{4.4cm}>{\raggedright\arraybackslash}p{8.4cm}@{}}
+\toprule
+\textbf{Prueba} & \textbf{Resultado} \\
+\midrule
+Proceso de GPU, candado puesto & El reloj vuelve al valor nativo; código de salida 0 \\
+Proceso de CPU, frecuencia modificada & Turbo y rango de frecuencia idénticos al estado inicial; código de salida 0 \\
+Ambos procesos a la vez & Ambos salen con código 0; estado de CPU idéntico al inicial y reloj de GPU liberado \\
+Piso de CPU con GPU activa (3.2~GHz) & Respetado en el 99.2\% de las muestras; las restantes (cuatro, de $\approx$ 0.24~s) están en los flancos de subida \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+
+\section{Análisis y decisiones complementarias}
+
+\subsection{Sensibilidad del tamaño de la muestra CPU}
+
+El conjunto contiene 30 familias algorítmicas. El modelo se ajusta con una muestra estratificada de 42\,458 intervalos, con un tope de 1000 por celda de familia y clase, y se evalúa sobre \emph{todos} los intervalos elegibles de la familia retirada (Tabla \ref{tab:cpu-flujo-modelo} y Figura \ref{fig:cpu-muestreo-familia}). El tope se verificó y no descarta información útil: al repetir la evaluación con topes entre 100 y 30\,000, es decir, entre 4728 y 730\,974 intervalos de ajuste, el resultado se mantiene entre 0.720 y 0.739 sin tendencia creciente (Tabla \ref{tab:cpu-tope-muestreo}). El valor de 0.723 que muestra la tabla para el tope de 1000, ligeramente por debajo del 0.728 del modelo congelado con ese mismo tope (Tabla \ref{tab:cpu-metricas-valores}), proviene de esta corrida de sensibilidad y no de la evaluación final; la diferencia, de 0.005, es menor que la desviación entre semillas de muestreo (0.015--0.016) y no altera la conclusión de que el tope no mueve el resultado. El sorteo del tope no reparte las filas por nivel de frecuencia, de modo que en las celdas donde actúa el nivel más poblado llega a tener en mediana 4.1 veces las filas del menos poblado; con un tope repartido por igual entre los 10 niveles la exactitud balanceada por celda cambió en $-0.003$ (IC95 de $-0.026$ a $+0.017$), una diferencia compatible con cero, por lo que se conservó el sorteo simple. Un millón de intervalos no equivale a un millón de ejemplos independientes, porque son observaciones repetidas de 30 algoritmos.
+
+\subsection{Variables adicionales del modelo CPU}
+
+El vector final deriva de este conjunto ampliado a doce entradas, que añadía cocientes y transformaciones de los mismos contadores, entre ellas $\log(1+\mathrm{MPKI})$ (una transformación monótona de MPKI) y las referencias de caché por millar de instrucciones ya mencionadas. Esas seis variables adicionales no mejoran el resultado: con las seis base la exactitud balanceada por celda es 0.728 y con las doce es 0.724, una diferencia de $-0.004$ cuyo intervalo de confianza del 95\% (de $-0.026$ a $+0.011$) contiene el cero (Tabla \ref{tab:cpu-variantes-entrada}). La F1 macro agrupada favorece nominalmente a las doce (0.783 frente a 0.760), pero es una métrica de referencia y no la que gobierna esta comparación. La redundancia sí afecta a la regresión logística, que es un modelo lineal: con doce variables queda 0.067 por debajo de XGBoost (IC95 de $-0.105$ a $-0.030$, que no toca el cero) y con seis la brecha es de 0.048, con un IC95 que apenas toca el cero (de $-0.092$ a $0.000$); la redundancia entre variables agrava, en lugar de crear, una diferencia ya presente con el vector reducido. El costo de inferencia de XGBoost es el mismo con seis o con doce variables (mediana de 243 y 245~\textmu s, y percentil 99 de 0.40 y 0.41~ms, con seis y con doce variables); se conservaron las seis porque el agente calcula menos columnas y no hay evidencia de que las adicionales aporten.
+
+\subsection{Desglose de la política CPU}
+
+El resultado es \textit{no actuar} en ambas clases (19 kernels compute y 28 memory, estos últimos con \texttt{ptrchase}, medido solo para esta política por ser un recorrido de memoria por latencia fuera del dominio del clasificador). En compute, el nivel más alto (F0, 3.2~GHz, el mismo reloj que la referencia con el turbo desactivado) mejora el producto 0.56\% (IC95 de 0.27 a 1.38\%, $p=0.008$): la diferencia es significativa pero menor que el efecto mínimo relevante y proviene de fijar el reloj frente al gobernador, no de reducirlo; de F1 a F8 la diferencia es significativa ($p<0.001$) y desfavorable, y el nivel más bajo multiplica el producto por 9.0 en mediana. En memory, ningún nivel bajo mejora el producto agregado: de F3 a F8 la diferencia es significativa, también en sentido desfavorable. \texttt{ptrchase}, con $\alpha=0.22$, apenas gana 1.0\% en F1. Cinco kernels del tipo STREAM, con exponente de tiempo $\alpha$ entre 0.18 y 0.22, alcanzan ganancias de entre 4 y 11\% en alguno de los niveles F1 a F3, pero esas cifras corresponden al mejor nivel de cada kernel y no describen una tendencia: en ninguno de ellos la ganancia varía de forma monótona con la frecuencia, como exigiría una curva de producto energía--retardo suave. El mismo kernel que gana 8.0\% en F2 gana 0.3\% en F3, y varios de ellos pierden en uno de los tres niveles mientras ganan en otro. Su magnitud es del orden de la dispersión entre repeticiones y niveles, de modo que se reportan como observación puntual y no como evidencia de una región aprovechable. Aquí $\alpha$ es la pendiente negativa de $\log T$ frente a $\log f$. La Figura \ref{fig:cpu-energia-relativa} muestra por qué: al bajar el reloj la energía casi no disminuye (la mediana más baja es 0.983 de la referencia en memory, y en compute nunca baja de 0.998), mientras el tiempo crece, de modo que el producto energía--retardo solo empeora.
+
+\subsection{Modelo del piso de potencia CPU}
+
+La causa es el piso de potencia. Ajustando $P(f)=P_0+c\,f^{k}$ a cada kernel (error mediano de 0.34~W), $P_0$ resulta de 85~W en mediana, casi idéntico entre kernels (entre 80 y 100~W), y representa el 84\% de la potencia a 3.2~GHz; con $k\approx 2$, reducir el reloj a 0.8~GHz ahorra solo 15\% de la potencia. Con ese modelo, bajar la frecuencia mejora el producto únicamente si $\alpha$ es menor que un valor crítico, cuya mediana es 0.14 y que en ningún kernel supera 0.33. Los kernels compute densos tienen el mayor margen de potencia, pero un $\alpha$ cercano a 1. Incluso con un clasificador perfecto que eligiera el mejor nivel de cada kernel, la ganancia media sería de 2.2\% y la máxima de 12.5\%; ese techo es además optimista, porque se obtiene tomando el mínimo del producto entre los nueve niveles medidos de cada kernel, y ese mínimo captura parte de la dispersión de la medición además del efecto real. De hecho, 22 de los 47 kernels tienen una ganancia de oráculo inferior al efecto mínimo relevante de 1\%, es decir que para casi la mitad del catálogo ni siquiera un selector perfecto alcanzaría el umbral declarado. Este desenlace es un resultado válido de la evaluación: la decisión de actuar recae en identificar la región de $\alpha$ bajo, y la clase Roofline por sí sola no la determina. La Figura \ref{fig:cpu-energia-piso} muestra la potencia medida de cada kernel en función de la frecuencia: las curvas casi se aplanan sobre ese piso, y la fracción estática a 3.2~GHz es de entre 0.6 y 0.95 según el kernel.
+
+\subsection{Contrato operativo del modelo GPU}
+
+En consecuencia, el modelo desplegado en el agente es un \textit{random forest} con tres variables, la mediana de la utilización de GPU, la mediana de la utilización de memoria y la desviación estándar intracorrida de esta última, sin reloj ni potencia (Tabla \ref{tab:gpu-modelos-operativos}). Se ajustó sobre las 483 corridas disponibles después de cerrar la evaluación LOFO. Su inferencia de una fila en \texttt{paccaA100} es de 4.7~ms en el percentil 50 y 5.0~ms en el 99. Es pequeña frente a los segundos necesarios para detectar una fase, reunir sus señales y aplicar un reloj; esa latencia de respuesta completa se mide en la Fase 4. El agente toma como máximo una decisión por fase detectada, de modo que una abstención no se reevalúa dentro de la misma fase. Su ECE LOFO, calculado sobre las probabilidades fuera de familia de cinco semillas y diez rangos de confianza, es 0.0868. Es mayor que el 0.0569 de la regresión logística, pero corresponde al contrato de tres entradas que el daemon puede observar sin realimentarse. Con el umbral congelado en 0.90, la exactitud balanceada por celda sube de 0.819 a 0.900 reteniendo el 65.7\% de las corridas. Este es el modelo y el umbral que consume el agente.
+
+\subsection{Sensibilidad del tiempo al reloj GPU}
+
+\paragraph{Por qué \textit{memory\_bound} sí responde y \textit{compute\_bound} no.} El mecanismo es el mismo que en CPU (sección \ref{sec:resultados-cpu-potencia-diseno}): la sensibilidad del tiempo de ejecución al reloj. Ajustando $\alpha$, la pendiente negativa de $\log(\text{tiempo})$ frente a $\log(\text{reloj SM})$, sobre 18 de los 19 kernels con al menos tres niveles de reloj medidos (excluido \texttt{minibude\_cuda\_bm1}, que solo tiene \texttt{REF}) --- este cálculo no exige corridas en \texttt{REF}, así que incluye también los cuatro kernels sin ella que la Tabla \ref{tab:gpu-politica-ic} no puede emparejar ---, los kernels \textit{compute\_bound} tienen $\alpha$ mediano de 0.837 (rango 0.344--1.216, $n=6$): su tiempo es casi inversamente proporcional al reloj, de modo que bajar la frecuencia ahorra poca energía por unidad de tiempo perdido. Los kernels \textit{memory\_bound} tienen $\alpha$ mediano de 0.189 (rango 0.093--0.941, $n=12$): su tiempo apenas responde al reloj del multiprocesador de flujo, porque su cuello de botella --- el ancho de banda hacia la memoria del dispositivo --- está gobernado por un dominio de reloj separado que la matriz experimental no varía (Tabla \ref{tab:frecuencias}). Reducir el reloj SM en ese régimen retira potencia dinámica del cómputo sin alargar proporcionalmente la espera por memoria, lo que abre el margen de mejora del producto energía--retardo que la Tabla \ref{tab:gpu-politica-ic} mide. La excepción es \texttt{rodinia\_gaussian} ($\alpha=0.941$ pese a ser \textit{memory\_bound}), la familia más cercana al punto de inflexión del catálogo (sección \ref{sec:resultados-gpu-gemm-evolucion}), consistente con que su tiempo responda casi tanto al reloj como el de un kernel genuinamente limitado por cómputo.
+
+\subsection{Excepción en la política GPU}
+
+\paragraph{La única familia que empeora en la validación LOFO.} De las ocho familias \textit{memory\_bound}, siete escogen F1 al aplicar la regla ``mayor ganancia media en las demás familias'' a su propio pliegue, y la realizan con ganancias de entre 4.2\% y 14.8\%. La excepción es \texttt{rodinia\_gaussian}, cuyo pliegue escoge F2 a partir de las otras siete familias y realiza una pérdida de $-27.3\%$: es precisamente la familia con $\alpha=0.941$ señalada en el párrafo anterior, la más cercana al punto de inflexión del catálogo (sección \ref{sec:resultados-gpu-gemm-evolucion}), cuyo tiempo responde al reloj casi como el de un kernel \textit{compute\_bound} pese a estar etiquetada \textit{memory\_bound} sin ambigüedad (margen de clase 1.0). No es el mismo mecanismo que limita al clasificador: \texttt{rodinia\_lud}, la familia con menor margen de mayoría de clase de todo el conjunto (0.60, la que sí cruza el punto de inflexión entre niveles) realiza en este pliegue una ganancia positiva de 13.9\% y no es problemática para la política, aunque sí lo sea para el clasificador de la sección \ref{sec:resultados-gpu-gemm-evolucion}. La política de frecuencia y el clasificador de régimen comparten un límite de fondo --- ninguno de los dos recibe la distancia al punto de inflexión como variable --- pero les afecta por vías distintas: al clasificador lo confunde un kernel cuya etiqueta cambia con el nivel; a la política la sorprende un kernel cuya etiqueta es estable pero cuya física de reloj se parece a la de la otra clase. Ninguna de las dos familias se excluyó de su respectivo análisis por la misma razón: excluirlas seleccionaría datos por el resultado que ellas mismas producen.
+
+\subsection{Referencia sin turbo}
+
+Como línea base secundaria se midió el nodo sin agente y con el turbo de CPU apagado (\textit{REF sin turbo}), para determinar si la referencia nativa obtiene una ventaja atribuible a ese mecanismo. REF con turbo sigue siendo la referencia principal. La Tabla \ref{tab:fase4-noturbo} cubre las seis combinaciones compuestas medidas en C y E, con tres repeticiones por combinación. Sus razones medianas de EDP frente a REF están entre 0.988 y 1.006, de modo que la mayor diferencia observada es $-1.2\%$ y no muestra una ventaja sistemática de ninguna referencia. En los núcleos que ejecutan las aplicaciones de CPU y conjunto, el límite superior configurado es 3.2~GHz; por ello, el turbo no eleva el reloj de la aplicación y tampoco aparece una diferencia apreciable de tiempo o energía. Esta evidencia se limita a las cargas compuestas evaluadas y no se extrapola a LAMMPS ni a CloverLeaf. Las conclusiones de las secciones anteriores no cambian con la referencia sin turbo: el brazo activo de CPU queda entre 1.05 y 1.14 de REF sin turbo, frente a 1.04 y 1.15 de REF. Esta línea base conserva el reloj nativo de la GPU y, por tanto, no prueba la ventaja de conmutar por fase frente a un nivel fijo de GPU.
+
+\subsection{Análisis por repetición de E-B}
+
+\paragraph{Familias inéditas (B).} La mediana no muestra mejora: el brazo activo queda en 1.014 del EDP de REF y 1.003 en energía de GPU, y el agente con observación de CPU en 1.048. Los resultados por repetición explican por qué. El clasificador de GPU decide con la ventana inicial de cada fase, y en BabelStream su probabilidad de memoria fue 1.00 en una repetición y 0.43 y 0.33 en las otras dos, de modo que solo en la primera superó el umbral de 0.90 y aplicó F1; en las otras dos se abstuvo y el reloj quedó en el valor nativo. En la repetición en que el agente actuó, la energía de GPU fue 12\% menor que la de REF con la misma duración y el EDP del nodo 5\% menor; en las otras dos el resultado fue neutro. Con \textit{myocyte} el agente no tomó ninguna decisión en ninguna repetición, porque la utilización de GPU (máxima de 11\%, mediana de 0\%) no supera el umbral de 5\% de forma sostenida con que el agente abre una fase. Además, en la segunda repetición de los dos brazos activos la fase de \textit{myocyte} duró 49.9~s frente a 40 a 42~s en las demás, con el reloj nativo y sin que el agente hubiera cambiado nada; esa repetición explica el valor de 1.18 de REF en el EDP y su causa no está identificada, aunque no hay evidencia de que la produzca el agente. La conclusión es que con memoria inédita el resultado depende de que el clasificador decida: cuando decide, el ahorro es del mismo orden que con familias vistas, y cuando se abstiene no hay efecto, sin que en ninguna repetición se atribuya un empeoramiento al agente. Es el límite de generalización del clasificador de GPU visible en la Fase 2.
+
+
+
+\section{Tablas completas de síntesis y política}
+
+\begin{table}[H]
+\centering
+\caption[Ganancia del producto energía--retardo por nivel y clase]{Ganancia agregada del producto energía--retardo frente a la referencia nativa (\%), intervalo de confianza de 95\% por \textit{bootstrap} de kernels y valor $p$ de Wilcoxon pareado. Un valor negativo indica empeoramiento. Compute: 19 kernels; memory: 28 kernels. Fuente: elaboración propia.}
+\label{tab:cpu-politica-detalle}
+\footnotesize
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{@{}lrcrrcr@{}}
+\toprule
+& \multicolumn{3}{c}{\textbf{Compute}} & \multicolumn{3}{c}{\textbf{Memory}} \\
+\cmidrule(lr){2-4}\cmidrule(l){5-7}
+\textbf{Nivel} & Ganancia & IC 95\% & $p$ & Ganancia & IC 95\% & $p$ \\
+\midrule
+F0 & $0.56$ & $[0.27;\ 1.38]$ & 0.008 & $0.21$ & $[-0.41;\ 0.39]$ & 0.938 \\
+F1 & $-11.6$ & $[-14.2;\ -11.0]$ & $<0.001$ & $-5.4$ & $[-6.8;\ -3.4]$ & 0.120 \\
+F2 & $-30.7$ & $[-34.7;\ -29.2]$ & $<0.001$ & $-13.4$ & $[-18.5;\ -11.2]$ & 0.073 \\
+F3 & $-58.0$ & $[-66.6;\ -54.6]$ & $<0.001$ & $-26.2$ & $[-34.0;\ -20.5]$ & 0.018 \\
+F4 & $-97.5$ & $[-111.2;\ -91.8]$ & $<0.001$ & $-44.0$ & $[-54.8;\ -20.9]$ & 0.009 \\
+F5 & $-159.9$ & $[-181.9;\ -150.7]$ & $<0.001$ & $-72.8$ & $[-91.9;\ -43.7]$ & $<0.001$ \\
+F6 & $-268.3$ & $[-305.8;\ -252.6]$ & $<0.001$ & $-124.6$ & $[-153.0;\ -82.3]$ & $<0.001$ \\
+F7 & $-476.0$ & $[-541.0;\ -448.6]$ & $<0.001$ & $-219.2$ & $[-273.5;\ -155.7]$ & $<0.001$ \\
+F8 & $-966.6$ & $[-1098.7;\ -911.3]$ & $<0.001$ & $-445.9$ & $[-561.9;\ -337.3]$ & $<0.001$ \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}
+
+
+\begin{table}[H]
+\centering
+\caption[Ganancia del producto energía--retardo GPU por nivel y clase, con la familia como unidad]{Ganancia agregada del producto energía--retardo frente a \texttt{REF} (\%), intervalo de confianza de 95\% por \textit{bootstrap} de familias y valor $p$ de la prueba pareada. Compute: 5 familias; memory: 8 familias. Fuente: elaboración propia.}
+\label{tab:gpu-politica-detalle}
+\footnotesize
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{@{}lrcrrcr@{}}
+\toprule
+& \multicolumn{3}{c}{\textbf{Compute}} & \multicolumn{3}{c}{\textbf{Memory}} \\
+\cmidrule(lr){2-4}\cmidrule(l){5-7}
+\textbf{Nivel} & Ganancia & IC 95\% & $p$ & Ganancia & IC 95\% & $p$ \\
+\midrule
+F0 & $-0.7$ & $[-4.3;\ 2.0]$ & 0.438 & $-0.6$ & $[-2.3;\ 1.1]$ & 0.770 \\
+F1 & $2.1$ & $[-12.7;\ 14.2]$ & 0.438 & $\mathbf{8.9}$ & $\mathbf{[3.0;\ 13.3]}$ & $\mathbf{0.020}$ \\
+F2 & $-10.2$ & $[-41.2;\ 15.3]$ & 0.688 & $7.4$ & $[-3.6;\ 15.9]$ & 0.156 \\
+F3 & $-30.8$ & $[-87.3;\ 9.4]$ & 0.844 & $-0.3$ & $[-20.0;\ 14.1]$ & 0.422 \\
+F4 & $-68.6$ & $[-165.7;\ -3.7]$ & 0.938 & $-14.0$ & $[-45.7;\ 8.3]$ & 0.680 \\
+F5 & $-122.0$ & $[-276.6;\ -23.4]$ & 0.969 & $-30.3$ & $[-78.1;\ 1.3]$ & 0.902 \\
+F6 & $-183.9$ & $[-438.9;\ -47.3]$ & 0.969 & $-38.9$ & $[-104.2;\ -0.9]$ & 0.926 \\
+F7 & $-300.4$ & $[-761.1;\ -86.1]$ & 1.000 & $-48.2$ & $[-147.4;\ 0.9]$ & 0.902 \\
+F8 & $-645.1$ & $[-1727.4;\ -200.0]$ & 1.000 & $-76.3$ & $[-268.2;\ -2.3]$ & 0.902 \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}
+
+
+\begin{table}[H]
+\centering
+\caption{Balance de la Fase 4 por pregunta.}
+\label{tab:fase4-balance-detalle}
+\small
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{4.2cm}>{\raggedright\arraybackslash}p{6.4cm}>{\raggedright\arraybackslash}p{3cm}@{}}
+\toprule
+\textbf{Pregunta} & \textbf{Resultado} & \textbf{Sección} \\
+\midrule
+¿Clasifica bien la fase en aplicaciones con verdad conocida? & Sí: CPU 97 a 99.9\%; GPU sin errores en lo que decide, con abstenciones & \ref{sec:resultados-fase4-clasificacion}, \ref{sec:resultados-fase4-E} \\
+¿Es barato mantener el agente? & GPU sin costo medible; CPU con un hilo de inferencia, +5 a 9\% de energía de CPU y +0.4 a 1.4\% de tiempo & \ref{sec:resultados-fase4-costo}, \ref{sec:resultados-fase4-C} \\
+¿Actuar sobre la frecuencia de CPU mejora el EDP? & No: el brazo activo queda entre 1.04 y 1.16 de REF, y no mejora sobre sombra & \ref{sec:resultados-fase4-C} \\
+¿Conmutar GPU por fase gana a F1 fijo? & No quedó demostrado: el brazo F1 fijo de E-A fue inválido porque no sostuvo el reloj bajo carga & \ref{sec:resultados-fase4-E} \\
+¿Actuar sobre la frecuencia de GPU mejora el EDP? & E-A y CloverLeaf reducen la energía de GPU en 7.18 y 6.07\%, y el EDP del nodo en 2.84 y 3.75\%; en ambos casos $p=0.0625$ bilateral. La comparación E-A con F1 fijo quedó inválida y LAMMPS permanece en paridad & \ref{sec:resultados-fase4-E}, \ref{sec:resultados-fase4-cloverleaf}, \ref{sec:resultados-fase4-D} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Detalles adicionales de método y diagnóstico}
+
+\subsection{Auditoría de frecuencia de la campaña CPU}
+
+Toda corrida se ejecutó con turbo desactivado y con la frecuencia solicitada verificada en cada ventana, con una tolerancia de $\pm5\%$; una ventana cuya frecuencia observada no cumple ese criterio no recibe etiqueta. La comprobación excluye dos márgenes. Tras cada cambio de nivel se descartan $\sim$10~ms, porque en mediciones repetidas (dos corridas idénticas en el nodo de la campaña) un procesador delegado tardó entre 10 y 11~ms en engancharse al límite de frecuencia justo después de arrancar el kernel real, aunque el asentamiento previo ya se había confirmado. Además se descartan 0.15~s al inicio y al final de cada corrida, porque en los kernels de una sola región paralela larga un hilo que termina antes queda ocioso esperando a sus pares y diluye el promedio de frecuencia en la unión final. La actuación de frecuencia se comprobó midiendo su efecto sobre el rendimiento: al restringir solo los procesadores lógicos delegados, la razón de rendimiento entre el nivel más alto y el más bajo se mantuvo en 0.995, es decir, sin escalar; al restringir también sus hermanos de \textit{SMT}, subió a 3.78, cercana a la razón de cuatro esperada entre esos niveles. Las 1470 corridas conservaron una observación de frecuencia válida o, en el nivel nativo, el estado no aplicable a una frecuencia fija. De los 1\,424\,531 intervalos procesados se rechazó el 8.1\%, por dos causas (Tabla \ref{tab:cpu-rechazos}): que la frecuencia observada no fuera utilizable, y que alguna ventana de origen no superara la validación de calidad (sección \ref{sec:calentamiento}).
+
+\subsection{Selección detallada del umbral CPU}
+
+El modelo puede abstenerse cuando su confianza, definida como $\max(p,1-p)$, no alcanza un umbral. El umbral se eligió con un LOFO interno sobre las 30 familias y la misma métrica principal, la exactitud balanceada por celda sobre lo decidido, con una cobertura media por celda mínima de 0.60. Esta selección es un promedio a través de los pliegues de la rejilla (Tabla \ref{tab:cpu-umbral-rejilla}) y no coincide exactamente con la evaluación externa del modelo final que se reporta más abajo, porque una promedia el criterio interno de cada pliegue y la otra evalúa el modelo ya congelado. La regla propuso 0.90. Se congeló 0.85 en su lugar, por tres razones. Primera, la curva es casi plana: pasar de 0.85 a 0.90 sube esa exactitud de selección de 0.749 a 0.752, una diferencia dentro del ruido (con 30 familias, las diferencias menores que 0.03 no son distinguibles), y baja la cobertura por celda de 0.714 a 0.649, es decir, 6.5 puntos más de intervalos que el agente no resuelve por sí mismo. Segunda, los intervalos con confianza entre 0.85 y 0.90 son el 6.3\% del total y se aciertan el 64\%, de modo que excluirlos descarta casos que en su mayoría el modelo acierta a medias. Tercera, ningún umbral mayor rescata la métrica de forma sustancial: a 0.93 la cobertura llega al piso de 0.60 y esa exactitud de selección es 0.753. Es una decisión de diseño posterior al resultado y se declara como tal; elegir el umbral por pliegue, dentro de cada familia retirada y con la rejilla ampliada hasta 0.98, produce prácticamente lo mismo (0.734 sobre lo decidido, con una cobertura media por familia de 0.69), de modo que congelar un único valor no infla el resultado.
+
+\subsection{Construcción detallada de la política CPU}
+
+La tabla clase--frecuencia de menor producto energía--retardo se derivó de la campaña con la energía y el tiempo de cada corrida completa. Toda corrida de un mismo kernel ejecuta el mismo trabajo en los diez niveles, de modo que el producto energía--retardo (energía de paquete más DRAM, multiplicada por el tiempo) es comparable entre niveles. Para cada clase se tomó la mediana de las tres repeticiones de cada kernel y se comparó cada nivel fijo con la referencia nativa mediante una prueba de Wilcoxon pareada por kernel ($\alpha=0.05$). Un nivel solo se adopta si mejora el producto agregado de forma significativa y en al menos 1\%, efecto mínimo relevante que se fijó después de ver el resultado y se declara como tal; en caso contrario la entrada de la clase es \textit{no actuar}, con su motivo. La clase de cada kernel es la mayoritaria entre sus intervalos etiquetados y se excluyen las sondas de calibración. Se excluyen las tres variantes de \textit{phasic}, cuya duración es fija (20.6~s en todos los niveles): su trabajo no es constante entre niveles y su producto no compara lo mismo. La Tabla \ref{tab:cpu-politica-ic} resume la decisión; la ganancia y su incertidumbre para cada nivel están en la Tabla \ref{tab:cpu-politica-detalle} del anexo.
+
+\subsection{Diagnóstico del eje de frecuencia CUPTI}
+
+El eje de frecuencia de esa misma campaña, sin embargo, resultó inválido. Una verificación posterior del candado de reloj (\texttt{nvidia-smi -lgc}), con carga computacional real y medición del rendimiento alcanzado, encontró que el reloj observado no cambiaba al solicitar 700~MHz ni al solicitar 1200~MHz: permaneció fijo en 765~MHz antes, durante y después de cada solicitud, y el rendimiento medido bajo carga coincidió en ambos casos con el pico documentado sin candado. Esto contrasta con la verificación reportada en la sección \ref{sec:resultados-gpu-dvfs}, donde el mismo mecanismo sí sostuvo objetivos de 600 y 1200~MHz. Como la verdad por ventana de la campaña CUPTI exige que el reloj observado coincida con el nivel solicitado dentro de una tolerancia, cada ventana quedó marcada con frecuencia inválida y ninguna resultó elegible para entrenamiento. Los artefactos de mayor costo, la traza de eventos y las calibraciones Roofline por nivel, permanecen íntegros; lo que falla es la interpretación del eje de frecuencia sobre esa traza, en principio recuperable reprocesando cada corrida como un único nivel de reloj nativo en vez de nueve niveles distintos, tarea que queda pendiente. Una verificación posterior, con la misma prueba directa bajo carga, encontró el candado operativo (sección \ref{sec:resultados-agente-candado}), por lo que el eje de frecuencia de una campaña nueva vuelve a ser interpretable.
+
+\subsection{Composición detallada del escenario E}
+
+La aplicación A reúne tres fases \textit{memory\_bound} (\texttt{dual\_stencil}, 58 a 60~s; \texttt{dual\_spmv}, 46~s; \texttt{dual\_axpy}, 47 a 48~s) y una fase de cómputo (DGEMM de CUTLASS, 31~s), con el 84\% del ciclo en memoria. La aplicación B reúne dos fases \textit{memory\_bound} inéditas (BabelStream escalado, 36~s, y \textit{myocyte} de Rodinia escalado, 40 a 41~s) y una de cómputo (LavaMD escalado, 9~s), con el 89\% del ciclo en fases etiquetadas \textit{memory\_bound}; solo hay dos porque ningún otro kernel inédito de memoria del catálogo sostiene 25~s. La utilización de GPU medida sobre la secuencia muestra que solo BabelStream ocupa la GPU (utilización mediana 100\%); \textit{myocyte} tiene utilización mediana de 0\% y máxima de 11\%, de modo que su etiqueta \textit{memory\_bound}, derivada de una intensidad operacional por kernel, no corresponde a actividad de GPU, y la fracción de tiempo del ciclo con la GPU en una fase de memoria es 42\%. Cada aplicación se ejecuta en un ciclo. Los brazos son REF, REF sin turbo, sombra y dos variantes del brazo activo con la política de GPU congelada (F1 en \textit{memory}, reloj nativo en \textit{compute}): sin agente de CPU, porque la política de CPU es no actuar, y con el agente de CPU en observación, para medir su costo.

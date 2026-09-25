@@ -1,0 +1,12 @@
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\textbf{Configuración} & \textbf{$T$/REF} & \textbf{$E_{\mathrm{CPU}}$/REF} & \textbf{EDP/REF} & \textbf{Exactitud} \\
+\midrule
+Pool por defecto, 1 ms & 1.205 & 1.656 & 1.910 & 0.940 \\
+Pool por defecto, 10 ms & 1.198 & 1.666 & 1.903 & 0.964 \\
+Pool por defecto, 10 ms (diagnóstico) & 1.204 & 1.669 & 1.911 & 0.969 \\
+Consumidor fijado a un núcleo & 1.191 & 1.652 & 1.871 & 0.969 \\
+Un hilo de inferencia & 0.998 & 1.063 & 1.047 & 0.991 \\
+Un hilo y consumidor fijado & 0.999 & 1.059 & 1.045 & 0.994 \\
+\bottomrule
+\end{tabular}

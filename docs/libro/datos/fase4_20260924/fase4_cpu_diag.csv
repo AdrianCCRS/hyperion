@@ -1,0 +1,16 @@
+cell,scope,set,arm,rep,wall_s,e_cpu_j,e_gpu_j,app_rc,rc_cpu_daemon,rc_gpu_daemon,state_ok
+cpu_known_sombra_pin_2,cpu,known,sombra_pin,2,39.36,9146.29,1391.18,0,0,NA,1
+cpu_known_base_2,cpu,known,base,2,33.199,5563.12,1151.93,0,NA,NA,1
+cpu_known_sombra_3,cpu,known,sombra,3,39.973,9283.91,1375.44,0,0,NA,1
+cpu_known_sombra_2,cpu,known,sombra,2,39.946,9286.46,1372.87,0,0,NA,1
+cpu_known_sombra_ort1_1,cpu,known,sombra_ort1,1,33.124,5911.24,1137.26,0,0,NA,1
+cpu_known_sombra_1,cpu,known,sombra,1,41.17,9557.09,1412.52,0,0,NA,1
+cpu_known_sombra_pin_1,cpu,known,sombra_pin,1,39.544,9189.33,1356.44,0,0,NA,1
+cpu_known_sombra_pin_ort1_3,cpu,known,sombra_pin_ort1,3,33.159,5888.7,1135.28,0,0,NA,1
+cpu_known_sombra_ort1_3,cpu,known,sombra_ort1,3,33.135,5876.8,1134.27,0,0,NA,1
+cpu_known_base_3,cpu,known,base,3,33.307,5582.63,1142.06,0,NA,NA,1
+cpu_known_sombra_pin_ort1_1,cpu,known,sombra_pin_ort1,1,33.19,5890.58,1138.71,0,0,NA,1
+cpu_known_sombra_pin_3,cpu,known,sombra_pin,3,40.044,9291.25,1374.05,0,0,NA,1
+cpu_known_sombra_ort1_2,cpu,known,sombra_ort1,2,33.175,5925.13,1138.22,0,0,NA,1
+cpu_known_sombra_pin_ort1_2,cpu,known,sombra_pin_ort1,2,33.176,5872.41,1136.39,0,0,NA,1
+cpu_known_base_1,cpu,known,base,1,33.132,5534.29,1132.86,0,NA,NA,1

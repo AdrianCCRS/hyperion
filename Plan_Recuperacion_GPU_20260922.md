@@ -4,6 +4,17 @@ Escrito para que lo ejecute una sesión nueva sin contexto previo. Cada
 afirmación de aquí se verificó contra datos reales el 2026-09-22; **verificar
 de nuevo antes de asumir que algo sigue igual**.
 
+## -1. Alcance de H1: bloquea más que CUPTI
+
+**Importante para no confundir dos bloqueos distintos**: H1 (candado de
+reloj roto) no solo bloquea la recuperación de la campaña CUPTI (§3, T3).
+Bloquea **cualquier cosa que necesite variar la frecuencia de GPU de
+verdad**, incluida la tabla de política clase→frecuencia por EDP (el
+equivalente GPU de lo que CPU cerró en su sección 15-20 del informe de
+calidad). "Bloqueado por CUPTI" y "bloqueado por el candado roto" no son
+la misma cosa — el segundo es más amplio. Mientras H1 no se resuelva, no
+hay política DVFS de GPU posible, exista o no la campaña CUPTI.
+
 ## 0. Los tres hechos que condicionan todo
 
 ### H1. El candado de reloj de GPU está roto en `paccaA100`
