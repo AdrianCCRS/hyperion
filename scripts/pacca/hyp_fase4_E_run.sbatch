@@ -17,12 +17,15 @@
 set -uo pipefail
 ROOT="${HYPERION_ROOT:-$HOME/hyperion_c8}"; RES="$HOME/hyperion-results/final"; source "$HOME/hyperion-venv/bin/activate"
 hostname; git -C "$ROOT" log --oneline -1
-GATE_FLAG=""; [ "${RUN_KIND:-}" = noturbo ] && GATE_FLAG="--noturbo"  # el complemento sin turbo solo exige base_noturbo sano
-python3 "$ROOT/fase4_evaluacion/gate_preflight_E.py" "$RES/fase4_E_preflight" $GATE_FLAG || { echo "compuerta cerrada: no se mide nada" >&2; exit 2; }
+GATE_FLAG=""; PRE="$RES/fase4_E_preflight"
+[ "${RUN_KIND:-}" = noturbo ] && GATE_FLAG="--noturbo"  # el complemento sin turbo solo exige base_noturbo sano
+[ "${RUN_KIND:-}" = D ] && { GATE_FLAG="--lammps"; PRE="$RES/fase4_D_preflight"; }  # escenario D: pre-vuelo de LAMMPS
+python3 "$ROOT/fase4_evaluacion/gate_preflight_E.py" "$PRE" $GATE_FLAG || { echo "compuerta cerrada: no se mide nada" >&2; exit 2; }
 export CYCLES_GPUMEM=1 REPS_GENERAL=3 REPS_JOINT=3
 case "${RUN_KIND:?RUN_KIND=E|noturbo}" in
   E)       export ONLY_SCOPES="gpumem" ONLY_ARMS="base base_noturbo sombra activo_gpu activo_gpu_cpuobs" OUT="$RES/fase4_E" ;;
   noturbo) export ONLY_SCOPES="cpu joint" ONLY_ARMS="base base_noturbo activo" OUT="$RES/fase4_C_noturbo" ;;
+  D)       export ONLY_SCOPES="lammps" ONLY_ARMS="base sombra activo_gpu activo_gpu_cpuobs" OUT="$RES/fase4_D" STEPS_lj=4400 STEPS_eam=3200 STEPS_chain=8000 STEPS_rhodo=1500 ;;
   *) echo "RUN_KIND desconocido" >&2; exit 1 ;;
 esac
 exec bash "$ROOT/scripts/pacca/hyp_fase4_matrix.sbatch"

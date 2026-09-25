@@ -44,6 +44,27 @@ def check_noturbo(root: Path) -> list[str]:
     return problems
 
 
+def check_lammps(root: Path) -> list[str]:
+    """Pre-vuelo del escenario D: las 8 celdas (4 benchmarks x base y activo_gpu_cpuobs) corrieron bien y cada LAMMPS termino
+    (su log.lammps trae 'Total wall time'), con el agente de GPU y el de CPU cerrando con codigo 0."""
+    rows = list(csv.DictReader((root / "results.csv").open())) if (root / "results.csv").exists() else []
+    problems = []
+    have = {(r["set"], r["arm"]) for r in rows}
+    for b in ("lj", "eam", "chain", "rhodo"):
+        for arm in ("base", "activo_gpu_cpuobs"):
+            if (b, arm) not in have:
+                problems.append(f"falta la celda {b}/{arm}")
+    for r in rows:
+        if r["app_rc"] != "0" or r["state_ok"] != "1" or r["rc_cpu_daemon"] not in ("0", "NA") or r["rc_gpu_daemon"] not in ("0", "NA"):
+            problems.append(f"{r['cell']}: app_rc={r['app_rc']} state_ok={r['state_ok']} rc_cpu={r['rc_cpu_daemon']} rc_gpu={r['rc_gpu_daemon']}")
+        log = root / "cells" / r["cell"] / "log.lammps"
+        if not log.exists() or "Total wall time" not in log.read_text(errors="ignore"):
+            problems.append(f"{r['cell']}: LAMMPS no termino")
+        if not (float(r["wall_s"]) > 20):
+            problems.append(f"{r['cell']}: duracion {r['wall_s']} s (< 20)")
+    return problems
+
+
 def check(root: Path) -> list[str]:
     problems: list[str] = []
     rows = list(csv.DictReader((root / "results.csv").open())) if (root / "results.csv").exists() else []
@@ -83,7 +104,7 @@ def check(root: Path) -> list[str]:
 
 
 def main() -> int:
-    problems = (check_noturbo if "--noturbo" in sys.argv else check)(Path([a for a in sys.argv[1:] if not a.startswith("--")][0]))
+    problems = (check_noturbo if "--noturbo" in sys.argv else check_lammps if "--lammps" in sys.argv else check)(Path([a for a in sys.argv[1:] if not a.startswith("--")][0]))
     for p in problems:
         print("GATE FALLA:", p)
     print("GATE OK" if not problems else f"GATE: {len(problems)} problema(s), las corridas largas NO arrancan")
