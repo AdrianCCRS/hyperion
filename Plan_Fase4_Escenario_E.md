@@ -286,3 +286,19 @@ La compuerta bloqueó las corridas largas (7653 y 7654) por E-B, como está dise
 la regla de este plan: **correr E-A y E-B tal cual**, con la compuerta informativa (no bloqueante) para E-B y estricta para
 E-A, y reportar E-B como resultado (límite de generalización del clasificador de GPU a memoria inédita, no un fallo de
 la corrida). El complemento sin turbo (7654) se rehízo como job 7656 con una compuerta que solo exige `base_noturbo` sano.
+
+## 14. Escenario D: LAMMPS como aplicación real de terceros (2026-09-24)
+
+- **Aplicación**: LAMMPS 2023 con paquete GPU del clúster (`/opt/ohpc/pub/lammps/2023_gpu/bin/lmp`, API CUDA), inputs de benchmark de
+  `/usr/local/src/lammps/lammps-23Jun2022/bench` (lj y eam a 256 000 átomos, chain y rhodo a 32 000), un proceso MPI en los núcleos
+  0 a 3, `-sf gpu -pk gpu 1`. Pasos fijados por calibración (job 7678, ~60 s por corrida): lj 4400, eam 3200, chain 8000, rhodo 1500.
+- **Sondeo (jobs 7668 a 7674)**: con el agente de GPU en sombra, la GPU queda casi en reposo (utilización mediana 6 a 12%, 765 MHz,
+  37 a 38 W) y no hay fases a escala de segundos; el agente no abre ninguna fase. Por eso D no puede mostrar mejora de GPU: mide
+  validez externa sobre el costo (¿el agente es inocuo en una aplicación real sin fases de memoria de GPU?).
+- **Arranque de LAMMPS**: el módulo `lammps/2023_GPU` no carga bajo `set -u`; `lmp` sin lanzador se cuelga en `MPI_Init`. Se usa
+  `mpirun -np 1` de nvhpc con `OPAL_PREFIX`, `LD_LIBRARY_PATH` explícito (fftw, mpi de nvhpc) y `OMPI_MCA_*` (ver
+  `hyp_fase4_matrix.sbatch`, alcance `lammps`).
+- **Corridas**: pre-vuelo job 7679 (1 repetición, base y activo_gpu_cpuobs, 8 celdas) y matriz job 7680 (RUN_KIND=D, 48 celdas: 4
+  benchmarks x base, sombra, activo_gpu, activo_gpu_cpuobs x 3 repeticiones), protegida por `gate_preflight_E.py --lammps`.
+- **Expectativa declarada antes de medir**: EDP del nodo con el agente de GPU ~1.00 frente a REF; con el agente de CPU, ~+6% de
+  energía de CPU (costo fijo medido). No se espera mejora.
