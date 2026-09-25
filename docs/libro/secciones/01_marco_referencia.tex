@@ -378,16 +378,12 @@ A partir de los árboles también pueden construirse modelos de ensamble, como R
 
 XGBoost también utiliza árboles de decisión, pero los construye de manera secuencial, de modo que cada nuevo árbol busca corregir parte de los errores acumulados por los anteriores \cite{Chen2016}. Esto le permite representar relaciones más complejas, aunque incorpora un mayor número de parámetros y su costo depende de la configuración del ensamble. En conjunto, estas familias cubren distintos niveles de complejidad, desde una frontera lineal hasta conjuntos de árboles capaces de representar interacciones no lineales, manteniendo como consideración común el costo necesario para realizar la inferencia.
 
-\subsection{Hiperparámetros, Optuna y validación}
+\subsection{Hiperparámetros y Optuna}
 \label{sec:marco-hiperparametros}
 
 Los hiperparámetros controlan aspectos de la estructura y del proceso de entrenamiento de un modelo, por lo que su elección puede modificar tanto la capacidad de ajuste como su complejidad. En modelos como Random Forest, Extra-Trees o XGBoost, estos valores pueden incluir cantidades de árboles, profundidades, tasas de aprendizaje u otros parámetros de configuración, lo que genera espacios de búsqueda con combinaciones muy diferentes entre sí. Explorar todas las posibilidades mediante una rejilla puede resultar costoso, de modo que suelen emplearse métodos de optimización que orientan la búsqueda hacia configuraciones más prometedoras.
 
 Optuna es un marco de optimización de hiperparámetros que realiza esta exploración de forma secuencial \cite{Akiba2019}. Entre sus estrategias se encuentra el estimador de Parzen estructurado (TPE), que utiliza los resultados obtenidos en evaluaciones anteriores para proponer nuevas configuraciones con mayor probabilidad de mejorar el objetivo \cite{Bergstra2011}. De esta manera, la búsqueda no necesita recorrer todas las combinaciones posibles y puede adaptarse a espacios que mezclan variables enteras, continuas y categóricas.
-
-La optimización de hiperparámetros debe mantenerse separada de la evaluación final del modelo, ya que utilizar la misma información para seleccionar y evaluar una configuración puede producir estimaciones demasiado favorables. La validación anidada permite mantener esta separación mediante un proceso interno para seleccionar la configuración y otro externo para estimar su capacidad de generalización \cite{Cawley2010,Roberts2017}. Cuando las observaciones pertenecen a una misma familia de carga o comparten un origen común, conservar esa relación durante la partición evita que ejemplos muy similares aparezcan simultáneamente en entrenamiento y prueba.
-
-También debe evitarse la fuga de información desde las características de entrada. Si una variable utilizada por el modelo contiene directa o indirectamente la información con la que se construyó la etiqueta, el clasificador puede aprender a reconstruir esa regla en lugar de identificar el patrón a partir de señales independientes \cite{Kaufman2012}. Por ello, la información utilizada como referencia para definir la clase debe mantenerse separada de las características disponibles para la inferencia.
 
 \subsection{Producto Energía--Retardo (EDP)}
 \label{sec:marco-edp}
