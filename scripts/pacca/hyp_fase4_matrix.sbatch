@@ -3,7 +3,7 @@
 #   cpu   : base, sombra, activo, activo_f0                   (solo daemon de CPU)         3 repeticiones
 #   gpu   : base, sombra, activo                              (solo daemon de GPU)         3 repeticiones
 #   (diagnostico, solo si se piden en ONLY_ARMS: sombra_pin, sombra_ort1, sombra_pin_ort1 = sombra con el consumidor fijado a --consumer-cpu y/o ORT con 1 hilo sin espera activa)
-#   gpumem: base, base_noturbo, sombra, activo_gpu, activo_gpu_cpuobs (escenario E, GPU dominada por memoria; 1 ciclo; Plan_Fase4_Escenario_E.md)
+#   gpumem: base, base_noturbo, sombra, activo_gpu, activo_gpu_cpuobs, fijo_gpu_f1 (escenario E, GPU dominada por memoria; 1 ciclo; Plan_Fase4_Escenario_E.md)
 #           base_noturbo = sin agentes y turbo apagado (linea base secundaria; REF con turbo sigue siendo la principal); tambien acepta
 #           en cpu y joint si se pide en ONLY_ARMS. activo_gpu = agente de GPU activo sin agente de CPU; activo_gpu_cpuobs = igual mas
 #           el agente de CPU en sombra con la politica versionada (no_actuar, no escribe).
@@ -15,7 +15,7 @@
 # para puntuar clasificacion. Orden aleatorizado, reanudable (salta celdas ya hechas). Toca turbo, frecuencias y reloj de GPU:
 # nodo libre, restaura desde un snapshot. NUNCA local. Sin --time. No intervenir a mano.
 # Variables: INTERVAL_NS (1000000, muestreo del daemon de CPU) CYCLES (2) GAP_S (1) REPS_GENERAL (3) REPS_JOINT (3) ONLY_SCOPES ONLY_SETS ONLY_ARMS (listas separadas por espacio)
-#            OUT (carpeta de resultados; para reanudar, misma carpeta)
+#            OUT (carpeta de resultados; para reanudar, misma carpeta), RANDOM_SEED y ORDER_MODE (shuffle|balanced_blocks)
 #SBATCH --job-name=hyp_fase4_matrix
 #SBATCH --partition=GPU
 #SBATCH --nodelist=paccaA100
@@ -30,6 +30,7 @@ set -uo pipefail
 ROOT="${HYPERION_ROOT:-$HOME/hyperion_c8}"; KERNEL_ROOT="$HOME/hyperion-kernels"
 INTERVAL_NS="${INTERVAL_NS:-1000000}"; CYCLES="${CYCLES:-2}"; CYCLES_GPUMEM="${CYCLES_GPUMEM:-1}"; LAMMPS_SETS="${LAMMPS_SETS:-lj eam chain rhodo}"; GAP_S="${GAP_S:-1}"; REPS_GENERAL="${REPS_GENERAL:-3}"; REPS_JOINT="${REPS_JOINT:-3}"
 ONLY_SCOPES="${ONLY_SCOPES:-cpu gpu joint}"; ONLY_SETS="${ONLY_SETS:-known unseen}"; ONLY_ARMS="${ONLY_ARMS:-base sombra activo activo_f0 activo_nofloor}"
+RANDOM_SEED="${RANDOM_SEED:-20260924}"; ORDER_MODE="${ORDER_MODE:-shuffle}"
 OUT="${OUT:-$HOME/hyperion-results/final/fase4_matrix_${SLURM_JOB_ID:-manual}}"; mkdir -p "$OUT/cells"
 ORT="$HOME/.conda/envs/hyperion-cpu-onnx"; CMAKE="$ORT/bin/cmake"; CUDA=/opt/ohpc/pub/devtools/nvidia/hpc_sdk/Linux_x86_64/23.1/cuda/12.0
 module load cmake/4.3.4 gnu12/12.4.0 devtools/nvidia/hpc_sdk/nvhpc/23.1 openblas/0.3.21 2>&1 || true
@@ -37,7 +38,7 @@ export LD_LIBRARY_PATH="$CUDA/targets/x86_64-linux/lib:/opt/ohpc/pub/devtools/nv
 export PYTHONPATH="$ROOT:${PYTHONPATH:-}"; source "$HOME/hyperion-venv/bin/activate"
 C=/sys/devices/system/cpu; CPUS="0 1 2 3 4 5 16 17 18 19 20 21"; GPU=0; FLOOR_KHZ=3200000
 R0=/sys/class/powercap/intel-rapl:0; R1=/sys/class/powercap/intel-rapl:1; RMAX=$(cat $R0/max_energy_range_uj)
-hostname; git -C "$ROOT" log --oneline -1; echo "salida: $OUT  ciclos=$CYCLES hueco=${GAP_S}s reps=$REPS_GENERAL/$REPS_JOINT"
+hostname; git -C "$ROOT" log --oneline -1; echo "salida: $OUT  ciclos=$CYCLES hueco=${GAP_S}s reps=$REPS_GENERAL/$REPS_JOINT semilla=$RANDOM_SEED orden=$ORDER_MODE"
 
 BUILD="$OUT/build"; mkdir -p "$BUILD"
 if [ ! -x "$BUILD/cpu_build/cpu_loop_main" ] || [ ! -x "$BUILD/gpu_build/gpu_loop_main" ]; then
@@ -82,17 +83,34 @@ case " $ONLY_SCOPES " in *" lammps "*)  # copia de los benchmarks con los pasos 
   done;; esac
 RES="$OUT/results.csv"
 [ -f "$RES" ] || echo "cell,scope,set,arm,rep,wall_s,e_cpu_j,e_gpu_j,app_rc,rc_cpu_daemon,rc_gpu_daemon,state_ok" > "$RES"
-python3 - "$ONLY_SCOPES" "$ONLY_SETS" "$ONLY_ARMS" "$REPS_GENERAL" "$REPS_JOINT" "$LAMMPS_SETS" > "$OUT/cells.txt" <<'PY'
+python3 - "$ONLY_SCOPES" "$ONLY_SETS" "$ONLY_ARMS" "$REPS_GENERAL" "$REPS_JOINT" "$LAMMPS_SETS" "$RANDOM_SEED" "$ORDER_MODE" > "$OUT/cells.txt" <<'PY'
 import random, sys
 scopes, sets, arms = (set(a.split()) for a in sys.argv[1:4]); rg, rj = int(sys.argv[4]), int(sys.argv[5])
+seed, order_mode = int(sys.argv[7]), sys.argv[8]
 plan = {"cpu": (["base", "base_noturbo", "sombra", "activo", "activo_f0", "sombra_pin", "sombra_ort1", "sombra_pin_ort1"], rg),
         "gpu": (["base", "sombra", "activo"], rg), "joint": (["base", "base_noturbo", "sombra", "activo", "activo_nofloor"], rj),
-        "gpumem": (["base", "base_noturbo", "sombra", "activo_gpu", "activo_gpu_cpuobs"], rg),
+        "gpumem": (["base", "base_noturbo", "sombra", "activo_gpu", "activo_gpu_cpuobs", "fijo_gpu_f1"], rg),
         "lammps": (["base", "sombra", "activo_gpu", "activo_gpu_cpuobs"], rg)}
 cells = [(sc, st, arm, r) for sc, (al, n) in plan.items() if sc in scopes
          for st in (sys.argv[6].split() if sc == "lammps" else ("known", "unseen")) if sc == "lammps" or st in sets
          for arm in al if arm in arms for r in range(1, n + 1)]
-random.Random(20260924).shuffle(cells)
+rng = random.Random(seed)
+if order_mode == "shuffle":
+    rng.shuffle(cells)
+elif order_mode == "balanced_blocks":
+    # Cada repetición contiene una vez cada brazo de una misma aplicación; aleatoriza el orden dentro del bloque.
+    grouped = {}
+    for sc, st, arm, rep in cells:
+        grouped.setdefault((sc, st, rep), []).append((sc, st, arm, rep))
+    keys = list(grouped)
+    rng.shuffle(keys)
+    cells = []
+    for key in keys:
+        block = grouped[key]
+        rng.shuffle(block)
+        cells.extend(block)
+else:
+    raise SystemExit(f"ORDER_MODE desconocido: {order_mode}")
 for c in cells: print(*c)
 PY
 echo "celdas planificadas: $(wc -l < "$OUT/cells.txt")"
@@ -110,7 +128,7 @@ app_cmd() {  # $1 scope $2 set -> imprime el comando de la aplicacion
 }
 run_cell() {
   local scope=$1 set=$2 arm=$3 rep=$4 id="$1_$2_$3_$4" D="$OUT/cells/$1_$2_$3_$4"
-  mkdir -p "$D"; local SIG="$D/sig" pol dm_arm=sombra floor=$FLOOR_KHZ
+  mkdir -p "$D"; local SIG="$D/sig" pol dm_arm=sombra floor=$FLOOR_KHZ fixed_f1=0 clock_sampler="" fixed_restore_rc=0
   case "$arm" in activo|activo_f0|activo_nofloor) dm_arm=activo;; esac
   local xflags=()  # variantes de diagnostico del sobrecosto del daemon de CPU (solo brazo sombra)
   case "$arm" in sombra_pin) xflags=(--pin-consumer);; sombra_ort1) xflags=(--ort-threads 1);; sombra_pin_ort1) xflags=(--pin-consumer --ort-threads 1);; esac
@@ -119,7 +137,7 @@ run_cell() {
   [ "$arm" = activo_nofloor ] && pol="$OUT/policy_activo.yaml"
   # escenario E: politica versionada (CPU no_actuar, GPU F1 en memory); el agente de CPU solo observa
   local use_gpu=0 use_cpu=0 cpu_arm=$dm_arm cycles=$CYCLES
-  case "$arm" in base|base_noturbo) ;; *)
+  case "$arm" in base|base_noturbo|fijo_gpu_f1) ;; *)
     { [ "$scope" = gpu ] || [ "$scope" = joint ] || [ "$scope" = gpumem ] || [ "$scope" = lammps ]; } && use_gpu=1
     { [ "$scope" = cpu ] || [ "$scope" = joint ]; } && use_cpu=1;; esac
   if [ "$scope" = gpumem ] || [ "$scope" = lammps ]; then
@@ -127,12 +145,18 @@ run_cell() {
     case "$arm" in activo_gpu|activo_gpu_cpuobs) dm_arm=activo;; *) dm_arm=sombra;; esac
     [ "$arm" = activo_gpu_cpuobs ] && use_cpu=1
   fi
+  [ "$arm" = fijo_gpu_f1 ] && fixed_f1=1
   # base_noturbo: sin agentes y con el turbo apagado durante la medicion (se restaura al terminar la celda)
   if [ "$arm" = base_noturbo ]; then
     sudo -n /usr/local/bin/set_turbo_state 1
     [ "$(cat $C/intel_pstate/no_turbo)" = 1 ] || { echo "  !!! no se pudo apagar el turbo ($id)" >&2; sudo -n /usr/local/bin/set_turbo_state "$ORIG_NO_TURBO"; return 1; }
   fi
-  sudo -n nvidia-smi -i $GPU -rgc >/dev/null 2>&1; sleep 5
+  sudo -n nvidia-smi -i $GPU -rgc >/dev/null 2>&1
+  if [ "$fixed_f1" = 1 ]; then
+    sudo -n nvidia-smi -i $GPU -lgc 1260,1260 >/dev/null || { echo "  !!! no se pudo fijar F1 ($id)" >&2; return 1; }
+    echo "requested_mhz=1260" > "$D/fixed_gpu_lock.txt"
+  fi
+  sleep 5
   local cpu_d="" gpu_d="" rc_c=NA rc_g=NA
   local sigflag=(); [ "$scope" = joint ] && sigflag=(--gpu-active-signal-path "$SIG")
   local cmd; cmd=$(app_cmd "$scope" "$set")
@@ -162,13 +186,31 @@ run_cell() {
   [ -n "$gpu_d" ] && ! kill -0 $gpu_d 2>/dev/null && echo "  !!! daemon GPU murio al arrancar ($id)" >&2
   [ -n "$cpu_d" ] && ! kill -0 $cpu_d 2>/dev/null && echo "  !!! daemon CPU murio al arrancar ($id)" >&2
   local e0 f0 g0 t0; e0=$(cat $R0/energy_uj); f0=$(cat $R1/energy_uj); g0=$("$GER" $GPU); t0=$(date +%s.%N)
+  if [ "$fixed_f1" = 1 ]; then
+    nvidia-smi -i $GPU --query-gpu=utilization.gpu,clocks.sm --format=csv,noheader,nounits -lms 250 > "$D/fixed_gpu_clock.csv" 2>&1 & clock_sampler=$!
+  fi
   kill -CONT $COMP; wait $COMP; local app_rc=$?
   local t1 e1 f1 g1; t1=$(date +%s.%N); e1=$(cat $R0/energy_uj); f1=$(cat $R1/energy_uj); g1=$("$GER" $GPU)
+  [ -n "$clock_sampler" ] && kill "$clock_sampler" 2>/dev/null; [ -n "$clock_sampler" ] && wait "$clock_sampler" 2>/dev/null || true
+  if [ "$fixed_f1" = 1 ]; then
+    sudo -n nvidia-smi -i $GPU -rgc >/dev/null 2>&1 || fixed_restore_rc=$?
+  fi
   [ "$arm" = base_noturbo ] && sudo -n /usr/local/bin/set_turbo_state "$ORIG_NO_TURBO"
   sleep 1
   [ -n "$cpu_d" ] && kill -TERM $cpu_d 2>/dev/null; [ -n "$gpu_d" ] && kill -TERM $gpu_d 2>/dev/null
   [ -n "$cpu_d" ] && { wait $cpu_d; rc_c=$?; }; [ -n "$gpu_d" ] && { wait $gpu_d; rc_g=$?; }
   state > "$D/state_final.txt"; local ok=1; diff -q "$OUT/state_inicial.txt" "$D/state_final.txt" >/dev/null 2>&1 || { ok=0; restore_cpu; }
+  if [ "$fixed_f1" = 1 ]; then
+    local clock_check
+    clock_check=$(awk -F, '
+      function trim(s) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); return s }
+      $1 ~ /^[0-9]+/ && $2 ~ /^[[:space:]]*[0-9]+/ { u=trim($1)+0; c=trim($2)+0; if (u >= 10) { n++; if (c < 1230 || c > 1290) bad++ } }
+      END { printf "loaded_samples=%d out_of_tolerance=%d", n+0, bad+0; exit !(n >= 3 && bad == 0) }' "$D/fixed_gpu_clock.csv")
+    local clock_rc=$?
+    echo "$clock_check" >> "$D/fixed_gpu_lock.txt"
+    [ "$clock_rc" = 0 ] || { ok=0; echo "  !!! F1 no se sostuvo bajo carga ($id): $clock_check" >&2; }
+    [ "$fixed_restore_rc" = 0 ] || { ok=0; echo "gpu_clock_restore=failed" >> "$D/fixed_gpu_lock.txt"; echo "  !!! no se libero F1 ($id)" >&2; }
+  fi
   local wall ecpu egpu
   wall=$(python3 -c "print(round($t1-$t0,3))")
   ecpu=$(python3 -c "m=$RMAX; d=lambda a,b:(b-a)%m; print(round((d($e0,$e1)+d($f0,$f1))/1e6,2))")
