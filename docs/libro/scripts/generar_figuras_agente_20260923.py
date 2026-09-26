@@ -2,7 +2,7 @@
 
 Valores tomados de las mediciones registradas en Plan_Fase3_Daemon.md:
   - candado de reloj de GPU: jobs 7599/7600 (rendimiento relativo a 1410 MHz);
-  - invarianza frente al reloj: job 7601 (LOFO, 483 corridas, 16 familias).
+  - invarianza frente al reloj: auditoría del reloj (LOFO, 518 corridas, 16 familias; tmp/gpu_clock_audit_20260926).
 Reproduce: python3 docs/libro/scripts/generar_figuras_agente_20260923.py
 """
 from pathlib import Path
@@ -10,6 +10,9 @@ from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import json
+from pathlib import Path
+
 import numpy as np
 
 F = Path(__file__).resolve().parents[1] / "figuras"
@@ -41,8 +44,9 @@ def candado() -> None:
 
 def invarianza() -> None:
     cond = ["Cinco variables", "Sin reloj", "Sin reloj\nni potencia"]
-    lr = [0.792, 0.654, np.nan]
-    rf = [0.807, 0.812, 0.819]
+    ab = json.load(open(Path(__file__).resolve().parents[3] / "tmp" / "gpu_clock_audit_20260926" / "gpu_clock_feature_audit.json"))["ablacion"]
+    lr = [ab["regresion_log|actual"]["cell_balanced_acc"], ab["regresion_log|sin_reloj"]["cell_balanced_acc"], np.nan]
+    rf = [ab[f"random_forest|{v}"]["cell_balanced_acc"] for v in ("actual", "sin_reloj", "sin_reloj_ni_potencia")]
     x = np.arange(3)
     w = 0.36
     fig, ax = plt.subplots(figsize=(6.2, 3.4))

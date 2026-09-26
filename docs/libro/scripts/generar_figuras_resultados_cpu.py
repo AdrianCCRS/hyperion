@@ -77,6 +77,33 @@ def save_kernel_composition() -> None:
     plt.close(fig)
 
 
+def save_family_composition() -> None:
+    rows = pd.read_csv(BOOK / "family_counts.csv").set_index("family")
+    rows = rows.assign(
+        compute_pct=100 * rows.n_compute_bound / (rows.n_compute_bound + rows.n_memory_bound)
+    ).sort_values("compute_pct")
+    fig, ax = plt.subplots(figsize=(8.4, 7.2))
+    y = np.arange(len(rows))
+    compute = rows.compute_pct.to_numpy()
+    memory = 100 - compute
+    ax.barh(y, memory, color=MEMORY, label="memory-bound")
+    ax.barh(y, compute, left=memory, color=COMPUTE, label="compute-bound")
+    ax.set_yticks(y, rows.index.str.replace("_cpu_", "_", regex=False),
+                  fontsize=8.5, fontfamily="monospace")
+    ax.set_xlim(0, 100)
+    ax.set_xlabel("Porcentaje de intervalos elegibles")
+    ax.set_ylabel("Familia algorítmica")
+    ax.set_xticks(np.arange(0, 101, 20), [f"{x}%" for x in range(0, 101, 20)])
+    ax.grid(axis="x", color="#e0e0e0", linewidth=0.7)
+    ax.set_axisbelow(True)
+    ax.legend(loc="lower center", bbox_to_anchor=(0.5, -0.12), ncols=2, frameon=False)
+    for spine in ("top", "right"):
+        ax.spines[spine].set_visible(False)
+    fig.tight_layout()
+    fig.savefig(OUT / "fig_cpu_composicion_clase_por_familia_20260925.png", dpi=300)
+    plt.close(fig)
+
+
 def save_level_composition() -> None:
     levels = list(LEVEL_COUNTS)
     compute = np.array([LEVEL_COUNTS[level][0] for level in levels])
@@ -107,21 +134,22 @@ def save_level_composition() -> None:
 
 def save_sampling_audit() -> None:
     rows = pd.read_csv(BOOK / "family_counts.csv").set_index("family").sort_values("elegibles")
-    fig, ax = plt.subplots(figsize=(9.2, 9.4))
-    y = np.arange(len(rows))
-    ax.barh(y - 0.18, rows.elegibles, height=0.34, color=LIGHT, label="Intervalos elegibles")
-    ax.barh(y + 0.18, rows.muestra, height=0.34, color=COMPUTE, label="Intervalos seleccionados")
-    ax.set_yticks(y, rows.index, fontsize=8.5, fontfamily="monospace")
-    ax.set_xscale("log")
-    ax.set_xlabel("Número de intervalos (escala logarítmica)")
-    ax.set_ylabel("Familia algorítmica")
-    ax.grid(axis="x", color=LIGHT, linewidth=0.7)
-    ax.set_axisbelow(True)
-    ax.legend(frameon=False, ncols=2, loc="lower right")
-    for spine in ("top", "right"):
-        ax.spines[spine].set_visible(False)
-    fig.tight_layout()
-    fig.savefig(OUT / "fig_cpu_muestreo_familia_20260918.png", dpi=300)
+    fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.4), sharex=True)
+    for ax, subset in zip(axes, (rows.iloc[:15], rows.iloc[15:])):
+        y = np.arange(len(subset))
+        ax.barh(y - 0.18, subset.elegibles, height=0.34, color=LIGHT, label="Intervalos elegibles")
+        ax.barh(y + 0.18, subset.muestra, height=0.34, color=COMPUTE, label="Intervalos seleccionados")
+        ax.set_yticks(y, subset.index, fontsize=7.2, fontfamily="monospace")
+        ax.set_xscale("log")
+        ax.grid(axis="x", color=LIGHT, linewidth=0.7)
+        ax.set_axisbelow(True)
+        for spine in ("top", "right"):
+            ax.spines[spine].set_visible(False)
+    fig.text(0.5, 0.07, "Número de intervalos (escala logarítmica)", ha="center", va="center")
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, frameon=False, ncols=2, loc="lower center", bbox_to_anchor=(0.5, -0.04))
+    fig.tight_layout(rect=(0, 0.13, 1, 1))
+    fig.savefig(OUT / "fig_cpu_muestreo_familia_20260918.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -157,6 +185,7 @@ def save_input_correlation() -> None:
 
 def main() -> None:
     save_kernel_composition()
+    save_family_composition()
     save_level_composition()
     save_sampling_audit()
     save_input_correlation()

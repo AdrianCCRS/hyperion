@@ -13,6 +13,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.ticker
+from matplotlib.patches import Patch
 
 BASE = Path(__file__).resolve().parents[1]
 D = BASE / "datos" / "cpu_calidad_20260918"
@@ -59,7 +60,7 @@ def potencia_y_piso() -> None:
     r["w"] = (r["pkg_uj"] + r["dram_uj"]) / (r["elapsed_ns"] / 1e3)   # uJ/us = W
     pk = r.groupby(["kernel_ref", "level"])["w"].median().unstack()[NIVELES]
     m = pd.read_csv(D / "potencia" / "power_model_by_kernel.csv")
-    fig, (a, b) = plt.subplots(1, 2, figsize=(7.8, 3.5), gridspec_kw={"width_ratios": [1.5, 1]})
+    fig, (a, b) = plt.subplots(1, 2, figsize=(7.8, 3.5), gridspec_kw={"width_ratios": [2, 1]})
     x = [GHZ[n] for n in NIVELES]
     for _, fila in pk.iterrows():
         a.plot(x, fila.to_numpy(), color="#cbd5e0", lw=0.8, zorder=1)
@@ -69,9 +70,16 @@ def potencia_y_piso() -> None:
     a.set_ylim(0, pk.max().max() * 1.05); a.invert_xaxis()
     a.set_xlabel("Frecuencia fija (GHz)"); a.set_ylabel("Potencia de paquete y DRAM (W)")
     a.legend(frameon=False, fontsize=8.5, loc="lower left")
-    b.hist(m["static_frac_f0"], bins=np.linspace(0.6, 1.0, 17), color=COMPUTE, edgecolor="white")
-    b.axvline(float(m["static_frac_f0"].median()), color=MEMORY, ls="--", lw=1.4)
-    b.set_xlabel("Fracción estática a 3.2 GHz"); b.set_ylabel("Kernels")
+    fs = float(m["static_frac_f0"].median())
+    b.bar([0], [fs], width=0.6, color=MEMORY, edgecolor="white")
+    b.bar([0], [1 - fs], bottom=[fs], width=0.6, color=COMPUTE, edgecolor="white")
+    b.text(0, fs / 2, f"Piso estático\n{fs*100:.0f} %", ha="center", va="center", color="white", fontsize=9)
+    b.text(0, fs + (1 - fs) / 2, f"{(1-fs)*100:.0f} %", ha="center", va="center", color="white", fontsize=9)
+    b.set_xlim(-0.6, 0.6); b.set_xticks([0]); b.set_xticklabels(["Mediana entre\nkernels"])
+    b.set_ylim(0, 1); b.set_yticks([0, 0.25, 0.5, 0.75, 1.0]); b.set_yticklabels(["0", "25", "50", "75", "100"])
+    b.set_ylabel("Parte de la potencia a 3.2 GHz (%)"); b.grid(axis="x", visible=False)
+    b.legend(handles=[Patch(color=MEMORY, label="Fija (piso)"), Patch(color=COMPUTE, label="Depende de la frecuencia")],
+             loc="upper center", bbox_to_anchor=(0.5, -0.2), frameon=False, fontsize=8, ncol=1)
     fig.tight_layout(); fig.savefig(F / "fig_cpu_energia_piso_20260920.png"); plt.close(fig)
     print("mediana P a 3.2 y 0.8 GHz:", round(pk["F0"].median(), 1), round(pk["F8"].median(), 1),
           "| static_frac mediana", round(m["static_frac_f0"].median(), 3), "| kernels", len(pk))

@@ -29,6 +29,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.ticker
+from matplotlib.patches import Patch
 
 import sys
 _ROOT = Path(__file__).resolve().parents[3]
@@ -51,8 +52,8 @@ def forest_politica() -> None:
     d = json.load(open(D / "policy_by_family.json"))
     fig, axes = plt.subplots(1, 2, figsize=(8.6, 4.0), sharey=True)
     for ax, clase, titulo, color in (
-        (axes[0], "compute_bound", "Compute (5 familias)", COMPUTE),
-        (axes[1], "memory_bound", "Memory (8 familias)", MEMORY),
+        (axes[0], "compute_bound", f"Compute ({d['compute_bound']['n_familias']} familias)", COMPUTE),
+        (axes[1], "memory_bound", f"Memory ({d['memory_bound']['n_familias']} familias)", MEMORY),
     ):
         levels = d[clase]["levels"]
         names = [lv for lv in LEVELS if lv in levels]
@@ -64,6 +65,9 @@ def forest_politica() -> None:
         ax.errorbar(gain, y, xerr=xerr, fmt="o", color=color, ecolor="#b0b0b0", elinewidth=1.6, capsize=3, ms=5)
         # F1 determina la política del daemon. Etiquetar el punto evita leer el
         # extremo positivo del IC95 como si fuera la ganancia estimada.
+        for g_, y_ in zip(gain, y):
+            ax.annotate(f"{g_:+.1f}", xy=(g_, y_), xytext=(0, 7), textcoords="offset points",
+                        ha="center", va="bottom", fontsize=6.5, color=color)
         if "F1" in names:
             f1 = names.index("F1")
             ax.annotate(f"{gain[f1]:+.1f}%",
@@ -159,7 +163,7 @@ def potencia_y_piso() -> None:
     pw = pd.DataFrame(rows)
     print("excluidos del modelo de potencia:", excluded)
 
-    fig, (a, b) = plt.subplots(1, 2, figsize=(7.8, 3.5), gridspec_kw={"width_ratios": [1.5, 1]})
+    fig, (a, b) = plt.subplots(1, 2, figsize=(7.8, 3.5), gridspec_kw={"width_ratios": [2, 1]})
     pk = agg.pivot(index="kernel_ref", columns="gpu_freq_level_id", values="power")
     order = sorted([c for c in pk.columns if c != "REF"], key=lambda c: -agg[agg.gpu_freq_level_id == c].clock.median())
     pk = pk[order]
@@ -171,9 +175,16 @@ def potencia_y_piso() -> None:
     a.set_xticks(range(len(order))); a.set_xticklabels(order)
     a.set_xlabel("Nivel de frecuencia GPU (orden decreciente de reloj SM)"); a.set_ylabel("Potencia GPU (mW)")
     a.legend(frameon=False, fontsize=8.5, loc="upper right")
-    b.hist(pw["static_share_at_fmax"], bins=np.linspace(0.2, 0.8, 13), color=COMPUTE, edgecolor="white")
-    b.axvline(float(pw["static_share_at_fmax"].median()), color=MEMORY, ls="--", lw=1.4)
-    b.set_xlabel("Fracción estática al reloj máximo"); b.set_ylabel("Kernels")
+    fs = float(pw["static_share_at_fmax"].median())
+    b.bar([0], [fs], width=0.6, color=MEMORY, edgecolor="white")
+    b.bar([0], [1 - fs], bottom=[fs], width=0.6, color=COMPUTE, edgecolor="white")
+    b.text(0, fs / 2, f"Piso estático\n{fs*100:.0f} %", ha="center", va="center", color="white", fontsize=9)
+    b.text(0, fs + (1 - fs) / 2, f"{(1-fs)*100:.0f} %", ha="center", va="center", color="white", fontsize=9)
+    b.set_xlim(-0.6, 0.6); b.set_xticks([0]); b.set_xticklabels(["Mediana entre\nkernels"])
+    b.set_ylim(0, 1); b.set_yticks([0, 0.25, 0.5, 0.75, 1.0]); b.set_yticklabels(["0", "25", "50", "75", "100"])
+    b.set_ylabel("Parte de la potencia al reloj máximo (%)"); b.grid(axis="x", visible=False)
+    b.legend(handles=[Patch(color=MEMORY, label="Fija (piso)"), Patch(color=COMPUTE, label="Depende de la frecuencia")],
+             loc="upper center", bbox_to_anchor=(0.5, -0.2), frameon=False, fontsize=8, ncol=1)
     fig.tight_layout(); fig.savefig(F / "fig_gpu_politica_piso_20260922.png"); plt.close(fig)
     print("P0 mediana (W):", round(p0_med, 1), "| fraccion estatica mediana:", round(pw["static_share_at_fmax"].median(), 3),
           "| kernels:", len(pw))

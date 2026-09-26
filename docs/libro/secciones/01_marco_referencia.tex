@@ -68,11 +68,12 @@ donde $\text{FLOPs}_i$ representa las operaciones realizadas y $B_i^{\text{DRAM}
 
 La clasificación en CPU requiere señales que describan el comportamiento de la ejecución sin reconstruir en línea la intensidad operacional. Las Unidades de Monitorización de Rendimiento(PMU), proporcionan esa observabilidad mediante contadores de hardware que acumulan eventos como instrucciones retiradas, ciclos y actividad de la jerarquía de memoria. Estos contadores pueden ser fijos, asociados a eventos arquitectónicos predefinidos, o programables, configurados para registrar eventos específicos de la arquitectura  \cite{Weaver2015,IntelSDM2026}. La siguiente figura resume esta organización:
 
-
+ 
 \begin{figure}[H]
     \centering
 
-    \begin{tikzpicture}[
+    \resizebox{0.6\linewidth}{!}{%
+\begin{tikzpicture}[
         font=\small,
         box/.style={
             draw,
@@ -126,7 +127,7 @@ La clasificación en CPU requiere señales que describan el comportamiento de la
 
     \draw[arrow] (control.north) -- (programmable.south);
 
-    \end{tikzpicture}
+    \end{tikzpicture}}
     \caption[Unidad de Monitorización de Rendimiento (PMU)]{Organización conceptual de una Unidad de Monitorización de
     Rendimiento (PMU) con contadores fijos y programables.
     Fuente: elaboración propia.}

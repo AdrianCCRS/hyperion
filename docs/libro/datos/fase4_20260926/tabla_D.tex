@@ -1,0 +1,25 @@
+\begin{tabular}{@{}llrrrrrr@{}}
+\toprule
+\textbf{Entrada} & \textbf{Brazo} & \textbf{$n$} & \textbf{$T$ (s)} & \textbf{$E_{\mathrm{CPU}}$ (J)} & \textbf{$E_{\mathrm{GPU}}$ (J)} & \textbf{EDP/REF} & \textbf{$E_{\mathrm{GPU}}$/REF} \\
+\midrule
+chain & REF & 3 & 60.050 & 9059 & 2219 & 1.000 & 1.000 \\
+ & Sombra & 3 & 60.240 & 9094 & 2228 & 1.009 & 1.004 \\
+ & Activo GPU & 3 & 60.070 & 9074 & 2239 & 1.004 & 1.009 \\
+ & Activo + CPU obs. & 3 & 60.460 & 9316 & 2250 & 1.033 & 1.014 \\
+\midrule
+eam & REF & 3 & 61.940 & 9424 & 2493 & 1.000 & 1.000 \\
+ & Sombra & 3 & 62.080 & 9456 & 2510 & 1.006 & 1.007 \\
+ & Activo GPU & 3 & 62.060 & 9428 & 2528 & 1.003 & 1.014 \\
+ & Activo + CPU obs. & 3 & 62.450 & 9639 & 2513 & 1.029 & 1.008 \\
+\midrule
+lj & REF & 3 & 61.530 & 9370 & 2388 & 1.000 & 1.000 \\
+ & Sombra & 3 & 61.770 & 9412 & 2389 & 1.010 & 1.000 \\
+ & Activo GPU & 3 & 61.730 & 9412 & 2393 & 1.009 & 1.002 \\
+ & Activo + CPU obs. & 3 & 62.050 & 9626 & 2397 & 1.034 & 1.004 \\
+\midrule
+rhodo & REF & 3 & 60.560 & 9141 & 2318 & 1.000 & 1.000 \\
+ & Sombra & 3 & 60.910 & 9162 & 2338 & 1.010 & 1.008 \\
+ & Activo GPU & 3 & 60.670 & 9153 & 2326 & 1.004 & 1.004 \\
+ & Activo + CPU obs. & 3 & 61.270 & 9347 & 2350 & 1.033 & 1.014 \\
+\bottomrule
+\end{tabular}

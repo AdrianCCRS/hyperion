@@ -76,12 +76,15 @@ def forest_politica() -> None:
     ):
         levels = d["policy"][clase]["levels_tested"]
         names = list(levels.keys())
-        gain = [levels[n]["gain_agg"] for n in names]
-        lo = [levels[n]["gain_ci95"][0] for n in names]
-        hi = [levels[n]["gain_ci95"][1] for n in names]
+        gain = [levels[n]["gain_agg"] * 100 for n in names]
+        lo = [levels[n]["gain_ci95"][0] * 100 for n in names]
+        hi = [levels[n]["gain_ci95"][1] * 100 for n in names]
         y = np.arange(len(names))[::-1]
         xerr = [np.array(gain) - np.array(lo), np.array(hi) - np.array(gain)]
         ax.errorbar(gain, y, xerr=xerr, fmt="o", color=color, ecolor="#b0b0b0", elinewidth=1.6, capsize=3, ms=5)
+        for g_, y_ in zip(gain, y):
+            ax.annotate(f"{g_:+.1f}", xy=(g_, y_), xytext=(0, 7), textcoords="offset points",
+                        ha="center", va="bottom", fontsize=6.5, color=color)
         ax.axvline(0, color="#333", lw=1)
         ax.axvline(1.0, color="#999", lw=0.8, ls=":")
         ax.set_yticks(y); ax.set_yticklabels(names)
@@ -109,7 +112,10 @@ def frecuencia_doble_eje() -> None:
     ax1.plot(x, df["cell_balanced_acc"], "o-", color=NEUTRO, lw=2, ms=5, label="Exactitud balanceada por celda")
     ax1.set_ylabel("Exactitud balanceada por celda", color=NEUTRO)
     ax1.tick_params(axis="y", labelcolor=NEUTRO)
-    ax1.set_xticks(x); ax1.set_xticklabels(order)
+    ax1.plot(x, [cov.set_index("freq").loc[l, "accuracy"] if l in set(cov["freq"]) else np.nan for l in order],
+             ":", color="#a0aec0", lw=1.6, label="Exactitud global (depende de la composición de clases)")
+    nlab = [f"{int(df.set_index('freq_level').loc[l, 'n']):,}".replace(",", " ") for l in order]
+    ax1.set_xticks(x); ax1.set_xticklabels([f"{l}\n{n}" for l, n in zip(order, nlab)], fontsize=7.5)
     ax1.set_ylim(0.55, 0.90)
     ax2 = ax1.twinx()
     ax2.plot(x, cov["coverage"], "s--", color=MEMORY, lw=2, ms=5, label="Cobertura (confianza ≥ 0.85)")

@@ -41,7 +41,7 @@ def comparacion_modelos() -> None:
     hi = [m[k]["ci95_family_bootstrap"]["cell_balanced_acc"][1] for k in ORDEN]
     fig, ax = plt.subplots(figsize=(7.0, 3.4))
     y = np.arange(len(ORDEN))[::-1]
-    color = [REF if k in ("mayoritaria", "arbol_prof1") else (COMPUTE if k == "regresion_log" else "#718096") for k in ORDEN]
+    color = [REF if k in ("mayoritaria", "arbol_prof1") else "#718096" for k in ORDEN]
     ax.errorbar(val, y, xerr=[np.array(val) - lo, np.array(hi) - val], fmt="none", ecolor="#b9cbe2", elinewidth=2.2, capsize=3)
     ax.scatter(val, y, s=48, c=color, zorder=3)
     for v, yy in zip(val, y):

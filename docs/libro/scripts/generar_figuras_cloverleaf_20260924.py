@@ -31,39 +31,26 @@ for row in rows:
     row["cpu_ratio"] = row["e_cpu_j"] / baseline["e_cpu_j"]
     row["gpu_ratio"] = row["e_gpu_j"] / baseline["e_gpu_j"]
 
-# EDP por bloque, con la mediana de cada brazo y la referencia de paridad.
-fig, ax = plt.subplots(figsize=(7.2, 3.5))
-positions = np.arange(5)
-for arm in ORDER:
-    values = [next(r["edp_ratio"] for r in rows if r["block"] == block and r["arm"] == arm) for block in range(1, 6)]
-    ax.plot(positions, values, "o-", color=COLOR[arm], label=LABEL[arm], linewidth=1.4, markersize=5)
-    ax.axhline(np.median(values), color=COLOR[arm], linewidth=0.9, alpha=0.55, linestyle="--")
-ax.axhline(1.0, color="#4a5568", linewidth=0.8, linestyle=":")
-ax.set_xticks(positions, ["1", "2", "3", "4", "5"])
-ax.set_xlabel("Bloque")
-ax.set_ylabel("EDP del nodo relativo a REF")
-ax.set_ylim(0.90, 1.08)
-ax.legend(frameon=False, ncol=3)
-fig.tight_layout()
-fig.savefig(FIG / "fig_fase4_cloverleaf_edp_20260924.png", dpi=300)
-plt.close(fig)
-
-# Energía CPU y GPU por brazo, normalizada al REF de cada bloque.
-fig, axes = plt.subplots(1, 2, figsize=(7.2, 3.3), sharey=True)
-for axis, key, title in zip(axes, ("cpu_ratio", "gpu_ratio"), ("Energía de CPU", "Energía de GPU")):
-    for arm in ORDER:
+# Una sola figura: cada magnitud relativa al REF de su bloque, con la mediana (barra) y cada bloque (punto).
+fig, axes = plt.subplots(1, 4, figsize=(7.4, 3.1), sharey=True)
+paneles = (("wall_s", "Duración"), ("cpu_ratio", "Energía de CPU"), ("gpu_ratio", "Energía de GPU"), ("edp_ratio", "EDP del nodo"))
+for row in rows:
+    row["wall_ratio"] = row["wall_s"] / ref[row["block"]]["wall_s"]
+paneles = (("wall_ratio", "Duración"), ("cpu_ratio", "Energía de CPU"), ("gpu_ratio", "Energía de GPU"), ("edp_ratio", "EDP del nodo"))
+for axis, (key, title) in zip(axes, paneles):
+    for i, arm in enumerate(ORDER):
         values = [next(r[key] for r in rows if r["block"] == block and r["arm"] == arm) for block in range(1, 6)]
-        x = np.arange(5) + (ORDER.index(arm) - 1) * 0.24
-        axis.plot(x, values, "o", color=COLOR[arm], label=LABEL[arm], markersize=5)
-        axis.hlines(np.median(values), x[0] - 0.08, x[-1] + 0.08, color=COLOR[arm], linewidth=1.1)
+        axis.bar(i, np.median(values), 0.62, color=COLOR[arm])
+        axis.plot([i] * len(values), values, "o", color="#1a202c", ms=3)
+        axis.text(i, max(values) + 0.006, f"{np.median(values):.3f}", ha="center", fontsize=7)
     axis.axhline(1.0, color="#4a5568", linewidth=0.8, linestyle=":")
-    axis.set_title(title)
-    axis.set_xticks(np.arange(5), ["1", "2", "3", "4", "5"])
-    axis.set_xlabel("Bloque")
-axes[0].set_ylabel("Energía relativa a REF")
-axes[1].legend(frameon=False, fontsize=8)
+    axis.set_title(title, fontsize=9)
+    axis.set_xticks(range(3), [LABEL[a] for a in ORDER], fontsize=7.5)
+    axis.grid(axis="x", visible=False)
+axes[0].set_ylim(0.9, 1.045)
+axes[0].set_ylabel("Relativo a REF (mediana y cada bloque)", fontsize=8.5)
 fig.tight_layout()
-fig.savefig(FIG / "fig_fase4_cloverleaf_energia_20260924.png", dpi=300)
+fig.savefig(FIG / "fig_fase4_cloverleaf_20260926.png", dpi=300)
 plt.close(fig)
 
 # Tabla LaTeX reproducible desde los mismos datos.

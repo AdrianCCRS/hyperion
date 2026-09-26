@@ -1,0 +1,4 @@
+,mean_drop,sd_between_families,share_families_positive
+gpu_mem_util_pct_median,0.032986111111111105,0.10518392181035753,0.1875
+gpu_mem_util_pct_std,0.02916666666666666,0.06309898162000302,0.25
+gpu_util_pct_median,0.006944444444444441,0.07653773377464235,0.125

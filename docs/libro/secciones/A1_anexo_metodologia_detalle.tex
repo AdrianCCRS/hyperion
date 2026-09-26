@@ -1,105 +1,57 @@
 \chapter{Detalle técnico de la metodología}
 \label{anexo:metodologia}
 
-Este anexo reúne los elementos de consulta que respaldan el capítulo \ref{cap:metodologia}. Conserva condiciones de validez, tablas de control y procedimientos cuyo detalle sería desproporcionado en el cuerpo principal.
-
 \section{Diseño de la medición}
 
-\subsection{Dominio de frecuencia y topología SMT}
-\label{sec:dominios}
-
-El alcance de una solicitud de frecuencia no coincide necesariamente con la afinidad de ejecución de una carga. Linux organiza CPUFreq en políticas asociadas a una o varias CPU lógicas, identificables mediante \texttt{affected\_cpus} y \texttt{related\_cpus} \cite{LinuxCPUFreq2026}.
-
-Con \textit{simultaneous multithreading} (SMT), dos procesadores lógicos comparten un núcleo físico. Aunque expongan límites de rendimiento separados a nivel de software, su frecuencia efectiva puede depender de las solicitudes de ambos. En \texttt{intel\_pstate}, una solicitud de mayor rendimiento de un hermano puede elevar el nivel efectivo del otro por encima de su límite individual \cite{LinuxIntelPstate2026}.
-
-Por ello, restringir la carga a un hilo lógico por núcleo evita la contención entre hermanos, pero no basta para aislar el estado de frecuencia. El protocolo controla los procesadores lógicos delegados y sus hermanos, y verifica el reloj efectivo durante la carga.
-
-\begin{figure}[H]
-    \centering
-    \begin{tikzpicture}[
-        font=\small,
-        cpu/.style={draw, rounded corners, minimum width=3cm, minimum height=1cm, align=center},
-        request/.style={draw, rounded corners, minimum width=2.6cm, minimum height=0.9cm, align=center},
-        arrow/.style={-{Latex[length=2mm]}, thick}
-    ]
-    \node[cpu] (cpu0) {CPU lógica A\\\footnotesize ejecuta la carga};
-    \node[cpu, right=2.2cm of cpu0] (cpu1) {CPU lógica B\\\footnotesize hermano SMT};
-    \node[draw, rounded corners, fit=(cpu0)(cpu1), inner sep=0.5cm,
-        label=above:\textbf{Núcleo físico compartido}] (core) {};
-    \node[request, below=1.3cm of cpu0] (req0) {Límite solicitado\\$f_{\mathrm{baja}}$};
-    \node[request, below=1.3cm of cpu1] (req1) {Solicitud del hermano\\$f_{\mathrm{alta}}$};
-    \draw[arrow] (req0.north) -- (cpu0.south);
-    \draw[arrow] (req1.north) -- (cpu1.south);
-    \node[fit=(req0)(req1), inner sep=0pt] (requests) {};
-    \node[draw, rounded corners, minimum width=4.5cm, minimum height=1cm,
-        align=center, below=0.9cm of requests] (effective)
-        {\textbf{Frecuencia efectiva del núcleo}\\condicionada por ambas solicitudes};
-    \draw[arrow] (core.south) -- (effective.north);
-    \end{tikzpicture}
-    \caption[Solicitudes de frecuencia entre hermanos SMT]{Relación conceptual entre las solicitudes de rendimiento de dos procesadores lógicos hermanos y la frecuencia efectiva de un núcleo físico con SMT habilitado. Fuente: elaboración propia con base en la documentación de \texttt{intel\_pstate} \cite{LinuxIntelPstate2026}.}
-    \label{fig:smt-frecuencia}
-\end{figure}
-
-\subsection{Instrumento y señales}
-
-El instrumento separa la medición de baja latencia, implementada en C++, de la planificación y validación de campañas, implementadas en Python. El ejecutor detiene el proceso hijo antes de su primera instrucción, abre los contadores con herencia y después lo reanuda. Un productor lee las señales y un consumidor las persiste sin competir con la cadencia de lectura.
-
+\subsection{Muestreo y dominio \textit{uncore}} 
 \label{sec:uncore}
-Los eventos de núcleo se atribuyen a la carga medida. Los comandos CAS del controlador de memoria integrado pertenecen al dominio \textit{uncore}, compartido en el zócalo, por lo que la campaña requiere asignación exclusiva del nodo.
+
+Los eventos de núcleo se atribuyen a la carga medida. Los comandos CAS del controlador de memoria integrado pertenecen al dominio \textit{uncore}, compartido en el zócalo \cite{IntelUncore2021}, por lo que la campaña requiere asignación exclusiva del nodo.
 
 \begin{figure}[H]
 \centering
+\resizebox{\textwidth}{!}{%
 \begin{tikzpicture}[
-    font=\small,
-    box/.style={rectangle, draw, rounded corners=2pt, align=center, minimum height=1.0cm, inner sep=5pt},
-    core/.style={box, draw=blue!45!black, fill=blue!8, text width=3.7cm},
-    thr/.style={box, draw=green!45!black, fill=green!12, text width=3.4cm},
-    sink/.style={box, draw=black!45, fill=black!6, text width=2.7cm},
-    slot/.style={circle, draw=orange!55!black, minimum size=0.74cm, inner sep=0pt},
+    font=\footnotesize,
+    box/.style={rectangle, draw, rounded corners=2pt, align=center, minimum height=1.0cm, inner sep=4pt},
+    core/.style={box, draw=blue!45!black, fill=blue!8, text width=2.6cm},
+    thr/.style={box, draw=green!45!black, fill=green!12, text width=2.6cm},
+    sink/.style={box, draw=black!45, fill=black!6, text width=2.0cm},
+    slot/.style={circle, draw=orange!55!black, minimum size=0.42cm, inner sep=0pt},
     occ/.style={slot, fill=orange!30}, free/.style={slot, fill=white},
     wslot/.style={slot, fill=white, draw=green!45!black, line width=1.1pt},
     rslot/.style={slot, fill=orange!30, draw=black!70, line width=1.1pt},
-    flow/.style={-{Latex[length=2.4mm]}, very thick}, rd/.style={-{Latex[length=2.4mm]}, thick, dashed},
-    lbl/.style={font=\footnotesize, align=center},
+    flow/.style={-{Latex[length=2mm]}, very thick}, rd/.style={-{Latex[length=2mm]}, thick, dashed},
+    lbl/.style={font=\scriptsize, align=center},
 ]
-    \def\R{2.05}
-    \foreach \i/\typ in {1/free,2/free,3/free,4/free,6/occ,7/occ,8/occ,9/occ} {\node[\typ] (s\i) at ({90 - \i*36}:\R) {};}
-    \node[wslot] (s0) at (90:\R) {};
-    \node[rslot] (s5) at (-90:\R) {};
-    \node[lbl, text=orange!50!black] at (0,0) {\textbf{estructura}\\\textbf{circular}\\[1pt]\scriptsize un productor\\\scriptsize un consumidor};
-    \node[thr, above=2.0cm of s0] (prod) {\textbf{Hilo productor}\\procesador lógico separado};
-    \node[thr, below=2.0cm of s5] (cons) {\textbf{Hilo consumidor}\\procesador lógico separado};
-    \node[core, left=3.1cm of prod] (load) {\textbf{Núcleos medidos}\\carga con \texttt{perf\_event}};
-    \node[sink, left=2.7cm of cons] (disk) {Persistencia en disco};
-    \draw[rd] (prod.west) -- node[lbl, above] {lee los contadores\\cada período} (load.east);
-    \draw[flow, green!45!black] (prod.south) -- (s0.north);
-    \draw[flow] (s5.south) -- (cons.north);
-    \draw[flow] (cons.west) -- node[lbl, above] {persiste} (disk.east);
-\end{tikzpicture}
-\caption[Ruta de muestreo con estructura circular de un productor y un consumidor]{Ruta de una muestra de telemetría desde la lectura de los contadores hasta su persistencia. Los hilos de medición y persistencia se fijan a procesadores lógicos distintos de los que ejecutan la carga. Fuente: elaboración propia.}
+    \def\R{1.0}
+    \foreach \i/\typ in {1/free,2/free,3/free,4/free,6/occ,7/occ,8/occ,9/occ} {\node[\typ] (s\i) at ({180 + \i*36}:\R) {};}
+    \node[wslot] (s0) at (180:\R) {};
+    \node[rslot] (s5) at (0:\R) {};
+    \node[lbl, text=orange!50!black] at (0,0) {\textbf{estructura}\\\textbf{circular}};
+    \draw[{Latex[length=2mm]}-, thick, orange!60!black] (22:1.42) arc (22:158:1.42);
+    \draw[{Latex[length=2mm]}-, thick, orange!60!black] (-158:1.42) arc (-158:-22:1.42);
+    \node[thr, left=1.1cm of s0] (prod) {\textbf{Productor}\\hilo en un procesador lógico separado};
+    \node[thr, right=1.1cm of s5] (cons) {\textbf{Consumidor}\\hilo en un procesador lógico separado};
+    \node[core, left=1.9cm of prod] (load) {\textbf{Núcleos medidos}\\carga con \texttt{perf\_event}};
+    \node[sink, right=1.1cm of cons] (disk) {Persistencia en disco};
+    \draw[rd] (prod.west) -- node[lbl, above=2pt, fill=white, inner sep=1pt] {lee} (load.east);
+    \draw[flow, green!45!black] (prod.east) -- node[lbl, above=2pt] {escribe} (s0.west);
+    \draw[flow] (s5.east) -- node[lbl, above=2pt] {lee} (cons.west);
+    \draw[flow] (cons.east) -- node[lbl, above=2pt] {persiste} (disk.west);
+\end{tikzpicture}}
+\caption[Ruta de muestreo con estructura circular de un productor y un consumidor]{Ruta de una muestra de telemetría desde la lectura periódica de los contadores hasta su persistencia. Las flechas curvas indican el sentido de avance de las posiciones de la estructura circular. Los hilos de medición y persistencia se fijan a procesadores lógicos distintos de los que ejecutan la carga. Fuente: elaboración propia.}
 \label{fig:muestreo-spsc}
 \end{figure}
 
-\subsection{Granularidad, calidad y reproducibilidad}
-\label{sec:granularidad}
-
-En CPU, la fila de entrenamiento corresponde al intervalo del controlador de memoria, no a la ventana de núcleo. Los FLOPs se agregan sobre ese intervalo para alinearlos con los bytes de DRAM y se recalculan las tasas a partir de sus deltas. En GPU, la fila corresponde a una corrida completa porque NVML entrega señales agregadas y la etiqueta Roofline se obtiene fuera de línea por kernel.
-
+\subsection{Detección del transitorio de arranque}
 \label{sec:calentamiento}
-Las ventanas de transición, calentamiento, frecuencia no verificable, energía inválida, contadores degradados o intensidad indefinida se conservan con su causa y se excluyen solo en el análisis correspondiente. Una corrida completa exige, además, criterio de éxito, suma de verificación del binario y ausencia de pérdidas en la estructura circular.
 
 El transitorio se estima después de adquirir la traza completa, sin condicionar la captura. Sobre IPC en CPU y utilización en GPU, primero se busca el primer instante en que el coeficiente de variación no supera 5\% en dos ventanas móviles consecutivas. Si una corrida contiene $n$ muestras, cada ventana móvil tiene $w=\max(3,\min(15,\lfloor n/4\rfloor))$ muestras. Así, el análisis usa aproximadamente un cuarto de la traza cuando esta es corta, nunca menos de tres muestras ni más de quince. El instante detectado recibe un margen de seguridad de 20\%. En GPU se exige además que la media de ambas ventanas alcance al menos 5\% de utilización, para que el reposo inicial no se interprete como estabilidad.
 
 Si ese criterio no encuentra un estado estable, se aplica detección recursiva de puntos de cambio sobre la misma señal. Cada partición debe reducir al menos 10\% la suma de errores cuadráticos, conserva segmentos de $\max(5,\lfloor n/50\rfloor)$ muestras y alcanza como máximo seis niveles de recursión. Entre los segmentos obtenidos se selecciona el primero cuya media sea al menos 80\% de la meseta de mayor carga de la corrida. Durante la calibración de GPU, el intervalo se contrasta además con el ascenso de potencia hacia el régimen sostenido.
 
-\label{sec:reproducibilidad}
-Cada campaña persiste un manifiesto versionado con cargas, frecuencias, repeticiones, afinidad, semilla y referencias de calibración. Una huella del protocolo impide mezclar resultados de manifiestos distintos al reanudar una campaña. La calibración ya aceptada se reutiliza tras verificar que corresponde a los niveles declarados.
-
 \section{Fase 1. Recolección y caracterización}
-
-\subsection{Verificación previa}
-
-Antes de cada campaña se ejecutan verificaciones bloqueantes sobre el nodo, el catálogo y la instrumentación. Una falla detiene la campaña antes de producir datos.
 
 \begin{table}[H]
 \centering
@@ -118,35 +70,58 @@ Actuación & Permiso de escritura y rango soportado de frecuencia cuando la camp
 \end{tabular}
 \end{table}
 
-\subsection{Catálogo y cribado}
+\subsection{Catálogo}
 \label{sec:banco-candidatos}
 
-El catálogo incluye microbenchmarks de calibración, que no entrenan al clasificador, y familias de benchmarks con trabajo de punto flotante verificable. La familia algorítmica, no la variante de tamaño, es la unidad de diversidad para selección y validación.
-
-\begin{table}[H]
-\centering
-\caption{Catálogo resumido de cargas.}
-\label{tab:catalogo}
-\small
-\begin{tabular}{@{}p{4.1cm}p{3.5cm}p{5.3cm}@{}}
+{\scriptsize
+\begin{longtable}{@{}p{1.5cm}p{3.7cm}p{2.6cm}p{2.1cm}p{4.1cm}@{}}
+\caption{Catálogo de kernels y procedencia de las suites.}\label{tab:catalogo}\\
 \toprule
-\textbf{Grupo} & \textbf{Origen} & \textbf{Papel} \\
+\textbf{Dispositivo} & \textbf{Kernel o familia} & \textbf{Suite u origen} & \textbf{Variante} & \textbf{Papel y referencia} \\
 \midrule
-STREAM y ERT & Referencias CPU & Calibración de ancho de banda y cómputo. \\
-Microbenchmarks FP y BW & Elaboración propia & Calibración GPU y controles. \\
-NAS, BLAS y LavaMD & NPB, BLAS y Rodinia & Familias CPU de referencia. \\
-RAJAPerf, CHOLMOD, LULESH, HPCG, HPCCG y PageRank & Suites científicas & Diversidad de patrones CPU. \\
-Rodinia y cuBLAS & Rodinia y NVIDIA & Familias GPU de referencia. \\
+\endfirsthead
+\multicolumn{5}{c}{\tablename\ \thetable{} -- continuación}\\
+\toprule
+\textbf{Dispositivo} & \textbf{Kernel o familia} & \textbf{Suite u origen} & \textbf{Variante} & \textbf{Papel y referencia} \\
+\midrule
+\endhead
+\midrule
+\multicolumn{5}{r}{Continúa en la siguiente página}\\
+\endfoot
 \bottomrule
-\end{tabular}
-\end{table}
+\endlastfoot
+CPU & STREAM & STREAM & 64M elementos & Calibración de ancho de banda; McCalpin \cite{McCalpin1995}. \\
+CPU & ERT & ERT & Probe propio & Calibración de cómputo; Lo et al. \cite{Lo2015}. \\
+CPU & BT, CG, FT, LU, MG, SP & NPB-OMP & Clases B y C & Conjunto de datos; NAS Parallel Benchmarks \cite{Bailey1991}. \\
+CPU & DGEMM & DGEMM-OpenBLAS & $N=2048$ & Conjunto de datos; BLAS optimizada \cite{Goto2008}. \\
+CPU & LavaMD & Rodinia-OpenMP & \texttt{boxes1d24} & Conjunto de datos; Rodinia \cite{Che2009}. \\
+CPU & RAJAPerf--stream & RAJAPerf-OpenMP & 10 veces la LLC & Conjunto de datos; RAJA Performance Suite \cite{Beckingsale2019}. \\
+CPU & RAJAPerf--lcals & RAJAPerf-OpenMP & 10 veces la LLC & Conjunto de datos; RAJA Performance Suite \cite{Beckingsale2019}. \\
+CPU & RAJAPerf--polybench & RAJAPerf-OpenMP & 10 veces la LLC & Conjunto de datos; RAJA Performance Suite \cite{Beckingsale2019}. \\
+CPU & RAJAPerf--basic & RAJAPerf-OpenMP & 10 veces la LLC & Conjunto de datos; RAJA Performance Suite \cite{Beckingsale2019}. \\
+CPU & RAJAPerf--apps & RAJAPerf-OpenMP & Rep. controladas & Conjunto de datos; RAJA Performance Suite \cite{Beckingsale2019}. \\
+CPU & CHOLMOD & SuiteSparse-CHOLMOD & Laplacian3D & Conjunto de datos; SuiteSparse \cite{Davis2008}. \\
+CPU & LULESH & LULESH & $120^3$, 300 iter. & Conjunto de datos; LLNL \cite{Karlin2013}. \\
+CPU & HPCG & HPCG & $80^3$, 5 s & Conjunto de datos; HPCG \cite{Dongarra2016}. \\
+CPU & HPCCG & HPCCG-CG & $N=46$ & Conjunto de datos; Mantevo \cite{Heroux2009}. \\
+CPU & PageRank & GAP-Benchmark & Kronecker, escala 22 & Conjunto de datos; GAP Benchmark Suite \cite{Beamer2015}. \\
+CPU & GEMM, Cholesky, FFT, SpMV, AXPY, stencil & Elaboración propia & Varios tamaños & Conjunto de datos; familias duales CPU--GPU. \\
+CPU & \textit{phasic} & HYPERION-PHASE & P010--P1000 & Control sintético; elaboración propia. \\
+GPU & BabelStream & BabelStream & Calibración BW & Calibración de ancho de banda; referencia del catálogo. \\
+GPU & DGEMM & cuBLAS-DGEMM & $N=4096$ & Calibración y control de cómputo; NVIDIA cuBLAS. \\
+GPU & ERT FP32, ERT FP64 & ERT-GPU & FP32/FP64 & Calibración de cómputo; elaboración propia. \\
+GPU & DGEMM y Conv2D & CUTLASS & $N=4096$ / configuración fija & Conjunto de datos; CUTLASS. \\
+GPU & miniBUDE & miniBUDE-CUDA & BM1 & Conjunto de datos; suite externa del catálogo. \\
+GPU & RAJAPerf--stream, --jacobi, --heat, --gemm & RAJAPerf-CUDA & Variantes escaladas & Conjunto de datos; RAJA Performance Suite \cite{Beckingsale2019}. \\
+GPU & Gaussian, Heartwall, K-means, LUD & Rodinia & Tamaños escalados & Conjunto de datos; Rodinia \cite{Che2009}. \\
+GPU & AXPY, Cholesky, FFT, SpMV, stencil & Elaboración propia & Varios tamaños & Conjunto de datos; familias duales CPU--GPU. \\
+\end{longtable}}
 
-\label{sec:cribado}
-Cada candidato pasa por un cribado de tres niveles de frecuencia. Se comprueba la calidad de señal, la cobertura respecto del punto de inflexión y la representación de ambas clases por familia y dispositivo. Solo las familias elegibles entran a la matriz definitiva.
+Los tamaños, repeticiones y sumas de verificación de cada entrada están en el catálogo versionado del repositorio. Las cargas de elaboración propia no se presentan como suites externas y los microbenchmarks de calibración no forman parte del entrenamiento del clasificador.
 
-\subsection{Calibración y matriz}
+\subsection{Conteo de FLOPs e intensidad de GPU}
 
-La intensidad operacional se compara con techos Roofline calibrados por dispositivo, precisión y nivel de frecuencia. En GPU, \texttt{ncu} mide FLOPs y bytes fuera de línea sobre ejecuciones repetidas del kernel. Se acepta la intensidad cuando los dos puntos de mayor trabajo difieren menos de 1\%; las cargas de precisión mixta no resoluble o sin trabajo de punto flotante se excluyen.
+En CPU, los FLOPs de cada ventana suman los sub-eventos escalares y vectoriales de 128, 256 y 512 bits de \texttt{FP\_ARITH\_INST\_RETIRED}, ponderados por el número de operandos de doble precisión de cada instrucción (ecuación \eqref{eq:flops-medidos}). En GPU, la intensidad de un kernel suma sobre sus $L$ lanzamientos perfilados las instrucciones de suma, multiplicación y FMA (esta última con dos FLOPs) y las divide por los bytes $B_\ell$ movidos a la memoria del dispositivo (ecuación \eqref{eq:intensidad-gpu}).
 
 \begin{equation}
 \mathrm{FLOPs}_{i}^{\mathrm{HW}} =
@@ -160,69 +135,34 @@ I^{\mathrm{GPU}} =
 \label{eq:intensidad-gpu}
 \end{equation}
 
-\label{sec:matriz-sesgos}
-La matriz cruza familia, frecuencia y repeticiones independientes. El orden se aleatoriza con semilla registrada, se intercalan cargas de referencia y cada dispositivo no intervenido permanece en su gobierno nativo. La huella del protocolo protege las campañas reanudables contra mezclas de condiciones.
-
-\begin{table}[H]
-\centering
-\caption{Rejilla fina de frecuencia de la campaña definitiva.}
-\label{tab:frecuencias}
-\small
-\begin{tabular}{@{}lp{10.4cm}@{}}
-\toprule
-\textbf{Dispositivo} & \textbf{Niveles de reloj en MHz} \\
-\midrule
-CPU & \texttt{REF}, \texttt{F0} (3200), \texttt{F1} (2900), \texttt{F2} (2600), \texttt{F3} (2300), \texttt{F4} (2000), \texttt{F5} (1700), \texttt{F6} (1400), \texttt{F7} (1100) y \texttt{F8} (800). \\
-GPU & \texttt{REF}, 1410, 1350, 1290, 1230, 1170, 1110, 810, 510 y 210. \\
-\bottomrule
-\end{tabular}
-\end{table}
-
 \section{Fase 2. Desarrollo y validación de los modelos}
 
 \subsection{Variables y prevención de fuga}
-\label{sec:metodologia-features-cpu}
-
-El modelo CPU usa IPC, MPKI, tasa de fallos de caché, fracción de ciclos detenidos por memoria, instrucciones por segundo y frecuencia observada. El modelo GPU usa agregados robustos de utilización de GPU y memoria, potencia y reloj, junto con la variabilidad de la utilización de memoria. La intensidad, los FLOPs, los bytes, el punto de inflexión y la etiqueta están prohibidos como entradas.
-
 \label{sec:contrato-features}
-La selección se congela en un contrato versionado por dispositivo. Las columnas ausentes, constantes o no finitas se tratan explícitamente y la presencia de una variable prohibida aborta el entrenamiento.
 
-\subsection{Auditoría, muestreo y validación}
+La intensidad operacional, los FLOPs, los bytes, el punto de inflexión y la etiqueta están prohibidos como entradas. La selección de variables se congela en un contrato versionado por dispositivo: las columnas ausentes, constantes o no finitas se tratan explícitamente y la presencia de una variable prohibida aborta el entrenamiento.
+
 \label{sec:metodologia-correlacion-cpu}
+Antes de entrenar se calculan las correlaciones de Pearson y de Spearman y el factor de inflación de la varianza. Cuando dos columnas describen la misma señal se conserva la medición físicamente más directa.
 
-Antes de entrenar se calculan correlaciones de Pearson y Spearman y el factor de inflación de varianza. Cuando dos columnas describen la misma señal se conserva la medición físicamente más directa.
+\subsection{Ponderación y diagnóstico del límite}
 
-\label{sec:metodologia-congelacion-cpu}
-La validación deja fuera familias completas. El ajuste se pondera para no sobrerrepresentar familias o clases con más observaciones, y la métrica principal es la exactitud balanceada por celda familia--clase:
-
+El peso de cada observación en el ajuste, inverso al tamaño de su celda de familia y clase y con media uno, es
 \begin{equation}
 w_i=\frac{1/n_{fc}}{(1/N)\sum_{k=1}^{N}1/n_{f_kc_k}}.
 \label{eq:peso-familia-clase}
 \end{equation}
-
-\begin{equation}
-\mathrm{EB}=\frac{1}{|\mathcal{C}|}\sum_{(f,c)\in\mathcal{C}}\frac{a_{fc}}{n_{fc}}.
-\label{eq:exactitud-balanceada-celda}
-\end{equation}
-
 El candidato se congela antes de examinar errores por familia o frecuencia.
 
 \label{sec:metodologia-limite-cpu}
-El límite del resultado se diagnostica mediante una referencia de vecinos cercanos, perfiles de familias con señales similares y clases opuestas, desempeño según distancia al \textit{ridge} y curva de aprendizaje por número de familias. Estas pruebas separan falta de capacidad del modelo de falta de información en las señales.
+El límite del resultado se diagnostica con cuatro pruebas: una referencia de vecinos cercanos sin ajuste, los perfiles de celdas de clases opuestas con señales similares, el desempeño según la distancia al \textit{ridge} y la curva de aprendizaje por número de familias. En conjunto separan la falta de capacidad del modelo de la falta de información en las señales.
 
-\label{sec:metodologia-calibracion-confianza}
-La probabilidad fuera de muestra se evalúa agrupando las predicciones en rangos de confianza de igual amplitud y mediante el error de calibración esperado. El umbral de abstención se selecciona sobre las predicciones de validación por familia, con cobertura mínima declarada, y queda congelado con el candidato.
+\subsection{Procedimiento estadístico de la política}
+\label{sec:metodologia-politica-cpu}\label{sec:metodologia-politica-gpu}
 
-\subsection{Derivación de la política}
+Para cada kernel se compara la mediana de sus tres repeticiones en cada nivel fijo con la de su propia base, lo que forma diferencias pareadas por kernel. Con menos de ocho pares se aplica Wilcoxon de rangos con signo \cite{Hollander2014}; con ocho o más, la prueba de Shapiro--Wilk sobre las diferencias decide entre la prueba $t$ pareada, si no se rechaza la normalidad, y Wilcoxon; en CPU todos los niveles se evaluaron con Wilcoxon. El intervalo de confianza del 95\% de la ganancia agregada se estima por \textit{bootstrap} de kernels con 4000 réplicas. En CPU se excluyen las tres variantes de \textit{phasic}, cuya duración es fija (20.6~s en todos los niveles) y cuyo trabajo, por tanto, cambia entre niveles. En GPU, la clase de un kernel es la mayoritaria entre sus corridas y se marca ambigua, sin excluirla, si su margen es menor que 0.75; los tamaños de un mismo algoritmo se agregan por familia y la ganancia se contrasta con Wilcoxon unilateral hacia la mejora sobre las familias.
 
-\label{sec:metodologia-politica-cpu}
-La política CPU se deriva del EDP por corrida, no de las ventanas ni del clasificador. Para cada kernel se compara la mediana de cada nivel contra su propio \texttt{REF}; la agregación se realiza por clase y se complementa por familia para evitar pseudorreplicación. Un nivel solo se adopta si supera el efecto mínimo relevante y la prueba pareada declarada. De lo contrario, la salida es \textit{no actuar}.
-
-\label{sec:metodologia-politica-gpu}
-La política GPU usa el mismo principio con el kernel como unidad de comparación. La clase del kernel se determina por mayoría de sus corridas y se marca ambigua si el margen es menor de 0.75. La regla se contrasta mediante \textit{leave-one-familia-out}; los kernels sin referencia nativa no participan en pruebas apareadas.
-
-\section{Detalles adicionales del diseño}
+\section{Señales y unidad de observación}
 
 \begin{table}[H]
 \centering
@@ -256,7 +196,7 @@ GPU & Corrida completa & Fuera de línea, por kernel & 483 corridas, 16 familias
 \end{tabular}
 \end{table}
 
-\section{Parámetros y controles del agente}
+\section{Amenazas a la validez}
 
 \begin{table}[H]
 \centering
@@ -273,7 +213,7 @@ Multiplexación de eventos & Nueve eventos dentro del presupuesto verificado; la
 Frecuencia efectiva distinta de la pedida & Turbo apagado, rango por núcleo y hermanos \textit{SMT}, verificación por ventana \\
 Fuga de la etiqueta hacia las variables & Lista de columnas prohibidas comprobada por código \\
 Pseudo-replicación entre tamaños y repeticiones & La familia como unidad de validación (LOFO) y de comparación de la política \\
-Ajuste sobre datos de prueba & Congelación antes de auditar errores y prueba externa sellada única \\
+Ajuste sobre datos de prueba & Congelación del candidato antes de auditar errores por familia o frecuencia \\
 Retroalimentación del agente sobre el modelo & Auditoría de invarianza de las variables frente a la acción del agente \\
 Sesgo temporal o de orden & Orden aleatorizado con semilla registrada y repeticiones independientes \\
 Deriva del estado del nodo & Snapshot y restauración del estado de frecuencia por celda \\
@@ -282,39 +222,27 @@ Muestra intencional en un solo nodo & Se declara como limitación; no se general
 \end{tabular}
 \end{table}
 
-\section{Análisis y decisiones complementarias}
+\section{Protocolos de la Fase 4}
 
-\subsection{Derivación detallada de la política}
-
-La tabla que traduce cada clase de régimen en una frecuencia se deriva del barrido de la Fase 1 y no del clasificador. Para cada kernel y nivel de frecuencia, se compara la mediana de sus repeticiones contra su propio \texttt{REF}. Así se forman diferencias pareadas entre el mismo kernel medido en el nivel evaluado y en la referencia. Si hay menos de ocho pares o las diferencias no cumplen el criterio de normalidad establecido, se aplica Wilcoxon de rangos con signo; en los demás casos se utiliza la prueba $t$ pareada. El intervalo de confianza del 95\% de la ganancia agregada se estima mediante \textit{bootstrap} de kernels con 4000 réplicas, y se interpreta junto con el efecto mínimo relevante y el análisis de potencia. Cuando dos tamaños corresponden al mismo algoritmo, se agregan por familia y la regla ``elegir el nivel de mayor ganancia media'' se valida con \textit{leave-one-familia-out}. Cualquier refinamiento por subpoblación se declara antes de medir y se confirma una sola vez sobre familias externas selladas. En GPU, la clase de un kernel es la mayoritaria de sus corridas y se marca como ambigua si el margen es menor a 0.75, sin excluirlo, porque el punto de inflexión cambia con el reloj y un kernel cercano puede cambiar de clase entre niveles (anexo, secciones \ref{sec:metodologia-politica-cpu} y \ref{sec:metodologia-politica-gpu}).
-
-\section{Protocolos completos de la Fase 4}
-
-\begin{table}[p]
+\begin{table}[!t]
 \centering
 \caption{Protocolos complementarios ejecutados en la Fase 4.}
 \label{tab:fase4-escenarios}
 \footnotesize
-\renewcommand{\arraystretch}{0.94}
+\renewcommand{\arraystretch}{0.88}
 \setlength{\tabcolsep}{3pt}
 \begin{tabular}{@{}>{\raggedright\arraybackslash}p{2.7cm}>{\raggedright\arraybackslash}p{4.5cm}>{\raggedright\arraybackslash}p{5.3cm}@{}}
 \toprule
 \textbf{Escenario} & \textbf{Qué cambia} & \textbf{Motivo} \\
 \midrule
-A: matriz inicial & Ninguno & Referencia, tal como se diseñó \\
-C: agente de CPU con un hilo de inferencia & Repite A en CPU y en el alcance conjunto con la configuración final del agente & Separa el efecto de actuar del costo de mantener el agente \\
+Matriz inicial & Ninguno & Referencia, tal como se diseñó \\
+C: repetición de CPU y conjunto & Repite la matriz inicial en CPU y en el alcance conjunto con el mismo agente & Comprueba la reproducibilidad de la matriz y separa el efecto de actuar del costo de mantener el agente \\
 E: GPU dominada por memoria & Aplicaciones de GPU con tres o dos fases \textit{memory\_bound} largas (45 a 60~s) y una de cómputo, de familias vistas (E-A) e inéditas (E-B); la CPU sin agente o con el agente en observación & El techo medido en la Fase 2 es 8.9\% de EDP en GPU y el efecto escala con la fracción de tiempo en memoria; es un escenario de aplicabilidad \\
-Referencia sin turbo & Sin agente, con turbo de CPU apagado, en las combinaciones compuestas de C y E & Línea base secundaria para aislar la contribución del turbo de CPU; no sustituye un brazo de GPU a F1 fijo \\
+Base sin turbo & Sin agente, con turbo de CPU apagado, en las combinaciones compuestas de C y E & Segunda medición de la base, como control de repetibilidad; no sustituye un brazo de GPU a F1 fijo \\
 D: aplicación real de terceros & LAMMPS 2023 con paquete GPU, cuatro entradas de referencia y fases naturales & Validez externa; tres bloques por entrada y brazo \\
-F: premedición de F1 fijo & REF frente a la solicitud de F1 en DGEMM de CUTLASS, Conv2D y LavaMD, cinco repeticiones por nivel & Comprobar que una comparación posterior contra un nivel fijo tendría un reloj efectivo distinto de REF \\
-Confirmatorio E-A & Cinco bloques aleatorizados de REF, sombra, agente GPU activo y F1 fijo para la aplicación E-A & Confirmar la mejora frente a REF y contrastarla con F1 fijo; el brazo fijo se declara inválido si no sostiene el reloj bajo carga \\
-CloverLeaf CUDA Fortran & Aplicación externa continua, cinco bloques aleatorizados con REF, sombra y agente GPU activo; una decisión inicial del agente por corrida & Verificar la política sobre una carga de terceros sostenida, con energía de nodo, salida numérica y reloj auditados \\
+F: premedición de F1 fijo & Base frente a la solicitud de F1 en DGEMM de CUTLASS, Conv2D y LavaMD, cinco repeticiones por nivel & Comprobar que una comparación posterior contra un nivel fijo tendría un reloj efectivo distinto de la base \\
+Confirmatorio E-A & Cinco bloques aleatorizados de la base, sombra, agente GPU activo y F1 fijo para la aplicación E-A & Confirmar la mejora frente a la base y contrastarla con F1 fijo; el brazo fijo se declara inválido si no sostiene el reloj bajo carga \\
+CloverLeaf CUDA Fortran & Aplicación externa continua, cinco bloques aleatorizados con la base, sombra y agente GPU activo; una decisión inicial del agente por corrida & Verificar la política sobre una carga de terceros sostenida, con energía de nodo, salida numérica y reloj auditados \\
 \bottomrule
 \end{tabular}
 \end{table}
-
-\section{Detalles adicionales de método y diagnóstico}
-
-\subsection{Selección detallada del catálogo}
-
-La población es el conjunto de aplicaciones ejecutables en sistemas heterogéneos CPU--GPU. Como no es abarcable, se trabaja con una muestra intencional de benchmarks y microbenchmarks que inducen regímenes de ejecución contrastantes, coherente con la necesidad de cargas controladas y reproducibles. Una carga entra al catálogo si cumple tres condiciones: dispone de una verificación interna de corrección que permite descartar corridas inválidas; su trabajo aritmético es observable por el propio instrumento (contadores de hardware en CPU, perfilado por contadores en GPU) y no depende de lo que la carga reporte de sí misma; y ese trabajo es efectivamente de punto flotante, de modo que la intensidad operacional tenga significado físico. La unidad de diversidad es la \textbf{familia algorítmica}, el patrón de cómputo y de acceso a memoria compartido por todas las variantes de tamaño de un mismo algoritmo. Tratar cada tamaño como un ejemplo distinto inflaría el conjunto sin añadir diversidad, y dejar fuera un tamaño no prueba generalización hacia un patrón nuevo. Por eso la familia gobierna la selección de cargas y, más adelante, la validación. Los microbenchmarks propios sirven como controles y no forman parte del conjunto de entrenamiento. Los detalles del catálogo y de su cribado están en el anexo (sección \ref{sec:banco-candidatos}).

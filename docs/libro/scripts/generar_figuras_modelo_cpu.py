@@ -11,6 +11,7 @@ import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
 BASE = Path(__file__).resolve().parents[1]
@@ -75,20 +76,29 @@ def matriz_confusion() -> None:
 def por_familia() -> None:
     f = pd.read_csv(D / "final_model_by_family.csv").sort_values("accuracy")
     inv = pd.read_csv(D / "inventory_by_family.csv").set_index("family")
-    fig, ax = plt.subplots(figsize=(7.4, 6.9))
+    fig, (ax, axc) = plt.subplots(1, 2, figsize=(6.6, 3.9), sharey=True,
+                                  gridspec_kw={"width_ratios": [1.5, 1], "wspace": 0.06})
     y = np.arange(len(f))
-    col = [COMPUTE if inv.loc[k, "mixed_10_90"] else MEMORY for k in f["family"]]
-    ax.barh(y - 0.19, f["accuracy"], height=0.38, color=col)
-    ax.barh(y + 0.19, f["coverage"], height=0.38, color="#cbd5e0")
-    ax.axvline(0.5, color="#9a9a9a", ls="--", lw=1)
-    ax.set_yticks(y); ax.set_yticklabels(f["family"].str.replace("_", r"\_", regex=False).str.replace(r"\_", "_", regex=False))
-    ax.set_xlabel("Proporción")
-    ax.set_xlim(0, 1.02)
-    ax.legend(handles=[Patch(color=COMPUTE, label="Exactitud, familia mixta (10 a 90 % memory)"),
-                       Patch(color=MEMORY, label="Exactitud, familia casi pura (una clase domina)"),
-                       Patch(color="#cbd5e0", label="Cobertura (confianza ≥ 0.85)")],
-              loc="upper center", bbox_to_anchor=(0.5, -0.07), ncol=1, frameon=False, fontsize=8.5)
-    fig.tight_layout(rect=(0, 0.07, 1, 1)); fig.savefig(F / "fig_cpu_resultado_por_familia_20260919.png"); plt.close(fig)
+    mixta = np.array([bool(inv.loc[k, "mixed_10_90"]) for k in f["family"]])
+    for a_, values, xlabel in ((ax, f["accuracy"].values, "Exactitud balanceada"),
+                               (axc, f["coverage"].values, "Cobertura")):
+        for yy in y[::2]:
+            a_.axhspan(yy - 0.5, yy + 0.5, color="#f1f1f1", zorder=0)
+        a_.hlines(y, 0, values, color="#c9c9c9", lw=0.7, zorder=1)
+        a_.scatter(values[mixta], y[mixta], s=20, color=NEUTRO, zorder=3)
+        a_.scatter(values[~mixta], y[~mixta], s=20, facecolor="white", edgecolor=NEUTRO, linewidth=1.2, zorder=3)
+        a_.set_xlim(0, 1.03); a_.set_ylim(-0.6, len(f) - 0.4)
+        a_.set_xticks([0, 0.5, 1.0]); a_.set_xticklabels(["0", "0.5", "1"])
+        a_.set_xlabel(xlabel); a_.grid(axis="y", visible=False)
+    ax.axvline(0.5, color="#9a9a9a", ls="--", lw=0.9)
+    ax.text(0.5, len(f) - 0.3, "azar", ha="center", va="bottom", fontsize=7, color="#777")
+    ax.set_yticks(y); ax.set_yticklabels(f["family"], fontsize=6.6)
+    axc.tick_params(axis="y", left=False)
+    ax.legend(handles=[Line2D([], [], marker="o", color="none", markerfacecolor=NEUTRO, markeredgecolor=NEUTRO, label="Familia mixta"),
+                       Line2D([], [], marker="o", color="none", markerfacecolor="white", markeredgecolor=NEUTRO, markeredgewidth=1.2, label="Familia casi pura")],
+              loc="lower right", frameon=True, facecolor="white", edgecolor="#dcdcdc", fontsize=7)
+    fig.subplots_adjust(left=0.27, right=0.98, top=0.96, bottom=0.13)
+    fig.savefig(F / "fig_cpu_resultado_por_familia_20260919.png"); plt.close(fig)
 
 
 def umbral_y_calibracion() -> None:
@@ -104,7 +114,8 @@ def umbral_y_calibracion() -> None:
             off = {0.5: (8, -14), 0.85: (8, -14), 0.99: (-34, -16)}[r["threshold"]]
             b.annotate(f"τ={r['threshold']:.2f}", (r["coverage_pooled"], r["cell_balanced_acc"]),
                        textcoords="offset points", xytext=off, fontsize=8.5, color="#333")
-    b.axhline(rc.loc[rc["threshold"] == 0.5, "cell_balanced_acc"].iloc[0], color=MEMORY, ls="--", lw=1)
+    b.axhline(rc.loc[rc["threshold"] == 0.5, "cell_balanced_acc"].iloc[0], color=MEMORY, ls="--", lw=1, label="Sin abstención (decide todo)")
+    b.legend(frameon=False, fontsize=8.5, loc="upper left")
     b.set_xlabel("Cobertura"); b.set_ylabel("Exactitud balanceada"); b.invert_xaxis()
     b.set_title("Abstención: ganancia frente a cobertura", fontsize=10)
     lo = rc["cell_balanced_acc"].min(); b.set_ylim(lo - 0.006, rc["cell_balanced_acc"].max() + 0.004)
