@@ -1,5 +1,5 @@
 """Auditoria del reloj SM como variable del clasificador GPU (Bloque D,
-Plan_Fase3_Daemon.md). El daemon fija el reloj (F1 = 1260 MHz) y esa misma
+docs/planeacion/Plan_Fase3_Daemon.md). El daemon fija el reloj (F1 = 1260 MHz) y esa misma
 variable entra al clasificador (`gpu_sm_clock_mhz_median`): hay riesgo de
 retroalimentacion. Este script responde con datos, sin suponer la causa:
 

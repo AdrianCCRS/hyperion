@@ -5,13 +5,28 @@ ejecuta la inferencia del clasificador de Fase 2, y aplica políticas de
 DVFS a través de las interfaces estándar del SO, en función de la fase de
 ejecución inferida. Ver `Plan_Detallado_Realineacion_Hyperion.md` §4.
 
-## ⚠️ Estado real de este módulo — léase antes de usar
+## Estado final (2026-09-26)
+
+Los dos daemons son binarios C++ que corren con inferencia ONNX y registran cada decisión en JSONL:
+
+| Daemon | Ruta | Modelo | Política medida |
+|---|---|---|---|
+| CPU | `cpu_loop/` (`cpu_loop_main`, lanzador `launch_cpu_daemon.py`) | XGBoost con seis variables (`xgboost_cpu.onnx`), abstención bajo confianza 0.85 | No actuar en ninguna clase; la acción de escritura de frecuencia (`cpu_freq_actuator.hpp`) se activa solo con `--compute-actuar`/`--memory-actuar`, como variante experimental |
+| GPU | `gpu_loop_cpp/` (`gpu_loop_main`, lanzador `launch_gpu_daemon.py`) | Random forest con tres entradas invariantes (`gpu_rf_sin_reloj.onnx`), abstención bajo confianza 0.90 | Fija F1 (1260 MHz) en fases `memory_bound`; libera el reloj en `compute_bound` y en abstención |
+
+`policy_table.yaml` recoge la política vigente y `composite_apps/` contiene las aplicaciones con
+fases de verdad conocida que usa la evaluación (`fase4_evaluacion/README.md`). El daemon de GPU en
+Python (`gpu_loop/`, `run_daemon.py`) se retiró el 2026-09-23. El detalle de cada pieza, con la
+verificación con la que se cerró, está en la tabla siguiente; los pasos de diseño intermedios
+quedan como historial.
+
+## Estado por pieza (verificación de cierre)
 
 | Pieza | Estado | Por qué |
 |---|---|---|
 | `actuation/actuator.py` (`HardwareFrequencyActuator`) | ✅ Portado y probado (5/5 tests) | Ya era código Python autocontenido en `fase-02`, sin acoplamiento al selector como se pensó inicialmente |
 | `policy/build_policy_table.py` | ✅ Construido, probado de punta a punta contra `build_controller_from_policy()` real | Combina las tablas ya derivadas en Fase 2 (unidad correcta), retirado `derive_policy_table.py` (EDP por ventana, unidad equivocada — ver §"La tabla de política") |
-| `gpu_loop_cpp/` (`gpu_loop_main`, daemon de GPU en C++) | ✅ Construido y verificado en paccaA100 (jobs 7609-7614) | Reemplaza al daemon en Python (`run_daemon.py` + `gpu_loop/`, **retirado 2026-09-23**: solo el sondeo con `nvidia-smi` costaba 30.6% de un núcleo, el C++ 0.1%). Random forest exportado a ONNX y verificado fila a fila; caos SIGTERM/SIGINT restaura el reloj. La clasificación en línea sigue siendo el punto débil (ver `Plan_Fase3_Daemon.md`, Bloque D) |
+| `gpu_loop_cpp/` (`gpu_loop_main`, daemon de GPU en C++) | ✅ Construido y verificado en paccaA100 (jobs 7609-7614) | Reemplaza al daemon en Python (`run_daemon.py` + `gpu_loop/`, **retirado 2026-09-23**: solo el sondeo con `nvidia-smi` costaba 30.6% de un núcleo, el C++ 0.1%). Random forest exportado a ONNX y verificado fila a fila; caos SIGTERM/SIGINT restaura el reloj. La clasificación en línea sigue siendo el punto débil (ver `docs/planeacion/Plan_Fase3_Daemon.md`, Bloque D) |
 | `decision_log.hpp` (`cpu_loop/include/`, Bloque C, §0.1 requisito 2) | ✅ Compartido por ambos daemons (C++ 4/4) | Mismo esquema JSONL en CPU y GPU |
 | `cpu_loop/include/cpu_phase_controller.hpp` | ✅ Compilado y probado con CTest (1/1) | Máquina de decisión pura, sin dependencias de ONNX/collector.hpp |
 | `cpu_loop/include/cpu_feature_builder.hpp` | ✅ Compilado y probado (1/1) | Deltas de `CpuSample` -> 6 variables, mismas fórmulas que `postprocess.py` |
@@ -84,7 +99,7 @@ documentando (a) y (b) como trabajo futuro, no descartado:**
 
 ## Arquitectura: dos loops + señal de coordinación
 
-### Loop de GPU (`gpu_loop/`) — construido y probado
+### Loop de GPU — historial del diseño en Python (retirado; el vigente es `gpu_loop_cpp/`)
 
 Corre por fase, no por tiempo fijo. `gpu_loop/activity_poller.py` sondea
 `gpu_util_pct` (vía `gpu_loop/loop.py::query_gpu_features()`, `nvidia-smi`)
@@ -97,7 +112,7 @@ ruido" de §4.1) — la transición activo→idle se reporta vía `on_end`
 vía `gpu_loop/controller.py` (puerto fiel de `gpu_clock_controller.hpp`,
 con histéresis/`min_dwell_ns`).
 
-### Loop de CPU (`cpu_loop/`) — solo la máquina de decisión, no el binario completo
+### Loop de CPU (`cpu_loop/`) — máquina de decisión
 
 `cpu_loop/include/cpu_phase_controller.hpp`: recibe una clase ya inferida
 por tick (~1ms) y decide si actuar — **solo si la clase cambió** respecto
@@ -135,7 +150,7 @@ directamente para ese caso, sin necesidad de una copia propia.
 ## La tabla de política (`policy/build_policy_table.py`)
 
 **La derivación NO vive en Fase 3.** Un primer diseño (`derive_policy_table.py`,
-retirado 2026-09-23, ver `Plan_Fase3_Daemon.md` §0.3) calculaba el EDP por
+retirado 2026-09-23, ver `docs/planeacion/Plan_Fase3_Daemon.md` §0.3) calculaba el EDP por
 *ventana* (~1ms) agregada desde `windows.csv` — exactamente la unidad que
 el libro rechaza explícitamente: a frecuencia baja una ventana de duración
 fija cubre menos trabajo que a frecuencia alta, así que `energía_ventana ×
@@ -184,7 +199,7 @@ python3 fase3_daemon/run_daemon.py \
     --log-path fase3_daemon/decisions_gpu.jsonl
 ```
 
-`--arm` es obligatorio (Bloque C, Plan_Fase3_Daemon.md §0.1 requisito 1;
+`--arm` es obligatorio (Bloque C, docs/planeacion/Plan_Fase3_Daemon.md §0.1 requisito 1;
 reemplaza al antiguo `--dry-run`, que era un atajo de conveniencia, no un
 parámetro de primera clase). `sombra` clasifica y decide exactamente igual
 que `activo`, pero se detiene justo antes de escribir el reloj real.
@@ -216,17 +231,13 @@ LD_LIBRARY_PATH="$HOME/.conda/envs/hyperion-cpu-onnx/lib:$LD_LIBRARY_PATH" \
     --log-path fase3_daemon/cpu_loop/build/decisions_cpu.jsonl
 ```
 
-`--arm` es obligatorio, mismo criterio que `run_daemon.py` (Bloque C,
-§0.1 requisito 1). Este binario todavía no tiene un escritor nativo de
-frecuencia (ver el docstring de `cpu_loop_main.cpp`), así que hoy `sombra`
-y `activo` solo difieren en el valor registrado en el log, no en
-comportamiento — `written` queda siempre en `false` hasta que exista ese
-escritor. Sin `--compute-actuar`/`--memory-actuar`, corre en modo
-observación puro (clasifica y decide, nunca escribe frecuencia) —
-coherente con que la política de CPU medida hoy es `no_actuar` en ambas
-clases. No parsea `policy_table.yaml` directamente (ver el docstring de
-`cpu_loop_main.cpp` para por qué); un script wrapper resolvería el YAML y
-pasaría los valores concretos como flags si la política cambia.
+`--arm` es obligatorio (`sombra` clasifica y decide sin escribir frecuencia; `activo` aplica la
+política). El escritor de frecuencia (`cpu_freq_actuator.hpp`) solo se usa si se pasan
+`--compute-actuar`/`--memory-actuar` con su frecuencia objetivo; sin ellos el daemon corre en modo
+observación (`written` queda en `false`), coherente con que la política de CPU medida es
+`no_actuar` en ambas clases. No parsea `policy_table.yaml` directamente (ver el docstring de
+`cpu_loop_main.cpp`); un script wrapper resolvería el YAML y pasaría los valores como flags si la
+política cambia.
 
 ## Tests
 
@@ -255,7 +266,7 @@ contra las fronteras de fase conocidas, no solo comparar EDP agregado).
   muestras NVML sondeadas (default 20, ~1s a 50ms de sondeo) -- **no es la
   misma definición**, y no hay todavía ninguna medición de cuánto cuesta
   esa diferencia en exactitud. Ver el docstring completo de
-  `gpu_loop/classifier.py` para la discusión, y `Plan_Fase3_Daemon.md`
+  `gpu_loop/classifier.py` para la discusión, y `docs/planeacion/Plan_Fase3_Daemon.md`
   Bloque C para cuándo se cierra (Fase 4, contra las fronteras de fase
   conocidas de las aplicaciones compuestas construidas a mano).
 - La detección de fase por sondeo (Opción C) tiene latencia igual a

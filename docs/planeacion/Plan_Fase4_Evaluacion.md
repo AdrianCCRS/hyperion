@@ -67,7 +67,7 @@ de memoria (F8 llega a -76 %), así que el escenario B mantiene F1 y no explora 
 
 ### Escenario E declarado (2026-09-24, antes de correrse)
 
-Detalle de ejecución en `Plan_Fase4_Escenario_E.md`. Escenario de **aplicabilidad**: aplicación de GPU dominada por fases
+Detalle de ejecución en `docs/planeacion/Plan_Fase4_Escenario_E.md`. Escenario de **aplicabilidad**: aplicación de GPU dominada por fases
 memory_bound largas, con el criterio de selección *"familias memory_bound cuya ganancia de EDP con F1 en la Fase 2 fue de al
 menos 10%, más una variante con familias no vistas en el entrenamiento"*. E-A (vistos): dual_stencil N36864 (60 s), dual_spmv
 N200M (55 s), dual_axpy N1.28G (50 s) y DGEMM de CUTLASS (31 s), 1 ciclo. E-B (inéditos): BabelStream escalado, RAJAPerf

@@ -1,0 +1,50 @@
+{
+ "grid": [
+  0.5,
+  0.6,
+  0.7,
+  0.8,
+  0.85,
+  0.9,
+  0.93,
+  0.95,
+  0.97,
+  0.98
+ ],
+ "thresholds_chosen": {
+  "cpu_cholmod": 0.9,
+  "cpu_hpcg": 0.85,
+  "cpu_lulesh": 0.9,
+  "dgemm": 0.9,
+  "dual_axpy": 0.85,
+  "dual_cholesky": 0.9,
+  "dual_fft": 0.9,
+  "dual_gemm": 0.9,
+  "dual_spmv": 0.85,
+  "dual_stencil": 0.85,
+  "gap_pr": 0.9,
+  "hpccg_cpu_N46": 0.9,
+  "npb_bt": 0.7,
+  "npb_cg": 0.85,
+  "npb_ft": 0.85,
+  "npb_lu": 0.9,
+  "npb_mg": 0.93,
+  "npb_sp": 0.9,
+  "phasic": 0.9,
+  "rajaperf_basic": 0.9,
+  "rajaperf_lcals": 0.9,
+  "rajaperf_polybench": 0.9,
+  "rajaperf_stream": 0.9,
+  "rodinia_lavamd": 0.85
+ },
+ "metrics_on_covered": {
+  "cell_balanced_acc": 0.7365207521300142,
+  "recall_compute": 0.5787719105897187,
+  "recall_memory": 0.9457009830422455,
+  "pooled_f1_macro": 0.7799695956308461,
+  "pooled_accuracy": 0.8175495698165588,
+  "mean_family_accuracy": 0.8630229933224823
+ },
+ "mean_family_coverage": 0.7206583333333333,
+ "threshold_at_grid_max_count": 0
+}

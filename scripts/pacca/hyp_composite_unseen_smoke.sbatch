@@ -1,5 +1,5 @@
 #!/bin/bash
-# Prueba de humo de la Aplicacion B (Bloque C, item C2b, Plan_Fase3_Daemon.md
+# Prueba de humo de la Aplicacion B (Bloque C, item C2b, docs/planeacion/Plan_Fase3_Daemon.md
 # SS0.1): corre fase3_daemon/composite_apps/composite_unseen.py de verdad en
 # paccaA100 -- cpu_xsbench_omp (memory_bound) + cpu_rsbench_omp
 # (compute_bound), ambos declarados "nunca entran a entrenamiento" en

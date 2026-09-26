@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Aplicación compuesta del escenario E de la Fase 4 (Plan_Fase4_Escenario_E.md): GPU dominada por fases memory_bound largas.
+"""Aplicación compuesta del escenario E de la Fase 4 (docs/planeacion/Plan_Fase4_Escenario_E.md): GPU dominada por fases memory_bound largas.
 
 Un solo kernel por fase, con fases de memoria de 30 s o más: el agente de GPU decide una vez por fase, con ~8 s desde el
 inicio hasta el primer reloj aplicado (medido en la matriz A), de modo que una fase de 18 s solo pasa el 55% del tiempo en

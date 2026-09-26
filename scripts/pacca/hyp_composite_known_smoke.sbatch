@@ -1,5 +1,5 @@
 #!/bin/bash
-# Prueba de humo de la Aplicacion A (Bloque C, item C2, Plan_Fase3_Daemon.md
+# Prueba de humo de la Aplicacion A (Bloque C, item C2, docs/planeacion/Plan_Fase3_Daemon.md
 # SS0.1): corre fase3_daemon/composite_apps/composite_known.py de verdad en
 # paccaA100 -- dgemm_n2048 (compute_bound) + npb_cg (memory_bound), ambos
 # ya en el catalogo con checksum verificado, 2 ciclos. Verifica que las

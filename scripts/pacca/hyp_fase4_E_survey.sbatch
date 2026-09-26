@@ -1,6 +1,6 @@
 #!/bin/bash
 # Escenario E de la Fase 4: duracion de los candidatos a fases memory_bound de GPU (catalogo y argumentos escalados).
-# No toca frecuencias. NUNCA local. Sin --time. Plan_Fase4_Escenario_E.md, paso 1.
+# No toca frecuencias. NUNCA local. Sin --time. docs/planeacion/Plan_Fase4_Escenario_E.md, paso 1.
 #SBATCH --job-name=hyp_fase4_E_survey
 #SBATCH --partition=GPU
 #SBATCH --nodelist=paccaA100

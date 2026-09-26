@@ -8,7 +8,7 @@
 
 /**
  * @file
- * @brief Espejo en C++ de `fase3_daemon/decision_log.py` (Plan_Fase3_Daemon.md
+ * @brief Espejo en C++ de `fase3_daemon/decision_log.py` (docs/planeacion/Plan_Fase3_Daemon.md
  * §0.1, requisito 2): mismo esquema JSONL, un renglón por decisión (un tick
  * de CPU aquí, una fase de GPU en el lado Python). Cualquier campo que se
  * agregue en un lado debe agregarse en el otro -- el análisis de Fase 4

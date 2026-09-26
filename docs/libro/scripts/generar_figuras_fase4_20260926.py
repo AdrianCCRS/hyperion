@@ -7,6 +7,8 @@ Entradas (docs/libro/datos/fase4_20260926/), un CSV por etapa con una fila por c
   fase4_E.csv        escenario E (GPU dominada por memoria)
   fase4_EA.csv       confirmatorio prospectivo de E-A (cinco bloques)
   fase4_D.csv        LAMMPS
+  fase4_EB.csv       repeticion de E-B con 8 bloques (REF, sombra, activo)
+  fase4_EBdiag.csv   diagnostico de la bimodalidad de myocyte (job 7706): REF, sombra y sombra con daemon fijado; solo se usan REF y sombra
   clasificacion.json puntuacion de clasificacion contra las fronteras reales de fase, por etapa
   ../gpu_calidad_20260922/politica/policy_by_family.json  ganancia por nivel de GPU (Fase 2)
 Solo se usan las celdas con state_ok = 1 (estado de frecuencia restaurado y, en el brazo F1 fijo, reloj sostenido bajo carga).
@@ -52,6 +54,18 @@ CONJ = {"known": "A (vistos)", "unseen": "B (inéditos)"}
 
 def valid(name):
     return [r for r in load_results(D / f"{name}.csv") if r["state_ok"] == "1"]
+
+
+def eb_agrupado():
+    """E-B (familias ineditas): REF, sombra y activo de las tres corridas con la misma configuracion (etapa E, repeticion de 8 bloques
+    y diagnostico de myocyte). La fase de myocyte dura ~41 s o ~50 s sin relacion con el brazo, asi que se agrupan las repeticiones."""
+    out = []
+    for name, arms in (("fase4_E", ("base", "sombra", "activo_gpu")), ("fase4_EB", ("base", "sombra", "activo_gpu")), ("fase4_EBdiag", ("base", "sombra"))):
+        out += [r for r in valid(name) if r["set"] == "unseen" and r["scope"] == "gpumem" and r["arm"] in arms]
+    g = {}
+    for r in out:
+        g.setdefault(r["arm"], []).append(r)
+    return g
 
 
 def summ(name):
@@ -197,24 +211,31 @@ def escenario_c():
 
 
 def escenario_e():
-    g = _per_rep("fase4_E")
-    arms = ["base", "base_noturbo", "sombra", "activo_gpu", "activo_gpu_cpuobs"]
-    lab = ["REF", "REF sin\nturbo", "Sombra", "Activo", "Activo +\nagente de CPU"]
-    fig, axes = plt.subplots(2, 2, figsize=(7.4, 5.0), sharex=True)
+    gA = _per_rep("fase4_E")
+    gB = eb_agrupado()
+    armsA = ["base", "base_noturbo", "sombra", "activo_gpu", "activo_gpu_cpuobs"]
+    labA = ["REF", "REF sin\nturbo", "Sombra", "Activo", "Activo +\nagente de CPU"]
+    armsB = ["base", "sombra", "activo_gpu"]
+    labB = [f"{n}\n(n={len(gB[a])})" for n, a in zip(("REF", "Sombra", "Activo"), armsB)]
+    colr = {"base": REF, "base_noturbo": ARMS["base_noturbo"][1], "sombra": ARMS["sombra"][1], "activo_gpu": "#2f855a", "activo_gpu_cpuobs": "#9ae6b4"}
+    fig, axes = plt.subplots(2, 2, figsize=(7.4, 5.0))
     for col, ks in enumerate(("known", "unseen")):
-        refs = {"edp": np.median([r["edp"] for r in g[("gpumem", ks, "base")]]), "e_gpu_j": np.median([r["e_gpu_j"] for r in g[("gpumem", ks, "base")]])}
+        arms, lab = (armsA, labA) if ks == "known" else (armsB, labB)
+        data = {a: (gA[("gpumem", "known", a)] if ks == "known" else gB[a]) for a in arms}
+        refs = {k: np.median([r[k] for r in data["base"]]) for k in ("edp", "e_gpu_j")}
         for row, (key, tit) in enumerate((("edp", "EDP del nodo"), ("e_gpu_j", "Energía de GPU"))):
             ax = axes[row, col]
             for i, a in enumerate(arms):
-                v = [r[key] / refs[key] for r in g[("gpumem", ks, a)]]
-                ax.bar(i, np.median(v), 0.6, color=ARMS[a][1] if a not in ("activo_gpu", "activo_gpu_cpuobs") else ("#2f855a" if a == "activo_gpu" else "#9ae6b4"))
-                ax.plot([i] * len(v), v, "o", color="#1a202c", ms=3)
+                v = [r[key] / refs[key] for r in data[a]]
+                ax.bar(i, np.median(v), 0.6, color=colr[a])
+                jit = np.linspace(-0.16, 0.16, len(v)) if len(v) > 3 else np.zeros(len(v))
+                ax.plot(i + jit, sorted(v), "o", color="#1a202c", ms=2.6 if len(v) > 3 else 3)
                 ax.text(i, max(v) + 0.012, f"{np.median(v):.3f}", ha="center", fontsize=7)
             ax.axhline(1, color="#4a5568", lw=0.8, ls=":")
             ax.set_ylim(0.8, 1.28)
+            ax.set_xticks(range(len(arms)))
+            ax.set_xticklabels(lab if row == 1 else [], fontsize=7)
             ax.set_title(f"{tit}, {'A (vistos)' if ks == 'known' else 'B (inéditos)'}", fontsize=9)
-    for ax in axes[1]:
-        ax.set_xticks(range(len(arms))); ax.set_xticklabels(lab, fontsize=7)
     fig.tight_layout(rect=(0.03, 0, 1, 1))
     fig.text(0.012, 0.5, "Relativo a REF (mediana y cada repetición)", rotation=90, va="center", fontsize=9)
     fig.savefig(F / "fig_fase4_E_20260926.png")
@@ -305,22 +326,25 @@ def tablas_ce():
             rows.append(f"{NOM[sc]} & {CONJ[ks].split()[0]} & {len(g[(sc, ks, a)])} & " + " & ".join(
                 f"{f(m, 'base_noturbo') / f(m, 'base'):.3f}" for m in ("wall_s", "e_cpu_j", "e_gpu_j", "edp")) + " \\\\")
     (D / "tabla_noturbo.tex").write_text(wrap("llccccc", ["Alcance", "Kernels", "$n$", "$T$", "$E_{\\mathrm{CPU}}$", "$E_{\\mathrm{GPU}}$", "EDP"], "\n".join(rows)))
-    # escenario E
+    # escenario E: A con la etapa E (tres repeticiones); B con las repeticiones agrupadas de las tres corridas de E-B
     s = summ("fase4_E")
     rows = []
-    for ks in ("known", "unseen"):
-        for a in ("base", "base_noturbo", "sombra", "activo_gpu", "activo_gpu_cpuobs"):
-            r = s.get(("gpumem", ks, a))
-            rows.append(f"{CONJ[ks].split()[0]} & {nom[a]} & {r['n']} & {r['wall_s']:.1f} & {r['e_cpu_j']:.0f} & {r['e_gpu_j']:.0f} & "
-                        f"{r['ratio_T']:.3f} & {r['ratio_E_gpu']:.3f} & {r['ratio_EDP']:.3f} & {r['ratio_EDPgpu']:.3f} & "
-                        f"{r['ratio_EDP_nt']:.3f} \\\\")
-        rows.append("\\midrule")
+    for a in ("base", "base_noturbo", "sombra", "activo_gpu", "activo_gpu_cpuobs"):
+        r = s.get(("gpumem", "known", a))
+        rows.append(f"A & {nom[a]} & {r['n']} & {r['wall_s']:.1f} & {r['e_cpu_j']:.0f} & {r['e_gpu_j']:.0f} & "
+                    f"{r['ratio_T']:.3f} & {r['ratio_E_gpu']:.3f} & {r['ratio_EDP']:.3f} & {r['ratio_EDPgpu']:.3f} & {r['ratio_EDP_nt']:.3f} \\\\")
+    rows.append("\\midrule")
+    gB = eb_agrupado()
+    med = lambda a, k: float(np.median([r[k] for r in gB[a]]))
+    for a in ("base", "sombra", "activo_gpu"):
+        rows.append(f"B & {nom[a]} & {len(gB[a])} & {med(a, 'wall_s'):.1f} & {med(a, 'e_cpu_j'):.0f} & {med(a, 'e_gpu_j'):.0f} & "
+                    + " & ".join(f"{med(a, k) / med('base', k):.3f}" for k in ("wall_s", "e_gpu_j", "edp", "edp_gpu")) + " & -- \\\\")
     (D / "tabla_E.tex").write_text(wrap("llrrrrrrrrr", ["Kern.", "Brazo", "$n$", "$T$ (s)", "$E_{\\mathrm{CPU}}$ (J)", "$E_{\\mathrm{GPU}}$ (J)", "$T$/REF",
-                                                        "$E_{\\mathrm{GPU}}$/REF", "EDP/REF", "EDP GPU/REF", "EDP/REF sin turbo"], "\n".join(rows[:-1])))
+                                                        "$E_{\\mathrm{GPU}}$/REF", "EDP/REF", "EDP GPU/REF", "EDP/REF sin turbo"], "\n".join(rows)))
     # clasificacion de C y E
     js = json.load(open(D / "clasificacion.json"))
     out = []
-    for name, lab in (("C", "C"), ("E", "E")):
+    for name, lab in (("C", "C"), ("E", "E"), ("EB", "E-B")):
         for r in js[name]["score"]:
             if r["arm"] not in ("activo", "sombra", "activo_gpu") or (r["ok"] + r["wrong"] + r["abst"] == 0):
                 continue

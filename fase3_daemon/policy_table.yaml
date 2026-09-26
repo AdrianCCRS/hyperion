@@ -2,7 +2,7 @@ schema_version: 1
 generated_at_utc: '2026-09-23T01:45:08.045429+00:00'
 generator: fase3_daemon/policy/build_policy_table.py
 note: Combina policy_cpu.json (kernel, IC95 bootstrap) y policy_by_family.json (familia,
-  des-duplicado) de Fase 2. No recalcula EDP; ver Plan_Fase3_Daemon.md SS0.3.
+  des-duplicado) de Fase 2. No recalcula EDP; ver docs/planeacion/Plan_Fase3_Daemon.md SS0.3.
 policy:
   cpu-compute_bound:
     action: no_actuar

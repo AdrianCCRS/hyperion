@@ -1,7 +1,7 @@
 """Construye el artefacto canónico policy_table.yaml que el daemon carga.
 
 Reemplaza el rol de derive_policy_table.py (retirado como derivador, ver
-Plan_Fase3_Daemon.md §0.3): este script NO calcula EDP ni corre pruebas de
+docs/planeacion/Plan_Fase3_Daemon.md §0.3): este script NO calcula EDP ni corre pruebas de
 significancia. Combina las tablas de política ya derivadas en Fase 2
 --- las que realmente sustentan el libro, unidad kernel/familia, con IC95
 por bootstrap --- y resuelve la frecuencia física real para las clases
@@ -80,7 +80,7 @@ def cpu_entry(policy_cpu: dict, cls: str, experimental_level: str | None = None)
             "resolved_freq_khz": cpu_level_khz(experimental_level),
             "measured_action": src["action"], "measured_reason": src.get("reason"),
             "n_kernels": src["n_kernels"], "source": source,
-            "note": "Experimento de Fase 4 (Plan_Fase3_Daemon.md, Bloque C8), no una politica que gano: "
+            "note": "Experimento de Fase 4 (docs/planeacion/Plan_Fase3_Daemon.md, Bloque C8), no una politica que gano: "
                     "la medicion por kernel dejo esta clase en no_actuar."}
 
 
@@ -173,7 +173,7 @@ def main() -> None:
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "generator": "fase3_daemon/policy/build_policy_table.py",
         "note": "Combina policy_cpu.json (kernel, IC95 bootstrap) y policy_by_family.json "
-                "(familia, des-duplicado) de Fase 2. No recalcula EDP; ver Plan_Fase3_Daemon.md SS0.3.",
+                "(familia, des-duplicado) de Fase 2. No recalcula EDP; ver docs/planeacion/Plan_Fase3_Daemon.md SS0.3.",
         "policy": policy,
     }
     a.out.parent.mkdir(parents=True, exist_ok=True)

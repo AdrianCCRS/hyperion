@@ -5948,7 +5948,7 @@ kernels:
 
   # F1-GPU-013 (2026-09-14): DGEMM via CUTLASS con OperatorClass=Simt
   # explicito (CUDA cores, no Tensor Core). Candidato de la revision
-  # externa (Nota_Candidatos_GPU_Compute_Bound_20260914.md) tras confirmar
+  # externa (docs/planeacion/Nota_Candidatos_GPU_Compute_Bound_20260914.md) tras confirmar
   # que CUBLAS_PEDANTIC_MATH NO desactiva la ruta Tensor Core de cuBLAS en
   # este entorno (gpu_dgemm_n4096/gpu_dgemm_calibration siguen enrutando a
   # cutlass_80_tensorop_d884gemm con o sin pedantic, verificado con ncu,
@@ -5986,7 +5986,7 @@ kernels:
       pacca-a100: "sha256:4afe55447bedf8fda74d1f9f66692c391e96a399c279142a9d96b75a669fb34d"
 
   # Tercera ancla compute-bound de suite/proveedor (2026-09-16), candidato
-  # "opcional" de Nota_Candidatos_GPU_Compute_Bound_20260914.md: CUTLASS
+  # "opcional" de docs/planeacion/Nota_Candidatos_GPU_Compute_Bound_20260914.md: CUTLASS
   # ImplicitGemm Conv2d fprop, OpClassSimt (CUDA cores, NO Tensor Core),
   # instanciacion identica a
   # cutlass/test/unit/conv/device/conv2d_fprop_implicit_gemm_f32nhwc_f32nhwc_f32nhwc_simt_f32_sm80.cu

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compuerta del pre-vuelo del escenario E (Plan_Fase4_Escenario_E.md, paso 4): decide si las corridas largas pueden arrancar.
+"""Compuerta del pre-vuelo del escenario E (docs/planeacion/Plan_Fase4_Escenario_E.md, paso 4): decide si las corridas largas pueden arrancar.
 
 Lee la carpeta del pre-vuelo (`results.csv` y `cells/*/{phases,gpu_decisions}.jsonl`) y falla (codigo 1) si:
   1. falta alguna celda esperada, o alguna tiene app_rc, rc de daemon distinto de 0 o state_ok distinto de 1;

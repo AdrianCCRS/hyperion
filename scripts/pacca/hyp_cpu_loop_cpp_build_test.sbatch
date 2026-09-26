@@ -1,6 +1,6 @@
 #!/bin/bash
 # Compila y prueba el nucleo de inferencia del loop de CPU (Bloque B,
-# Plan_Fase3_Daemon.md): cpu_phase_controller, cpu_feature_builder,
+# docs/planeacion/Plan_Fase3_Daemon.md): cpu_phase_controller, cpu_feature_builder,
 # onnx_cpu_classifier, cpu_loop_tick -- y mide la latencia de inferencia
 # ONNX en paccaA100, el nodo de destino real del daemon (mismo criterio
 # que hyp_cpu_latency_paccaA100.sbatch, que mide el lado Python).

@@ -28,7 +28,7 @@ Menú de opciones para atacarlo, de más barata a más cara:
 
 3. **Ampliar el catálogo con más kernels cercanos al ridge** (más pliegues
    mixtos como los 3 que ya existen). Única palanca que ataca la causa
-   raíz. Revisar primero `Nota_Candidatos_GPU_Compute_Bound_20260914.md`
+   raíz. Revisar primero `docs/planeacion/Nota_Candidatos_GPU_Compute_Bound_20260914.md`
    (sin commitear en el repo al momento de escribir esto) por si ya
    explora candidatos. Requiere clúster.
 

@@ -1,6 +1,6 @@
 # Plan de la Fase 4: escenario E (GPU dominada por memoria) y REF sin turbo
 
-Fecha: 2026-09-24. Complementa `Plan_Fase4_Evaluacion.md` (matriz y escenarios A a D). Este documento está pensado para que
+Fecha: 2026-09-24. Complementa `docs/planeacion/Plan_Fase4_Evaluacion.md` (matriz y escenarios A a D). Este documento está pensado para que
 otro agente lo ejecute de punta a punta: contiene el contexto, las decisiones ya tomadas por el usuario, los cambios de
 código, las corridas y los criterios de parada. **Leer completo antes de tocar nada**, y leer también `AGENTS.md` (raíz) y
 `docs/libro/AGENTS.md`.
@@ -172,7 +172,7 @@ de al menos 10%, más una variante con familias no vistas en el entrenamiento"*.
   clasificarían como CPU. **Corregirlo** (p. ej. usar el campo `device` del catálogo o `"_gpu_" in id`) y añadir un test.
 - Tests en `fase4_evaluacion/tests/test_analyze_matrix.py`.
 
-Antes de correr, añadir en `Plan_Fase4_Evaluacion.md` (sección de escenarios) la fila del escenario E con el criterio de
+Antes de correr, añadir en `docs/planeacion/Plan_Fase4_Evaluacion.md` (sección de escenarios) la fila del escenario E con el criterio de
 selección, los brazos, la ganancia esperada (sección 7) y la frase: *"se reporta salga como salga; A y C siguen siendo la
 referencia"*. Commit de eso **antes** de la corrida (queda la marca de tiempo de la declaración).
 

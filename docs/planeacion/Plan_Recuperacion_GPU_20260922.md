@@ -179,7 +179,7 @@ ridge.
 *Gate:* si la OI(t) resulta esencialmente constante y las familias siguen
 siendo de una sola clase, **ese es el resultado** — documentarlo como
 hallazgo negativo honesto y **no** seguir iterando. El plan previo
-(`Plan_OI_Ventana_GPU_Reentrenamiento_20260916.md`, §4.3) ya anticipó
+(`docs/planeacion/Plan_OI_Ventana_GPU_Reentrenamiento_20260916.md`, §4.3) ya anticipó
 explícitamente este desenlace como válido.
 
 **T3.4 — Entrenar solo si T3.3 pasa el gate.** Reutilizar

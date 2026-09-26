@@ -1,0 +1,515 @@
+[
+ {
+  "cell": "gpumem_unseen_base_noturbo_1",
+  "arm": "base_noturbo",
+  "rep": "1",
+  "wall": 89.084,
+  "phases": [
+   [
+    "gpu_stream_bw",
+    36.1
+   ],
+   [
+    "rodinia_lavamd",
+    8.7
+   ],
+   [
+    "rodinia_myocyte",
+    40.8
+   ]
+  ],
+  "decisions": []
+ },
+ {
+  "cell": "gpumem_unseen_base_noturbo_2",
+  "arm": "base_noturbo",
+  "rep": "2",
+  "wall": 88.666,
+  "phases": [
+   [
+    "gpu_stream_bw",
+    36.1
+   ],
+   [
+    "rodinia_lavamd",
+    8.7
+   ],
+   [
+    "rodinia_myocyte",
+    40.3
+   ]
+  ],
+  "decisions": []
+ },
+ {
+  "cell": "gpumem_unseen_activo_gpu_cpuobs_3",
+  "arm": "activo_gpu_cpuobs",
+  "rep": "3",
+  "wall": 99.807,
+  "phases": [
+   [
+    "gpu_stream_bw",
+    36.2
+   ],
+   [
+    "rodinia_lavamd",
+    8.7
+   ],
+   [
+    "rodinia_myocyte",
+    51.5
+   ]
+  ],
+  "decisions": [
+   [
+    "gpu_stream_bw",
+    "revisar",
+    0.57,
+    "revisar",
+    0
+   ],
+   [
+    "rodinia_lavamd",
+    "compute_bound",
+    1,
+    "no_actuar",
+    0
+   ]
+  ]
+ },
+ {
+  "cell": "gpumem_unseen_base_noturbo_3",
+  "arm": "base_noturbo",
+  "rep": "3",
+  "wall": 89.198,
+  "phases": [
+   [
+    "gpu_stream_bw",
+    36.1
+   ],
+   [
+    "rodinia_lavamd",
+    8.6
+   ],
+   [
+    "rodinia_myocyte",
+    40.9
+   ]
+  ],
+  "decisions": []
+ },
+ {
+  "cell": "gpumem_unseen_base_2",
+  "arm": "base",
+  "rep": "2",
+  "wall": 99.117,
+  "phases": [
+   [
+    "gpu_stream_bw",
+    36.1
+   ],
+   [
+    "rodinia_lavamd",
+    8.8
+   ],
+   [
+    "rodinia_myocyte",
+    50.7
+   ]
+  ],
+  "decisions": []
+ },
+ {
+  "cell": "gpumem_unseen_fijo_gpu_f1_1",
+  "arm": "fijo_gpu_f1",
+  "rep": "1",
+  "wall": 90.076,
+  "phases": [
+   [
+    "gpu_stream_bw",
+    36.0
+   ],
+   [
+    "rodinia_lavamd",
+    8.9
+   ],
+   [
+    "rodinia_myocyte",
+    41.8
+   ]
+  ],
+  "decisions": []
+ },
+ {
+  "cell": "gpumem_unseen_base_1",
+  "arm": "base",
+  "rep": "1",
+  "wall": 89.277,
+  "phases": [
+   [
+    "gpu_stream_bw",
+    36.1
+   ],
+   [
+    "rodinia_lavamd",
+    8.7
+   ],
+   [
+    "rodinia_myocyte",
+    40.9
+   ]
+  ],
+  "decisions": []
+ },
+ {
+  "cell": "gpumem_unseen_fijo_gpu_f1_3",
+  "arm": "fijo_gpu_f1",
+  "rep": "3",
+  "wall": 90.861,
+  "phases": [
+   [
+    "gpu_stream_bw",
+    35.9
+   ],
+   [
+    "rodinia_lavamd",
+    8.9
+   ],
+   [
+    "rodinia_myocyte",
+    42.5
+   ]
+  ],
+  "decisions": []
+ },
+ {
+  "cell": "gpumem_unseen_activo_gpu_cpuobs_2",
+  "arm": "activo_gpu_cpuobs",
+  "rep": "2",
+  "wall": 86.792,
+  "phases": [
+   [
+    "gpu_stream_bw",
+    36.2
+   ],
+   [
+    "rodinia_lavamd",
+    8.7
+   ],
+   [
+    "rodinia_myocyte",
+    38.4
+   ]
+  ],
+  "decisions": [
+   [
+    "gpu_stream_bw",
+    "revisar",
+    0.67,
+    "revisar",
+    0
+   ],
+   [
+    "rodinia_lavamd",
+    "compute_bound",
+    1,
+    "no_actuar",
+    0
+   ]
+  ]
+ },
+ {
+  "cell": "gpumem_unseen_activo_gpu_cpuobs_1",
+  "arm": "activo_gpu_cpuobs",
+  "rep": "1",
+  "wall": 99.674,
+  "phases": [
+   [
+    "gpu_stream_bw",
+    36.2
+   ],
+   [
+    "rodinia_lavamd",
+    8.7
+   ],
+   [
+    "rodinia_myocyte",
+    51.3
+   ]
+  ],
+  "decisions": [
+   [
+    "gpu_stream_bw",
+    "revisar",
+    0.67,
+    "revisar",
+    0
+   ],
+   [
+    "rodinia_lavamd",
+    "compute_bound",
+    1,
+    "no_actuar",
+    0
+   ]
+  ]
+ },
+ {
+  "cell": "gpumem_unseen_sombra_2",
+  "arm": "sombra",
+  "rep": "2",
+  "wall": 89.435,
+  "phases": [
+   [
+    "gpu_stream_bw",
+    36.2
+   ],
+   [
+    "rodinia_lavamd",
+    8.7
+   ],
+   [
+    "rodinia_myocyte",
+    41.1
+   ]
+  ],
+  "decisions": [
+   [
+    "gpu_stream_bw",
+    "revisar",
+    0.57,
+    "revisar",
+    0
+   ],
+   [
+    "rodinia_lavamd",
+    "compute_bound",
+    1,
+    "no_actuar",
+    0
+   ]
+  ]
+ },
+ {
+  "cell": "gpumem_unseen_sombra_3",
+  "arm": "sombra",
+  "rep": "3",
+  "wall": 90.677,
+  "phases": [
+   [
+    "gpu_stream_bw",
+    36.1
+   ],
+   [
+    "rodinia_lavamd",
+    8.7
+   ],
+   [
+    "rodinia_myocyte",
+    42.4
+   ]
+  ],
+  "decisions": [
+   [
+    "gpu_stream_bw",
+    "revisar",
+    0.67,
+    "revisar",
+    0
+   ],
+   [
+    "rodinia_lavamd",
+    "compute_bound",
+    1,
+    "no_actuar",
+    0
+   ]
+  ]
+ },
+ {
+  "cell": "gpumem_unseen_activo_gpu_3",
+  "arm": "activo_gpu",
+  "rep": "3",
+  "wall": 88.411,
+  "phases": [
+   [
+    "gpu_stream_bw",
+    36.1
+   ],
+   [
+    "rodinia_lavamd",
+    8.9
+   ],
+   [
+    "rodinia_myocyte",
+    39.9
+   ]
+  ],
+  "decisions": [
+   [
+    "gpu_stream_bw",
+    "memory_bound",
+    1,
+    "actuar",
+    1260000
+   ],
+   [
+    "rodinia_lavamd",
+    "compute_bound",
+    1,
+    "no_actuar",
+    0
+   ]
+  ]
+ },
+ {
+  "cell": "gpumem_unseen_activo_gpu_2",
+  "arm": "activo_gpu",
+  "rep": "2",
+  "wall": 97.052,
+  "phases": [
+   [
+    "gpu_stream_bw",
+    36.2
+   ],
+   [
+    "rodinia_lavamd",
+    8.7
+   ],
+   [
+    "rodinia_myocyte",
+    48.7
+   ]
+  ],
+  "decisions": [
+   [
+    "gpu_stream_bw",
+    "revisar",
+    0.56,
+    "revisar",
+    0
+   ],
+   [
+    "rodinia_lavamd",
+    "compute_bound",
+    1,
+    "no_actuar",
+    0
+   ]
+  ]
+ },
+ {
+  "cell": "gpumem_unseen_base_3",
+  "arm": "base",
+  "rep": "3",
+  "wall": 99.043,
+  "phases": [
+   [
+    "gpu_stream_bw",
+    36.2
+   ],
+   [
+    "rodinia_lavamd",
+    8.7
+   ],
+   [
+    "rodinia_myocyte",
+    50.7
+   ]
+  ],
+  "decisions": []
+ },
+ {
+  "cell": "gpumem_unseen_sombra_1",
+  "arm": "sombra",
+  "rep": "1",
+  "wall": 89.663,
+  "phases": [
+   [
+    "gpu_stream_bw",
+    36.1
+   ],
+   [
+    "rodinia_lavamd",
+    8.7
+   ],
+   [
+    "rodinia_myocyte",
+    41.4
+   ]
+  ],
+  "decisions": [
+   [
+    "gpu_stream_bw",
+    "revisar",
+    0.67,
+    "revisar",
+    0
+   ],
+   [
+    "rodinia_lavamd",
+    "compute_bound",
+    1,
+    "no_actuar",
+    0
+   ]
+  ]
+ },
+ {
+  "cell": "gpumem_unseen_activo_gpu_1",
+  "arm": "activo_gpu",
+  "rep": "1",
+  "wall": 89.554,
+  "phases": [
+   [
+    "gpu_stream_bw",
+    36.2
+   ],
+   [
+    "rodinia_lavamd",
+    8.7
+   ],
+   [
+    "rodinia_myocyte",
+    41.2
+   ]
+  ],
+  "decisions": [
+   [
+    "gpu_stream_bw",
+    "revisar",
+    0.67,
+    "revisar",
+    0
+   ],
+   [
+    "rodinia_lavamd",
+    "compute_bound",
+    1,
+    "no_actuar",
+    0
+   ]
+  ]
+ },
+ {
+  "cell": "gpumem_unseen_fijo_gpu_f1_2",
+  "arm": "fijo_gpu_f1",
+  "rep": "2",
+  "wall": 92.075,
+  "phases": [
+   [
+    "gpu_stream_bw",
+    36.0
+   ],
+   [
+    "rodinia_lavamd",
+    8.9
+   ],
+   [
+    "rodinia_myocyte",
+    43.7
+   ]
+  ],
+  "decisions": []
+ }
+]

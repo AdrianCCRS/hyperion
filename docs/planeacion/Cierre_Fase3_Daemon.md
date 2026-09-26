@@ -1,7 +1,7 @@
 # Cierre de la Fase 3 (daemon de control DVFS)
 
 Fecha de cierre: 2026-09-23. Documento de resumen. El detalle cronológico, los
-números de job y los logs están en `Plan_Fase3_Daemon.md` (secciones indicadas entre
+números de job y los logs están en `docs/planeacion/Plan_Fase3_Daemon.md` (secciones indicadas entre
 paréntesis). Donde este resumen y el plan discrepen, manda el plan.
 
 ## 1. Qué se construyó
@@ -113,7 +113,7 @@ solo ahorraba la señal por archivo.
 
 ## 5. Estado del checklist de cierre
 
-6 de 8 cumplidos (ver `Plan_Fase3_Daemon.md` §2). Los 2 restantes son corridas de la
+6 de 8 cumplidos (ver `docs/planeacion/Plan_Fase3_Daemon.md` §2). Los 2 restantes son corridas de la
 Fase 4 y no bloquean el cierre del desarrollo: los tres brazos sobre las compuestas A y B
 con registro por decisión, y la validación de generalización de la aplicación B.
 

@@ -5,20 +5,38 @@ determinando si el ahorro compensa el overhead de inferencia frente a
 gobernadores nativos de Linux. Ver
 `Plan_Detallado_Realineacion_Hyperion.md` §5.
 
-## ⚠️ Alcance real de este módulo
+## Alcance de este módulo
 
-`run_evaluation.py` **genera el reporte de comparación a partir de
-`windows.csv` ya producidos** — no orquesta automáticamente correr el
-catálogo completo bajo los 3 escenarios en una sola invocación. Eso
-requeriría dos piezas que no se construyeron en esta reconstrucción (documentado
-en sus propios README, con la razón): que `fase1_telemetria/campaign.py`
-acepte un wrapper de escenario de gobernador alrededor de cada corrida
-(hoy no tiene ese punto de extensión), y que `fase3_daemon/` esté completo
-(el loop de CPU real todavía no lo está).
+La evaluación se ejecutó en paccaA100 con campañas dedicadas (`scripts/pacca/hyp_fase4_*.sbatch`
+y `hyp_cloverleaf_*.sbatch`, un solo job por serie, sin `--time`) que lanzan los daemons de la
+Fase 3 sobre aplicaciones compuestas con fases de verdad conocida (`fase3_daemon/composite_apps/`).
+Este directorio contiene el análisis y las utilidades de esa evaluación:
 
-Lo que sí está completo y probado: la conmutación real de gobernador
-(`governors.py`) y el cálculo/reporte de EDP con significancia estadística
-(`edp_report.py`).
+| Archivo | Qué hace |
+|---|---|
+| `analyze_matrix.py` | Resume una campaña (`results.csv`, `phases.jsonl`, `*_decisions.jsonl`): medianas de tiempo y energía, EDP del nodo, razones frente a la base, pruebas estadísticas y puntuación de la clasificación contra las fronteras reales de fase |
+| `gate_preflight_E.py` | Puerta previa del escenario E: comprueba las condiciones de la medición antes de gastar el nodo |
+| `governors.py` | Conmutación y restauración verificada del gobernador de CPU |
+| `edp_report.py`, `run_evaluation.py` | Reporte de EDP con significancia estadística a partir de `windows.csv` de campañas de kernels |
+
+### Campañas y dónde quedan sus resultados
+
+| Escenario | Job de Slurm / script | Datos versionados (`docs/libro/datos/fase4_20260926/`) |
+|---|---|---|
+| Matriz inicial (CPU, GPU y conjunto; vistos e inéditos) y su repetición independiente (C) | `hyp_fase4_performance.sbatch` (serie completa bajo el estado nativo del nodo, job 7696) y `hyp_fase4_matrix.sbatch` | `fase4_A.csv` (matriz), `fase4_C.csv` (repetición), `tabla_resultados.tex`, `tabla_C.tex`, `clasificacion.json` |
+| E: GPU dominada por memoria (E-A vistas, E-B inéditas) | `hyp_fase4_E_run.sbatch`, `hyp_fase4_EA_confirmatorio.sbatch`, `hyp_fase4_EB_confirmatorio.sbatch`, `hyp_fase4_EB_faltantes.sbatch`, `hyp_fase4_myocyte_diag.sbatch` | `fase4_E.csv`, `fase4_EA.csv`, `fase4_EB.csv`, `fase4_EBdiag.csv` (diagnóstico, job 7706), `resumen_EA.json`, `E_inedito_detalle.json`, `tabla_E.tex` |
+| D: LAMMPS | `hyp_fase4_D_calib.sbatch`, `hyp_fase4_D_probe.sbatch` | `fase4_D.csv`, `tabla_D.tex` |
+| F: F1 fijo sobre fases de cómputo | `hyp_fase4_F_f1compute.sbatch` | (medición previa al confirmatorio E-A) |
+| Base sin turbo (control de repetibilidad) | incluido en las series anteriores | `fase4_noturbo.csv`, `tabla_noturbo.tex` |
+| CloverLeaf CUDA Fortran | `hyp_cloverleaf_confirm.sbatch`, `hyp_cloverleaf_shadow.sbatch` | `../fase4_20260924/cloverleaf_confirm_7692.csv`, `tabla_cloverleaf.tex` |
+
+El libro reporta las razones de EDP en figuras; las tablas con valores absolutos (segundos y
+julios por brazo) y las de clasificación por escenario se conservan como archivos `tabla_*.tex`
+en esa carpeta. Ver `docs/libro/datos/README.md`.
+
+La base de la Fase 4 final es el estado nativo del nodo con gobernador `performance`, turbo
+desactivado y 3.2 GHz fijos en la CPU, con gestión automática de la GPU. Las campañas anteriores
+(`docs/libro/datos/fase4_20260924/`) partían con turbo activo y quedan como registro histórico.
 
 ## Los 3+1 escenarios (§5.1)
 
@@ -103,9 +121,9 @@ disco, incluyendo el caso de escenario faltante).
 
 ## Limitaciones conocidas
 
-- No hay orquestación automática de "correr el catálogo completo bajo los
-  4 escenarios" en una sola invocación (ver arriba).
-- El "overhead del agente" (tiempo de inferencia + actuación, §5.2) no se
-  calcula todavía en este reporte — depende de que `fase3_daemon/` registre
-  ese log estructurado en producción (§4.3 punto 10), lo cual a su vez
-  depende del loop de CPU real, no construido todavía.
+- No hay orquestación automática de "correr el catálogo completo bajo todos los escenarios" en una
+  sola invocación: cada escenario es una campaña propia de `scripts/pacca/`.
+- `run_evaluation.py` compara campañas de kernels con `windows.csv`; las aplicaciones compuestas
+  de la Fase 4 se analizan con `analyze_matrix.py`.
+- La aplicación E-B con `myocyte` tiene una variabilidad de duración propia (~41 s o ~50 s) que
+  impide comparar medianas de pocas repeticiones; ver `scripts/pacca/hyp_fase4_myocyte_diag.sbatch`.

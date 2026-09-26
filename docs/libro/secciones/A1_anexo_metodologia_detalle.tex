@@ -185,15 +185,18 @@ GPU & NVML: utilización de cómputo y de memoria, potencia, reloj del multiproc
 \caption{Unidad de observación del conjunto de entrenamiento.}
 \label{tab:met-granularidad}
 \small
-\setlength{\tabcolsep}{3pt}
-\begin{tabular}{@{}>{\raggedright\arraybackslash}p{1.8cm}>{\raggedright\arraybackslash}p{4.2cm}>{\raggedright\arraybackslash}p{3.4cm}>{\raggedright\arraybackslash}p{3.4cm}@{}}
+\setlength{\tabcolsep}{4pt}
+% Definimos una columna X alineada a la izquierda
+\newcolumntype{L}{>{\raggedright\arraybackslash}X}
+
+\begin{tabularx}{\textwidth}{@{} l L L L @{}}
 \toprule
-\textbf{Dispositivo} & \textbf{Unidad de observación} & \textbf{Origen de $I$} & \textbf{Tamaño} \\
+\textbf{Dispositivo} & \textbf{Unidad de observación} & \textbf{Origen de \(I\)} & \textbf{Tamaño} \\
 \midrule
 CPU & Intervalo del controlador de memoria & En vivo, por intervalo & 1\,309\,755 intervalos, 30 familias \\
 GPU & Corrida completa & Fuera de línea, por kernel & 483 corridas, 16 familias \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \section{Amenazas a la validez}

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mide T_transicion_gpu (Plan_Fase3_Daemon.md, Bloque D; §2.4.1 del plan de
+"""Mide T_transicion_gpu (docs/planeacion/Plan_Fase3_Daemon.md, Bloque D; §2.4.1 del plan de
 realineacion, hasta hoy sin medicion en ningun lado): cuanto cuesta cambiar el
 reloj SM de la GPU con el MISMO codigo que usa el daemon
 (`common.hpc.gpu_freqctl.apply_gpu_frequency`) y cuanto tarda el reloj

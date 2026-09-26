@@ -3561,7 +3561,7 @@ regresión agregada). Abierto el candidato de reemplazo GEMM
 
 ### Motivación
 
-El usuario adjuntó una revisión externa (`Nota_Candidatos_GPU_Compute_Bound_20260914.md`,
+El usuario adjuntó una revisión externa (`docs/planeacion/Nota_Candidatos_GPU_Compute_Bound_20260914.md`,
 generada por otra sesión de Claude, sin ejecutar nada en pacca) que
 cuestionaba la conclusión de F1-GPU-009 ("brecha de instrumentación de
 `ncu` con binarios cuBLAS") citando un comentario `ARC-76` ya existente
@@ -3745,7 +3745,7 @@ cerrado en esta entrada.
 ### Motivación
 
 Continuación directa de F1-GPU-012: la revisión externa
-(`Nota_Candidatos_GPU_Compute_Bound_20260914.md`) proponía, en orden de
+(`docs/planeacion/Nota_Candidatos_GPU_Compute_Bound_20260914.md`) proponía, en orden de
 prioridad, (1) `CUBLAS_PEDANTIC_MATH` o CUTLASS SIMT para recuperar un
 GEMM optimizado por el proveedor sin Tensor Core, y (2) `Apps_LTIMES`
 de RAJAPerf como alternativa. El usuario pidió intentarlo pese a que ya

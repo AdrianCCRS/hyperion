@@ -2,7 +2,7 @@
  * cutlass_simt_conv2d_bench.cu -- Conv2d forward (NHWC, FP32) via CUTLASS
  * ImplicitGemm con OperatorClass=Simt explicito (CUDA cores, NO Tensor
  * Core), candidato de prioridad "opcional" de la revision externa
- * (Nota_Candidatos_GPU_Compute_Bound_20260914.md) para ampliar el
+ * (docs/planeacion/Nota_Candidatos_GPU_Compute_Bound_20260914.md) para ampliar el
  * catalogo con una segunda familia compute_bound (la primera fue
  * cutlass_simt_dgemm_bench.cu, F1-GPU-013).
  *

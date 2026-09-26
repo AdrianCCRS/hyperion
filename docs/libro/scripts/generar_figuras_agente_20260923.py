@@ -1,6 +1,6 @@
 """Figuras de la verificacion del agente y del candidato operativo de GPU (ronda 2026-09-23).
 
-Valores tomados de las mediciones registradas en Plan_Fase3_Daemon.md:
+Valores tomados de las mediciones registradas en docs/planeacion/Plan_Fase3_Daemon.md:
   - candado de reloj de GPU: jobs 7599/7600 (rendimiento relativo a 1410 MHz);
   - invarianza frente al reloj: auditoría del reloj (LOFO, 518 corridas, 16 familias; tmp/gpu_clock_audit_20260926).
 Reproduce: python3 docs/libro/scripts/generar_figuras_agente_20260923.py

@@ -1,0 +1,53 @@
+{
+ "grid": [
+  0.2,
+  0.3,
+  0.4,
+  0.5,
+  0.6,
+  0.7,
+  0.8
+ ],
+ "chosen": {
+  "cpu_cholmod": 0.3,
+  "cpu_hpcg": 0.3,
+  "cpu_lulesh": 0.3,
+  "dgemm": 0.8,
+  "dual_axpy": 0.6,
+  "dual_cholesky": 0.8,
+  "dual_fft": 0.8,
+  "dual_gemm": 0.4,
+  "dual_spmv": 0.7,
+  "dual_stencil": 0.6,
+  "gap_pr": 0.3,
+  "hpccg_cpu_N46": 0.6,
+  "npb_bt": 0.4,
+  "npb_cg": 0.2,
+  "npb_ft": 0.5,
+  "npb_lu": 0.5,
+  "npb_mg": 0.4,
+  "npb_sp": 0.7,
+  "phasic": 0.3,
+  "rajaperf_basic": 0.7,
+  "rajaperf_lcals": 0.6,
+  "rajaperf_polybench": 0.3,
+  "rajaperf_stream": 0.7,
+  "rodinia_lavamd": 0.6
+ },
+ "nested_selected": {
+  "cell_balanced_acc": 0.7036764880625112,
+  "recall_compute": 0.5152543260294772,
+  "recall_memory": 0.8618086475225685,
+  "pooled_f1_macro": 0.6972076188207279,
+  "pooled_accuracy": 0.7482147484687425,
+  "mean_family_accuracy": 0.7670888611477702
+ },
+ "fixed_0.5": {
+  "cell_balanced_acc": 0.7078841954377206,
+  "recall_compute": 0.5381528312259484,
+  "recall_memory": 0.8330899473060741,
+  "pooled_f1_macro": 0.6909305511683081,
+  "pooled_accuracy": 0.7364151840340764,
+  "mean_family_accuracy": 0.7716489039651121
+ }
+}

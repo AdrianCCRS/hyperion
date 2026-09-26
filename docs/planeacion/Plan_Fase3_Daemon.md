@@ -6,7 +6,7 @@ escribió antes de tener los resultados de Fase 2, y dos de sus supuestos
 quedaron refutados por medición (§0.2 y §0.3 de abajo).
 
 **Fase 3 cerrada el 2026-09-23** (desarrollo y verificación). Resumen de cambios y
-decisiones en `Cierre_Fase3_Daemon.md`; las corridas pendientes son de la Fase 4.
+decisiones en `docs/planeacion/Cierre_Fase3_Daemon.md`; las corridas pendientes son de la Fase 4.
 
 Estado de partida (2026-09-22): `fase3_daemon/` tiene 31 pruebas Python y
 1 de C++ en verde, con el loop de GPU completo, el actuador, la máquina de

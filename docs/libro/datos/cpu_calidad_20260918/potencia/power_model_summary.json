@@ -1,0 +1,10 @@
+{
+ "n_kernels": 43,
+ "median_p0_w": 85.06770928176412,
+ "median_c_w": 18.499089536825625,
+ "median_k": 1.9674854897666647,
+ "median_rmse_w": 0.3409595029752315,
+ "median_static_frac_f0": 0.836814357912908,
+ "median_power_drop_f8": 0.14771014383564585,
+ "median_alpha_crit": 0.139
+}

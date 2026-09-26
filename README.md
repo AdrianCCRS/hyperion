@@ -179,33 +179,42 @@ del paquete de la distro, o NVML sin el symlink `.so` sin versión) — leerlo
 antes de asumir que hace falta algo más que `cmake -S . -B build
 -DWITH_GPU=ON`.
 
-## Estado real del proyecto — qué corre hoy de punta a punta y qué no
+## Estructura del repositorio
 
-Fase 1 y Fase 2 están completas y verificadas de punta a punta
-(compiladas/corridas, no solo escritas). Fase 4 genera el reporte de
-comparación a partir de datos ya producidos, sin orquestar automáticamente
-las corridas.
+| Ruta | Contenido |
+|---|---|
+| `fase1_telemetria/` | Instrumento de medición y campañas (catálogo de kernels, calibración Roofline, postproceso) |
+| `fase2_clasificador/` | Entrenamiento, validación por familia (LOFO) y exportación de los clasificadores de CPU y GPU |
+| `fase3_daemon/` | Daemons en C++ de CPU (`cpu_loop/`, XGBoost en ONNX) y de GPU (`gpu_loop_cpp/`, random forest en ONNX), tabla de política, actuación y aplicaciones compuestas (`composite_apps/`) |
+| `fase4_evaluacion/` | Análisis de la evaluación experimental (EDP, significancia, clasificación contra fases reales) |
+| `common/` | Librería compartida: harness de telemetría en C++ y control de hardware en Python |
+| `kernels/` | Kernels propios del catálogo (fuentes en C/C++/CUDA) |
+| `scripts/` | Lanzadores para el clúster (`scripts/pacca/*.sbatch`) y utilidades |
+| `docs/libro/` | Libro de tesis (LaTeX), figuras, scripts que las generan y `datos/` con los resultados procesados que las respaldan (ver `docs/libro/datos/README.md`) |
+| `docs/planeacion/` | Planes por fase, protocolos experimentales, notas de trabajo y cierres |
+| `recordatorios/` | Notas de revisión y pendientes técnicos |
+| `Plan_Detallado_Realineacion_Hyperion.md`, `Seguimiento_Cambios_Plan_Director.md` | Plan vigente y bitácora de decisiones |
+| `old/` | Árbol previo a la reconstrucción, solo como referencia histórica |
 
-Fase 3 se verificó dos veces: primero sin CUDA toolkit disponible, después
-con un entorno conda completo (`environment-hyperion-verify.yml`) que sí
-tiene `nvcc`/CUDA/ONNX Runtime C++ reales. La segunda verificación
-encontró que el mecanismo de detección de fase de GPU intentado
-inicialmente (intercepción de `cudaLaunchKernel` vía `LD_PRELOAD`) **no
-funciona** contra kernels reales lanzados con la sintaxis estándar
-`<<<>>>` — confirmado compilando ese shim contra CUDA real y cargándolo
-contra un kernel de prueba. El mecanismo original de ARC-70 (forzar
-blocking-sync) no depende de esa intercepción y sigue funcionando
-correctamente; Fase 1 lo sigue usando sin cambios. Se evaluaron 3 caminos
-de arreglo y se implementó el más simple y robusto (sondeo de
-`gpu_util_pct` desde el propio daemon, sin instrumentar el binario
-objetivo, `fase3_daemon/gpu_loop_cpp/include/gpu_activity_tracker.hpp`); los otros dos
-(intercepción a nivel de driver CUDA, y el mecanismo oficial de NVIDIA
-`CUDA_INJECTION64_PATH`/CUPTI) quedan documentados como trabajo futuro en
-`fase3_daemon/README.md`, con la razón de por qué no se eligieron ahora.
+`AGENTS.md` recoge las reglas de operación en el clúster compartido (jobs Slurm, prefijo `hyp_`,
+shells adjuntas durante mediciones).
 
-El loop de CPU con inferencia ONNX tampoco se construyó — el SDK C++ de
-ONNX Runtime ya está disponible (confirmado en el entorno conda), lo que
-falta es el código de integración y un modelo real entrenado (no hay
-campaña real recolectada en este entorno). El detalle exacto, módulo por
-módulo, está en el README de cada fase — no se oculta ninguna limitación
-conocida.
+## Estado del proyecto
+
+Las cuatro fases están completas y evaluadas en un nodo con GPU A100 (paccaA100). El libro
+(`docs/libro/main.pdf`) reporta el detalle; estas son las conclusiones operativas:
+
+- **Clasificador de CPU** (Fase 2): XGBoost con seis variables sobre intervalos del controlador de
+  memoria, validado dejando una familia de algoritmos fuera (30 familias). Exactitud balanceada por
+  celda 0.728 (IC95 0.669 a 0.790), con abstención bajo confianza 0.85.
+- **Clasificador de GPU** (Fase 2): random forest con tres entradas invariantes al reloj, validado
+  por familia (16 familias): exactitud balanceada por celda 0.819, con abstención bajo confianza 0.90.
+- **Política de frecuencia**: en CPU, no actuar (bajar el reloj no mejora el EDP en ninguna clase);
+  en GPU, fijar F1 (1260 MHz) en fases `memory_bound` y no actuar en `compute_bound`.
+- **Fase 4** (evaluación en aplicaciones compuestas y de terceros, frente a la base sin turbo): el agente
+  de GPU no mostró costo medible en modo sombra, y en las aplicaciones con fases de memoria largas
+  redujo el EDP del nodo entre 3 y 5 % (cinco bloques todos favorables, sin alcanzar significancia
+  al nivel 0.05). El agente de CPU añade entre 5 y 9 % de energía de CPU por su propio costo.
+- Los resultados procesados y las tablas completas están en `docs/libro/datos/`; los datos crudos de
+  las campañas viven en el clúster y no se versionan.
+- Pendiente: la repetición ampliada de E-B (job 7705) se está incorporando al libro.

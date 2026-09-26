@@ -60,3 +60,13 @@ Thumbs.db
 *.out
 *.run.xml
 *.bcf
+
+# Datos y borradores locales que no se versionan
+/tmp/
+/local_datasets/
+/docs/libro/tmp/
+/.agents/
+
+# Los JSON y logs de resultados del libro sí se versionan (soportan figuras y tablas)
+!/docs/libro/datos/**/*.json
+!/docs/libro/datos/**/*.log

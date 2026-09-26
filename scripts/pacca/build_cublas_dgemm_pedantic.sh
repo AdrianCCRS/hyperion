@@ -3,7 +3,7 @@
 # forzado, para desactivar el enrutamiento automatico a Tensor Core que usa
 # gpu_dgemm_n4096/gpu_dgemm_calibration por defecto -- ver F1-GPU-012/013
 # en Seguimiento_Cambios_Plan_Director.md y la nota externa
-# Nota_Candidatos_GPU_Compute_Bound_20260914.md.
+# docs/planeacion/Nota_Candidatos_GPU_Compute_Bound_20260914.md.
 set -e -o pipefail
 
 REPO="${REPO:-$HOME/hyperion}"

@@ -12,11 +12,11 @@
   ],
   "threshold": 0.85,
   "verification": {
-    "n_rows": 1169833,
+    "n_rows": 1309755,
     "max_diff_proba": 2.980232238769531e-07,
     "worst_row": 467028,
     "label_mismatches": 0,
     "tol": 0.0001,
-    "verify_source": "tmp/cpu_quality_20260918/source.csv"
+    "verify_source": "/home/latorresn/hyperion-results/final/training/cpu_quality_30fam_20260920/source30.csv"
   }
 }

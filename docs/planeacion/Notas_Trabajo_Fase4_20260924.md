@@ -127,6 +127,6 @@ La propuesta F no reemplaza E-A. Responde una pregunta adicional. E-A demuestra 
 | Escenario D | `~/hyperion-results/final/fase4_D/results.csv` en pacca, job 7682 |
 | Confirmatorio E-A | `~/hyperion-results/final/fase4_EA_confirmatorio/results.csv` y `cells/*/fixed_gpu_lock.txt` en pacca, job 7684 |
 | Tablas y figuras de Fase 4 | `docs/libro/datos/fase4_20260924/` |
-| Diseño de A, C, D y E | `Plan_Fase4_Evaluacion.md` y `Plan_Fase4_Escenario_E.md` |
+| Diseño de A, C, D y E | `docs/planeacion/Plan_Fase4_Evaluacion.md` y `docs/planeacion/Plan_Fase4_Escenario_E.md` |
 | Medición previa de F | `scripts/pacca/hyp_fase4_F_f1compute.sbatch` |
-| Confirmatorio E-A | `Protocolo_Fase4_EA_Confirmatorio.md` y `scripts/pacca/hyp_fase4_EA_confirmatorio.sbatch` |
+| Confirmatorio E-A | `docs/planeacion/Protocolo_Fase4_EA_Confirmatorio.md` y `scripts/pacca/hyp_fase4_EA_confirmatorio.sbatch` |

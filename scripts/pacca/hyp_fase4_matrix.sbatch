@@ -3,7 +3,7 @@
 #   cpu   : base, sombra, activo, activo_f0                   (solo daemon de CPU)         3 repeticiones
 #   gpu   : base, sombra, activo                              (solo daemon de GPU)         3 repeticiones
 #   (diagnostico, solo si se piden en ONLY_ARMS: sombra_pin, sombra_ort1, sombra_pin_ort1 = sombra con el consumidor fijado a --consumer-cpu y/o ORT con 1 hilo sin espera activa)
-#   gpumem: base, base_noturbo, sombra, activo_gpu, activo_gpu_cpuobs, fijo_gpu_f1 (escenario E, GPU dominada por memoria; 1 ciclo; Plan_Fase4_Escenario_E.md)
+#   gpumem: base, base_noturbo, sombra, activo_gpu, activo_gpu_cpuobs, fijo_gpu_f1 (escenario E, GPU dominada por memoria; 1 ciclo; docs/planeacion/Plan_Fase4_Escenario_E.md)
 #           base_noturbo = sin agentes y turbo apagado (linea base secundaria; REF con turbo sigue siendo la principal); tambien acepta
 #           en cpu y joint si se pide en ONLY_ARMS. activo_gpu = agente de GPU activo sin agente de CPU; activo_gpu_cpuobs = igual mas
 #           el agente de CPU en sombra con la politica versionada (no_actuar, no escribe).

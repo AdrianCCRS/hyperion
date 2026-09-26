@@ -1,0 +1,44 @@
+{
+ "bloques": 5,
+ "brazos": {
+  "sombra": {
+   "validos": 5,
+   "favorables_edp": 3,
+   "p_exacto": 1.0,
+   "wall_s": 0.9981,
+   "e_gpu_j": 1.0007,
+   "edp": 0.997,
+   "edp_por_bloque": [
+    1.0049,
+    0.997,
+    0.9778,
+    0.9895,
+    1.0083
+   ]
+  },
+  "activo_gpu": {
+   "validos": 5,
+   "favorables_edp": 5,
+   "p_exacto": 0.0625,
+   "wall_s": 0.9883,
+   "e_gpu_j": 0.9257,
+   "edp": 0.9558,
+   "edp_por_bloque": [
+    0.9814,
+    0.9513,
+    0.9537,
+    0.9558,
+    0.9662
+   ]
+  },
+  "fijo_gpu_f1": {
+   "validos": 0,
+   "favorables_edp": 0,
+   "p_exacto": null,
+   "wall_s": null,
+   "e_gpu_j": null,
+   "edp": null,
+   "edp_por_bloque": []
+  }
+ }
+}

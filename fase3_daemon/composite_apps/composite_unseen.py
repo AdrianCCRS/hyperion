@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Aplicación compuesta B -- familias INÉDITAS (Bloque C, ítem C2b,
-Plan_Fase3_Daemon.md §0.1, Eje 1/requisito 3).
+docs/planeacion/Plan_Fase3_Daemon.md §0.1, Eje 1/requisito 3).
 
 Contraparte deliberada de la Aplicación A (`composite_known.py`): kernels
 que NUNCA entraron a ninguna decisión de entrenamiento/ajuste del

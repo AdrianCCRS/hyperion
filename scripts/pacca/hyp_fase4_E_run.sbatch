@@ -1,5 +1,5 @@
 #!/bin/bash
-# Corrida larga del escenario E de la Fase 4, protegida por la compuerta del pre-vuelo (Plan_Fase4_Escenario_E.md, pasos 4 y 5).
+# Corrida larga del escenario E de la Fase 4, protegida por la compuerta del pre-vuelo (docs/planeacion/Plan_Fase4_Escenario_E.md, pasos 4 y 5).
 # Si el pre-vuelo (fase4_E_preflight) no cumple los criterios, termina antes de medir y sin tocar nada. Variables (via --export):
 #   RUN_KIND = E        matriz E:   ONLY_SCOPES=gpumem, brazos base base_noturbo sombra activo_gpu activo_gpu_cpuobs -> fase4_E
 #   RUN_KIND = noturbo  complemento REF sin turbo para A y C: cpu y joint, brazos base base_noturbo activo -> fase4_C_noturbo

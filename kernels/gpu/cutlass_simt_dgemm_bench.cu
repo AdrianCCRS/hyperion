@@ -1,7 +1,7 @@
 /*
  * cutlass_simt_dgemm_bench.cu -- DGEMM (C = alpha*A*B + beta*C) via CUTLASS
  * con OperatorClass=Simt explicito (CUDA cores, NO Tensor Core), candidato
- * de la revision externa (Nota_Candidatos_GPU_Compute_Bound_20260914.md,
+ * de la revision externa (docs/planeacion/Nota_Candidatos_GPU_Compute_Bound_20260914.md,
  * F1-GPU-012/013) para recuperar un GEMM FP64 optimizado por el proveedor
  * despues de que CUBLAS_PEDANTIC_MATH NO logro desactivar la ruta Tensor
  * Core de cuBLAS en este entorno (confirmado con ncu, mismo kernel

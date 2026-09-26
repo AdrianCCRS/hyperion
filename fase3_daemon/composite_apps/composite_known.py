@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Aplicación compuesta A -- familias CONOCIDAS (Bloque C, ítem C2,
-Plan_Fase3_Daemon.md §0.1, Eje 1/requisito 3).
+docs/planeacion/Plan_Fase3_Daemon.md §0.1, Eje 1/requisito 3).
 
 Encadena kernels del catálogo de Fase 1 que SÍ estuvieron en el
 entrenamiento del clasificador de Fase 2, para darle al daemon fases

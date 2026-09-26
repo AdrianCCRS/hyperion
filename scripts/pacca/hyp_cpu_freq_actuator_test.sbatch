@@ -1,6 +1,6 @@
 #!/bin/bash
 # Compila y prueba el actuador nativo de frecuencia de CPU (Bloque C8,
-# Plan_Fase3_Daemon.md): pruebas unitarias sobre un sysfs SIMULADO en un
+# docs/planeacion/Plan_Fase3_Daemon.md): pruebas unitarias sobre un sysfs SIMULADO en un
 # directorio temporal (sin tocar hardware real) y paridad con
 # common/hpc/freqctl.py. Sin ONNX Runtime: solo los targets del nucleo.
 # Todo el computo (compilar, enlazar, correr) va aqui -- NUNCA local, ver

@@ -80,7 +80,7 @@ struct Args {
     bool memory_actuar = false;
     unsigned int memory_freq_khz = 0;
     bool verbose = false;
-    std::string arm;       // "sombra" | "activo", obligatorio (Plan_Fase3_Daemon.md SS0.1, requisito 1)
+    std::string arm;       // "sombra" | "activo", obligatorio (docs/planeacion/Plan_Fase3_Daemon.md SS0.1, requisito 1)
     std::string log_path;  // ruta del registro JSONL de decisiones (requisito 2); vacio = sin registro
     std::string gpu_active_signal_path;  // senal de coordinacion CPU-GPU (item C4); vacio = gpu_active siempre false
     std::string sysfs_cpu_root = "/sys/devices/system/cpu";  // solo para pruebas con sysfs simulado
@@ -101,7 +101,7 @@ struct Args {
         "  [--min-dwell-windows N] [--switch-pin-min 0|1] [--switch-parallel 0|1] [--gpu-active-floor-khz N]\n"
         "  [--interval-ns 1000000] [--cpu-freq-sysfs-path RUTA]\n"
         "  [--compute-actuar --compute-freq-khz N] [--memory-actuar --memory-freq-khz N] [-v]\n"
-        "--arm es obligatorio (Plan_Fase3_Daemon.md SS0.1, requisito 1): 'sombra' corre exactamente\n"
+        "--arm es obligatorio (docs/planeacion/Plan_Fase3_Daemon.md SS0.1, requisito 1): 'sombra' corre exactamente\n"
         "el mismo trabajo que 'activo' pero nunca escribe frecuencia (solo registra lo que haria); 'activo'\n"
         "desactiva el turbo, fija el nivel de --compute-freq-khz/--memory-freq-khz segun la clase y\n"
         "restaura el estado original al terminar (ver el docstring del archivo). --log-path activa el registro\n"

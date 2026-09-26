@@ -1,0 +1,322 @@
+{
+  "schema": "cpu_selective_nested_lofo/1",
+  "model_candidates": {
+    "baseline_pmu": {
+      "model": "xgboost",
+      "features": [
+        "ipc",
+        "mpki",
+        "cache_miss_rate",
+        "stall_mem_ratio",
+        "ips",
+        "freq_khz_observed"
+      ]
+    },
+    "pmu_interactions": {
+      "model": "xgboost",
+      "features": [
+        "ipc",
+        "mpki",
+        "cache_miss_rate",
+        "stall_mem_ratio",
+        "ips",
+        "freq_khz_observed",
+        "cache_references_per_ki",
+        "cache_references_per_cycle",
+        "cache_misses_per_cycle",
+        "stalls_mem_per_ki",
+        "stalls_mem_per_cache_miss",
+        "log1p_mpki"
+      ]
+    }
+  },
+  "decision": "compute_bound|memory_bound when confidence >= threshold; otherwise revisar",
+  "selection_protocol": "LOFO externo; variante y umbral seleccionados por LOFO interno del entrenamiento externo",
+  "minimum_inner_coverage_target": 0.6,
+  "threshold_candidates": [
+    0.5,
+    0.55,
+    0.6,
+    0.65,
+    0.7,
+    0.75,
+    0.8,
+    0.85,
+    0.9
+  ],
+  "n_rows": 36310,
+  "n_families": 24,
+  "selected_coverage_micro": 0.6890663729000276,
+  "selected_accuracy_micro": 0.8623101518784972,
+  "selected_f1_macro_oof_pooled": 0.8595120738188058,
+  "selected_f1_macro_fold_mean": 0.6643685210759526,
+  "selected_f1_macro_fold_std": 0.242075906631729,
+  "selected_f1_macro_worst_fold": 0.23974763406940064,
+  "worst_fold": "npb_mg",
+  "per_outer_fold": {
+    "cpu_cholmod": {
+      "selected_variant": "baseline_pmu",
+      "threshold": 0.9,
+      "inner_f1_macro_mean": 0.6454701478632258,
+      "inner_coverage_mean": 0.6798388303017411,
+      "test_coverage": 0.688,
+      "test_selected": 1376,
+      "test_total": 2000,
+      "test_f1_macro_selected": 0.7845244891147358,
+      "test_accuracy_selected": 0.8175872093023255
+    },
+    "cpu_hpcg": {
+      "selected_variant": "pmu_interactions",
+      "threshold": 0.9,
+      "inner_f1_macro_mean": 0.6698064977218012,
+      "inner_coverage_mean": 0.6027531056295784,
+      "test_coverage": 0.7625615763546798,
+      "test_selected": 774,
+      "test_total": 1015,
+      "test_f1_macro_selected": 0.4927916120576671,
+      "test_accuracy_selected": 0.9715762273901809
+    },
+    "cpu_lulesh": {
+      "selected_variant": "baseline_pmu",
+      "threshold": 0.75,
+      "inner_f1_macro_mean": 0.6698473732409486,
+      "inner_coverage_mean": 0.8146359125512072,
+      "test_coverage": 0.8129353233830846,
+      "test_selected": 817,
+      "test_total": 1005,
+      "test_f1_macro_selected": 0.46179183135704877,
+      "test_accuracy_selected": 0.8580171358629131
+    },
+    "dgemm": {
+      "selected_variant": "pmu_interactions",
+      "threshold": 0.9,
+      "inner_f1_macro_mean": 0.693756855913811,
+      "inner_coverage_mean": 0.6252451611626462,
+      "test_coverage": 1.0,
+      "test_selected": 1000,
+      "test_total": 1000,
+      "test_f1_macro_selected": 0.5,
+      "test_accuracy_selected": 1.0
+    },
+    "dual_axpy": {
+      "selected_variant": "pmu_interactions",
+      "threshold": 0.9,
+      "inner_f1_macro_mean": 0.6639432840048044,
+      "inner_coverage_mean": 0.6339017089842587,
+      "test_coverage": 0.86,
+      "test_selected": 1720,
+      "test_total": 2000,
+      "test_f1_macro_selected": 0.9976138651084652,
+      "test_accuracy_selected": 0.9976744186046511
+    },
+    "dual_cholesky": {
+      "selected_variant": "pmu_interactions",
+      "threshold": 0.9,
+      "inner_f1_macro_mean": 0.6364022530914593,
+      "inner_coverage_mean": 0.6395842410804198,
+      "test_coverage": 0.6905,
+      "test_selected": 1381,
+      "test_total": 2000,
+      "test_f1_macro_selected": 0.9779138003829767,
+      "test_accuracy_selected": 0.9782766111513396
+    },
+    "dual_fft": {
+      "selected_variant": "pmu_interactions",
+      "threshold": 0.9,
+      "inner_f1_macro_mean": 0.6251827415357247,
+      "inner_coverage_mean": 0.6178450345896838,
+      "test_coverage": 0.8008028098344204,
+      "test_selected": 1596,
+      "test_total": 1993,
+      "test_f1_macro_selected": 1.0,
+      "test_accuracy_selected": 1.0
+    },
+    "dual_gemm": {
+      "selected_variant": "baseline_pmu",
+      "threshold": 0.9,
+      "inner_f1_macro_mean": 0.6549351759969751,
+      "inner_coverage_mean": 0.6028010401716268,
+      "test_coverage": 0.998017839444995,
+      "test_selected": 1007,
+      "test_total": 1009,
+      "test_f1_macro_selected": 1.0,
+      "test_accuracy_selected": 1.0
+    },
+    "dual_spmv": {
+      "selected_variant": "pmu_interactions",
+      "threshold": 0.85,
+      "inner_f1_macro_mean": 0.6324458404278239,
+      "inner_coverage_mean": 0.6975735887930369,
+      "test_coverage": 0.9783593356819326,
+      "test_selected": 1944,
+      "test_total": 1987,
+      "test_f1_macro_selected": 1.0,
+      "test_accuracy_selected": 1.0
+    },
+    "dual_stencil": {
+      "selected_variant": "baseline_pmu",
+      "threshold": 0.9,
+      "inner_f1_macro_mean": 0.6138634362713412,
+      "inner_coverage_mean": 0.6046017936530619,
+      "test_coverage": 0.8054162487462387,
+      "test_selected": 1606,
+      "test_total": 1994,
+      "test_f1_macro_selected": 1.0,
+      "test_accuracy_selected": 1.0
+    },
+    "gap_pr": {
+      "selected_variant": "pmu_interactions",
+      "threshold": 0.9,
+      "inner_f1_macro_mean": 0.6998443782221443,
+      "inner_coverage_mean": 0.641199362857947,
+      "test_coverage": 0.681,
+      "test_selected": 681,
+      "test_total": 1000,
+      "test_f1_macro_selected": 0.35450236966824644,
+      "test_accuracy_selected": 0.5491923641703378
+    },
+    "hpccg_cpu_N46": {
+      "selected_variant": "pmu_interactions",
+      "threshold": 0.8,
+      "inner_f1_macro_mean": 0.65909552653709,
+      "inner_coverage_mean": 0.7600458141295274,
+      "test_coverage": 0.491,
+      "test_selected": 982,
+      "test_total": 2000,
+      "test_f1_macro_selected": 0.9098751835535976,
+      "test_accuracy_selected": 0.9103869653767821
+    },
+    "npb_bt": {
+      "selected_variant": "pmu_interactions",
+      "threshold": 0.9,
+      "inner_f1_macro_mean": 0.643233855528779,
+      "inner_coverage_mean": 0.6805106685429397,
+      "test_coverage": 0.22,
+      "test_selected": 440,
+      "test_total": 2000,
+      "test_f1_macro_selected": 0.6641853462696554,
+      "test_accuracy_selected": 0.6681818181818182
+    },
+    "npb_cg": {
+      "selected_variant": "pmu_interactions",
+      "threshold": 0.9,
+      "inner_f1_macro_mean": 0.6758820731458657,
+      "inner_coverage_mean": 0.6275227798128317,
+      "test_coverage": 0.638,
+      "test_selected": 638,
+      "test_total": 1000,
+      "test_f1_macro_selected": 0.5,
+      "test_accuracy_selected": 1.0
+    },
+    "npb_ft": {
+      "selected_variant": "pmu_interactions",
+      "threshold": 0.9,
+      "inner_f1_macro_mean": 0.6792230248909125,
+      "inner_coverage_mean": 0.671109483287822,
+      "test_coverage": 0.4102402022756005,
+      "test_selected": 649,
+      "test_total": 1582,
+      "test_f1_macro_selected": 0.42191211401425177,
+      "test_accuracy_selected": 0.47303543913713403
+    },
+    "npb_lu": {
+      "selected_variant": "pmu_interactions",
+      "threshold": 0.9,
+      "inner_f1_macro_mean": 0.6564895767360571,
+      "inner_coverage_mean": 0.6571878232861453,
+      "test_coverage": 0.2255,
+      "test_selected": 451,
+      "test_total": 2000,
+      "test_f1_macro_selected": 0.4624123007015944,
+      "test_accuracy_selected": 0.6696230598669624
+    },
+    "npb_mg": {
+      "selected_variant": "baseline_pmu",
+      "threshold": 0.9,
+      "inner_f1_macro_mean": 0.6720135837258234,
+      "inner_coverage_mean": 0.6229349450712139,
+      "test_coverage": 0.482,
+      "test_selected": 482,
+      "test_total": 1000,
+      "test_f1_macro_selected": 0.23974763406940064,
+      "test_accuracy_selected": 0.3153526970954357
+    },
+    "npb_sp": {
+      "selected_variant": "pmu_interactions",
+      "threshold": 0.9,
+      "inner_f1_macro_mean": 0.6624163881477322,
+      "inner_coverage_mean": 0.6408604581840064,
+      "test_coverage": 0.3722139673105498,
+      "test_selected": 501,
+      "test_total": 1346,
+      "test_f1_macro_selected": 0.5187210459002416,
+      "test_accuracy_selected": 0.6626746506986028
+    },
+    "phasic": {
+      "selected_variant": "baseline_pmu",
+      "threshold": 0.9,
+      "inner_f1_macro_mean": 0.6623967470387847,
+      "inner_coverage_mean": 0.6463710858790148,
+      "test_coverage": 0.8425076452599388,
+      "test_selected": 1653,
+      "test_total": 1962,
+      "test_f1_macro_selected": 0.6547548739855977,
+      "test_accuracy_selected": 0.7332123411978222
+    },
+    "rajaperf_basic": {
+      "selected_variant": "baseline_pmu",
+      "threshold": 0.9,
+      "inner_f1_macro_mean": 0.6823021391110813,
+      "inner_coverage_mean": 0.6131329799189089,
+      "test_coverage": 0.6753130590339893,
+      "test_selected": 755,
+      "test_total": 1118,
+      "test_f1_macro_selected": 0.5418152781474581,
+      "test_accuracy_selected": 0.9245033112582781
+    },
+    "rajaperf_lcals": {
+      "selected_variant": "pmu_interactions",
+      "threshold": 0.65,
+      "inner_f1_macro_mean": 0.6611539932689626,
+      "inner_coverage_mean": 0.892957775797214,
+      "test_coverage": 0.8205590622182146,
+      "test_selected": 910,
+      "test_total": 1109,
+      "test_f1_macro_selected": 0.4839577766407035,
+      "test_accuracy_selected": 0.5725274725274725
+    },
+    "rajaperf_polybench": {
+      "selected_variant": "baseline_pmu",
+      "threshold": 0.8,
+      "inner_f1_macro_mean": 0.6472925806855013,
+      "inner_coverage_mean": 0.7519440096951339,
+      "test_coverage": 0.984,
+      "test_selected": 1968,
+      "test_total": 2000,
+      "test_f1_macro_selected": 0.8855774398235011,
+      "test_accuracy_selected": 0.8871951219512195
+    },
+    "rajaperf_stream": {
+      "selected_variant": "pmu_interactions",
+      "threshold": 0.7,
+      "inner_f1_macro_mean": 0.6610999253753175,
+      "inner_coverage_mean": 0.8653446596977645,
+      "test_coverage": 0.745531914893617,
+      "test_selected": 876,
+      "test_total": 1175,
+      "test_f1_macro_selected": 0.6597241620111731,
+      "test_accuracy_selected": 0.7968036529680366
+    },
+    "rodinia_lavamd": {
+      "selected_variant": "baseline_pmu",
+      "threshold": 0.9,
+      "inner_f1_macro_mean": 0.6490454332592414,
+      "inner_coverage_mean": 0.6347507493893206,
+      "test_coverage": 0.8009852216748768,
+      "test_selected": 813,
+      "test_total": 1015,
+      "test_f1_macro_selected": 0.43302338301654586,
+      "test_accuracy_selected": 0.7490774907749077
+    }
+  }
+}

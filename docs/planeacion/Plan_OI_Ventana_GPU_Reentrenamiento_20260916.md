@@ -122,7 +122,7 @@ CPU. Investigación real (no hipótesis) encontró:
   kernels/iteración sin filtrar en `ncu_convergence.py`). Reabrir esto es
   una decisión de alcance nueva, no implícita en este plan.
 - Polybench 2MM/3MM: hay una decisión previa explícita de NO invertir más
-  en esta familia (`Nota_Candidatos_GPU_Compute_Bound_20260914.md`,
+  en esta familia (`docs/planeacion/Nota_Candidatos_GPU_Compute_Bound_20260914.md`,
   sección 4, punto 6 / recomendación inicial).
 - El libro (`docs/libro/`) va sistemáticamente por detrás del trabajo
   real — **no usarlo como fuente de "qué ya está hecho"**, solo como

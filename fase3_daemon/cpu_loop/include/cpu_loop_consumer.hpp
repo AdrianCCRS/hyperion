@@ -35,7 +35,7 @@
  * `[]{ return false; }` u otra fuente, ver `tests/test_cpu_loop_consumer.cpp`),
  * y sin esa bandera el binario de producción mantiene `false` siempre --
  * el único comportamiento con sentido mientras la política GPU en
- * `memory_bound` siga bloqueada por H1 (Plan_Fase3_Daemon.md Bloque D): no
+ * `memory_bound` siga bloqueada por H1 (docs/planeacion/Plan_Fase3_Daemon.md Bloque D): no
  * hay todavía un escenario real donde el loop de GPU esté aplicando reloj.
  */
 namespace hyperion::cpu_loop {

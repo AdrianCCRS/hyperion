@@ -1,0 +1,24 @@
+Lmod has detected the following error: The following module(s) are unknown:
+"cmake/3.24.2"
+
+Please check the spelling or version number. Also try "module spider ..."
+It is also possible your cache file is out-of-date; it may help to try:
+  $ module --ignore_cache load "cmake/3.24.2"
+
+Also make sure that all modulefiles written in TCL start with the string
+#%Module
+
+If this module depends on others you loaded, try loading prerequisites first,
+then this module in a separate command.
+
+
+
+[HPC Env] Entorno AdaptiveCpp cargado para el nodo: pacca
+=== stage latency
+[latency] stump_base {'p50_us': 98.77850000000001, 'p95_us': 101.62925, 'p99_us': 102.74213}
+[latency] logistic_inter {'p50_us': 265.6765, 'p95_us': 271.3062, 'p99_us': 274.59565000000003}
+[latency] xgb_inter {'p50_us': 227.3545, 'p95_us': 249.4738, 'p99_us': 382.16999}
+[latency] xgb_inter_shallow {'p50_us': 200.0505, 'p95_us': 218.06565, 'p99_us': 357.33627}
+[latency] rf_inter {'p50_us': 5016.302, 'p95_us': 5101.1694, 'p99_us': 5192.77512}
+[latency] et_inter {'p50_us': 5094.889499999999, 'p95_us': 5159.58175, 'p99_us': 5225.604740000001}
+=== stage latency done 30s

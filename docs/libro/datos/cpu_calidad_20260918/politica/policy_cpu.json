@@ -1,0 +1,10 @@
+{
+ "compute_bound": {
+  "action": "no_actuar",
+  "n_kernels": 16
+ },
+ "memory_bound": {
+  "action": "no_actuar",
+  "n_kernels": 27
+ }
+}

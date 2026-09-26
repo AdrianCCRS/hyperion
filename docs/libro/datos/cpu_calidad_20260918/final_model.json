@@ -1,0 +1,80 @@
+{
+ "protocol": "LOFO 24 familias; entrenamiento en muestra con tope 1000 por celda; evaluacion en todos los intervalos elegibles de la familia retenida",
+ "model": "xgboost n_estimators=100 max_depth=6 scale_pos_weight=1",
+ "features": [
+  "ipc",
+  "mpki",
+  "cache_miss_rate",
+  "stall_mem_ratio",
+  "ips",
+  "freq_khz_observed",
+  "cache_references_per_ki",
+  "cache_references_per_cycle",
+  "cache_misses_per_cycle",
+  "stalls_mem_per_ki",
+  "stalls_mem_per_cache_miss",
+  "log1p_mpki"
+ ],
+ "threshold": 0.85,
+ "seeds": 5,
+ "eval_rows_mean": 1165382.0,
+ "full_coverage": {
+  "cell_balanced_acc": 0.7085897742588215,
+  "recall_compute": 0.5915181025681301,
+  "recall_memory": 0.8225052081205834,
+  "pooled_f1_macro": 0.709326555962918,
+  "pooled_accuracy": 0.746792039005236,
+  "mean_family_accuracy": 0.7777698474648558,
+  "confusion": {
+   "compute_as_compute": 225954.0,
+   "compute_as_memory": 156035.99999999997,
+   "memory_as_compute": 139048.0,
+   "memory_as_memory": 644344.0000000002
+  },
+  "per_class": {
+   "compute_bound": {
+    "precision": 0.6190486627470534,
+    "recall": 0.5915181025681301,
+    "f1": 0.604970334354317,
+    "support": 381990.0
+   },
+   "memory_bound": {
+    "precision": 0.8050476023888653,
+    "recall": 0.8225052081205834,
+    "f1": 0.8136827775715193,
+    "support": 783392.0000000002
+   }
+  }
+ },
+ "selective": {
+  "cell_balanced_acc": 0.7231450249359122,
+  "recall_compute": 0.6173536981031977,
+  "recall_memory": 0.9024762581544149,
+  "pooled_f1_macro": 0.7717041289909625,
+  "pooled_accuracy": 0.8112460366939899,
+  "mean_family_accuracy": 0.8388184479392106,
+  "confusion": {
+   "compute_as_compute": 167103.20000000007,
+   "compute_as_memory": 103573.4,
+   "memory_as_compute": 56102.6,
+   "memory_as_memory": 519168.6
+  },
+  "per_class": {
+   "compute_bound": {
+    "precision": 0.7486507967086877,
+    "recall": 0.6173536981031977,
+    "f1": 0.6766922652032143,
+    "support": 270676.6000000001
+   },
+   "memory_bound": {
+    "precision": 0.8336816851922626,
+    "recall": 0.9024762581544149,
+    "f1": 0.8667159927787106,
+    "support": 575271.2
+   }
+  },
+  "coverage_pooled": 0.725897431056941,
+  "coverage_mean_family": 0.737746774086775,
+  "coverage_min_family": 0.36219142765066065
+ }
+}
