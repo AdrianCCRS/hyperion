@@ -24,7 +24,7 @@ sudo -n nvidia-smi -i 0 -rgc >/dev/null 2>&1
 for spec in "lj|-var x 2 -var y 2 -var z 2" "eam|-var x 2 -var y 2 -var z 2" "chain|" "rhodo|"; do
   b=${spec%%|*}; VARS=${spec#*|}; W="$OUT/$b"; rm -rf "$W"; mkdir -p "$W"; cp -r "$BENCH"/* "$W"/; cd "$W"
   T0=$(date +%s.%N)
-  taskset -c 0-3 timeout 300 $LMPCMD -sf gpu -pk gpu 1 -in "in.$b" $VARS -log "$W/log.lammps" > "$W/stdout.txt" 2> "$W/stderr.txt"; RC=$?
+  taskset -c 0-5 timeout 300 $LMPCMD -sf gpu -pk gpu 1 -in "in.$b" $VARS -log "$W/log.lammps" > "$W/stdout.txt" 2> "$W/stderr.txt"; RC=$?
   T1=$(date +%s.%N)
   echo "$b rc=$RC total=$(python3 -c "print(round($T1-$T0,1))")s $(grep -m1 'Loop time of' "$W/log.lammps" 2>/dev/null)"
 done

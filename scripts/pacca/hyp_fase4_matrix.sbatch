@@ -89,7 +89,7 @@ scopes, sets, arms = (set(a.split()) for a in sys.argv[1:4]); rg, rj = int(sys.a
 seed, order_mode = int(sys.argv[7]), sys.argv[8]
 plan = {"cpu": (["base", "base_noturbo", "sombra", "activo", "activo_f0", "sombra_pin", "sombra_ort1", "sombra_pin_ort1"], rg),
         "gpu": (["base", "sombra", "activo"], rg), "joint": (["base", "base_noturbo", "sombra", "activo", "activo_nofloor"], rj),
-        "gpumem": (["base", "base_noturbo", "sombra", "activo_gpu", "activo_gpu_cpuobs", "fijo_gpu_f1"], rg),
+        "gpumem": (["base", "base_noturbo", "sombra", "activo_gpu", "activo_gpu_cpuobs", "fijo_gpu_f1", "sombra_gpupin", "activo_gpu_gpupin"], rg),
         "lammps": (["base", "sombra", "activo_gpu", "activo_gpu_cpuobs"], rg)}
 cells = [(sc, st, arm, r) for sc, (al, n) in plan.items() if sc in scopes
          for st in (sys.argv[6].split() if sc == "lammps" else ("known", "unseen")) if sc == "lammps" or st in sets
@@ -142,7 +142,7 @@ run_cell() {
     { [ "$scope" = cpu ] || [ "$scope" = joint ]; } && use_cpu=1;; esac
   if [ "$scope" = gpumem ] || [ "$scope" = lammps ]; then
     cycles=$CYCLES_GPUMEM; pol="$ROOT/fase3_daemon/policy_table.yaml"; floor=0; cpu_arm=sombra
-    case "$arm" in activo_gpu|activo_gpu_cpuobs) dm_arm=activo;; *) dm_arm=sombra;; esac
+    case "$arm" in activo_gpu|activo_gpu_cpuobs|activo_gpu_gpupin) dm_arm=activo;; *) dm_arm=sombra;; esac
     [ "$arm" = activo_gpu_cpuobs ] && use_cpu=1
   fi
   [ "$arm" = fijo_gpu_f1 ] && fixed_f1=1
@@ -160,26 +160,28 @@ run_cell() {
   local cpu_d="" gpu_d="" rc_c=NA rc_g=NA
   local sigflag=(); [ "$scope" = joint ] && sigflag=(--gpu-active-signal-path "$SIG")
   local cmd; cmd=$(app_cmd "$scope" "$set")
-  if [ "$scope" = lammps ]; then  # aplicacion real: un proceso de LAMMPS (paquete GPU) en los nucleos 0-3, sin fronteras de fase registradas
+  if [ "$scope" = lammps ]; then  # aplicacion real: un proceso de LAMMPS (paquete GPU) en los nucleos 0-5, sin fronteras de fase registradas
     local lvars=""; case "$set" in lj|eam) lvars="-var x 2 -var y 2 -var z 2";; esac
     ( cd "$OUT/lammps_work/$set" && exec env LD_LIBRARY_PATH="$LAMMPS_LD:$LD_LIBRARY_PATH" LAMMPS_POTENTIALS=/opt/ohpc/pub/lammps/2023_gpu/share/lammps/potentials \
         OPAL_PREFIX="$NV/comm_libs/openmpi/openmpi-3.1.5" OMPI_MCA_btl=self,vader OMPI_MCA_pml=ob1 OMPI_MCA_mtl=^ofi OMPI_MCA_btl_vader_single_copy_mechanism=none \
-        taskset -c 0-3 "$NV/comm_libs/openmpi/openmpi-3.1.5/bin/mpirun" -np 1 --oversubscribe /opt/ohpc/pub/lammps/2023_gpu/bin/lmp \
+        taskset -c 0-5 "$NV/comm_libs/openmpi/openmpi-3.1.5/bin/mpirun" -np 1 --oversubscribe /opt/ohpc/pub/lammps/2023_gpu/bin/lmp \
         -sf gpu -pk gpu 1 -in "in.$set" $lvars -log "$D/log.lammps" > "$D/app.out" 2>&1 ) & local COMP=$!
   else
-  ( cd "$KERNEL_ROOT" && exec taskset -c 0-3 python3 $cmd --node-id pacca-a100 --kernels-root "$KERNEL_ROOT" --cycles "$cycles" --gap-s "$GAP_S" \
+  ( cd "$KERNEL_ROOT" && exec taskset -c 0-5 python3 $cmd --node-id pacca-a100 --kernels-root "$KERNEL_ROOT" --cycles "$cycles" --gap-s "$GAP_S" \
       --boundaries-out "$D/phases.jsonl" > "$D/app.out" 2>&1 ) & local COMP=$!
   fi
   # el brazo base no arranca daemons; los demas, segun el alcance
   kill -STOP $COMP   # la app espera a que los daemons esten listos
+  # variantes *_gpupin (diagnostico de myocyte): el daemon de GPU se fija a un nucleo fuera de 0-5 (GPU_DAEMON_CPU, por defecto 6)
+  local gpupin=(); case "$arm" in *_gpupin) gpupin=(taskset -c "${GPU_DAEMON_CPU:-6}");; esac
   if [ $use_gpu = 1 ]; then
-    ( exec python3 "$ROOT/fase3_daemon/gpu_loop_cpp/launch_gpu_daemon.py" --policy-table "$pol" --binary "$GPU_BIN" --arm $dm_arm -- \
+    ( exec "${gpupin[@]}" python3 "$ROOT/fase3_daemon/gpu_loop_cpp/launch_gpu_daemon.py" --policy-table "$pol" --binary "$GPU_BIN" --arm $dm_arm -- \
         --model "$ROOT/fase3_daemon/gpu_loop_cpp/gpu_rf_sin_reloj.onnx" --features "$ROOT/fase3_daemon/gpu_loop_cpp/gpu_rf_sin_reloj.features.txt" \
         --gpu-index $GPU --min-dwell-ns 3700000000 --settle-s 0.3 --target-pid $COMP "${sigflag[@]}" --log-path "$D/gpu_decisions.jsonl" ) > "$D/gpu_daemon.out" 2>&1 & gpu_d=$!
   fi
   if [ $use_cpu = 1 ]; then
     ( exec python3 "$ROOT/fase3_daemon/cpu_loop/launch_cpu_daemon.py" --policy-table "$pol" --binary "$CPU_BIN" --arm $cpu_arm -- \
-        --model "$ROOT/fase3_daemon/cpu_loop/xgboost_cpu.onnx" --perf-cpus 0,1,2,3 --collector-cpu 6 --consumer-cpu 7 --target-pid $COMP --interval-ns $INTERVAL_NS "${xflags[@]}" \
+        --model "$ROOT/fase3_daemon/cpu_loop/xgboost_cpu.onnx" --perf-cpus 0,1,2,3,4,5 --collector-cpu 6 --consumer-cpu 7 --target-pid $COMP --interval-ns $INTERVAL_NS "${xflags[@]}" \
         "${sigflag[@]}" --gpu-active-floor-khz $floor --log-path "$D/cpu_decisions.jsonl" ) > "$D/cpu_daemon.out" 2>&1 & cpu_d=$!
   fi
   sleep 3
