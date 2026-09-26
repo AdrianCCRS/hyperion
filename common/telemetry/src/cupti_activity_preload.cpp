@@ -160,6 +160,13 @@ void shutdown_trace() {
         std::lock_guard<std::mutex> lock(s.mutex);
         records = s.records;
     }
+    // LD_PRELOAD se hereda a los procesos auxiliares de un wrapper (rm, awk,
+    // sha256sum...). Sin registros propios no deben truncar la traza del
+    // proceso que si uso CUDA: un archivo ausente es un fallo explicito.
+    if (records.empty()) {
+        s.enabled = false;
+        return;
+    }
     std::sort(records.begin(), records.end(), [](const auto& a, const auto& b) {
         if (a.start_ns != b.start_ns) return a.start_ns < b.start_ns;
         return a.end_ns < b.end_ns;
