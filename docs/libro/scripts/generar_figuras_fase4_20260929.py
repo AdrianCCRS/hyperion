@@ -27,10 +27,8 @@ from fase4_evaluacion.analyze_matrix import load_results  # noqa: E402
 
 L = ROOT / "docs" / "libro"
 D26, D29, F = L / "datos" / "fase4_20260926", L / "datos" / "fase4_20260929", L / "figuras"
-REF = "#a0aec0"
 ARMS = {"base": "REF", "sombra": "Sombra", "activo_gpu": "Activo"}
-COLOR = {"performance": {"base": REF, "sombra": "#718096", "activo_gpu": "#2f855a"},
-         "powersave": {"base": "#cbd5e0", "sombra": "#9ae6b4", "activo_gpu": "#276749"}}
+COLOR = {"performance": "#a0aec0", "powersave": "#2f855a"}
 plt.rcParams.update({
     "font.size": 9.5, "axes.edgecolor": "#8a8a8a", "axes.spines.top": False, "axes.spines.right": False,
     "axes.grid": True, "grid.color": "#dcdcdc", "grid.linewidth": 0.6, "axes.axisbelow": True, "figure.dpi": 300,
@@ -66,7 +64,7 @@ def figura(g):
         for j, gov in enumerate(("performance", "powersave")):
             xs = np.arange(len(arms)) + (j - 0.5) * w
             vals = [np.median([r[key] for r in g[gov][a]]) / refs_k[gov] for a in arms]
-            ax.bar(xs, vals, w, color=[COLOR[gov][a] for a in arms], edgecolor="#1a202c" if gov == "powersave" else "none", linewidth=0.6,
+            ax.bar(xs, vals, w, color=COLOR[gov], edgecolor="none", linewidth=0.6,
                    label=gov if key == "edp" else None)
             for x, v, a in zip(xs, vals, arms):
                 n = len(g[gov][a])
