@@ -70,4 +70,3 @@ Thumbs.db
 # Los JSON y logs de resultados del libro sí se versionan (soportan figuras y tablas)
 !/docs/libro/datos/**/*.json
 !/docs/libro/datos/**/*.log
-docs/libro/main.pdf
