@@ -172,6 +172,10 @@ Las campañas y sus datos están indexados en [`fase4_evaluacion/README.md`](../
 | F, premedición de F1 fijo | Base frente a la solicitud de F1 en DGEMM de CUTLASS, Conv2D y LavaMD, cinco repeticiones por nivel | Comprobar que una comparación posterior contra un nivel fijo tendría un reloj efectivo distinto de la base |
 | Confirmatorio E-A | Cinco bloques aleatorizados de la base, sombra, agente GPU activo y F1 fijo para la aplicación E-A | Confirmar la mejora frente a la base y contrastarla con F1 fijo; el brazo fijo se declara inválido si no sostiene el reloj bajo carga |
 | CloverLeaf CUDA Fortran | Aplicación externa continua, cinco bloques aleatorizados con la base, sombra y agente GPU activo; una decisión inicial del agente por corrida | Verificar la política sobre una carga de terceros sostenida, con energía de nodo, salida numérica y reloj auditados |
+| E-B con *powersave* | Ocho bloques de E-B con los núcleos delegados en `powersave` (EPP `default`) | Contrastar el gobernador nativo de referencia |
+| Serie *powersave* | Matriz inicial, E, confirmatorio E-A, D y CloverLeaf con `powersave`, turbo apagado y rango de 0.8 a 3.2 GHz; cada brazo frente a la base del mismo gobernador | Repetir la comparación completa contra el otro gobernador que expone `intel_pstate` (resultados pendientes) |
+
+En los confirmatorios de cinco bloques, la prueba de signos bilateral no puede bajar de p = 0.0625. El libro añade la media geométrica de las razones por bloque con su IC95 por t pareada sobre el logaritmo, como análisis posterior a la medición (`datos/fase4_20260929/ic_efecto_bloques.csv`).
 
 ---
 

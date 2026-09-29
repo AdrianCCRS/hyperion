@@ -202,7 +202,7 @@ shells adjuntas durante mediciones).
 ## Estado del proyecto
 
 Las cuatro fases están completas y evaluadas en un nodo con GPU A100 (paccaA100). El libro
-(`docs/libro/main.pdf`) reporta el detalle; estas son las conclusiones operativas:
+(`docs/libro/main.tex`) reporta el detalle; estas son las conclusiones operativas:
 
 - **Clasificador de CPU** (Fase 2): XGBoost con seis variables sobre intervalos del controlador de
   memoria, validado dejando una familia de algoritmos fuera (30 familias). Exactitud balanceada por
@@ -213,8 +213,12 @@ Las cuatro fases están completas y evaluadas en un nodo con GPU A100 (paccaA100
   en GPU, fijar F1 (1260 MHz) en fases `memory_bound` y no actuar en `compute_bound`.
 - **Fase 4** (evaluación en aplicaciones compuestas y de terceros, frente a la base sin turbo): el agente
   de GPU no mostró costo medible en modo sombra, y en las aplicaciones con fases de memoria largas
-  redujo el EDP del nodo entre 3 y 5 % (cinco bloques todos favorables, sin alcanzar significancia
-  al nivel 0.05). El agente de CPU añade entre 5 y 9 % de energía de CPU por su propio costo.
+  redujo el EDP del nodo entre 3 y 5 % (cinco bloques todos favorables; la prueba de signos
+  declarada no puede bajar de p = 0.0625 con cinco bloques, y el IC95 por bloques, calculado después
+  de medir, da reducciones de 2.3 a 5.4 % en E-A y de 3.2 a 4.6 % en CloverLeaf). El agente de CPU
+  añade entre 5 y 9 % de energía de CPU por su propio costo.
 - Los resultados procesados y las tablas completas están en `docs/libro/datos/`; los datos crudos de
   las campañas viven en el clúster y no se versionan.
-- Pendiente: la repetición ampliada de E-B (job 7705) se está incorporando al libro.
+- Pendiente: la serie de la Fase 4 con el gobernador `powersave` (job 7789); los puntos del libro
+  que dependen de ella están marcados con `% TODO(job 7789)`.
+- El libro no versiona su PDF: se compila con `latexmk -pdf main.tex` dentro de `docs/libro/`.

@@ -15,6 +15,7 @@ El libro conserva en sus anexos solo las tablas indispensables. Todo el detalle 
 | `gpu_calidad_20260922/` | Conjunto histórico de GPU (483 corridas) y política de GPU por familia (`politica/policy_by_family.json`) | Vigente |
 | `gpu_calidad_20260924/rf_operativo/` | Random forest de GPU con tres entradas invariantes: probabilidades LOFO, calibración, umbral por familia y celda, importancia por permutación | Vigente |
 | `fase4_20260926/` | Fase 4 final (base sin turbo, job 7696) y las repeticiones posteriores de E-B: un CSV por escenario (`fase4_A`, `_C`, `_D`, `_E`, `_EA`, `_EB`, `_EBdiag`, `_noturbo`), `clasificacion.json` y las tablas `tabla_*.tex` con valores absolutos y razones frente a la base | Vigente |
+| `fase4_20260929/` | Contraste de gobernador en E-B (`fase4_EB_powersave.csv`, job 7779; `tabla_EB_powersave.tex`, `cruce_governor_ref.tex`) y tamaño de efecto por bloques de los confirmatorios E-A y CloverLeaf (`ic_efecto_bloques.csv`, generado con `../scripts/ic_efecto_bloques_20260929.py`) | Vigente; la serie `powersave` completa (job 7789) se añadirá aquí |
 | `fase4_20260924/` | Campañas anteriores de la Fase 4 (con turbo activo) y el confirmatorio de CloverLeaf (`cloverleaf_confirm_7692.csv`, `tabla_cloverleaf.tex`) | Histórico, salvo CloverLeaf |
 | `cpu_calidad_20260918/`, `cpu_modelo_20260918/` | Iteración anterior del clasificador de CPU | Histórico, reemplazado por `cpu_calidad_30fam/` |
 
@@ -37,5 +38,9 @@ conserva la tabla de restauración del agente; el resto queda aquí:
 
 - `REF` en los archivos es la base del libro (en la Fase 4 final: gobernador `performance`, turbo
   desactivado, 3.2 GHz fijos en la CPU). `base_noturbo` es una segunda medición de la misma base.
+  En `fase4_20260929/`, cada brazo con `powersave` se compara con la `REF` de ese gobernador.
+- `ic_efecto_bloques.csv` da, por experimento, brazo y métrica, la media geométrica de las razones
+  brazo/base de los cinco bloques y su IC95 por t pareada sobre el logaritmo. Es un análisis
+  añadido después de medir; la prueba declarada de los confirmatorios es la de signos.
 - Los JSON y logs de esta carpeta sí se versionan (el `.gitignore` general los excluye en el resto
   del repositorio).

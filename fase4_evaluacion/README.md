@@ -29,13 +29,17 @@ Este directorio contiene el análisis y las utilidades de esa evaluación:
 | F: F1 fijo sobre fases de cómputo | `hyp_fase4_F_f1compute.sbatch` | (medición previa al confirmatorio E-A) |
 | Base sin turbo (control de repetibilidad) | incluido en las series anteriores | `fase4_noturbo.csv`, `tabla_noturbo.tex` |
 | CloverLeaf CUDA Fortran | `hyp_cloverleaf_confirm.sbatch`, `hyp_cloverleaf_shadow.sbatch` | `../fase4_20260924/cloverleaf_confirm_7692.csv`, `tabla_cloverleaf.tex` |
+| E-B con gobernador `powersave` (EPP `default`) | `hyp_fase4_EB_powersave.sbatch` (job 7779) | `../fase4_20260929/fase4_EB_powersave.csv`, `tabla_EB_powersave.tex`, `cruce_governor_ref.tex` |
+| Serie `powersave` (matriz inicial, E, confirmatorio E-A, D y CloverLeaf; turbo apagado, 0.8 a 3.2 GHz) | `hyp_fase4_powersave.sbatch` (job 7789) | Pendiente: al terminar, integrar en `../fase4_20260929/` y en el libro |
+| Tamaño de efecto por bloques de los confirmatorios (E-A y CloverLeaf) | `docs/libro/scripts/ic_efecto_bloques_20260929.py` (análisis, sin job) | `../fase4_20260929/ic_efecto_bloques.csv` |
 
 El libro reporta las razones de EDP en figuras; las tablas con valores absolutos (segundos y
 julios por brazo) y las de clasificación por escenario se conservan como archivos `tabla_*.tex`
 en esa carpeta. Ver `docs/libro/datos/README.md`.
 
 La base de la Fase 4 final es el estado nativo del nodo con gobernador `performance`, turbo
-desactivado y 3.2 GHz fijos en la CPU, con gestión automática de la GPU. Las campañas anteriores
+desactivado y 3.2 GHz fijos en la CPU, con gestión automática de la GPU. Las series con
+`powersave` (EPP `default`, de 0.8 a 3.2 GHz) se comparan con la base de ese mismo gobernador. Las campañas anteriores
 (`docs/libro/datos/fase4_20260924/`) partían con turbo activo y quedan como registro histórico.
 
 ## Los 3+1 escenarios (§5.1)
