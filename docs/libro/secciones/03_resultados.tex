@@ -172,7 +172,7 @@ Ante la salida \textit{revisar}, el agente conserva la última frecuencia aplica
 \subsubsection{Dónde está el límite del resultado}
 \label{sec:resultados-cpu-limite}
 
-Cuatro análisis indican que el límite proviene de la información contenida en los contadores y no del modelo.
+Cuatro análisis indican que el límite proviene de la información contenida en las seis variables de entrada y no del modelo.
 
 El primero es que un clasificador sin ajuste, de 25 vecinos más cercanos sobre cuatro tasas estandarizadas, alcanza 0.684 con el mismo protocolo, y 0.699 si recibe además la frecuencia. Queda a menos de 0.045 del modelo final. El segundo es la existencia de perfiles gemelos entre familias de clase opuesta (Figura \ref{fig:cpu-perfiles-gemelos}). El caso más simétrico enfrenta a \textit{gap\_pr}, \textit{memory-bound}, con la fase \textit{compute-bound} de \textit{phasic}. La primera tiene MPKI de 0.82, IPC de 1.11 y tasa de fallos de 0.76, y la segunda tiene MPKI de 0.94, IPC de 0.97 y tasa de fallos de 0.72. El par más cercano en distancia estandarizada es otro. La celda rara \textit{memory-bound} de \textit{rajaperf\_basic\_mat\_mat\_shared} (0.1\% de sus intervalos; la familia es \textit{compute-bound}) queda a la mitad de distancia de la celda \textit{compute-bound} típica de \textit{rajaperf\_basic\_pi\_reduce}, de la misma suite. Ningún modelo que reciba solo esas señales puede separar estos pares, y las tres familias involucradas están entre las de peor resultado.
 
@@ -187,7 +187,7 @@ El tercero es la posición respecto del \textit{ridge}. Los intervalos a menos d
 
 El cuarto es la curva de aprendizaje por número de familias (\matcomp{7.6}). Al ajustar con subconjuntos de 3 a 23 familias, el resultado sobre la familia retirada sube de 0.615 a 0.718, unos 0.037 por cada duplicación del catálogo. Es consistente con que la diversidad algorítmica gobierne el resultado, aunque el diseño no separa el número de familias del tamaño de la muestra. Dentro del alcance de este trabajo, la mejora disponible por esa vía es pequeña.
 
-Como referencia de límite superior, el mismo modelo con la intensidad operacional medida como entrada adicional alcanza 0.9989, frente a 0.728 sin ella. No es una mejora del modelo, porque la intensidad operacional es la cantidad con la que se define la etiqueta, y por eso queda fuera del vector de entrada. Solo muestra que la brecha entre 0.728 y 1 es información que los contadores de rendimiento no transportan.
+Como referencia de límite superior, el mismo modelo con la intensidad operacional medida como entrada adicional alcanza 0.9989, frente a 0.728 sin ella. No es una mejora del modelo, porque la intensidad operacional es la cantidad con la que se define la etiqueta, y por eso queda fuera del vector de entrada. Solo muestra que la brecha entre 0.728 y 1 es información que las seis variables del agente no transportan. Los contadores de FLOPs y de bytes de DRAM sí la contienen, pero no se pueden usar durante la operación del agente (sección \ref{sec:contrato-features}).
 
 \subsection{Invarianza del clasificador de CPU frente a la acción del agente}
 \label{sec:resultados-cpu-frecuencia-contrafactual}
@@ -361,7 +361,7 @@ Con una carga sintética de fases controladas se comprobó que, al fijar el relo
 \section{Evaluación del agente frente a la base}
 \label{sec:resultados-fase4}
 
-Cada razón divide la mediana de una métrica del brazo evaluado entre la mediana de esa misma métrica en el brazo base, sobre la misma combinación experimental de la matriz descrita en la sección \ref{sec:metodologia-fase4}. Las métricas son la duración, la energía de CPU, la energía de GPU y el EDP del nodo. Un valor de 1 significa que el brazo iguala a la base. Un valor menor que 1 indica una mejora, y uno mayor que 1, un empeoramiento.
+Cada razón divide la mediana de una métrica del brazo evaluado entre la mediana de esa misma métrica en el brazo base, sobre la misma combinación experimental de la matriz descrita en la sección \ref{sec:metodologia-fase4}. Las métricas son la duración, la energía de CPU, la energía de GPU y el EDP del nodo. Un valor de 1 significa que el brazo iguala a la base. Un valor menor que 1 indica una mejora, y uno mayor que 1, un empeoramiento. Salvo que se indique otra cosa, la base usa el gobernador \textit{performance}; las mediciones con \textit{powersave} se comparan con la base de ese mismo gobernador.
 
 \subsection{Aplicaciones compuestas}
 \label{sec:resultados-fase4-apps}
@@ -443,7 +443,7 @@ B (inéditas) & BabelStream (36~s), Myocyte (40--41~s) & LavaMD (9~s) & 89\% por
 \end{tabular}
 \end{table}
 
-\paragraph{Familias vistas (E-A).} Un confirmatorio declarado antes de medir, con cinco bloques aleatorizados y cinco repeticiones válidas por brazo, dio para el agente activo 0.9257 de energía de GPU, 0.9883 de duración y 0.9558 de EDP del nodo frente a la base, una reducción de 4.42\%. El brazo sombra quedó en 0.9970, así que el efecto no se debe al costo de observar. Las cinco diferencias activo--base fueron favorables, y con bloques como unidad la prueba de signos da $p=0.0625$. Una medición exploratoria previa de tres repeticiones señaló en el mismo sentido (0.935 de energía de GPU y 0.990 de EDP del nodo; Figura \ref{fig:fase4-E}).
+\paragraph{Familias vistas (E-A).} Un confirmatorio declarado antes de medir, con cinco bloques aleatorizados y cinco repeticiones válidas por brazo, dio para el agente activo 0.9257 de energía de GPU, 0.9883 de duración y 0.9558 de EDP del nodo frente a la base, una reducción de 4.42\%. El brazo sombra quedó en 0.9970, así que el efecto no se debe al costo de observar. Las cinco diferencias activo--base fueron favorables, y con bloques como unidad la prueba de signos da $p=0.0625$, el menor valor posible con cinco bloques. La media geométrica de las cinco razones de EDP del nodo es 0.962 (IC95 de 0.946 a 0.977; $p=0.002$ en la prueba $t$ pareada sobre el logaritmo), una reducción de 2.3 a 5.4\%, y la de energía de GPU es 0.928 (IC95 de 0.923 a 0.932). El intervalo del brazo sombra incluye la paridad (0.980 a 1.011). Una medición exploratoria previa de tres repeticiones señaló en el mismo sentido (0.935 de energía de GPU y 0.990 de EDP del nodo; Figura \ref{fig:fase4-E}).
 
 El ahorro del nodo es modesto porque la CPU consume el 64\% de la energía y no se modifica. En la medición exploratoria, con el agente de CPU en observación, su costo (3.4\% más de energía de CPU y 0.4\% más de tiempo) iguala el ahorro de GPU, y el EDP del nodo vuelve a 1.003. Conviene, por tanto, un agente de GPU sin agente de CPU, coherente con la política de no actuar sobre la CPU.
 
@@ -453,43 +453,17 @@ El brazo F1 fijo, previsto en el protocolo, no produjo celdas válidas, porque e
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=\textwidth]{figuras/fig_fase4_E_20260926.png}
-    \caption[Escenario E: EDP del nodo y energía de GPU]{Escenario E. EDP del nodo (arriba) y energía de GPU (abajo) relativos a REF, con la mediana (barra) y cada repetición (punto), para las aplicaciones de familias vistas (A) e inéditas (B). En B se agrupan las repeticiones de tres corridas con la misma configuración (el número de repeticiones va en cada barra).}
+    \includegraphics[width=0.80\textwidth]{figuras/fig_fase4_E_20260929.png}
+    \caption[Escenario E: EDP del nodo y energía de GPU, con el contraste de gobernador en E-B]{Escenario E. EDP del nodo (arriba) y energía de GPU (abajo) relativos a REF, con la mediana (barra) y cada repetición (punto), para las aplicaciones de familias vistas (A) e inéditas (B). En B se agrupan las repeticiones de tres corridas con la misma configuración bajo el gobernador performance (barras lisas) y se añaden las ocho repeticiones bajo powersave con EPP default (barras rayadas), cada una relativa a la REF de su propio gobernador; bajo cada brazo, el número de repeticiones de performance y de powersave.}
     \label{fig:fase4-E}
 \end{figure}
 
-\paragraph{Contraste con el gobernador nativo powersave (E-B).} La comparación anterior usa \textit{performance} como gobernador nativo de referencia en los núcleos delegados, igual que el resto de la Fase 4. Para contrastarla con otro gobernador nativo de Linux bajo \texttt{intel\_pstate}, se repitió la misma matriz de E-B, los mismos tres kernels inéditos y ocho bloques aleatorizados, con los 12 núcleos delegados en \textit{powersave} y el perfil de energía-rendimiento (EPP) en \textit{default}.
+\paragraph{Contraste con el gobernador nativo powersave (E-B).} % TODO(job 7789): integrar la serie powersave de la matriz inicial, E-A, D y CloverLeaf; este párrafo cubre solo E-B.
+La comparación anterior usa \textit{performance} como gobernador nativo en los núcleos delegados. Para contrastarla con otro gobernador nativo de Linux bajo \texttt{intel\_pstate}, se repitió la matriz de E-B, con los mismos tres kernels inéditos, los mismos cinco brazos del escenario E y ocho bloques aleatorizados, con los 12 núcleos delegados en \textit{powersave} y el perfil de energía-rendimiento (EPP) en \textit{default}, que la plataforma resolvió a \textit{balance\_performance}. El techo de 3.2~GHz de los núcleos delegados se mantuvo igual que bajo \textit{performance}. La columna B de la Figura \ref{fig:fase4-E} muestra cada brazo bajo \textit{powersave} (barras rayadas, ocho repeticiones) al lado de las repeticiones agrupadas bajo \textit{performance}, cada uno frente a la REF de su propio gobernador.
 
-La Tabla \ref{tab:fase4-EB-powersave} y la Figura \ref{fig:fase4-EB-powersave} muestran las ocho repeticiones de \textit{powersave} junto a las mismas 21/21/11 repeticiones de \textit{performance} ya presentadas. La base bajo \textit{powersave} queda en 1.004 de la duración y 1.002 del EDP frente a la base bajo \textit{performance}, sin diferencia distinguible ($p=0.32$ en duración y $p=0.58$ en EDP, Mann--Whitney). La energía de CPU de la base bajo \textit{powersave} incluso baja levemente frente a la de \textit{performance}, a 0.993. El gobernador nativo por sí solo no cambia el resultado en este escenario. Es consistente con que la CPU pasa la mayor parte del ciclo esperando a la GPU en fases dominadas por memoria.
+La REF bajo \textit{powersave} queda en 1.004 de la duración y 1.002 del EDP frente a la REF bajo \textit{performance}, sin diferencia distinguible ($p=0.32$ en duración y $p=0.58$ en EDP, Mann--Whitney), y su energía de CPU baja levemente, a 0.993 ($p=0.94$). La REF sin turbo bajo \textit{powersave} queda en 1.005 del EDP de la REF del mismo gobernador, así que con el techo de 3.2~GHz el turbo tampoco cambia el resultado. El gobernador nativo por sí solo no cambia la base en este escenario, lo que es consistente con que la CPU pasa la mayor parte del ciclo esperando a la GPU en fases dominadas por memoria. La bimodalidad de \textit{myocyte} también aparece bajo \textit{powersave}, con 2 de 8 repeticiones lentas en la REF, 1 de 8 en sombra y ninguna en el activo, de modo que no depende del gobernador.
 
-Dentro de \textit{powersave}, sombra y activo quedan en 1.039 y 1.015 del EDP de su propia base. En duración, la razón frente a esa misma base es de 1.020 para sombra y de 1.011 para activo. Ninguna de las cuatro razones se distingue de la base ($p=0.57$ en ambos casos, Mann--Whitney), y las dos de EDP quedan muy cerca de los 1.028 y 1.016 ya medidos bajo \textit{performance}. El patrón del brazo activo se repite igual bajo los dos gobernadores. Su ganancia de energía de GPU es visible pero pequeña, de 1.004 bajo \textit{powersave} y de 1.000 bajo \textit{performance}, y en ninguno de los dos casos compensa el costo de observación del brazo sombra.
-
-\begin{table}[H]
-\centering
-\caption[E-B bajo powersave y performance]{E-B (familias inéditas): REF, sombra y activo bajo los gobernadores performance y powersave (EPP default), medianas y razón frente a la REF de su propio gobernador.}
-\label{tab:fase4-EB-powersave}
-\small
-\begin{tabular}{@{}llrrrrrr@{}}
-\toprule
-\textbf{Gobernador} & \textbf{Brazo} & \textbf{$n$} & \textbf{$T$ (s)} & \textbf{$E_{\mathrm{CPU}}$ (J)} & \textbf{$E_{\mathrm{GPU}}$ (J)} & \textbf{$T$/REF} & \textbf{EDP/REF} \\
-\midrule
-performance & REF & 21 & 89.3 & 13277 & 8955 & 1.000 & 1.000 \\
-performance & Sombra & 21 & 90.8 & 13460 & 9011 & 1.017 & 1.028 \\
-performance & Activo & 11 & 90.4 & 13318 & 8956 & 1.012 & 1.016 \\
-\midrule
-powersave & REF & 8 & 89.7 & 13185 & 8946 & 1.000 & 1.000 \\
-powersave & Sombra & 8 & 91.5 & 13465 & 9037 & 1.020 & 1.039 \\
-powersave & Activo & 8 & 90.8 & 13358 & 8980 & 1.011 & 1.015 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=\textwidth]{figuras/fig_fase4_EB_powersave_20260929.png}
-    \caption[E-B: contraste de gobernador powersave frente a performance]{E-B. EDP del nodo (izquierda) y energía de GPU (derecha) relativos a la REF de su propio gobernador, para performance y powersave (EPP default), con la mediana y el número de repeticiones sobre cada barra.}
-    \label{fig:fase4-EB-powersave}
-\end{figure}
+Dentro de \textit{powersave}, sombra y activo quedan en 1.039 y 1.015 del EDP de su propia REF, y en 1.020 y 1.011 de su duración. Ninguna de las cuatro razones se distingue de la REF ($p=0.57$ en ambos casos, Mann--Whitney), y las dos de EDP quedan muy cerca de los 1.028 y 1.016 medidos bajo \textit{performance}. El patrón del brazo activo se repite bajo los dos gobernadores. Su energía de GPU queda en 1.004 bajo \textit{powersave} y en 1.000 bajo \textit{performance}, con una sola repetición de \textit{powersave} 12\% por debajo de la REF, del mismo orden que las dos repeticiones de \textit{performance} en que BabelStream recibió decisión de memoria, y en ninguno de los dos casos compensa el costo de observación del brazo sombra. El activo con el agente de CPU en observación quedó en 1.176 del EDP, pero 5 de sus 8 repeticiones cayeron en la fase lenta de \textit{myocyte}. Con solo las repeticiones rápidas, queda en 1.002 del EDP de las repeticiones rápidas de la REF, así que ese valor refleja la bimodalidad y no un costo del agente ($p=0.10$ con todas las repeticiones).
 
 \subsection{Escenario D: LAMMPS como aplicación de terceros}
 \label{sec:resultados-fase4-D}
@@ -512,7 +486,7 @@ El Escenario D (tabla \ref{tab:fase4-mapa}) evalúa LAMMPS 2023 con el paquete G
 
 CloverLeaf CUDA Fortran se evaluó como una aplicación continua de dinámica de fluidos, sin fronteras de fase impuestas al programa. El confirmatorio ejecutó cinco bloques aleatorizados con la base, sombra y activo. Las quince corridas terminaron con código de aplicación válido, restauración correcta del reloj y solución numérica reproducible. La energía cinética del fluido simulado, que CloverLeaf informa al terminar, coincidió en las quince corridas dentro de una tolerancia relativa de $10^{-8}$. En cada corrida activa el agente emitió una decisión \textit{memory\_bound} con confianza 1.00 tras aproximadamente 3~s y solicitó 1260~MHz. Tras esa decisión, las 433 o 434 muestras NVML bajo carga de cada bloque permanecieron en 1260~MHz. CloverLeaf no aporta una etiqueta Roofline independiente por fase. Por eso este experimento verifica la actuación y su efecto energético, pero no puntúa la exactitud de esa decisión.
 
-El brazo activo mantuvo la duración en 1.0015 de la base, redujo la energía de GPU a 0.9393 y dejó el EDP del nodo en 0.9625, una reducción de 3.75\%. El brazo sombra quedó en 0.9958 de EDP, así que no se observa un costo apreciable de mantener el agente sin actuar. Las cinco diferencias de EDP activo--base fueron favorables, y la prueba de signos por bloques da $p=0.0625$, que no alcanza el umbral de 0.05. La Figura \ref{fig:fase4-cloverleaf} separa el resultado entre CPU y GPU. La actuación reduce la energía del dispositivo sin modificar de forma apreciable el tiempo de ejecución.
+El brazo activo mantuvo la duración en 1.0015 de la base, redujo la energía de GPU a 0.9393 y dejó el EDP del nodo en 0.9625, una reducción de 3.75\%. El brazo sombra quedó en 0.9958 de EDP (media geométrica por bloque de 0.997, IC95 de 0.995 a 0.999), dentro del rango de repetibilidad de la base (sección \ref{sec:resultados-fase4-costo}), así que no se observa un costo apreciable de mantener el agente sin actuar. Las cinco diferencias de EDP activo--base fueron favorables, y la prueba de signos por bloques da $p=0.0625$, el menor valor posible con cinco bloques. La media geométrica de las razones de EDP del brazo activo es 0.961 (IC95 de 0.954 a 0.968; $p<0.001$ en la prueba $t$ pareada sobre el logaritmo), una reducción de 3.2 a 4.6\%, y la de energía de GPU es 0.936 (IC95 de 0.924 a 0.947). La Figura \ref{fig:fase4-cloverleaf} separa el resultado entre CPU y GPU. La actuación reduce la energía del dispositivo sin modificar de forma apreciable el tiempo de ejecución.
 
 \begin{figure}[H]
     \centering

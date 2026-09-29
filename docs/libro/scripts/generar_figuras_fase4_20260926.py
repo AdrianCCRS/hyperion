@@ -9,6 +9,8 @@ Entradas (docs/libro/datos/fase4_20260926/), un CSV por etapa con una fila por c
   fase4_D.csv        LAMMPS
   fase4_EB.csv       repeticion de E-B con 8 bloques (REF, sombra, activo)
   fase4_EBdiag.csv   diagnostico de la bimodalidad de myocyte (job 7706): REF, sombra y sombra con daemon fijado; solo se usan REF y sombra
+  ../fase4_20260929/fase4_EB_powersave.csv  E-B con los 12 nucleos delegados en powersave, EPP default (job 7779); va junto a
+                     performance en la columna B de la figura del escenario E
   clasificacion.json puntuacion de clasificacion contra las fronteras reales de fase, por etapa
   ../gpu_calidad_20260922/politica/policy_by_family.json  ganancia por nivel de GPU (Fase 2)
 Solo se usan las celdas con state_ok = 1 (estado de frecuencia restaurado y, en el brazo F1 fijo, reloj sostenido bajo carga).
@@ -29,7 +31,7 @@ sys.path.insert(0, str(ROOT))
 from fase4_evaluacion.analyze_matrix import load_results, summarize  # noqa: E402
 
 L = ROOT / "docs" / "libro"
-D, F = L / "datos" / "fase4_20260926", L / "figuras"
+D, D29, F = L / "datos" / "fase4_20260926", L / "datos" / "fase4_20260929", L / "figuras"
 COMPUTE, MEMORY, REF = "#2b6cb0", "#dd6b20", "#a0aec0"
 ARMS = {"base": ("REF", REF), "base_noturbo": ("REF sin turbo", "#cbd5e0"), "sombra": ("Sombra", "#718096"), "activo": ("Activo", "#2f855a"),
         "activo_f0": ("Activo F0", "#68d391"), "activo_nofloor": ("Activo sin piso", "#9ae6b4"),
@@ -210,35 +212,60 @@ def escenario_c():
     plt.close(fig)
 
 
+def eb_powersave():
+    """E-B bajo powersave (job 7779): los mismos brazos y kernels ineditos, ocho bloques."""
+    g = {}
+    for r in load_results(D29 / "fase4_EB_powersave.csv"):
+        if r["state_ok"] == "1" and r["set"] == "unseen" and r["scope"] == "gpumem":
+            g.setdefault(r["arm"], []).append(r)
+    return g
+
+
 def escenario_e():
     gA = _per_rep("fase4_E")
-    gB = eb_agrupado()
+    gB = {"performance": eb_agrupado(), "powersave": eb_powersave()}
     armsA = ["base", "base_noturbo", "sombra", "activo_gpu", "activo_gpu_cpuobs"]
     labA = ["REF", "REF sin\nturbo", "Sombra", "Activo", "Activo +\nagente de CPU"]
     armsB = ["base", "sombra", "activo_gpu"]
-    labB = [f"{n}\n(n={len(gB[a])})" for n, a in zip(("REF", "Sombra", "Activo"), armsB)]
+    labB = [f"{n}\n(n={len(gB['performance'][a])} | {len(gB['powersave'][a])})" for n, a in zip(("REF", "Sombra", "Activo"), armsB)]
     colr = {"base": REF, "base_noturbo": ARMS["base_noturbo"][1], "sombra": ARMS["sombra"][1], "activo_gpu": "#2f855a", "activo_gpu_cpuobs": "#9ae6b4"}
-    fig, axes = plt.subplots(2, 2, figsize=(7.4, 5.0))
-    for col, ks in enumerate(("known", "unseen")):
-        arms, lab = (armsA, labA) if ks == "known" else (armsB, labB)
-        data = {a: (gA[("gpumem", "known", a)] if ks == "known" else gB[a]) for a in arms}
-        refs = {k: np.median([r[k] for r in data["base"]]) for k in ("edp", "e_gpu_j")}
-        for row, (key, tit) in enumerate((("edp", "EDP del nodo"), ("e_gpu_j", "Energía de GPU"))):
-            ax = axes[row, col]
-            for i, a in enumerate(arms):
-                v = [r[key] / refs[key] for r in data[a]]
-                ax.bar(i, np.median(v), 0.6, color=colr[a])
-                jit = np.linspace(-0.16, 0.16, len(v)) if len(v) > 3 else np.zeros(len(v))
-                ax.plot(i + jit, sorted(v), "o", color="#1a202c", ms=2.6 if len(v) > 3 else 3)
-                ax.text(i, max(v) + 0.012, f"{np.median(v):.3f}", ha="center", fontsize=7)
-            ax.axhline(1, color="#4a5568", lw=0.8, ls=":")
-            ax.set_ylim(0.8, 1.28)
-            ax.set_xticks(range(len(arms)))
-            ax.set_xticklabels(lab if row == 1 else [], fontsize=7)
-            ax.set_title(f"{tit}, {'A (vistos)' if ks == 'known' else 'B (inéditos)'}", fontsize=9)
-    fig.tight_layout(rect=(0.03, 0, 1, 1))
-    fig.text(0.012, 0.5, "Relativo a REF (mediana y cada repetición)", rotation=90, va="center", fontsize=9)
-    fig.savefig(F / "fig_fase4_E_20260926.png")
+    fig, axes = plt.subplots(2, 2, figsize=(7.4, 5.4), gridspec_kw={"width_ratios": (1, 1.15)})
+
+    def barra(ax, x, vals, color, w, hatch=None, fs=7):
+        ax.bar(x, np.median(vals), w, color=color, hatch=hatch, edgecolor="white" if hatch else None, linewidth=0)
+        jit = np.linspace(-w * 0.27, w * 0.27, len(vals)) if len(vals) > 3 else np.zeros(len(vals))
+        ax.plot(x + jit, sorted(vals), "o", color="#1a202c", ms=2.3 if len(vals) > 3 else 3)
+        ax.text(x, max(vals) + 0.012, f"{np.median(vals):.3f}", ha="center", fontsize=fs)
+
+    for row, (key, tit) in enumerate((("edp", "EDP del nodo"), ("e_gpu_j", "Energía de GPU"))):
+        ax = axes[row, 0]
+        data = {a: gA[("gpumem", "known", a)] for a in armsA}
+        ref = np.median([r[key] for r in data["base"]])
+        for i, a in enumerate(armsA):
+            barra(ax, i, [r[key] / ref for r in data[a]], colr[a], 0.6)
+        ax.set_xticks(range(len(armsA)))
+        ax.set_xticklabels(labA if row == 1 else [], fontsize=7)
+        ax.set_title(f"{tit}, A (vistos)", fontsize=9)
+        # B: cada brazo relativo a la REF de su propio gobernador; performance liso, powersave rayado
+        ax = axes[row, 1]
+        w = 0.38
+        for j, gov in enumerate(("performance", "powersave")):
+            ref = np.median([r[key] for r in gB[gov]["base"]])
+            for i, a in enumerate(armsB):
+                barra(ax, i + (j - 0.5) * w * 1.08, [r[key] / ref for r in gB[gov][a]], colr[a], w,
+                      hatch="////" if gov == "powersave" else None, fs=6.3)
+        ax.set_xticks(range(len(armsB)))
+        ax.set_xticklabels(labB if row == 1 else [], fontsize=7)
+        ax.set_title(f"{tit}, B (inéditos)", fontsize=9)
+    for ax in axes.flat:
+        ax.axhline(1, color="#4a5568", lw=0.8, ls=":")
+        ax.set_ylim(0.8, 1.28)
+    from matplotlib.patches import Patch
+    fig.legend(handles=[Patch(facecolor="#a0aec0", label="performance"), Patch(facecolor="#a0aec0", hatch="////", edgecolor="white", label="powersave (EPP default)")],
+               loc="lower right", bbox_to_anchor=(0.99, 0.0), ncol=2, frameon=False, fontsize=7.5, title="Gobernador en B", title_fontsize=7.5)
+    fig.tight_layout(rect=(0.03, 0.06, 1, 1))
+    fig.text(0.012, 0.53, "Relativo a REF (mediana y cada repetición)", rotation=90, va="center", fontsize=9)
+    fig.savefig(F / "fig_fase4_E_20260929.png")
     plt.close(fig)
 
 

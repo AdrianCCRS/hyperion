@@ -59,14 +59,14 @@ La intensidad operacional observada \label{sec:intensidad} se calcula con el tra
 I_i =
 \frac{\text{FLOPs}_i}{B_i^{\text{DRAM}}}
 \label{eq:intensidad}
-\end{equation}
+\end{equation} 
 
 donde $\text{FLOPs}_i$ son las operaciones realizadas y $B_i^{\text{DRAM}}$ los bytes transferidos desde o hacia la memoria principal en ese intervalo \cite{Williams2009}. Los eventos que dan los FLOPs dependen de la microarquitectura y se interpretan según la semántica de la PMU \cite{Weaver2008}. El tráfico de DRAM se obtiene de contadores del controlador de memoria, cuyo ámbito puede diferir del de los contadores de núcleo. Ambas mediciones deben corresponder al mismo intervalo para que la intensidad operacional conserve su significado físico.
 
 \subsection{Telemetría microarquitectónica con PMU}
 \label{sec:marco-telemetria}
 
-La clasificación en CPU requiere señales que describan el comportamiento de la ejecución sin reconstruir en línea la intensidad operacional. Las Unidades de Monitorización de Rendimiento (PMU) las proporcionan mediante contadores de hardware que acumulan eventos como instrucciones retiradas, ciclos y actividad de la jerarquía de memoria. Los contadores fijos registran eventos arquitectónicos predefinidos y los programables se configuran para eventos específicos de la microarquitectura \cite{Weaver2015,IntelSDM2026}. Una PMU no interpreta el comportamiento de la aplicación, porque entrega conteos cuyo valor depende del evento y del dominio observado. El mismo número solo adquiere significado al conocer qué recurso cuenta, durante qué intervalo y con qué alcance.
+La clasificación en CPU requiere señales que describan el comportamiento de la ejecución sin reconstruir en línea la intensidad operacional, cuya medición exige condiciones que un agente en operación no puede asumir (sección \ref{sec:contrato-features}). Las Unidades de Monitorización de Rendimiento (PMU) las proporcionan mediante contadores de hardware que acumulan eventos como instrucciones retiradas, ciclos y actividad de la jerarquía de memoria. Los contadores fijos registran eventos arquitectónicos predefinidos y los programables se configuran para eventos específicos de la microarquitectura \cite{Weaver2015,IntelSDM2026}. Una PMU no interpreta el comportamiento de la aplicación, porque entrega conteos cuyo valor depende del evento y del dominio observado. El mismo número solo adquiere significado al conocer qué recurso cuenta, durante qué intervalo y con qué alcance.
 
 La multiplexación ocurre cuando se solicitan más eventos de los que el hardware puede medir al mismo tiempo. El sistema alterna grupos de eventos, cada contador queda activo solo durante una parte de la ventana y el valor registrado se ajusta según el tiempo que estuvo activo \cite{Liu2024,LinuxPerfEventOpen2026}. Esa estimación pierde precisión si la aplicación cambia de fase mientras un evento no se mide. Por eso conviene limitar la cantidad de señales simultáneas, y esa limitación fija el presupuesto de eventos del instrumento.
 

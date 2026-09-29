@@ -1,0 +1,9 @@
+experimento,brazo,metrica,n,media_geom,ic95_inf,ic95_sup,p_t_pareada,mediana_razones
+E-A,activo_gpu,edp_nodo,5,0.9616,0.9464,0.9771,0.002428,0.9558
+E-A,activo_gpu,e_gpu,5,0.9275,0.9228,0.9322,2.048e-06,0.9257
+E-A,sombra,edp_nodo,5,0.9954,0.9803,1.0108,0.4543,0.9970
+E-A,sombra,e_gpu,5,0.9983,0.9926,1.0041,0.4665,1.0007
+CloverLeaf,activo,edp_nodo,5,0.9606,0.9537,0.9675,0.0001004,0.9621
+CloverLeaf,activo,e_gpu,5,0.9357,0.9243,0.9472,0.0001119,0.9393
+CloverLeaf,sombra,edp_nodo,5,0.9968,0.9947,0.9989,0.01392,0.9970
+CloverLeaf,sombra,e_gpu,5,0.9973,0.9900,1.0047,0.3683,0.9993
