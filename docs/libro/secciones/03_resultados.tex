@@ -456,7 +456,38 @@ El brazo F1 fijo, previsto en el protocolo, no produjo celdas válidas, porque e
     \includegraphics[width=\textwidth]{figuras/fig_fase4_E_20260926.png}
     \caption[Escenario E: EDP del nodo y energía de GPU]{Escenario E. EDP del nodo (arriba) y energía de GPU (abajo) relativos a REF, con la mediana (barra) y cada repetición (punto), para las aplicaciones de familias vistas (A) e inéditas (B). En B se agrupan las repeticiones de tres corridas con la misma configuración (el número de repeticiones va en cada barra).}
     \label{fig:fase4-E}
-\end{figure}  
+\end{figure}
+
+\paragraph{Contraste con el gobernador nativo powersave (E-B).} La comparación anterior usa \textit{performance} como gobernador nativo de referencia en los núcleos delegados, igual que el resto de la Fase 4. Para contrastarla con otro gobernador nativo de Linux bajo \texttt{intel\_pstate}, se repitió la misma matriz de E-B (los mismos tres kernels inéditos, ocho bloques aleatorizados) con los 12 núcleos delegados en \textit{powersave} y el perfil de energía-rendimiento (EPP) en \textit{default}, fijado y verificado antes de medir y restaurado al terminar. Escribir el EPP \textit{default} no deja la cadena literal ``default'' en la lectura de \texttt{energy\_\allowbreak performance\_\allowbreak preference}: \texttt{intel\_pstate} en modo activo la resuelve al perfil numérico real de la plataforma para ese gobernador, que en \textit{powersave} se lee de vuelta como \textit{balance\_performance}, de forma estable; la verificación exige por tanto un gobernador y un EPP uniformes en los 12 núcleos, no el texto literal.
+
+La Tabla \ref{tab:fase4-EB-powersave} y la Figura \ref{fig:fase4-EB-powersave} muestran las ocho repeticiones de \textit{powersave} junto a las mismas 21/21/11 repeticiones de \textit{performance} de la comparación anterior. La base bajo \textit{powersave} queda en 1.004 de la duración y 1.002 del EDP frente a la base bajo \textit{performance}, sin diferencia distinguible ($p=0.32$ en duración y $p=0.58$ en EDP, Mann--Whitney); el consumo de CPU incluso baja levemente (0.993). El gobernador nativo por sí solo no cambia el resultado en este escenario, consistente con que la CPU pasa la mayor parte del ciclo esperando a la GPU en fases dominadas por memoria. Dentro de \textit{powersave}, sombra y activo quedan en 1.039 y 1.015 del EDP de su propia base (1.020 y 1.011 de duración), sin diferencia distinguible frente a esa base ($p=0.57$ en ambos casos, Mann--Whitney) y muy cerca de los 1.028 y 1.016 ya medidos bajo \textit{performance}. El patrón del brazo activo —una ganancia de energía de GPU visible pero pequeña (1.004 bajo powersave, 1.000 bajo performance) que no compensa el costo de observación de sombra— se repite igual bajo los dos gobernadores.
+
+\begin{table}[H]
+\centering
+\caption[E-B bajo powersave y performance]{E-B (familias inéditas): REF, sombra y activo bajo los gobernadores performance y powersave (EPP default), medianas y razón frente a la REF de su propio gobernador.}
+\label{tab:fase4-EB-powersave}
+\small
+\begin{tabular}{@{}llrrrrrr@{}}
+\toprule
+\textbf{Gobernador} & \textbf{Brazo} & \textbf{$n$} & \textbf{$T$ (s)} & \textbf{$E_{\mathrm{CPU}}$ (J)} & \textbf{$E_{\mathrm{GPU}}$ (J)} & \textbf{$T$/REF} & \textbf{EDP/REF} \\
+\midrule
+performance & REF & 21 & 89.3 & 13277 & 8955 & 1.000 & 1.000 \\
+performance & Sombra & 21 & 90.8 & 13460 & 9011 & 1.017 & 1.028 \\
+performance & Activo & 11 & 90.4 & 13318 & 8956 & 1.012 & 1.016 \\
+\midrule
+powersave & REF & 8 & 89.7 & 13185 & 8946 & 1.000 & 1.000 \\
+powersave & Sombra & 8 & 91.5 & 13465 & 9037 & 1.020 & 1.039 \\
+powersave & Activo & 8 & 90.8 & 13358 & 8980 & 1.011 & 1.015 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{figuras/fig_fase4_EB_powersave_20260929.png}
+    \caption[E-B: contraste de gobernador powersave frente a performance]{E-B. EDP del nodo (izquierda) y energía de GPU (derecha) relativos a la REF de su propio gobernador, para performance y powersave (EPP default), con la mediana y el número de repeticiones sobre cada barra.}
+    \label{fig:fase4-EB-powersave}
+\end{figure}
 
 \subsection{Escenario D: LAMMPS como aplicación de terceros}
 \label{sec:resultados-fase4-D}

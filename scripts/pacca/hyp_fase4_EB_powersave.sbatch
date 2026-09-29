@@ -37,16 +37,24 @@ hold() {
 dump() { for c in $CPUS; do echo "cpu$c gov=$(cat $CPUFREQ/cpu$c/cpufreq/scaling_governor 2>&1) epp=$(cat $CPUFREQ/cpu$c/cpufreq/energy_performance_preference 2>&1)"; done; }
 
 state "nodo=$(hostname) job=$SLURM_JOB_ID original: governor=$original_governor epp=$original_epp"
+# Nota: al escribir EPP=default, intel_pstate (modo active) resuelve y relee el preset numérico real de la
+# plataforma para ese governor, no la cadena literal "default" (verificado a mano: estable en balance_performance
+# bajo powersave en paccaA100). Por eso la verificación exige governor=powersave y un EPP uniforme en los 12
+# cores, sin exigir la cadena "default" de vuelta.
 ok=0
 for try in 1 2 3; do
     sudo -n /usr/local/bin/set_cpu_gov powersave default 2>&1 | tee -a "$OUT/powersave_status.txt"
     sleep 2
-    if [ "$(dump | grep -vc 'gov=powersave epp=default')" -eq 0 ]; then ok=1; break; fi
-    state "intento $try: no todos los cores quedaron en powersave/default"
+    govs=$(dump | grep -oP 'gov=\K\S+' | sort -u)
+    epps=$(dump | grep -oP 'epp=\K\S+' | sort -u)
+    if [ "$govs" = powersave ] && [ "$(echo "$epps" | wc -l)" -eq 1 ]; then
+        ok=1; resolved_epp="$epps"; break
+    fi
+    state "intento $try: governor(es)=[$govs] epp(s)=[$epps]"
 done
 dump | tee -a "$OUT/powersave_status.txt"
-[ "$ok" = 1 ] || hold "no se pudo fijar powersave/default en los 12 cores"
-state "powersave/default verificado en los 12 cores; inicia E-B"
+[ "$ok" = 1 ] || hold "no se pudo fijar powersave/default de forma uniforme en los 12 cores"
+state "powersave verificado en los 12 cores; EPP default resolvió a '$resolved_epp'; inicia E-B"
 
 export ONLY_SCOPES=gpumem ONLY_SETS=unseen
 export ONLY_ARMS="base base_noturbo sombra activo_gpu activo_gpu_cpuobs"
