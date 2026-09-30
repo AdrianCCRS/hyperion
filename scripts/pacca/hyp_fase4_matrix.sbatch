@@ -2,7 +2,8 @@
 # FASE 4: matriz de experimentos daemon vs REF. Ejes: alcance {cpu, gpu, joint} x kernels {known, unseen} x brazo.
 #   cpu   : base, sombra, activo, activo_f0                   (solo daemon de CPU)         3 repeticiones
 #   gpu   : base, sombra, activo                              (solo daemon de GPU)         3 repeticiones
-#   (diagnostico, solo si se piden en ONLY_ARMS: sombra_pin, sombra_ort1, sombra_pin_ort1 = sombra con el consumidor fijado a --consumer-cpu y/o ORT con 1 hilo sin espera activa)
+#   (diagnostico, solo si se piden en ONLY_ARMS: sombra_pin, sombra_ort1, sombra_pin_ort1 = sombra con el consumidor fijado a --consumer-cpu y/o ORT con 1 hilo sin espera activa;
+#    sombra_10ms = colector a 10 ms; sombra_idle1ms = consumidor con espera de 1 ms en vez de 100 us)
 #   gpumem: base, base_noturbo, sombra, activo_gpu, activo_gpu_cpuobs, fijo_gpu_f1 (escenario E, GPU dominada por memoria; 1 ciclo; docs/planeacion/Plan_Fase4_Escenario_E.md)
 #           set sensitive (escenario E-C, solo si se pide en ONLY_SETS): memoria + heartwall + memoria; exige HEARTWALL_FRAMES (y HEARTWALL_REPEATS, 1 por defecto)
 #           base_noturbo = sin agentes y turbo apagado (linea base secundaria; REF con turbo sigue siendo la principal); tambien acepta
@@ -88,7 +89,7 @@ python3 - "$ONLY_SCOPES" "$ONLY_SETS" "$ONLY_ARMS" "$REPS_GENERAL" "$REPS_JOINT"
 import random, sys
 scopes, sets, arms = (set(a.split()) for a in sys.argv[1:4]); rg, rj = int(sys.argv[4]), int(sys.argv[5])
 seed, order_mode = int(sys.argv[7]), sys.argv[8]
-plan = {"cpu": (["base", "base_noturbo", "sombra", "activo", "activo_f0", "sombra_pin", "sombra_ort1", "sombra_pin_ort1"], rg),
+plan = {"cpu": (["base", "base_noturbo", "sombra", "activo", "activo_f0", "sombra_pin", "sombra_ort1", "sombra_pin_ort1", "sombra_10ms", "sombra_idle1ms"], rg),
         "gpu": (["base", "sombra", "activo"], rg), "joint": (["base", "base_noturbo", "sombra", "activo", "activo_nofloor"], rj),
         "gpumem": (["base", "base_noturbo", "sombra", "activo_gpu", "activo_gpu_cpuobs", "fijo_gpu_f1", "sombra_gpupin", "activo_gpu_gpupin"], rg),
         "lammps": (["base", "sombra", "activo_gpu", "activo_gpu_cpuobs"], rg)}
@@ -129,12 +130,25 @@ app_cmd() {  # $1 scope $2 set -> imprime el comando de la aplicacion
     gpumem:*)    echo "$A/composite_gpu_memdom.py --set $2" ;;
   esac
 }
+# DIAG_SNAPSHOT=1: al inicio y al final de la ventana de energia guarda tiempos por CPU (/proc/stat), interrupciones
+# entre nucleos (/proc/interrupts), residencia en estados de reposo (cpuidle) y tiempo de CPU de cada hilo del daemon de
+# CPU (utime, stime y ultimo procesador), para atribuir el costo de observacion (docs/planeacion/Plan_Fase4_Costo_CPU.md)
+snap() {
+  { echo "## stat"; grep '^cpu' /proc/stat
+    echo "## interrupts"; head -1 /proc/interrupts; grep -E '^ *(LOC|RES|CAL|TLB):' /proc/interrupts
+    echo "## cpuidle cpu estado tiempo_us entradas"
+    for c in 0 1 2 3 4 5 6 7 16 17 18 19 20 21 22 23; do for st in $C/cpu$c/cpuidle/state*; do echo "cpu$c $(cat $st/name) $(cat $st/time) $(cat $st/usage)"; done; done
+    echo "## daemon hilo utime stime cpu"
+    for p in $(pgrep -x cpu_loop_main); do for t in /proc/$p/task/*; do echo "$(tr ' ' _ < $t/comm) $(sed 's/.*) //' $t/stat | awk '{print $12, $13, $37}')"; done; done
+  } > "$1" 2>/dev/null
+}
 run_cell() {
   local scope=$1 set=$2 arm=$3 rep=$4 id="$1_$2_$3_$4" D="$OUT/cells/$1_$2_$3_$4"
   mkdir -p "$D"; local SIG="$D/sig" pol dm_arm=sombra floor=$FLOOR_KHZ fixed_f1=0 clock_sampler="" fixed_restore_rc=0
   case "$arm" in activo|activo_f0|activo_nofloor) dm_arm=activo;; esac
   local xflags=()  # variantes de diagnostico del sobrecosto del daemon de CPU (solo brazo sombra)
-  case "$arm" in sombra_pin) xflags=(--pin-consumer);; sombra_ort1) xflags=(--ort-threads 1);; sombra_pin_ort1) xflags=(--pin-consumer --ort-threads 1);; esac
+  case "$arm" in sombra_pin) xflags=(--pin-consumer);; sombra_ort1) xflags=(--ort-threads 1);; sombra_pin_ort1) xflags=(--pin-consumer --ort-threads 1);;
+    sombra_10ms) xflags=(--interval-ns 10000000);; sombra_idle1ms) xflags=(--consumer-idle-us 1000);; esac
   [ "$arm" = activo_nofloor ] && floor=0
   pol="$OUT/policy_activo.yaml"; [ "$arm" = activo_f0 ] && pol="$OUT/policy_activo_f0.yaml"; [ "$arm" = sombra ] && pol="$OUT/policy_activo.yaml"
   [ "$arm" = activo_nofloor ] && pol="$OUT/policy_activo.yaml"
@@ -190,12 +204,14 @@ run_cell() {
   sleep 3
   [ -n "$gpu_d" ] && ! kill -0 $gpu_d 2>/dev/null && echo "  !!! daemon GPU murio al arrancar ($id)" >&2
   [ -n "$cpu_d" ] && ! kill -0 $cpu_d 2>/dev/null && echo "  !!! daemon CPU murio al arrancar ($id)" >&2
+  [ "${DIAG_SNAPSHOT:-0}" = 1 ] && snap "$D/snap_inicio.txt"
   local e0 f0 g0 t0; e0=$(cat $R0/energy_uj); f0=$(cat $R1/energy_uj); g0=$("$GER" $GPU); t0=$(date +%s.%N)
   if [ "$fixed_f1" = 1 ]; then
     nvidia-smi -i $GPU --query-gpu=utilization.gpu,clocks.sm --format=csv,noheader,nounits -lms 250 > "$D/fixed_gpu_clock.csv" 2>&1 & clock_sampler=$!
   fi
   kill -CONT $COMP; wait $COMP; local app_rc=$?
   local t1 e1 f1 g1; t1=$(date +%s.%N); e1=$(cat $R0/energy_uj); f1=$(cat $R1/energy_uj); g1=$("$GER" $GPU)
+  [ "${DIAG_SNAPSHOT:-0}" = 1 ] && snap "$D/snap_fin.txt"
   [ -n "$clock_sampler" ] && kill "$clock_sampler" 2>/dev/null; [ -n "$clock_sampler" ] && wait "$clock_sampler" 2>/dev/null || true
   if [ "$fixed_f1" = 1 ]; then
     sudo -n nvidia-smi -i $GPU -rgc >/dev/null 2>&1 || fixed_restore_rc=$?

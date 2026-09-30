@@ -74,6 +74,7 @@ struct Args {
     bool pin_consumer = false;  // aplica --consumer-cpu al hilo principal (y a los hilos que cree despues, p.ej. ORT)
     int ort_threads = 1;        // hilos intra-op de ORT sin espera activa (job 7645: con el pool por defecto, sombra costaba +20% de tiempo); 0 = por defecto de ORT
     long interval_ns = 1'000'000;
+    long consumer_idle_us = 100;  // espera del consumidor con el ring vacio (diagnostico del costo de observacion)
     std::string cpu_freq_sysfs_path;
     bool compute_actuar = false;
     unsigned int compute_freq_khz = 0;
@@ -99,7 +100,7 @@ struct Args {
         "  [--target-pid PID] [--collector-cpu N] [--consumer-cpu N] [--log-path RUTA]\n"
         "  [--gpu-active-signal-path RUTA] [--sysfs-cpu-root RUTA] [--no-manage-turbo]\n"
         "  [--min-dwell-windows N] [--switch-pin-min 0|1] [--switch-parallel 0|1] [--gpu-active-floor-khz N]\n"
-        "  [--interval-ns 1000000] [--cpu-freq-sysfs-path RUTA]\n"
+        "  [--interval-ns 1000000] [--consumer-idle-us 100] [--cpu-freq-sysfs-path RUTA]\n"
         "  [--compute-actuar --compute-freq-khz N] [--memory-actuar --memory-freq-khz N] [-v]\n"
         "--arm es obligatorio (docs/planeacion/Plan_Fase3_Daemon.md SS0.1, requisito 1): 'sombra' corre exactamente\n"
         "el mismo trabajo que 'activo' pero nunca escribe frecuencia (solo registra lo que haria); 'activo'\n"
@@ -139,6 +140,7 @@ Args parse_args(int argc, char** argv) {
         else if (arg == "--pin-consumer") a.pin_consumer = true;
         else if (arg == "--ort-threads") a.ort_threads = std::stoi(need("--ort-threads"));
         else if (arg == "--interval-ns") a.interval_ns = std::stol(need("--interval-ns"));
+        else if (arg == "--consumer-idle-us") a.consumer_idle_us = std::stol(need("--consumer-idle-us"));
         else if (arg == "--cpu-freq-sysfs-path") a.cpu_freq_sysfs_path = need("--cpu-freq-sysfs-path");
         else if (arg == "--compute-actuar") a.compute_actuar = true;
         else if (arg == "--compute-freq-khz") a.compute_freq_khz = std::stoul(need("--compute-freq-khz"));
@@ -158,6 +160,7 @@ Args parse_args(int argc, char** argv) {
         else { std::fprintf(stderr, "flag desconocida: %s\n", arg.c_str()); usage_and_exit(argv[0]); }
     }
     if (a.perf_cpus.empty()) { std::fprintf(stderr, "--perf-cpus es obligatorio\n"); usage_and_exit(argv[0]); }
+    if (a.consumer_idle_us <= 0) { std::fprintf(stderr, "--consumer-idle-us debe ser positivo\n"); usage_and_exit(argv[0]); }
     if (a.arm != "sombra" && a.arm != "activo") {
         std::fprintf(stderr, "--arm es obligatorio y debe ser 'sombra' o 'activo' (valor recibido: '%s')\n",
                       a.arm.c_str());
@@ -340,7 +343,8 @@ int main(int argc, char** argv) {
     run_consumer_loop(
         ring, g_stop,
         [&classifier](const FeatureVector& f) { return classifier.predict_memory_bound_proba(f); },
-        args.threshold, gpu_active_fn, controller, on_tick);
+        args.threshold, gpu_active_fn, controller, on_tick,
+        std::chrono::microseconds(args.consumer_idle_us));
 
     std::printf("deteniendo collector...\n");
     collector.stop();
