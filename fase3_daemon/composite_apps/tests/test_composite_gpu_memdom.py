@@ -46,3 +46,18 @@ def test_falla_cerrado_si_falta_un_kernel():
         build_entries({}, "known")
     with pytest.raises(ValueError):
         build_entries(load_catalog(str(DEFAULT_CATALOG_PATH)), "otro")
+
+
+def test_sensitive_intercala_heartwall_entre_las_fases_de_memoria_de_ea():
+    entries = build_entries(load_catalog(str(DEFAULT_CATALOG_PATH)), "sensitive", heartwall_frames=15000, heartwall_repeats=2)
+    assert [e.id for e in entries] == ["dual_stencil_gpu_N36864", "rodinia_heartwall", "rodinia_heartwall", "dual_spmv_gpu_N200000000"]
+    assert [e.phase_label_hint for e in entries] == ["memory_bound", "compute_bound", "compute_bound", "memory_bound"]
+    assert entries[1].exec_args == "data/heartwall/test.avi 15000"
+    assert all(e.device == "gpu" for e in entries)
+    assert "rodinia_heartwall" in TRAIN_FAMILIES
+
+
+@pytest.mark.parametrize("frames,repeats", [(0, 1), (20001, 1), (1000, 0)])
+def test_sensitive_rechaza_parametros_fuera_de_rango(frames, repeats):
+    with pytest.raises(ValueError):
+        build_entries(load_catalog(str(DEFAULT_CATALOG_PATH)), "sensitive", heartwall_frames=frames, heartwall_repeats=repeats)

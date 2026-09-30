@@ -4,6 +4,7 @@
 #   gpu   : base, sombra, activo                              (solo daemon de GPU)         3 repeticiones
 #   (diagnostico, solo si se piden en ONLY_ARMS: sombra_pin, sombra_ort1, sombra_pin_ort1 = sombra con el consumidor fijado a --consumer-cpu y/o ORT con 1 hilo sin espera activa)
 #   gpumem: base, base_noturbo, sombra, activo_gpu, activo_gpu_cpuobs, fijo_gpu_f1 (escenario E, GPU dominada por memoria; 1 ciclo; docs/planeacion/Plan_Fase4_Escenario_E.md)
+#           set sensitive (escenario E-C, solo si se pide en ONLY_SETS): memoria + heartwall + memoria; exige HEARTWALL_FRAMES (y HEARTWALL_REPEATS, 1 por defecto)
 #           base_noturbo = sin agentes y turbo apagado (linea base secundaria; REF con turbo sigue siendo la principal); tambien acepta
 #           en cpu y joint si se pide en ONLY_ARMS. activo_gpu = agente de GPU activo sin agente de CPU; activo_gpu_cpuobs = igual mas
 #           el agente de CPU en sombra con la politica versionada (no_actuar, no escribe).
@@ -92,7 +93,8 @@ plan = {"cpu": (["base", "base_noturbo", "sombra", "activo", "activo_f0", "sombr
         "gpumem": (["base", "base_noturbo", "sombra", "activo_gpu", "activo_gpu_cpuobs", "fijo_gpu_f1", "sombra_gpupin", "activo_gpu_gpupin"], rg),
         "lammps": (["base", "sombra", "activo_gpu", "activo_gpu_cpuobs"], rg)}
 cells = [(sc, st, arm, r) for sc, (al, n) in plan.items() if sc in scopes
-         for st in (sys.argv[6].split() if sc == "lammps" else ("known", "unseen")) if sc == "lammps" or st in sets
+         for st in (sys.argv[6].split() if sc == "lammps" else ("known", "unseen", "sensitive") if sc == "gpumem" else ("known", "unseen"))
+         if sc == "lammps" or st in sets
          for arm in al if arm in arms for r in range(1, n + 1)]
 rng = random.Random(seed)
 if order_mode == "shuffle":
@@ -123,6 +125,7 @@ app_cmd() {  # $1 scope $2 set -> imprime el comando de la aplicacion
     gpu:known)   echo "$A/composite_gpu_known.py" ;;
     gpu:unseen)  echo "$A/composite_gpu_unseen.py" ;;
     joint:*)     echo "$A/composite_joint.py --set $2" ;;
+    gpumem:sensitive) echo "$A/composite_gpu_memdom.py --set sensitive --heartwall-frames ${HEARTWALL_FRAMES:?falta HEARTWALL_FRAMES} --heartwall-repeats ${HEARTWALL_REPEATS:-1}" ;;
     gpumem:*)    echo "$A/composite_gpu_memdom.py --set $2" ;;
   esac
 }

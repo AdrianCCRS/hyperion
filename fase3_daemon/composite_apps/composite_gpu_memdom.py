@@ -10,6 +10,12 @@ F1 y una de 50 s pasa el 84%.
   --set unseen  familias memory_bound del catálogo que NO están entre las 16 del entrenamiento (BabelStream escalado,
                 Rodinia myocyte escalado; solo dos porque no hay un tercer kernel inédito de memoria que dure 25 s o más), más una fase
                 compute inédita (LavaMD escalado).
+  --set sensitive  escenario E-C (docs/planeacion/Plan_Fase4_Escenario_EC.md): dual_stencil y dual_spmv de E-A con una fase
+                compute SENSIBLE al reloj en medio, rodinia_heartwall, elegida por el criterio declarado antes de medir "el kernel
+                compute_bound con mayor pérdida de EDP de GPU en F1 en la Fase 2" (+21%, familia vista). Distingue la conmutación por
+                fase de un F1 fijo, cosa que E-A no puede (su DGEMM ya corre bajo 1260 MHz por el límite de potencia de la A100).
+                --heartwall-frames (<= 20000, los cuadros del video sintético) y --heartwall-repeats (fases consecutivas de heartwall)
+                fijan la duración de la fase compute; los calibra el sondeo del job antes de medir.
 
 La verdad de fase de los dual_* se declara aquí desde su clase de la Fase 2 (`kernel_class.csv`, margen 1.0, no ambigua;
 OI de 0.09 a 0.27 frente a un ridge fp64 de 3.36), porque el catálogo los marca `intermedio`. Los de la variante inédita
@@ -46,25 +52,43 @@ UNSEEN = (
     ("rodinia_lavamd", "-boxes1d 100", "compute_bound"),
     ("rodinia_myocyte", "1000000 1 0", "memory_bound"),
 )
+
+
+def sensitive_phases(heartwall_frames: int, heartwall_repeats: int) -> tuple:
+    """Fases de E-C: memoria, heartwall (compute sensible al reloj) repetido, memoria."""
+    if not 1 <= heartwall_frames <= 20000:
+        raise ValueError(f"--heartwall-frames debe estar entre 1 y 20000 (cuadros del video), no {heartwall_frames}")
+    if heartwall_repeats < 1:
+        raise ValueError(f"--heartwall-repeats debe ser >= 1, no {heartwall_repeats}")
+    heartwall = ("rodinia_heartwall", f"data/heartwall/test.avi {heartwall_frames}", "compute_bound")
+    return (KNOWN[0], *([heartwall] * heartwall_repeats), KNOWN[2])
+
+
 PHASES = {"known": KNOWN, "unseen": UNSEEN}
 
 
-def build_entries(catalog: dict, which: str) -> list:
-    """Entradas en el orden de PHASES[which], con argumentos y verdad de fase declarados. Falla cerrado si falta un kernel."""
-    if which not in PHASES:
-        raise ValueError(f"--set debe ser known o unseen, no {which!r}")
-    missing = [kid for kid, _, _ in PHASES[which] if kid not in catalog]
+def build_entries(catalog: dict, which: str, heartwall_frames: int = 1000, heartwall_repeats: int = 1) -> list:
+    """Entradas en el orden de la secuencia `which`, con argumentos y verdad de fase declarados. Falla cerrado si falta un kernel."""
+    if which == "sensitive":
+        phases = sensitive_phases(heartwall_frames, heartwall_repeats)
+    elif which in PHASES:
+        phases = PHASES[which]
+    else:
+        raise ValueError(f"--set debe ser known, unseen o sensitive, no {which!r}")
+    missing = [kid for kid, _, _ in phases if kid not in catalog]
     if missing:
         raise ValueError(f"kernel(s) no encontrados en el catálogo: {missing}")
     return [replace(catalog[kid], exec_args=args if args is not None else catalog[kid].exec_args, phase_label_hint=hint)
-            for kid, args, hint in PHASES[which]]
+            for kid, args, hint in phases]
 
 
 def main() -> int:
     parser = build_arg_parser(default_sequence=(), description=__doc__, default_cycles=1)
-    parser.add_argument("--set", dest="which", choices=["known", "unseen"], required=True)
+    parser.add_argument("--set", dest="which", choices=["known", "unseen", "sensitive"], required=True)
+    parser.add_argument("--heartwall-frames", type=int, default=1000, help="solo --set sensitive")
+    parser.add_argument("--heartwall-repeats", type=int, default=1, help="solo --set sensitive")
     args = parser.parse_args()
-    entries = build_entries(load_catalog(str(args.catalog)), args.which)
+    entries = build_entries(load_catalog(str(args.catalog)), args.which, args.heartwall_frames, args.heartwall_repeats)
     args.boundaries_out.parent.mkdir(parents=True, exist_ok=True)
     with args.boundaries_out.open("w", encoding="utf-8") as out:
         def on_phase(r: PhaseRecord) -> None:
