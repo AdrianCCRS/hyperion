@@ -29,7 +29,7 @@ La última revisión crítica del texto está en `recordatorios/revision_panel_l
 Decisiones ya tomadas por el autor, no reabrir sin que él lo pida:
 - **Director:** Gilberto Javier Díaz Toro (no el placeholder original de la plantilla).
 - **Plataforma experimental:** solo paccaA100/Unicartagena. No mencionar felix/SC3 en ningún punto del documento (felix fue banco de pruebas descartado, sin RAPL).
-- **Marco Legal:** omitido a propósito; el autor lo definirá.
+- **Marco Legal:** no va en el libro (decisión del autor, 2026-09-30).
 - **Estilo:** sin el guion largo (`---`) en la prosa; se usan comas, paréntesis o dos puntos. El guion medio (`--`) de rangos y de "Energía--Retardo" sí se usa.
 - **Contenido:** solo la metodología y el resultado finales; no se narran bugs ni depuración del instrumento.
 

@@ -60,3 +60,11 @@ Mismo diseño (base, activo_gpu, fijo_gpu_f1; 6 bloques; semilla 20261002) con l
 `powersave`, EPP `default`, turbo desactivado y 0.8 a 3.2 GHz, el estado de la serie powersave del job 7789. Se
 reutiliza la calibración de heartwall del job 7815 (10097 cuadros, 1 repetición) y se omite el sondeo. Mismo análisis y
 misma predicción; cada brazo se compara con la REF de su propio gobernador.
+
+## Resultado de la réplica (job 7818, 2026-09-30)
+
+18/18 celdas válidas; F1 fijo en 1260 MHz en todas las muestras bajo carga. Agente/F1 fijo 0.978 de EDP del nodo (IC95
+0.970 a 0.987), 6/6 bloques, p = 0.031; agente/base 0.979 (6/6, p = 0.031); F1 fijo/base 1.001. Heartwall: 30.0 s
+(base), 30.3 s (agente), 33.6 s (F1 fijo). El agente clasificó heartwall como compute_bound en 5 bloques y se abstuvo
+en 1 (confianza 0.85); ambas liberan el reloj. REF powersave / REF performance = 0.998 de EDP. Datos en
+docs/libro/datos/fase4_20260930/EC_7818_powersave/.
