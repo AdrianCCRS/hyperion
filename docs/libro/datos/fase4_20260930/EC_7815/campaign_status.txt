@@ -1,0 +1,7 @@
+[2026-09-30T16:06:27-04:00] nodo=paccaA100.unicartagena.edu.co job=7815 root=/home/latorresn/hyperion_c8 commit=5f4fcfd feat(fase4): escenario E-C, fase de cómputo sensible al reloj (heartwall) para contrastar el agente con F1 fijo estado: performance, no_turbo=1, min=max=3200000
+[2026-09-30T16:08:16-04:00] sondeo: OK nativo6000=18.04s F1_6000=20.04s sensibilidad=1.111 reloj_nativo_mediano=1410.0 cobertura_min=1.00 fijo=0.51s por_cuadro=2.921ms -> frames=10097 repeats=1 (heartwall estimado 30.0s)
+[2026-09-30T16:08:16-04:00] INICIO preflight (HEARTWALL_FRAMES=10097 HEARTWALL_REPEATS=1)
+[2026-09-30T16:15:54-04:00] pre-vuelo: OK 3 celdas
+[2026-09-30T16:15:54-04:00] INICIO EC_confirmatorio (6 bloques)
+[2026-09-30T17:00:33-04:00] OK EC_confirmatorio: 18 celdas; TODAS LAS ETAPAS TERMINARON, se libera el nodo
+[2026-09-30T17:00:34-04:00] estado de CPU restaurado al original

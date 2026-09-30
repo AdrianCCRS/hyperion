@@ -1,0 +1,2 @@
+requested_mhz=1260
+loaded_samples=467 out_of_tolerance=0
