@@ -53,3 +53,10 @@ Si el agente clasifica heartwall como `compute_bound` o se abstiene (ambas liber
 de heartwall y el EDP del nodo del agente queda por debajo del de F1 fijo en los 6 bloques. Si el agente la clasifica
 como `memory_bound`, aplica F1 y ambos brazos coinciden: la clasificación no aporta en este caso. Cualquiera de los
 dos resultados se reporta.
+
+## Réplica bajo powersave (declarada el 2026-09-30, antes de medir)
+
+Mismo diseño (base, activo_gpu, fijo_gpu_f1; 6 bloques; semilla 20261002) con los 12 procesadores delegados en
+`powersave`, EPP `default`, turbo desactivado y 0.8 a 3.2 GHz, el estado de la serie powersave del job 7789. Se
+reutiliza la calibración de heartwall del job 7815 (10097 cuadros, 1 repetición) y se omite el sondeo. Mismo análisis y
+misma predicción; cada brazo se compara con la REF de su propio gobernador.

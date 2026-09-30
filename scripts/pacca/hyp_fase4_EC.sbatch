@@ -5,6 +5,8 @@
 # con compuerta automática -> pre-vuelo (1 celda por brazo) con compuerta técnica -> confirmatorio de 6 bloques
 # (base, activo_gpu, fijo_gpu_f1). Si una compuerta falla, el job se PAUSA sin medir (no suelta el nodo) para diagnosticar;
 # liberar con: touch $OUT_BASE/HOLDER_STOP o scancel. Al terminar bien, restaura el estado de CPU y SUELTA el nodo.
+# Variables: GOV=performance (defecto: 3.2 GHz fijos, estado de la base del job 7696) o GOV=powersave (EPP default, 0.8-3.2 GHz,
+#   estado del job 7789); HEARTWALL_FRAMES (y HEARTWALL_REPEATS) ya calibrados para saltar el sondeo; RANDOM_SEED_EC (20261001).
 # Sin --time por política operativa de pacca (cuenta compartida latorresn). Mientras mide, una shell adjunta
 # (srun --jobid=<id> --overlap --pty bash) es solo para inspección: nada que use CPU o GPU.
 #SBATCH --job-name=hyp_fase4_EC
@@ -20,7 +22,9 @@
 set -uo pipefail
 
 ROOT="${HYPERION_ROOT:-$HOME/hyperion_c8}"; KERNEL_ROOT="$HOME/hyperion-kernels"
-export OUT_BASE="${OUT_BASE:-$HOME/hyperion-results/final/fase4_EC_${SLURM_JOB_ID}}"
+GOV="${GOV:-performance}"; SEED_EC="${RANDOM_SEED_EC:-20261001}"
+case "$GOV" in performance) MIN_KHZ=3200000;; powersave) MIN_KHZ=800000;; *) echo "GOV debe ser performance o powersave" >&2; exit 1;; esac
+export OUT_BASE="${OUT_BASE:-$HOME/hyperion-results/final/fase4_EC_${GOV}_${SLURM_JOB_ID}}"
 mkdir -p "$OUT_BASE"
 C=/sys/devices/system/cpu; CPUS="0 1 2 3 4 5 16 17 18 19 20 21"; GPU=0; KHZ=3200000
 STOP="$OUT_BASE/HOLDER_STOP"; rm -f "$STOP"
@@ -55,23 +59,29 @@ hold() {
     exit 2
 }
 
-# ---------- 1. estado de CPU de la base del libro (job 7696) ----------
+# ---------- 1. estado de CPU: base del libro (performance, job 7696) o powersave EPP default (job 7789) ----------
 ok=0
 for try in 1 2 3; do
-    [ "$(cat $C/cpu0/cpufreq/scaling_governor)" = performance ] || sudo -n /usr/local/bin/set_cpu_gov performance "$original_epp" >> "$OUT_BASE/campaign_status.txt" 2>&1
+    if [ "$GOV" = powersave ]; then sudo -n /usr/local/bin/set_cpu_gov powersave default >> "$OUT_BASE/campaign_status.txt" 2>&1
+    else [ "$(cat $C/cpu0/cpufreq/scaling_governor)" = performance ] || sudo -n /usr/local/bin/set_cpu_gov performance "$original_epp" >> "$OUT_BASE/campaign_status.txt" 2>&1; fi
     sudo -n /usr/local/bin/set_turbo_state 1
-    for c in $CPUS; do d=$C/cpu$c/cpufreq; echo $KHZ > $d/scaling_max_freq; echo $KHZ > $d/scaling_min_freq; done
+    for c in $CPUS; do d=$C/cpu$c/cpufreq; echo $KHZ > $d/scaling_max_freq; echo $MIN_KHZ > $d/scaling_min_freq; done
     sleep 2
-    govs=$(dump | grep -oP 'gov=\K\S+' | sort -u); mins=$(dump | grep -oP 'min=\K\S+' | sort -u); maxs=$(dump | grep -oP 'max=\K\S+' | sort -u)
-    if [ "$govs" = performance ] && [ "$(cat $C/intel_pstate/no_turbo)" = 1 ] && [ "$mins" = $KHZ ] && [ "$maxs" = $KHZ ]; then ok=1; break; fi
-    state "intento $try: gov=[$govs] no_turbo=$(cat $C/intel_pstate/no_turbo) min=[$mins] max=[$maxs]"
+    govs=$(dump | grep -oP 'gov=\K\S+' | sort -u); epps=$(dump | grep -oP 'epp=\K\S+' | sort -u)
+    mins=$(dump | grep -oP 'min=\K\S+' | sort -u); maxs=$(dump | grep -oP 'max=\K\S+' | sort -u)
+    if [ "$govs" = "$GOV" ] && [ "$(echo "$epps" | wc -l)" -eq 1 ] && [ "$(cat $C/intel_pstate/no_turbo)" = 1 ] && [ "$mins" = $MIN_KHZ ] && [ "$maxs" = $KHZ ]; then ok=1; break; fi
+    state "intento $try: gov=[$govs] epp=[$epps] no_turbo=$(cat $C/intel_pstate/no_turbo) min=[$mins] max=[$maxs]"
 done
 dump > "$OUT_BASE/cpu_state_medicion.txt"
-[ "$ok" = 1 ] || hold "no se pudo fijar performance, turbo off y 3.2 GHz de forma uniforme"
-state "nodo=$(hostname) job=$SLURM_JOB_ID root=$ROOT commit=$(git -C "$ROOT" log --oneline -1) estado: performance, no_turbo=1, min=max=$KHZ"
+[ "$ok" = 1 ] || hold "no se pudo fijar $GOV, turbo off y $MIN_KHZ-$KHZ kHz de forma uniforme"
+state "nodo=$(hostname) job=$SLURM_JOB_ID root=$ROOT commit=$(git -C "$ROOT" log --oneline -1) estado: $GOV epp=$(dump | grep -oP 'epp=\K\S+' | sort -u) no_turbo=1 min=$MIN_KHZ max=$KHZ"
 sudo -n nvidia-smi -i $GPU -rgc >/dev/null || hold "sudo -n nvidia-smi -rgc NO permitido"
 
-# ---------- 2. sondeo de heartwall con compuerta automática ----------
+# ---------- 2. sondeo de heartwall con compuerta automática (se salta si HEARTWALL_FRAMES ya viene calibrado) ----------
+if [ -n "${HEARTWALL_FRAMES:-}" ]; then
+    export HEARTWALL_FRAMES HEARTWALL_REPEATS="${HEARTWALL_REPEATS:-1}"
+    state "sondeo omitido: HEARTWALL_FRAMES=$HEARTWALL_FRAMES HEARTWALL_REPEATS=$HEARTWALL_REPEATS (calibración previa)"
+else
 P="$OUT_BASE/sondeo"; mkdir -p "$P"; HW="$KERNEL_ROOT/bin/rodinia_heartwall"
 [ -x "$HW" ] || hold "no existe $HW"
 probe() {  # $1 etiqueta $2 cuadros $3 nativo|f1
@@ -130,6 +140,7 @@ state "sondeo: $(echo "$decision" | head -1)"
 case "$(echo "$decision" | head -1)" in OK*) ;; *) hold "compuerta del sondeo no superada";; esac
 read -r HEARTWALL_FRAMES HEARTWALL_REPEATS <<< "$(echo "$decision" | tail -1)"
 export HEARTWALL_FRAMES HEARTWALL_REPEATS
+fi
 
 # ---------- 3. pre-vuelo y 4. confirmatorio ----------
 run_matrix() {  # $1 carpeta $2 repeticiones $3 semilla
@@ -153,7 +164,7 @@ dump > "$OUT_BASE/cpu_state_tras_preflight.txt"
 diff -q "$OUT_BASE/cpu_state_medicion.txt" "$OUT_BASE/cpu_state_tras_preflight.txt" >/dev/null || hold "el estado de CPU cambió durante el pre-vuelo"
 
 state "INICIO EC_confirmatorio (6 bloques)"
-run_matrix EC_confirmatorio 6 20261001 || hold "el confirmatorio terminó con error; ver EC_confirmatorio.log"
+run_matrix EC_confirmatorio 6 "$SEED_EC" || hold "el confirmatorio terminó con error; ver EC_confirmatorio.log"
 dump > "$OUT_BASE/cpu_state_tras_EC.txt"
 diff -q "$OUT_BASE/cpu_state_medicion.txt" "$OUT_BASE/cpu_state_tras_EC.txt" >/dev/null || state "AVISO: el estado de CPU cambió durante el confirmatorio"
 state "OK EC_confirmatorio: $(($(wc -l < "$OUT_BASE/EC_confirmatorio/results.csv")-1)) celdas; TODAS LAS ETAPAS TERMINARON, se libera el nodo"
