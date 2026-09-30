@@ -7,15 +7,7 @@
     \centering
     \vspace*{1cm}
 
-    {\Large \textbf{Diseño e Implementación de un Agente en Espacio de Usuario}}
-
-    \vspace{0.3cm}
-
-    {\Large \textbf{para la Gestión Dinámica de Frecuencia (DVFS) en Sistemas}}
-
-    \vspace{0.3cm}
-
-    {\Large \textbf{Heterogéneos mediante Modelos Ligeros de Machine Learning}}
+    {\Large \textbf{Diseño e Implementación de un Agente en Espacio de Usuario para la Gestión Dinámica de Frecuencia (DVFS) en Sistemas Heterogéneos mediante Modelos Ligeros de Machine Learning}}
 
     \vspace{2cm}
 
@@ -33,7 +25,7 @@
 
     {\large Gilberto Javier Díaz Toro}
 
-    {\large Doctor en Ingeniería}
+    {\large Doctor en Ciencias de la Computación}
 
     \vspace{\fill}
 
@@ -58,6 +50,7 @@
 
 \vspace{1cm}
 
+% [REVISIÓN] Sección vacía: redactar o retirar antes de la entrega.
 
 
 %==============================================================================
@@ -67,11 +60,12 @@
 \chapter*{Resumen}
 \addcontentsline{toc}{chapter}{Resumen}
 
-El consumo energético limita el escalamiento de la computación de alto rendimiento (HPC) en nodos que combinan CPU y GPU. El Escalado Dinámico de Voltaje y Frecuencia (DVFS) es el principal mecanismo para controlarlo, pero los gobernadores nativos de Linux deciden a partir de la utilización del procesador, una señal que no distingue si el rendimiento está limitado por el cómputo o por la memoria.
+El consumo energético limita el escalamiento de la computación de alto rendimiento (HPC) en nodos que combinan CPU y GPU. El Escalado Dinámico de Voltaje y Frecuencia (DVFS) es el principal mecanismo para controlarlo, pero los gobernadores nativos de Linux deciden por la utilización, que no distingue si el rendimiento lo limita el cómputo o la memoria.
 
-Este trabajo diseñó, implementó y evaluó un agente en espacio de usuario que infiere el régimen de ejecución (\textit{compute-bound} o \textit{memory-bound}) a partir de telemetría de hardware (contadores PMU y RAPL en CPU, NVML en GPU) y ajusta la frecuencia para reducir el Producto Energía--Retardo (EDP). El desarrollo tuvo cuatro fases. En la primera se construyó un instrumento de medición y un conjunto de datos etiquetado con el modelo Roofline. En la segunda se entrenaron clasificadores ligeros, validados dejando fuera cada familia algorítmica, con exactitud balanceada de 0.728 (XGBoost, CPU) y 0.819 (\textit{random forest}, GPU), y se derivó la política de frecuencia de cada régimen. En la tercera se implementó el agente, y en la cuarta se evaluó frente a una base con los gobernadores \textit{performance} y \textit{powersave} en aplicaciones compuestas y en dos aplicaciones externas, LAMMPS y CloverLeaf.
+Se diseñó, implementó y evaluó un agente en espacio de usuario que infiere el régimen de ejecución (\textit{compute-bound} o \textit{memory-bound}) a partir de telemetría de hardware (contadores PMU en CPU, NVML en GPU) y ajusta la frecuencia para reducir el Producto Energía--Retardo (EDP). Se construyó un instrumento de medición y un conjunto de datos etiquetado con el modelo Roofline, se entrenaron clasificadores ligeros, validados dejando fuera cada familia algorítmica, con exactitud balanceada de 0.728 (XGBoost, CPU) y 0.819 (\textit{random forest}, GPU), se derivó la política de frecuencia de cada régimen, y el agente se evaluó frente a una base con los gobernadores \textit{performance} y \textit{powersave} en aplicaciones compuestas y en dos aplicaciones externas, LAMMPS y CloverLeaf.
 
-En CPU la política resultó no actuar, porque cerca del 84\% de la potencia se mantiene al reducir el reloj. En GPU, fijar el reloj en 1260~MHz durante las fases \textit{memory-bound} mejoró el EDP de la GPU en 8.9\%. En las dos aplicaciones con fases de memoria largas, la compuesta con familias vistas en el entrenamiento y CloverLeaf, el agente redujo el EDP del nodo en 4.42\% y 3.75\% bajo el gobernador \textit{performance} (2.6\% y 3.2\% bajo \textit{powersave}; IC95 por bloques de 2.3 a 5.4\% y de 3.2 a 4.6\% bajo \textit{performance}), con la misma prueba de signos declarada ($p=0.0625$, el mínimo posible con cinco bloques) favorable bajo ambos gobernadores. En LAMMPS y en las familias no vistas el resultado quedó cerca de la paridad bajo los dos gobernadores.
+En CPU la política resultó no actuar, porque cerca del 84\% de la potencia se mantiene al reducir el reloj, y el proceso de CPU del agente aumentó el EDP del nodo por su costo de observación. En los kernels \textit{memory-bound} de GPU, fijar el reloj en 1260~MHz mejoró su EDP en 8.9\%.
+En las dos aplicaciones con fases de memoria largas, la compuesta con familias vistas y CloverLeaf, el proceso de GPU del agente redujo el EDP del nodo en 3.8 y 3.9\% bajo \textit{performance} y en 2.6 y 3.2\% bajo \textit{powersave} (medias geométricas de cinco bloques, todos favorables; $p=0.0625$ en la prueba de signos declarada, el mínimo posible, e IC95 calculado después de medir de 2.3 a 5.4\% y de 3.2 a 4.6\% bajo \textit{performance}). Pero fijar 1260~MHz en toda la compuesta dio el mismo EDP: no quedó demostrado que clasificar por fase supere a un reloj fijo. En LAMMPS el agente no aplicó F1, y en las familias no vistas casi siempre se abstuvo; ambas quedaron cerca de la paridad.
 
 \noindent\textbf{Palabras Clave:} DVFS; eficiencia energética; computación de alto rendimiento; modelo Roofline; telemetría microarquitectónica; aprendizaje automático supervisado.
 
@@ -82,11 +76,11 @@ En CPU la política resultó no actuar, porque cerca del 84\% de la potencia se 
 \chapter*{Abstract}
 \addcontentsline{toc}{chapter}{Abstract}
 
-Energy consumption limits the scaling of high performance computing (HPC) on nodes that combine CPUs and GPUs. Dynamic Voltage and Frequency Scaling (DVFS) is the main mechanism to control it, but the native Linux governors decide from processor utilization, a signal that does not distinguish whether performance is limited by computation or by memory.
+Energy consumption limits the scaling of high performance computing (HPC) on nodes that combine CPUs and GPUs. Dynamic Voltage and Frequency Scaling (DVFS) is the main mechanism to control it, but the native Linux governors decide from processor utilization, which does not tell whether computation or memory limits performance.
 
-This work designed, implemented and evaluated a user-space agent that infers the execution regime (\textit{compute-bound} or \textit{memory-bound}) from hardware telemetry (PMU and RAPL counters on CPU, NVML on GPU) and adjusts frequency to reduce the Energy--Delay Product (EDP). The work had four phases. In the first, a measurement instrument and a dataset labeled with the Roofline model were built. In the second, lightweight classifiers were trained and validated by leaving each algorithmic family out, reaching a balanced accuracy of 0.728 (XGBoost, CPU) and 0.819 (\textit{random forest}, GPU), and a frequency policy was derived for each regime. In the third, the agent was implemented, and in the fourth it was evaluated against a baseline with the \textit{performance} and \textit{powersave} governors on composite applications and on two external applications, LAMMPS and CloverLeaf.
+This work designed, implemented and evaluated a user-space agent that infers the execution regime (\textit{compute-bound} or \textit{memory-bound}) from hardware telemetry (PMU counters on CPU, NVML on GPU) and adjusts frequency to reduce the Energy--Delay Product (EDP). A measurement instrument and a dataset labeled with the Roofline model were built, lightweight classifiers were trained and validated by leaving each algorithmic family out, reaching a balanced accuracy of 0.728 (XGBoost, CPU) and 0.819 (\textit{random forest}, GPU), a frequency policy was derived for each regime, and the agent was evaluated against a baseline with the \textit{performance} and \textit{powersave} governors on composite applications and on two external applications, LAMMPS and CloverLeaf.
 
-On CPU the policy was not to act, because about 84\% of the power remains when the clock is lowered. On GPU, fixing the clock at 1260~MHz during \textit{memory-bound} phases improved GPU EDP by 8.9\%. On the two applications with long memory phases, the composite application built from families seen in training and CloverLeaf, the agent reduced node EDP by 4.42\% and 3.75\% under the \textit{performance} governor (2.6\% and 3.2\% under \textit{powersave}; block-level 95\% CIs of 2.3 to 5.4\% and 3.2 to 4.6\% under \textit{performance}), with the same pre-declared sign test ($p=0.0625$, the minimum attainable with five blocks) favorable under both governors. LAMMPS and the unseen families stayed close to parity under both governors.
+On CPU the policy was not to act, because about 84\% of the power remains when the clock is lowered, and the CPU process of the agent increased node EDP because of its observation cost. On \textit{memory-bound} GPU kernels, fixing the clock at 1260~MHz improved their EDP by 8.9\%. On the two applications with long memory phases, the composite application with seen families and CloverLeaf, the agent, running only its GPU process, reduced node EDP by 3.8 and 3.9\% under \textit{performance} and by 2.6 and 3.2\% under \textit{powersave} (geometric means of five blocks, all favorable; $p=0.0625$ in the pre-declared sign test, the minimum attainable, and post hoc 95\% CIs of 2.3 to 5.4\% and 3.2 to 4.6\% under \textit{performance}). However, fixing 1260~MHz for the whole composite application gave the same EDP, and it was not shown that phase classification outperforms a fixed clock. On LAMMPS the agent never applied F1, and on the unseen families it mostly abstained; both stayed close to parity.
 
 \noindent\textbf{Keywords:} DVFS; energy efficiency; high performance computing; Roofline model; microarchitectural telemetry; supervised machine learning.
 %==============================================================================
@@ -127,7 +121,7 @@ On CPU the policy was not to act, because about 84\% of the power remains when t
 \setcounter{figure}{0}
 \setcounter{table}{0}
 
-En los sistemas de cómputo de alto rendimiento (HPC), el consumo energético se ha consolidado como una restricción crítica para el escalamiento sostenible, especialmente en nodos heterogéneos que combinan CPU y GPU. El Escalado Dinámico de Voltaje y Frecuencia (DVFS) es el principal mecanismo de control en el hardware: permite ajustar el estado operativo de cada procesador para equilibrar la energía consumida y el tiempo de ejecución. Su efectividad depende, sin embargo, de que la frecuencia elegida corresponda al comportamiento de la aplicación, que cambia a lo largo de la ejecución.
+En los sistemas de cómputo de alto rendimiento (HPC), el consumo energético limita el escalamiento, en particular en nodos heterogéneos que combinan CPU y GPU. El Escalado Dinámico de Voltaje y Frecuencia (DVFS) es el principal mecanismo de control en el hardware: permite ajustar el estado operativo de cada procesador para equilibrar la energía consumida y el tiempo de ejecución. Su efectividad depende, sin embargo, de que la frecuencia elegida corresponda al comportamiento de la aplicación, que cambia a lo largo de la ejecución.
 
 Este problema se ha abordado con los gobernadores de frecuencia del sistema operativo y con heurísticas basadas en métricas microarquitectónicas. Los gobernadores de Linux deciden a partir de la utilización del procesador o de una política fija, sin considerar qué limita el rendimiento de la carga. Las heurísticas usan reglas de bajo costo, pero dependen de umbrales estáticos que generalizan mal cuando las fases de la aplicación cambian con rapidez. Ninguno de los dos enfoques distingue de forma explícita si una fase está limitada por la capacidad de cómputo del procesador (\textit{compute-bound}) o por la transferencia de datos desde memoria (\textit{memory-bound}), y de esa distinción depende cuánto se alarga la ejecución al reducir la frecuencia. Esta brecha motiva inferir el régimen durante la ejecución y decidir la frecuencia a partir de él.
 
@@ -140,15 +134,15 @@ En este contexto, el presente trabajo presenta el diseño, la implementación y 
 \section*{Planteamiento y justificación del problema}
 \addcontentsline{toc}{section}{Planteamiento y justificación del problema}
 
-Existe una ineficiencia energética estructural en la operación de los sistemas de alto rendimiento (HPC), especialmente en infraestructuras que integran aceleradores gráficos (GPU) para ejecutar aplicaciones científicas intensivas. Cuando una aplicación entra en una fase donde el procesamiento depende principalmente de la transferencia de datos desde memoria, mantener la CPU o la GPU a su frecuencia máxima no mejora el rendimiento de manera proporcional. En estas condiciones, los núcleos de cómputo permanecen parcialmente inactivos esperando datos, lo que genera un consumo energético elevado sin un beneficio equivalente en tiempo de ejecución. Esta desalineación entre demanda computacional y frecuencia operativa ha motivado el estudio del escalado de frecuencia como mecanismo para mejorar la eficiencia energética en aplicaciones científicas \cite{Simsek2024} y en sistemas de gran escala donde la gestión de potencia impacta el comportamiento global del sistema \cite{Costa2025}.
+La operación de los sistemas de alto rendimiento (HPC) presenta una ineficiencia energética, en particular en infraestructuras que integran aceleradores gráficos (GPU) para ejecutar aplicaciones científicas intensivas. Cuando una aplicación entra en una fase donde el procesamiento depende principalmente de la transferencia de datos desde memoria, mantener la CPU o la GPU a su frecuencia máxima no mejora el rendimiento de manera proporcional. En estas condiciones, los núcleos de cómputo permanecen parcialmente inactivos esperando datos, lo que genera un consumo energético elevado sin un beneficio equivalente en tiempo de ejecución. Esta desalineación entre demanda computacional y frecuencia operativa ha motivado el estudio del escalado de frecuencia como mecanismo para mejorar la eficiencia energética en aplicaciones científicas \cite{Simsek2024} y en sistemas de gran escala donde la gestión de potencia impacta el comportamiento global del sistema \cite{Costa2025}.
 
-El problema se agrava por la naturaleza multifásica de las aplicaciones HPC, cuyo perfil de ejecución cambia a lo largo del tiempo de ejecución. En particular, estas aplicaciones alternan entre fases \textit{compute-bound} y fases \textit{memory-bound}. Esta distinción es crítica porque, en el régimen \textit{memory-bound}, los incrementos de frecuencia producen mejoras marginales en el tiempo de ejecución, mientras aumentan el consumo energético. En fases \textit{compute-bound}, en cambio, la frecuencia sí impacta el desempeño de forma más directa. Por eso se han propuesto marcos de caracterización para identificar y clasificar estas fases en entornos HPC, y así habilitar decisiones de control más informadas \cite{Antici2024,Calore2017}.
+El problema se agrava por la naturaleza multifásica de las aplicaciones HPC, cuyo perfil de ejecución cambia a lo largo del tiempo de ejecución. En particular, estas aplicaciones alternan entre fases \textit{compute-bound} y fases \textit{memory-bound}. De esta distinción depende la respuesta a DVFS: en el régimen \textit{memory-bound}, los incrementos de frecuencia producen mejoras marginales en el tiempo de ejecución, mientras aumentan el consumo energético. En fases \textit{compute-bound}, en cambio, la frecuencia sí impacta el desempeño de forma más directa. Por eso se han propuesto marcos de caracterización para identificar y clasificar estas fases en entornos HPC, y así habilitar decisiones de control más informadas \cite{Antici2024,Calore2017}.
 
 A partir de este contexto, la gestión eficiente de frecuencia no depende únicamente de la disponibilidad del mecanismo DVFS en el hardware, sino de la capacidad del sistema para decidir, en tiempo de ejecución, cuál configuración resulta más conveniente según el comportamiento de la carga. Aunque se han propuesto mecanismos automatizados para seleccionar frecuencias óptimas de GPU con el fin de mejorar la eficiencia energética sin comprometer significativamente el desempeño \cite{Ali2023}, persiste una brecha en la implementación de estrategias que integren de forma coordinada componentes CPU--GPU y que operen durante la ejecución de la aplicación, considerando además el costo computacional asociado al propio proceso de decisión.
 
-Esta brecha resulta especialmente relevante en entornos académicos y científicos, donde el consumo eléctrico incide directamente en los costos operativos, la disponibilidad efectiva de recursos y la sostenibilidad institucional. Un mecanismo capaz de observar el comportamiento de la aplicación, inferir su fase de ejecución y ajustar la frecuencia de operación sin intervenir el código fuente es, por eso, una alternativa con valor técnico y práctico.
+Esta brecha es relevante en entornos académicos y científicos, donde el consumo eléctrico incide directamente en los costos operativos, la disponibilidad efectiva de recursos y la sostenibilidad institucional. Un mecanismo capaz de observar el comportamiento de la aplicación, inferir su fase de ejecución y ajustar la frecuencia de operación sin intervenir el código fuente es, por eso, una alternativa con valor técnico y práctico.
 
-A nivel nacional y regional, este tipo de soluciones aún no se encuentra ampliamente implementado en infraestructuras académicas de cómputo científico, particularmente bajo esquemas que combinen telemetría de bajo nivel, modelos ligeros de aprendizaje automático y control en espacio de usuario. Por eso el problema es también pertinente en términos de aplicabilidad local.
+En las infraestructuras académicas de cómputo científico, como el clúster universitario en el que se desarrolló este trabajo, un mecanismo que combine telemetría de bajo nivel, modelos ligeros de aprendizaje automático y control en espacio de usuario puede incorporarse sin modificar las aplicaciones de los usuarios. Por eso el problema es también pertinente en términos de aplicabilidad local.
 
 A partir de esta necesidad de optimización energética en sistemas heterogéneos, se formula la siguiente pregunta de investigación que servirá como eje de desarrollo del proyecto:
 

@@ -1,0 +1,4 @@
+{"begin_ns": 3901738632698388, "cycle": 0, "end_ns": 3901795552089947, "exit_code": 0, "kernel_id": "dual_stencil_gpu_N36864", "phase_label_hint": "memory_bound", "success": true}
+{"begin_ns": 3901796553697253, "cycle": 0, "end_ns": 3901827969516029, "exit_code": 0, "kernel_id": "gpu_cutlass_simt_dgemm_n4096", "phase_label_hint": "compute_bound", "success": true}
+{"begin_ns": 3901828971850987, "cycle": 0, "end_ns": 3901874772600327, "exit_code": 0, "kernel_id": "dual_spmv_gpu_N200000000", "phase_label_hint": "memory_bound", "success": true}
+{"begin_ns": 3901875773741127, "cycle": 0, "end_ns": 3901923521609408, "exit_code": 0, "kernel_id": "dual_axpy_gpu_N1280000000", "phase_label_hint": "memory_bound", "success": true}

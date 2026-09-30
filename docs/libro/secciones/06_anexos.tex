@@ -1,0 +1,29 @@
+%==============================================================================
+% ANEXOS
+%==============================================================================
+% Figuras que sostienen conclusiones centrales y que antes vivían solo en el
+% material complementario (docs/libro/README.md, sección 7). El resto de las
+% figuras secundarias sigue allí.
+
+\appendix
+\renewcommand{\appendixname}{Anexo}
+\renewcommand{\thefigure}{\Alph{chapter}.\arabic{figure}}
+
+\chapter{Separación de energía y tiempo por nivel de frecuencia}
+\label{cap:anexo-energia-tiempo}
+
+Las dos figuras de este anexo separan en energía y tiempo el EDP de cada nivel de frecuencia de la Fase 1. Muestran por qué la política de CPU es \textit{no actuar} en ambas clases y por qué la de GPU fija F1 en \textit{memory\_bound} (secciones \ref{sec:resultados-cpu-politica} y \ref{sec:resultados-gpu-politica}).
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figuras/fig_cpu_energia_relativa_20260920.png}
+    \caption[Energía, tiempo y EDP por nivel de frecuencia en CPU]{Mediana entre kernels de la energía (paquete y DRAM), el tiempo y el EDP de cada nivel fijo de CPU, relativos a la referencia nativa, para las dos clases. El eje vertical es logarítmico. Fuente: elaboración propia.}
+    \label{fig:anexo-cpu-energia-relativa}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figuras/fig_gpu_politica_energia_relativa_20260922.png}
+    \caption[Energía, tiempo y EDP por nivel de frecuencia en GPU]{Mediana entre kernels del tiempo, la energía y el EDP de cada nivel de reloj de GPU, relativos a la base, para las dos clases (5 y 9 kernels con corridas en la base, kernel como unidad, descriptivo). El eje vertical es logarítmico. Fuente: elaboración propia.}
+    \label{fig:anexo-gpu-energia-relativa}
+\end{figure}

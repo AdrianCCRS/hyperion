@@ -27,7 +27,9 @@
 %
 % ESTADO DEL DOCUMENTO (2026-09-28): las cuatro fases están redactadas con
 % resultados reales (campañas CPU y GPU, clasificadores, agente de control y
-% evaluación de la Fase 4). Los anexos se retiraron para ajustar la extensión;
+% evaluación de la Fase 4). Los anexos se retiraron para ajustar la extensión
+% (salvo el Anexo A, con las dos figuras de energía y tiempo por nivel que
+% sostienen las políticas, reincorporadas en la revisión del 2026-09-30);
 % su contenido y las figuras secundarias viven en docs/libro/README.md, que el
 % libro cita como material complementario. La versión histórica del párrafo
 % sobre el bloqueo de turbo de agosto ya no aplica, pues el control de
@@ -45,7 +47,9 @@
 
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
-\usepackage[spanish,es-tabla]{babel}
+% es-nodecimaldot: el documento usa punto decimal en texto, fórmulas y figuras;
+% sin esta opción babel lo convierte en coma dentro del modo matemático.
+\usepackage[spanish,es-tabla,es-nodecimaldot]{babel}
 \usepackage[margin=2.5cm]{geometry}
 \usepackage{hyperref}
 \usepackage{setspace}
@@ -142,6 +146,8 @@
 \bibliographystyle{IEEEtran}
 \bibliography{main}
 \end{sloppypar}
+
+\input{secciones/06_anexos}
 
 %==============================================================================
 % FIN DEL DOCUMENTO
