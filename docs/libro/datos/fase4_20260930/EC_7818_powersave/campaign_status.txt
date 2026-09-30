@@ -1,0 +1,7 @@
+[2026-09-30T17:19:01-04:00] nodo=paccaA100.unicartagena.edu.co job=7818 root=/home/latorresn/hyperion_c8 commit=b4311e8 feat(fase4): réplica de E-C bajo powersave (GOV y calibración previa de heartwall en el job de E-C) estado: powersave epp=balance_performance no_turbo=1 min=800000 max=3200000
+[2026-09-30T17:19:01-04:00] sondeo omitido: HEARTWALL_FRAMES=10097 HEARTWALL_REPEATS=1 (calibración previa)
+[2026-09-30T17:19:01-04:00] INICIO preflight (HEARTWALL_FRAMES=10097 HEARTWALL_REPEATS=1)
+[2026-09-30T17:26:39-04:00] pre-vuelo: OK 3 celdas
+[2026-09-30T17:26:39-04:00] INICIO EC_confirmatorio (6 bloques)
+[2026-09-30T18:11:15-04:00] OK EC_confirmatorio: 18 celdas; TODAS LAS ETAPAS TERMINARON, se libera el nodo
+[2026-09-30T18:11:15-04:00] estado de CPU restaurado al original

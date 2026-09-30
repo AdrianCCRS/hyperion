@@ -1,0 +1,4 @@
+cell,scope,set,arm,rep,wall_s,e_cpu_j,e_gpu_j,app_rc,rc_cpu_daemon,rc_gpu_daemon,state_ok
+gpumem_sensitive_base_1,gpumem,sensitive,base,1,136.81,20792.0,9411.87,0,NA,NA,1
+gpumem_sensitive_fijo_gpu_f1_1,gpumem,sensitive,fijo_gpu_f1,1,141.677,21601.91,8256.2,0,NA,NA,1
+gpumem_sensitive_activo_gpu_1,gpumem,sensitive,activo_gpu,1,138.177,21106.92,8628.92,0,NA,0,1

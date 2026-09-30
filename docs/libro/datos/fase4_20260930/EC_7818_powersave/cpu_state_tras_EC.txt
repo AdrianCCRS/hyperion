@@ -1,0 +1,13 @@
+no_turbo=1
+cpu0 gov=powersave epp=balance_performance min=800000 max=3200000
+cpu1 gov=powersave epp=balance_performance min=800000 max=3200000
+cpu2 gov=powersave epp=balance_performance min=800000 max=3200000
+cpu3 gov=powersave epp=balance_performance min=800000 max=3200000
+cpu4 gov=powersave epp=balance_performance min=800000 max=3200000
+cpu5 gov=powersave epp=balance_performance min=800000 max=3200000
+cpu16 gov=powersave epp=balance_performance min=800000 max=3200000
+cpu17 gov=powersave epp=balance_performance min=800000 max=3200000
+cpu18 gov=powersave epp=balance_performance min=800000 max=3200000
+cpu19 gov=powersave epp=balance_performance min=800000 max=3200000
+cpu20 gov=powersave epp=balance_performance min=800000 max=3200000
+cpu21 gov=powersave epp=balance_performance min=800000 max=3200000

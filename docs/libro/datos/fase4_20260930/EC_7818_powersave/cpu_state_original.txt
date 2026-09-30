@@ -1,0 +1,13 @@
+no_turbo=0
+cpu0 gov=performance epp=balance_performance min=800000 max=3200000
+cpu1 gov=performance epp=balance_performance min=800000 max=3200000
+cpu2 gov=performance epp=balance_performance min=800000 max=3200000
+cpu3 gov=performance epp=balance_performance min=800000 max=3200000
+cpu4 gov=performance epp=balance_performance min=800000 max=3200000
+cpu5 gov=performance epp=balance_performance min=800000 max=3200000
+cpu16 gov=performance epp=balance_performance min=800000 max=3200000
+cpu17 gov=performance epp=balance_performance min=800000 max=3200000
+cpu18 gov=performance epp=balance_performance min=800000 max=3200000
+cpu19 gov=performance epp=balance_performance min=800000 max=3200000
+cpu20 gov=performance epp=balance_performance min=800000 max=3200000
+cpu21 gov=performance epp=balance_performance min=800000 max=3200000

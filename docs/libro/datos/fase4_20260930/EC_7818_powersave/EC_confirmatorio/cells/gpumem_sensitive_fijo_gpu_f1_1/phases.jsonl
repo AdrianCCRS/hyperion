@@ -1,0 +1,3 @@
+{"begin_ns": 4320640305750878, "cycle": 0, "end_ns": 4320698065856483, "exit_code": 0, "kernel_id": "dual_stencil_gpu_N36864", "phase_label_hint": "memory_bound", "success": true}
+{"begin_ns": 4320699068671302, "cycle": 0, "end_ns": 4320732672505523, "exit_code": 0, "kernel_id": "rodinia_heartwall", "phase_label_hint": "compute_bound", "success": true}
+{"begin_ns": 4320733674205828, "cycle": 0, "end_ns": 4320780277518838, "exit_code": 0, "kernel_id": "dual_spmv_gpu_N200000000", "phase_label_hint": "memory_bound", "success": true}

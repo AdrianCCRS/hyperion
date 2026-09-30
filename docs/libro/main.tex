@@ -28,8 +28,8 @@
 % ESTADO DEL DOCUMENTO (2026-09-28): las cuatro fases están redactadas con
 % resultados reales (campañas CPU y GPU, clasificadores, agente de control y
 % evaluación de la Fase 4). Los anexos se retiraron para ajustar la extensión
-% (salvo el Anexo A, con las dos figuras de energía y tiempo por nivel que
-% sostienen las políticas, reincorporadas en la revisión del 2026-09-30);
+% (salvo el Anexo A, reincorporado en la revisión del 2026-09-30 con las
+% figuras de energía y tiempo por nivel y dos figuras de los clasificadores);
 % su contenido y las figuras secundarias viven en docs/libro/README.md, que el
 % libro cita como material complementario. La versión histórica del párrafo
 % sobre el bloqueo de turbo de agosto ya no aplica, pues el control de
@@ -122,11 +122,17 @@
 \renewcommand{\thefigure}{\arabic{chapter}.\arabic{figure}}
 \renewcommand{\thetable}{\arabic{chapter}.\arabic{table}}
 
+% \bstctlcite (definido en la clase IEEEtran, no en book): pasa a BibTeX la entrada de control de IEEEtran.bst
+\makeatletter
+\providecommand{\bstctlcite}[1]{\@bsphack\if@filesw\immediate\write\@auxout{\string\citation{#1}}\fi\@esphack}
+\makeatother
+
 %==============================================================================
 % INICIO DEL DOCUMENTO
 %==============================================================================
 
 \begin{document}
+\bstctlcite{IEEEexample:BSTcontrol}  % IEEEtran: nombre completo del autor repetido, sin la raya
 
 \input{secciones/00_frontmatter}
 \input{secciones/01_marco_referencia}
@@ -142,10 +148,12 @@
 \clearpage
 \phantomsection
 \addcontentsline{toc}{chapter}{Bibliografía}
+\begingroup\small  % bibliografía con letra algo menor que el cuerpo
 \begin{sloppypar}
 \bibliographystyle{IEEEtran}
 \bibliography{main}
 \end{sloppypar}
+\endgroup
 
 \input{secciones/06_anexos}
 

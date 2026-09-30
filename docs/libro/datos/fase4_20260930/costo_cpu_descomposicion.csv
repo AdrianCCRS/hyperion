@@ -1,0 +1,11 @@
+campana,alcance,kernels,t_base_s,dt_s,de_cpu_j,fraccion_potencia,w_extra
+matriz inicial,cpu,known,24.5,0.35,396,0.84,13.7
+matriz inicial,cpu,unseen,110.1,0.95,840,0.81,6.2
+matriz inicial,gpu,known,103.5,0.55,68,-0.18,-0.1
+matriz inicial,gpu,unseen,38.3,0.07,38,0.72,0.7
+matriz inicial,joint,known,127.7,0.51,1064,0.93,7.7
+matriz inicial,joint,unseen,148.0,1.2,1287,0.85,7.4
+Escenario C,cpu,known,24.6,0.18,364,0.92,13.6
+Escenario C,cpu,unseen,110.0,1.03,855,0.8,6.2
+Escenario C,joint,known,127.5,0.61,946,0.9,6.7
+Escenario C,joint,unseen,147.9,1.12,1350,0.87,7.9
