@@ -22,7 +22,7 @@ Este documento ya pasó por rondas de auditoría externa de sus citas (ver §4).
 
 El libro está completo con las cuatro fases (instrumento y datos, clasificadores y política, agente, evaluación) y en revisión final (unas 78 páginas). `main.tex` solo incluye los capítulos de `secciones/` mediante `\input`; se edita cada capítulo en su archivo. Las cifras salen de `datos/` y las figuras de `scripts/` (ver `datos/README.md` y `README.md`, que es el material complementario citado en el libro como \matcomp).
 
-Pendiente conocido: la serie de la Fase 4 con el gobernador `powersave` (job 7789). Los lugares que deben actualizarse al tener esos resultados están marcados en el código fuente con `% TODO(job 7789)`. No inventar cifras de esa serie.
+La serie de la Fase 4 con el gobernador `powersave` (job 7789, terminado 2026-09-29) ya está integrada: matriz inicial, E-A, E-B, D y CloverLeaf tienen su párrafo de contraste `performance`/`powersave` en `secciones/03_resultados.tex`, con las cifras derivadas de `datos/fase4_20260930/` vía `scripts/generar_tablas_fase4_powersave_20260930.py`.
 
 La última revisión crítica del texto está en `recordatorios/revision_panel_libro_final_20260929.md`, con el estado de cada hallazgo.
 
