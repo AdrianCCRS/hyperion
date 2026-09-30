@@ -7,6 +7,8 @@
 #   entre los dos EPP), cancelar aqui con `touch $OUT_BASE/HOLDER_STOP` o `scancel <jobid>`. Si hay diferencia real, continuar
 #   con `touch $OUT_BASE/CONTINUE` para medir el confirmatorio E-A (mismo diseno que EA_confirmatorio de 7789) bajo EPP=power
 #   y comparar el EDP contra el 0.974 (IC95 0.968-0.980) ya medido con EPP=default.
+# AUTO_CONTINUE=1 omite el gate y pasa directo al confirmatorio (a plena carga el EPP no cambia nada; su efecto bajo
+#   carga parcial solo se ve en el confirmatorio).
 # Sin --time por politica operativa de pacca (cuenta compartida latorresn). Adjuntar shell de solo inspeccion mientras corre:
 #   srun --jobid=<id> --overlap --pty bash
 #SBATCH --job-name=hyp_epppower_diag
@@ -112,7 +114,11 @@ state "nodo=$(hostname) job=$SLURM_JOB_ID root=$ROOT original: governor=$origina
 diag balance_performance 20
 diag power 20
 
-gate "diagnostico terminado; ver campaign_status.txt (cpu0_freq_khz y potencia_paquete_w de cada EPP)"
+if [[ "${AUTO_CONTINUE:-0}" = 1 ]]; then
+    state "diagnostico terminado (AUTO_CONTINUE=1, sin gate manual); ver cpu0_freq_khz y potencia_paquete_w de cada EPP"
+else
+    gate "diagnostico terminado; ver campaign_status.txt (cpu0_freq_khz y potencia_paquete_w de cada EPP)"
+fi
 
 # Solo se llega aqui si se tocó CONTINUE: confirmatorio E-A completo bajo EPP=power, mismo diseño que EA_confirmatorio del job 7789.
 set_state power
