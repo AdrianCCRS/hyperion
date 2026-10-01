@@ -91,7 +91,8 @@ BUILD="$OUT_BASE/build"; mkdir -p "$BUILD"
   && "$CMAKE" --build "$BUILD/cpu_build" -j 8 --target cpu_loop_main >>"$BUILD/cmake.log" 2>&1
 CPU_BIN="$BUILD/cpu_build/cpu_loop_main"
 [ -x "$CPU_BIN" ] || fail "no se construyo cpu_loop_main en $NODE (ver $BUILD/cmake.log)"
-"$CPU_BIN" --help 2>&1 | grep -q -- "--no-perf" || fail "el binario no tiene --no-perf: falta actualizar el repositorio en pacca"
+HELP=$("$CPU_BIN" --help 2>&1 || true)
+case "$HELP" in *--no-perf*) ;; *) fail "el binario no tiene --no-perf: falta actualizar el repositorio en pacca";; esac
 
 source <(sed -n '/^snap() {/,/^}/p' "$ROOT/scripts/pacca/hyp_fase4_matrix.sbatch")
 POLICY="$ROOT/fase3_daemon/policy_table.yaml"; MODEL="$ROOT/fase3_daemon/cpu_loop/xgboost_cpu.onnx"
