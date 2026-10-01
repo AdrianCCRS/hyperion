@@ -92,3 +92,20 @@ Nodos: paccaA100 (plataforma de la tesis, estado de la base del libro) y un nodo
 5320, sin permisos de frecuencia, turbo activo, `performance`) como medición inmediata sin cola GPU. Los dos SKU son
 Ice Lake-SP pero distintos: del nodo normal solo se interpreta qué componente produce el costo, no su magnitud en vatios.
 No se escribe nada en el libro hasta tener ambas.
+
+### Resultado en pacca01 (job 7829, 2026-09-30)
+
+18 de 18 celdas válidas (Gold 5320, turbo activo, `performance`; solo se interpreta el componente, no los vatios). Potencia
+media de CPU por brazo (3 bloques): reposo 75.0 W (70.5 a 79.2); despertador a 1 ms 126.6 W; sombra a 1 ms 161.7 W; a 10 ms
+159.5 W; a 100 ms 160.5 W; sin leer contadores 162.1 W. Ni la cadencia del colector (1 a 100 ms) ni la lectura de contadores
+cambian la potencia, aunque el tiempo de CPU del agente baja de 1.08 a 0.34 s por celda. Un proceso mínimo que solo
+despierta a 1 kHz ya añade +52 W. La residencia en C6 de cada núcleo apenas cambia (0.92 a 0.98 frente a 1.0 en reposo).
+
+Lectura: el costo no está en el trabajo del agente sino en despertar el paquete. Lo coherente con los datos es que los
+despertares periódicos impiden el estado de reposo del paquete (C-state de paquete), que sí apaga el *uncore*, aunque cada
+núcleo pase más de 90 % del tiempo en C6. Las interrupciones de temporizador lo apoyan: 0.2 k/s en reposo, 1.8 k/s con el
+despertador y 7.5 a 9.6 k/s en todos los brazos del agente, cuyo consumidor despierta cada 100 µs en todos ellos. Este
+diseño no varió esa espera del consumidor, así que la regla declarada de «mera presencia» no se puede aplicar: la variable
+que quedó constante es justamente la de mayor frecuencia de despertar. Falta: residencia de C-state de paquete
+(`cstate_pkg`, disponible en el nodo) y un brazo con `--consumer-idle-us` grande. Con aplicación (job 7824) el paquete ya
+está activo, por lo que este mecanismo no explica por sí solo los +12.6 W de entonces.

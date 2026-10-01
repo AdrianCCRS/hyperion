@@ -1,0 +1,11 @@
+Thread(s) per core:  2
+Socket(s):           2
+Model name:          Intel(R) Xeon(R) Gold 5320 CPU @ 2.20GHz
+[2026-09-30T22:36:41-05:00] SIN permisos de frecuencia en pacca01: se mide con el estado del nodo (gov=performance no_turbo=0)
+[2026-09-30T22:36:41-05:00] nodo=pacca01 job=7829 commit=8ea1f79 fix(fase4): la comprobacion de --no-perf fallaba por grep -q con pipefail semilla=20261004 reps=3 segundos=60
+[2026-09-30T22:36:54-05:00] comprobacion sombra_1ms: OK
+[2026-09-30T22:37:00-05:00] comprobacion sombra_10ms: OK
+[2026-09-30T22:37:06-05:00] comprobacion sombra_100ms: OK
+[2026-09-30T22:37:12-05:00] comprobacion sombra_noperf: OK
+[2026-09-30T22:37:12-05:00] brazos a medir: reposo sombra_1ms sombra_10ms sombra_100ms sombra_noperf despertador_1ms
+[2026-09-30T22:59:35-05:00] OK: 18 celdas; TODAS LAS ETAPAS TERMINARON, se libera el nodo
