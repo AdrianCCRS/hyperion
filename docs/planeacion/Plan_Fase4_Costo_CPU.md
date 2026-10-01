@@ -51,3 +51,20 @@ Si la hipótesis es cierta, `sombra_10ms` y/o `sombra_idle1ms` reducen la potenc
 bloques, los núcleos 6 y 7 pierden residencia en C6 con `sombra`, y en reposo el agente añade una potencia del orden de
 la medida con la aplicación de inéditos. Si ninguna variante reduce la potencia, la cadencia queda descartada como causa.
 Cualquiera de los resultados se reporta.
+
+## Resultado (job 7824, 2026-09-30)
+
+30 de 30 celdas válidas. Potencia extra de CPU frente a la base del bloque (base de 175.7 W): sombra +12.6 W; sombra a 10 ms
++13.5 W; consumidor con espera de 1 ms +12.1 W; consumidor fijado +11.7 W. Ninguna variante difiere de la sombra en más de
+0.8 W (prueba de signos, 6 bloques: p = 0.69, 0.22 y 0.69). Con 10 ms las interrupciones entre núcleos bajan de 1.10 M a
+0.12 M por celda y el núcleo del colector vuelve a C6 (23.3 s frente a 4.3 s), sin cambio en la potencia. En reposo el agente
+solo sube la potencia de CPU de 75.6 a 146.3 W (3/3 repeticiones), con cerca de 1 s de CPU consumido en 60 s.
+**La hipótesis de la cadencia queda refutada**; la causa sigue sin identificarse. Siguiente prueba posible: agente en
+reposo sin leer contadores y a 10 ms. Datos: docs/libro/datos/fase4_20260930/costo_cpu_7824/; script
+docs/libro/scripts/analisis_diag_7823_7824_20260930.py.
+
+## Resultado de la réplica de E-A con EPP=power (job 7823)
+
+Diagnóstico con carga sostenida: 113.3 W (power) frente a 112.8 W (balance_performance), ambos a 3.2 GHz. Confirmatorio de 5
+bloques: agente/base 0.981 de EDP del nodo (IC95 0.974 a 0.988, 5/5, p = 0.0625); agente/F1 fijo 0.994 (0.987 a 1.001, 4/5);
+muestras de F1 fijo fuera de rango solo en DGEMM, como en E-A. Datos: .../epppower_7823/.

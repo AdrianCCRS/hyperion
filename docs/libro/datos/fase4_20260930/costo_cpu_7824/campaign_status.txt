@@ -1,0 +1,6 @@
+[2026-09-30T21:12:10-04:00] nodo=paccaA100.unicartagena.edu.co job=7824 root=/home/latorresn/hyperion_c8 commit=5d3e619 feat(fase4): diagnostico del costo de observacion del agente de CPU (cadencia del colector, sondeo del consumidor, reposo) estado: performance epp=balance_performance no_turbo=1 min=3200000 max=3200000
+[2026-09-30T21:12:10-04:00] INICIO costo_matriz (6 bloques, semilla 20261003)
+[2026-09-30T21:29:42-04:00] costo_matriz: 30 celdas; con problemas: ninguna
+[2026-09-30T21:29:42-04:00] INICIO reposo (3 repeticiones alternadas)
+[2026-09-30T21:37:04-04:00] OK: TODAS LAS ETAPAS TERMINARON, se libera el nodo
+[2026-09-30T21:37:04-04:00] estado de CPU restaurado al original

@@ -1,0 +1,11 @@
+[2026-09-30T20:05:24-04:00] nodo=paccaA100.unicartagena.edu.co job=7823 root=/home/latorresn/hyperion_c8 original: governor=performance epp=balance_performance no_turbo=0
+[2026-09-30T20:05:27-04:00] estado verificado: epp=balance_performance no_turbo=1 min=800000 max=3200000
+[2026-09-30T20:05:49-04:00] diag epp=balance_performance cpu0_freq_khz=[3200000 3199997 3200000 3200000 3200000 3199997 3199997 3200000 3200002 3200000 3200002 3200000 3200000 3200000 3200000 3200000 3200000 3200000 3200002 3200002] potencia_paquete_w=112.79 dt_s=20.293759508
+[2026-09-30T20:05:51-04:00] estado verificado: epp=power no_turbo=1 min=800000 max=3200000
+[2026-09-30T20:06:14-04:00] diag epp=power cpu0_freq_khz=[3200000 3200005 3200000 3200002 3200002 3200000 3200000 3199997 3200002 3199997 3200000 3200002 3199997 3199997 3200000 3199997 3200002 3200000 3200002 3199997] potencia_paquete_w=113.26 dt_s=20.284697670
+[2026-09-30T20:06:14-04:00] diagnostico terminado (AUTO_CONTINUE=1, sin gate manual); ver cpu0_freq_khz y potencia_paquete_w de cada EPP
+[2026-09-30T20:06:16-04:00] estado verificado: epp=power no_turbo=1 min=800000 max=3200000
+[2026-09-30T20:06:16-04:00] INICIO EA_confirmatorio_epppower
+[2026-09-30T21:12:07-04:00] OK EA_confirmatorio_epppower
+[2026-09-30T21:12:07-04:00] TODAS LAS ETAPAS TERMINARON
+[2026-09-30T21:12:07-04:00] estado de CPU restaurado al original
