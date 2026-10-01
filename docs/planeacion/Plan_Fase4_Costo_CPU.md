@@ -68,3 +68,27 @@ docs/libro/scripts/analisis_diag_7823_7824_20260930.py.
 Diagnóstico con carga sostenida: 113.3 W (power) frente a 112.8 W (balance_performance), ambos a 3.2 GHz. Confirmatorio de 5
 bloques: agente/base 0.981 de EDP del nodo (IC95 0.974 a 0.988, 5/5, p = 0.0625); agente/F1 fijo 0.994 (0.987 a 1.001, 4/5);
 muestras de F1 fijo fuera de rango solo en DGEMM, como en E-A. Datos: .../epppower_7823/.
+
+## Segunda parte: descomposición del costo en reposo (declarada el 2026-09-30, antes de medir)
+
+El job 7824 refutó la cadencia como causa en la aplicación de kernels vistos, y mostró que con el nodo en reposo el agente
+solo eleva la potencia de CPU de 75.6 a 146.3 W. El reposo es el lugar donde descomponerlo, porque el efecto es seis veces
+mayor y no tiene ruido de aplicación.
+
+Diseño (`scripts/pacca/hyp_fase4_costo_reposo.sbatch`): `sleep` en los núcleos 0-5 como objetivo, 60 s por celda, 3 bloques
+aleatorizados (semilla 20261004), RAPL de ambos paquetes y los mismos registros de reposo, interrupciones y tiempo por hilo.
+Brazos: `reposo`; `sombra_1ms` (referencia); `sombra_10ms`; `sombra_100ms`; `sombra_noperf` (agente completo, colector sin
+leer contadores, `--no-perf`); `despertador_1ms` (sin agente: proceso mínimo en el núcleo 6 que duerme 1 ms en bucle).
+
+Lectura de los resultados, fijada de antemano:
+- si `despertador_1ms` y `sombra_noperf` ya elevan la potencia como `sombra_1ms`: el costo es el despertar a 1 kHz;
+- si solo `sombra_1ms` y `sombra_10ms` la elevan: es la lectura de contadores o el agente cargado, no el despertar;
+- si `sombra_100ms` y `sombra_10ms` bajan en proporción a la cadencia: hay una dosis-respuesta en reposo que la aplicación
+  enmascara;
+- si ninguna variante baja de `sombra_1ms`: lo produce la mera presencia del proceso (modelo cargado, hilos), a descomponer
+  en una tercera parte.
+
+Nodos: paccaA100 (plataforma de la tesis, estado de la base del libro) y un nodo de la partición normal (pacca01, Xeon Gold
+5320, sin permisos de frecuencia, turbo activo, `performance`) como medición inmediata sin cola GPU. Los dos SKU son
+Ice Lake-SP pero distintos: del nodo normal solo se interpreta qué componente produce el costo, no su magnitud en vatios.
+No se escribe nada en el libro hasta tener ambas.
