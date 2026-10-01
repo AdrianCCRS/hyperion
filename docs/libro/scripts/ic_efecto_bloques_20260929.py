@@ -26,6 +26,10 @@ def e_gpu(r):
     return float(r["e_gpu_j"])
 
 
+def duracion(r):
+    return float(r["wall_s"])
+
+
 def resumen(razones):
     logs = [math.log(x) for x in razones]
     n = len(logs)
@@ -56,7 +60,7 @@ def main():
     print("experimento,brazo,metrica,n,media_geom,ic95_inf,ic95_sup,p_t_pareada,mediana_razones")
     for nombre, ruta, col, base, brazos in casos:
         for brazo, pares in por_bloque(ruta, col, base, brazos).items():
-            for metrica, f in (("edp_nodo", edp), ("e_gpu", e_gpu)):
+            for metrica, f in (("edp_nodo", edp), ("e_gpu", e_gpu), ("duracion", duracion)):
                 razones = [f(a) / f(b) for a, b in pares]
                 g, lo, hi, p = resumen(razones)
                 print(f"{nombre},{brazo},{metrica},{len(razones)},{g:.4f},{lo:.4f},{hi:.4f},{p:.4g},{st.median(razones):.4f}")
