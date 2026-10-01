@@ -344,7 +344,7 @@ Exactitud balanceada sobre la familia retirada en función del número de famili
 
 ### 7.7 Energía, tiempo y producto energía–retardo por nivel de frecuencia en CPU
 
-Se cita en la sección 3.1.6 del libro. Desde la revisión del 2026-09-30 también está en el Anexo A del libro.
+Se cita en la sección 3.1.6 del libro. Desde la revisión del 2026-09-30 también está en el capítulo de Resultados del libro.
 
 ![Energía, tiempo y producto energía–retardo por nivel de frecuencia en CPU](figuras/fig_cpu_energia_relativa_20260920.png)
 
@@ -376,7 +376,7 @@ Caída media de exactitud balanceada por celda al permutar cada entrada del *ran
 
 ### 7.11 Tiempo, energía y EDP relativos por nivel de frecuencia en GPU
 
-Se cita en la sección 3.2.4 del libro. Desde la revisión del 2026-09-30 también está en el Anexo A del libro.
+Se cita en la sección 3.2.4 del libro. Desde la revisión del 2026-09-30 también está en el capítulo de Resultados del libro.
 
 ![Tiempo, energía y EDP relativos por nivel de frecuencia en GPU](figuras/fig_gpu_politica_energia_relativa_20260922.png)
 
@@ -384,7 +384,7 @@ Mediana entre kernels del tiempo, la energía y el producto energía–retardo d
 
 ### 7.12 Potencia de GPU frente al reloj SM y piso estático
 
-Se cita en la sección 3.2.4 del libro. Desde la revisión del 2026-09-30 también está en el Anexo A del libro.
+Se cita en la sección 3.2.4 del libro.
 
 ![Potencia de GPU frente al reloj SM y piso estático](figuras/fig_gpu_politica_piso_20260922.png)
 
