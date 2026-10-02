@@ -80,7 +80,7 @@ def barra(ax, x, vals, color, w, gov, fs=6.3, puntos=True, etiqueta=True, off=0.
 
 
 def edp_alcance():
-    """Matriz inicial: EDP del nodo por alcance, kernels y brazo, con REF implícita en la paridad."""
+    """Matriz inicial: EDP CPU+GPU por alcance, kernels y brazo, con REF implícita en la paridad."""
     s = {gov: {(x["scope"], x["set"], x["arm"]): x for x in summarize(MATRIZ[gov]("A"))} for gov in GOVS}
     brazos = {"cpu": ("sombra", "activo", "activo_f0"), "gpu": ("sombra", "activo"), "joint": ("sombra", "activo", "activo_nofloor")}
     fig, axes = plt.subplots(1, 3, figsize=(7.4, 3.6), sharey=True, gridspec_kw={"width_ratios": (3, 2, 3)})
@@ -100,7 +100,7 @@ def edp_alcance():
         ax.set_title(g26.NOM[sc], fontsize=10)
         ax.set_ylim(0.95, 1.22)
         ax.grid(axis="x", visible=False)
-    axes[0].set_ylabel("EDP del nodo relativo a REF")
+    axes[0].set_ylabel("EDP CPU+GPU relativo a REF")
     arms_all = ("sombra", "activo", "activo_f0", "activo_nofloor")
     fig.legend(handles=[Patch(color=COL[a], label=NOM[a]) for a in arms_all], loc="lower left", bbox_to_anchor=(0.01, 0.0),
                ncol=4, frameon=False, fontsize=7.5)
@@ -146,7 +146,7 @@ def gpu_potencial():
     ax2.set_title("Fase 4, alcance GPU", fontsize=9.5)
     ax2.set_ylim(-1.5, 7)
     ax2.legend(handles=[Patch(color="#cbd5e0", label="Esperada (EDP de GPU)"), Patch(color="#2f855a", label="Medida, EDP de GPU"),
-                        Patch(color="#4a5568", label="Medida, EDP del nodo")], frameon=False, fontsize=7, loc="upper left")
+                        Patch(color="#4a5568", label="Medida, EDP CPU+GPU")], frameon=False, fontsize=7, loc="upper left")
     leyenda_gob(fig, loc="lower center", bbox_to_anchor=(0.5, 0.0))
     fig.tight_layout(rect=(0, 0.1, 1, 1))
     fig.savefig(F / "fig_fase4_gpu_potencial_20260930.png")
@@ -162,7 +162,7 @@ def escenario_e():
     labB = [f"{n}\n(n={len(B['performance'][a])} | {len(B['powersave'][a])})" for n, a in zip(("REF", "Sombra", "Activo"), armsB)]
     fig, axes = plt.subplots(2, 2, figsize=(7.4, 5.8), gridspec_kw={"width_ratios": (1.55, 1)})
     w = 0.38
-    for row, (key, tit) in enumerate((("edp", "EDP del nodo"), ("e_gpu_j", "Energía de GPU"))):
+    for row, (key, tit) in enumerate((("edp", "EDP CPU+GPU"), ("e_gpu_j", "Energía de GPU"))):
         for col, (arms, labs, datos, nombre) in enumerate(((armsA, labA, lambda gov, a: A[gov][("gpumem", "known", a)], "A (vistos)"),
                                                           (armsB, labB, lambda gov, a: B[gov][a], "B (inéditos)"))):
             ax = axes[row, col]
@@ -197,7 +197,7 @@ def escenario_d():
                 barra(ax, e_i + (2 * j + k - (n - 1) / 2) * w, [r["edp"] / ref for r in G[gov][("lammps", e, a)]], COL[a], w, gov, fs=5.6)
     ax.axhline(1, color="#4a5568", lw=0.8, ls=":")
     ax.set_xticks(range(len(entradas))); ax.set_xticklabels(entradas)
-    ax.set_ylabel("EDP del nodo relativo a REF")
+    ax.set_ylabel("EDP CPU+GPU relativo a REF")
     ax.set_ylim(0.96, 1.075)
     ax.grid(axis="x", visible=False)
     fig.legend(handles=[Patch(color=COL[a], label=l) for a, l in zip(arms, ("Sombra", "Activo GPU", "Activo GPU + agente de CPU"))],
@@ -225,7 +225,7 @@ def cloverleaf():
     arms = [("ref", "base"), ("sombra", "sombra"), ("activo", "activo")]
     fig, axes = plt.subplots(1, 4, figsize=(7.4, 3.5), sharey=True)
     w = 0.4
-    for ax, (key, tit) in zip(axes, (("wall_s", "Duración"), ("e_cpu_j", "Energía de CPU"), ("e_gpu_j", "Energía de GPU"), ("edp", "EDP del nodo"))):
+    for ax, (key, tit) in zip(axes, (("wall_s", "Duración"), ("e_cpu_j", "Energía de CPU"), ("e_gpu_j", "Energía de GPU"), ("edp", "EDP CPU+GPU"))):
         for j, gov in enumerate(GOVS):
             for i, (a, c) in enumerate(arms):
                 barra(ax, i + (j - 0.5) * w * 1.08, C[gov][a][key], COL[c], w, gov, fs=5.8, off=0.004)

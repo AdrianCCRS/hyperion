@@ -4,14 +4,14 @@
 \section{Enfoque y diseño}
 \label{sec:met-enfoque}
 
-La investigación es cuantitativa, experimental y aplicada. Es experimental porque modifica de forma controlada los estados de frecuencia de CPU y GPU para medir su efecto sobre el tiempo de ejecución, la energía y el Producto Energía--Retardo. Es aplicada porque, a partir de esas mediciones, se desarrolla y evalúa un agente de software para la gestión dinámica de frecuencia. El estado del dispositivo sin actuación del agente es el \textbf{escenario base}, identificado como \texttt{REF} en la rejilla de frecuencias, las tablas por nivel y las figuras. En la Fase 4, esta referencia se mide con los dos gobernadores nativos que expone \texttt{intel\_pstate} \cite{LinuxIntelPstate2026} en la plataforma: \textit{performance}, con una frecuencia fija de 3.2~GHz en los núcleos delegados, y \textit{powersave}, con el perfil de energía-rendimiento (EPP) en \textit{default} y un rango de 0.8 a 3.2~GHz. En ambos casos el turbo de CPU permanece desactivado, salvo en la serie de ocho bloques de E-B bajo \textit{powersave}, cuya base se midió con el turbo activado y un brazo adicional sin turbo cuantificó su efecto (sección \ref{sec:resultados-fase4-powersave}), y la GPU conserva la gestión automática del controlador. El turbo se desactiva para evitar ajustes autónomos que impidan verificar la frecuencia efectiva durante la medición. El trabajo se organiza en cuatro fases encadenadas. La primera construye el conjunto de datos etiquetado. La segunda entrena y valida los clasificadores, los exporta a ONNX y deriva las tablas de política. La tercera implementa el agente y la cuarta lo evalúa experimentalmente. El material complementario de este capítulo está en el repositorio del proyecto (sección \ref{sec:met-reproducibilidad}).
+La investigación es cuantitativa, experimental y aplicada. Es experimental porque modifica de forma controlada los estados de frecuencia de CPU y GPU para medir su efecto sobre el tiempo de ejecución, la energía y el Producto Energía--Retardo. Es aplicada porque, a partir de esas mediciones, se desarrolla y evalúa un agente de software para la gestión dinámica de frecuencia. El estado del dispositivo sin actuación del agente es el \textbf{escenario base}, identificado como \texttt{REF} en la rejilla de frecuencias, las tablas por nivel y las figuras. En la Fase 4, esta referencia se mide con los dos gobernadores nativos que expone \texttt{intel\_pstate} \cite{LinuxIntelPstate2026} en la plataforma: \textit{performance}, con una frecuencia fija de 3.2~GHz en los núcleos delegados, y \textit{powersave}, con el perfil de energía-rendimiento (EPP) en \textit{default} y un rango de 0.8 a 3.2~GHz. En ambos casos el turbo de CPU permanece desactivado, salvo en la serie de ocho bloques de E-B bajo \textit{powersave}, cuya base se midió con el turbo activado y un brazo adicional sin turbo cuantificó su efecto (sección \ref{sec:resultados-fase4-powersave}), y la GPU conserva la gestión automática del controlador. El turbo se desactiva para evitar ajustes autónomos que impidan verificar la frecuencia efectiva durante la medición. La eficiencia energética del objetivo general se mide con el EDP (sección \ref{sec:marco-edp}), que en las Fases 2 y 4 se compara siempre con la base del mismo dispositivo y gobernador; la penalización del rendimiento se reporta aparte como la razón de duraciones frente a esa base. El trabajo se organiza en cuatro fases encadenadas. La primera construye el conjunto de datos etiquetado. La segunda entrena y valida los clasificadores, los exporta a ONNX y deriva las tablas de política. La tercera implementa el agente y la cuarta lo evalúa experimentalmente. El material complementario de este capítulo está en el repositorio del proyecto (sección \ref{sec:met-reproducibilidad}).
 
 
 Se estudió una muestra intencional de cargas científicas reproducibles para CPU y GPU, elegidas para representar regímenes de ejecución contrastantes. Cada carga debía verificar su resultado, contener trabajo de punto flotante medible por el instrumento y permitir una intensidad operacional válida para el etiquetado. La diversidad y la validación se definieron por familia algorítmica, y las variantes de tamaño de un mismo algoritmo no se contaron como familias independientes. El catálogo y su proceso de selección se presentan en la sección \ref{sec:met-catalogo}.
 
 \subsection{Plataforma e instrumento de medición}
 
-Todos los experimentos se ejecutaron en un único nodo con asignación exclusiva mediante Slurm, para que cargas ajenas no compartieran los recursos durante la medición. La plataforma (Tabla \ref{tab:met-plataforma}) ofrece las interfaces para observar energía y telemetría en CPU y GPU mediante RAPL y NVML. Las actuaciones de frecuencia de CPU se aplicaron a los seis núcleos físicos delegados del primer zócalo y a sus hilos hermanos, porque ambos comparten el dominio físico de frecuencia. Los demás núcleos y el \textit{uncore}, cuya frecuencia gestiona el propio procesador, no se actuaron. En la Fase 1 la energía de CPU corresponde al paquete y a la DRAM del zócalo donde se fija la carga, que incluye esos seis núcleos, dos núcleos físicos no delegados y el \textit{uncore}. En la Fase 4, que evalúa el nodo, la energía de CPU suma los paquetes de ambos zócalos, sin la DRAM. La sección \ref{sec:auditoria-frecuencia-cpu} presenta la verificación de esta condición.
+Todos los experimentos se ejecutaron en un único nodo con asignación exclusiva mediante Slurm, para que cargas ajenas no compartieran los recursos durante la medición. La plataforma (Tabla \ref{tab:met-plataforma}) ofrece las interfaces para observar energía y telemetría en CPU y GPU mediante RAPL y NVML. Las actuaciones de frecuencia de CPU se aplicaron a los seis núcleos físicos delegados del primer zócalo y a sus hilos hermanos, porque ambos comparten el dominio físico de frecuencia. Los demás núcleos y el \textit{uncore}, cuya frecuencia gestiona el propio procesador, no se actuaron. En la Fase 1 la energía de CPU corresponde al paquete y a la DRAM del zócalo donde se fija la carga, que incluye esos seis núcleos, dos núcleos físicos no delegados y el \textit{uncore}. En la Fase 4 la energía de CPU suma los paquetes de ambos zócalos, sin la DRAM (sección \ref{sec:metodologia-fase4-medicion}). La sección \ref{sec:auditoria-frecuencia-cpu} presenta la verificación de esta condición.
 
 \begin{table}[H]
 \centering
@@ -24,7 +24,7 @@ Todos los experimentos se ejecutaron en un único nodo con asignación exclusiva
 \midrule
 CPU & 2 $\times$ Intel Xeon Gold 5315Y (Ice Lake-SP), 8 núcleos físicos por zócalo, 2 hilos por núcleo, 2 nodos NUMA \\
 Frecuencia & \texttt{intel\_pstate}, 0.8 a 3.2~GHz (3.6~GHz con \textit{turbo} activo), dominio por núcleo físico \\
-Energía de CPU & Intel RAPL, dominios de paquete y de DRAM por zócalo. Fase 1: paquete y DRAM del zócalo de la carga; Fase 4: paquetes de ambos zócalos, sin DRAM \\
+Energía de CPU & Intel RAPL, dominios de paquete y de DRAM por zócalo. Fase 1: paquete y DRAM del zócalo de la carga; Fase 4: paquetes de ambos zócalos, sin DRAM (ecuación \eqref{eq:edp-cpu-gpu}) \\
 GPU & NVIDIA A100 PCIe 40~GB, telemetría por NVML \\
 Ejecución & Nodo en asignación exclusiva (Slurm) \\
 \bottomrule
@@ -97,14 +97,14 @@ El instrumento propio tiene dos capas (Figura \ref{fig:arquitectura-instrumento}
 \label{fig:arquitectura-instrumento}
 \end{figure}
 
-Una \textbf{ventana de muestreo} es el intervalo entre dos lecturas consecutivas y contiene la diferencia entre los valores acumulados en ambos extremos. En CPU se usaron hasta nueve eventos simultáneos. Ese número sale del presupuesto de contadores físicos del nodo y se verificó experimentalmente para evitar la multiplexación y la extrapolación de las mediciones. El tráfico a DRAM se obtiene de los contadores \textit{uncore} del controlador de memoria, con intervalos de al menos 10~ms por el costo de adquisición a escalas menores \cite{PerfMeasurementOverhead2026}. Como el dominio \textit{uncore} es compartido por todo el zócalo \cite{IntelUncore2021}, cada campaña requiere asignación exclusiva del nodo para atribuir el tráfico a la carga medida. En GPU, el recolector solicita lecturas NVML cada 5~ms, pero los sensores se actualizan aproximadamente cada 100--120~ms. Por eso estas muestras se usan como telemetría agregada y no como ventanas GPU con resolución de 5~ms. Además, se registran la frecuencia observada de cada núcleo (\texttt{scaling\_cur\_freq}), la energía RAPL de paquete y de DRAM y, en GPU, la utilización de cómputo y de memoria, la potencia, el reloj del multiprocesador, la temperatura y la energía acumulada por NVML.
+Una \textbf{ventana de muestreo} es el intervalo entre dos lecturas consecutivas y contiene la diferencia entre los valores acumulados en ambos extremos. En CPU se usaron hasta nueve eventos simultáneos. Ese número sale del presupuesto de contadores físicos del nodo y se verificó experimentalmente para evitar la multiplexación y la extrapolación de las mediciones. El tráfico a DRAM se obtiene de los contadores \textit{uncore} del controlador de memoria, con intervalos de al menos 10~ms. Ese piso es una decisión de diseño: la documentación de \texttt{perf stat} advierte que la sobrecarga de la medición por intervalos puede ser alta cuando estos son pequeños \cite{PerfMeasurementOverhead2026}, y en este trabajo no se midió el costo a escalas menores. Como el dominio \textit{uncore} es compartido por todo el zócalo \cite{IntelUncore2021}, cada campaña requiere asignación exclusiva del nodo para atribuir el tráfico a la carga medida. En GPU, el recolector solicita lecturas NVML cada 5~ms, pero los sensores se actualizan aproximadamente cada 100--120~ms. Por eso estas muestras se usan como telemetría agregada y no como ventanas GPU con resolución de 5~ms. Las lecturas que repiten un mismo valor del sensor se conservan sin deduplicar; como cada actualización se repite un número parecido de veces, la mediana y la desviación estándar por corrida se aproximan a las calculadas sobre las actualizaciones distintas, y en ningún caso las lecturas se tratan como observaciones independientes. El agente, en cambio, muestrea cada 50~ms (sección \ref{sec:metodologia-agente-gpu}), de modo que la cadencia difiere entre entrenamiento y operación. Además, se registran la frecuencia observada de cada núcleo (\texttt{scaling\_cur\_freq}), la energía RAPL de paquete y de DRAM y, en GPU, la utilización de cómputo y de memoria, la potencia, el reloj del multiprocesador, la temperatura y la energía acumulada por NVML.
 
 \subsection{Modelo Roofline y etiquetado}
 \label{sec:met-roofline}
 
 La etiqueta de cada observación (\textit{compute-bound} o \textit{memory-bound}) resulta de comparar su intensidad operacional $I$ con el punto de inflexión del modelo Roofline (ecuación \eqref{eq:ridge}). Los techos se calibran al inicio de cada campaña, con la misma asignación de recursos de las corridas y según la precisión aritmética. En los barridos de frecuencia, la calibración se ajusta además al nivel correspondiente. Para ello se usan microbenchmarks de ancho de banda y de cómputo, contrastados con una referencia declarada. La expectativa cualitativa de cada carga se conserva solo como referencia y no define la etiqueta.
 
-La obtención de $I$ difiere entre CPU y GPU. En CPU, los FLOPs de cada ventana suman los subeventos escalares y vectoriales de 128, 256 y 512 bits de \texttt{FP\_ARITH\_INST\_RETIRED} \cite{IntelPerfmon2026}, ponderados por el número de operandos de doble precisión de cada instrucción (ecuación \eqref{eq:flops-medidos}). Los bytes salen de los comandos CAS del controlador de memoria, por lo que $I$ se calcula por intervalo durante la ejecución. En GPU, NVML no entrega FLOPs ni bytes por ventana o lanzamiento. Por eso la intensidad operacional se caracteriza fuera de línea con Nsight Compute \cite{Nsight2026}, y el resultado se asocia a cada corrida. Para un kernel, esa intensidad suma sobre sus $L$ lanzamientos perfilados las instrucciones de suma, multiplicación y FMA (esta última con dos FLOPs) y las divide por los bytes $B_\ell$ movidos a la memoria del dispositivo (ecuación \eqref{eq:intensidad-gpu}). Se considera estable para una configuración fija después de verificar su convergencia. Además, se distingue la precisión aritmética realmente ejercitada y se excluyen las cargas de aritmética entera o de precisión mixta, que no permiten una intensidad operacional consistente.
+La obtención de $I$ difiere entre CPU y GPU. En CPU, los FLOPs de cada ventana suman los subeventos escalares y vectoriales de 128, 256 y 512 bits de \texttt{FP\_ARITH\_INST\_RETIRED} \cite{IntelPerfmon2026}, ponderados por el número de elementos de doble precisión que procesa cada instrucción (ecuación \eqref{eq:flops-medidos}). Según la documentación de Intel, estos eventos cuentan dos veces las instrucciones FMA, porque realizan dos operaciones por elemento \cite{IntelPerfmon2026}, de modo que la ecuación cuenta cada FMA como dos operaciones sin un término adicional. Los bytes salen de los comandos CAS del controlador de memoria, por lo que $I$ se calcula por intervalo durante la ejecución. En GPU, NVML no entrega FLOPs ni bytes por ventana o lanzamiento. Por eso la intensidad operacional se caracteriza fuera de línea con Nsight Compute \cite{Nsight2026}, y el resultado se asocia a cada corrida. Para un kernel, esa intensidad suma sobre sus $L$ lanzamientos perfilados las instrucciones de suma, multiplicación y FMA (esta última con dos FLOPs) y las divide por los bytes $B_\ell$ movidos a la memoria del dispositivo (ecuación \eqref{eq:intensidad-gpu}). Se considera estable para una configuración fija después de verificar su convergencia. Además, se distingue la precisión aritmética realmente ejercitada y se excluyen las cargas de aritmética entera o de precisión mixta, que no permiten una intensidad operacional consistente.
 
 \begin{equation}
 \mathrm{FLOPs}_{i}^{\mathrm{HW}} =
@@ -177,7 +177,7 @@ La métrica principal es la exactitud media por celda de familia y clase \cite{B
 \mathrm{EB} = \frac{1}{|\mathcal{C}|}\sum_{(f,c)\in\mathcal{C}} \frac{a_{fc}}{n_{fc}},
 \label{eq:met-eb}
 \end{equation}
-donde $\mathcal{C}$ es el conjunto de celdas observadas (cada combinación de familia $f$ y clase $c$), $|\mathcal{C}|$ es el número de celdas, $a_{fc}$ son los aciertos de cada celda y $n_{fc}$ sus observaciones totales. Como complemento se reporta la puntuación $F_1$ macro agrupada. La incertidumbre se estima con cinco semillas de submuestreo y con \textit{bootstrap} de familias con 2000 réplicas \cite{EfronTibshirani1993}.
+donde $\mathcal{C}$ es el conjunto de celdas observadas (cada combinación de familia $f$ y clase $c$), $|\mathcal{C}|$ es el número de celdas, $a_{fc}$ son los aciertos de cada celda y $n_{fc}$ sus observaciones totales. En el resto del documento se la llama \textbf{exactitud balanceada por celda}. No es la exactitud balanceada estándar, que promedia la sensibilidad de las dos clases, sino un promedio macro sobre las celdas de familia y clase, de modo que cada familia pesa lo mismo con independencia de su número de intervalos. Como complemento se reporta la puntuación $F_1$ macro agrupada. La incertidumbre se estima con cinco semillas de submuestreo y con \textit{bootstrap} de familias con 2000 réplicas \cite{EfronTibshirani1993}.
 
 \begin{figure}[H]
 \centering
@@ -229,7 +229,7 @@ El modelo se evalúa de nuevo con el contrato de entradas resultante. En CPU se 
 
 \subsection{Derivación de la política de frecuencia}
 
-La política de frecuencia se deriva de forma independiente del clasificador, a partir de las mediciones de la Fase 1. Para cada clase, el EDP de cada nivel se compara con la base sobre el mismo kernel, y la ganancia agregada se estima mediante \textit{bootstrap} de kernels con 4000 réplicas (intervalo de confianza de 95\%). Un nivel solo entra en la política si su mejora está respaldada estadísticamente y supera el efecto mínimo relevante de 1\%. Las diferencias pareadas por kernel se contrastan con la prueba de rangos con signo de Wilcoxon \cite{Hollander2014}, o con la prueba $t$ pareada cuando hay ocho o más pares y Shapiro--Wilk no rechaza la normalidad. En GPU la decisión usa la familia como unidad y la prueba de Wilcoxon unilateral, que contrasta si el nivel mejora frente a la base.
+La política de frecuencia se deriva de forma independiente del clasificador, a partir de las mediciones de la Fase 1. Para cada clase, el EDP de cada nivel se compara con la base sobre el mismo kernel, y la ganancia agregada se estima mediante \textit{bootstrap} de kernels con 4000 réplicas (intervalo de confianza de 95\%). Un nivel solo entra en la política si su mejora está respaldada estadísticamente y supera el efecto mínimo relevante de 1\%. Las diferencias pareadas por kernel se contrastan con la prueba de rangos con signo de Wilcoxon \cite{Hollander2014}, o con la prueba $t$ pareada cuando hay ocho o más pares y Shapiro--Wilk no rechaza la normalidad. En GPU la decisión usa la familia como unidad y la prueba de Wilcoxon unilateral, que contrasta si el nivel mejora frente a la base. Como el nivel se elige entre varios después de inspeccionarlos y estas pruebas no se corrigen por multiplicidad, la ganancia del nivel elegido sobre todas las familias se trata como una estimación interna y descriptiva. La evidencia de generalización es la validación dejando una familia fuera, en la que el nivel se elige sin la familia evaluada y se mide sobre ella.
 
 La regla se valida dejando una familia fuera y se congela antes de evaluarse sobre familias externas. En GPU, la clase de un kernel es la mayoritaria entre sus corridas, su margen es la fracción de corridas que pertenecen a esa clase, y se marca ambigua si el margen es menor que 0.75. Los kernels ambiguos cercanos al punto de inflexión se conservan en el análisis y los tamaños de un mismo algoritmo se agrupan por familia.
 
@@ -293,9 +293,9 @@ Activo & Muestrea, clasifica, decide y escribe & Aplica la frecuencia decidida y
 \label{tab:met-parametros}
 \footnotesize
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{@{}>{\raggedright\arraybackslash}p{1.2cm}
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{1.6cm}
                     >{\raggedright\arraybackslash}p{4.0cm}
-                    >{\raggedright\arraybackslash}p{7.3cm}@{}}
+                    >{\raggedright\arraybackslash}p{6.9cm}@{}}
 \toprule
 \textbf{Proceso} & \textbf{Parámetro} & \textbf{Valor y criterio} \\
 \midrule
@@ -327,10 +327,10 @@ La Tabla \ref{tab:agente-politica} resume las acciones congeladas para la evalua
 \toprule
 \textbf{Dispositivo} & \textbf{Clase} & \textbf{Acción} \\
 \midrule
-CPU & \textit{compute\_bound} & Fija F0 (3.2~GHz, turbo desactivado); experimental \\
-CPU & \textit{memory\_bound} & Baja a F1 (2.9~GHz) con confianza mínima de 0.85; experimental \\
-GPU & \textit{memory\_bound} & Fija el reloj en 1260~MHz (F1) \\
-GPU & \textit{compute\_bound} & No actúa: libera el reloj a la gestión automática del controlador \\
+CPU & \textit{compute-bound} & Fija F0 (3.2~GHz, turbo desactivado); experimental \\
+CPU & \textit{memory-bound} & Baja a F1 (2.9~GHz) con confianza mínima de 0.85; experimental \\
+GPU & \textit{memory-bound} & Fija el reloj en 1260~MHz (F1) \\
+GPU & \textit{compute-bound} & No actúa: libera el reloj a la gestión automática del controlador \\
 GPU & \textit{revisar} (abstención) & No actúa: libera el reloj a la gestión automática del controlador \\
 \bottomrule
 \end{tabular}
@@ -395,27 +395,28 @@ Conjunto & base, sombra, activo con piso, activo sin piso & A & B & 5 \\
 \begin{table}[h!]
 \centering
 \caption[Mapa de los escenarios de la Fase 4]
-{Mapa de los escenarios de la Fase 4. El protocolo completo está en el repositorio.}
+{Mapa de los escenarios de la Fase 4 y carácter de su análisis. Todos los protocolos se fijaron antes de medir; la última columna distingue la prueba declarada en el protocolo de los análisis añadidos después de medir (\textit{post hoc}) y de los escenarios exploratorios o diagnósticos. El protocolo completo está en el repositorio.}
 \label{tab:fase4-mapa}
 \footnotesize
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{@{}>{\raggedright\arraybackslash}p{3.0cm}
-                    >{\raggedright\arraybackslash}p{10.4cm}@{}}
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{2.6cm}
+                    >{\raggedright\arraybackslash}p{6.6cm}
+                    >{\raggedright\arraybackslash}p{4.4cm}@{}}
 \toprule
-\textbf{Escenario} & \textbf{Contraste principal} \\
+\textbf{Escenario} & \textbf{Contraste principal} & \textbf{Carácter del análisis} \\
 \midrule
-Matriz inicial & Dispositivo, familias vistas e inéditas y brazo \\
-C & Repetición independiente de CPU y conjunto \\
-E & GPU con fases largas de memoria, familias vistas (E-A) e inéditas (E-B) \\
-Repetición de base & Segunda medición de la base como control de repetibilidad \\
-D & LAMMPS con cuatro entradas y fases naturales \\
-F & Diagnóstico de la solicitud de F1 fijo \\
-Confirmatorio E-A & Cinco bloques con base, sombra, agente y F1 fijo \\
-E-B ampliado & Ocho bloques de E-B y diagnóstico de variabilidad de \textit{myocyte}, con telemetría de CPU y GPU \\
-E-B con \textit{powersave} & Ocho bloques de E-B con los núcleos delegados en el gobernador \textit{powersave} (EPP \textit{default}), contraste de gobernador nativo \\
-Serie \textit{powersave} & Matriz inicial, E, confirmatorio E-A, D y CloverLeaf repetidos con los núcleos delegados en \textit{powersave}, cada brazo frente a la base del mismo gobernador \\
-CloverLeaf & Cinco bloques con base, sombra y agente en ejecución continua \\
-E-C & Fase de cómputo sensible al reloj entre las fases de memoria de E-A; seis bloques con base, agente y F1 fijo, bajo \textit{performance} y \textit{powersave} \\
+Matriz inicial & Dispositivo, familias vistas e inéditas y brazo & Descriptivo; Mann--Whitney en el alcance conjunto \\
+C & Repetición independiente de CPU y conjunto & Réplica descriptiva \\
+E & GPU con fases largas de memoria, familias vistas (E-A) e inéditas (E-B) & Exploratorio (tres repeticiones) \\
+Repetición de base & Segunda medición de la base como control de repetibilidad & Control \\
+D & LAMMPS con cuatro entradas y fases naturales & Descriptivo \\
+F & Diagnóstico de la solicitud de F1 fijo & Diagnóstico \\
+E-A por bloques & Cinco bloques con base, sombra, agente y F1 fijo & Prueba de signos declarada; IC95 y contraste con F1 fijo \textit{post hoc} \\
+E-B ampliado & Ocho bloques de E-B y diagnóstico de variabilidad de \textit{myocyte}, con telemetría de CPU y GPU & Exploratorio y diagnóstico \\
+E-B con \textit{powersave} & Ocho bloques de E-B con los núcleos delegados en el gobernador \textit{powersave} (EPP \textit{default}), contraste de gobernador nativo & Exploratorio \\
+Serie \textit{powersave} & Matriz inicial, E, E-A por bloques, D y CloverLeaf repetidos con los núcleos delegados en \textit{powersave}, cada brazo frente a la base del mismo gobernador & Réplica con el mismo análisis de cada escenario \\
+CloverLeaf & Cinco bloques con base, sombra y agente en ejecución continua & Sin prueba declarada; prueba de signos e IC95 \textit{post hoc} \\
+E-C & Fase de cómputo sensible al reloj entre las fases de memoria de E-A; seis bloques con base, agente y F1 fijo, bajo \textit{performance} y \textit{powersave} & Prueba de signos agente/F1 fijo declarada como principal; IC95 y contrastes con la base declarados como secundarios; prueba de mecanismo \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -423,19 +424,18 @@ E-C & Fase de cómputo sensible al reloj entre las fases de memoria de E-A; seis
 \subsection{Medición y análisis}
 \label{sec:metodologia-fase4-medicion}
 
-En cada celda experimental se registran la duración, la energía de CPU mediante RAPL y la energía de GPU mediante NVML. El EDP del nodo se calcula como
-
-\[
-\mathrm{EDP}=(E_{\mathrm{CPU}}+E_{\mathrm{GPU}})\,T,
-\]
-
-y se conserva además $E_{\mathrm{GPU}}T$ para los análisis específicos del acelerador. La ventana energética cubre toda la ejecución de la aplicación con los procesos del agente ya activos, y por eso incluye su sobrecarga. Al terminar cada celda se verifica que los procesos correspondientes hayan terminado y se restauran los estados de frecuencia modificados.
+En cada celda experimental se registran la duración, la energía de CPU mediante RAPL y la energía de GPU mediante NVML. La métrica de la Fase 4 es el EDP CPU+GPU,
+\begin{equation}
+\mathrm{EDP}_{\mathrm{CPU+GPU}}=\left(E^{\mathrm{pkg}}_{0}+E^{\mathrm{pkg}}_{1}+E_{\mathrm{GPU}}\right)T \quad [\mathrm{J\cdot s}],
+\label{eq:edp-cpu-gpu}
+\end{equation}
+donde $E^{\mathrm{pkg}}_{0}$ y $E^{\mathrm{pkg}}_{1}$ son las energías RAPL de paquete de los dos zócalos, $E_{\mathrm{GPU}}$ la energía acumulada que reporta NVML para la A100 y $T$ la duración de la aplicación. La frontera del sistema son esos tres dominios: quedan fuera la DRAM, la placa base, el almacenamiento, la ventilación y las pérdidas de la fuente, por lo que la métrica no es la energía total del nodo. Las aplicaciones compuestas y LAMMPS se fijan en los seis núcleos delegados del primer zócalo, pero CloverLeaf y los procesos del agente no se fijan y pueden ejecutarse en cualquier núcleo; por eso se suman ambos paquetes, para que la energía de la aplicación y la sobrecarga del agente queden completas en la medición. Como el segundo zócalo permanece casi en reposo en todos los brazos, su energía no cambia las diferencias entre brazos, pero acerca las razones a 1, de modo que los ahorros relativos reportados son conservadores. Se conserva además $E_{\mathrm{GPU}}T$ para los análisis específicos del acelerador. La ventana energética cubre toda la ejecución de la aplicación con los procesos del agente ya activos, y por eso incluye su sobrecarga. El brazo sombra mide la sobrecarga total de observación, construcción de variables e inferencia, y el activo le suma la actuación. Esa sobrecarga total acota por arriba el costo de la inferencia, cuya latencia se mide aparte (sección \ref{sec:resultados-agente-latencias}), pero no la separa de las demás componentes. Al terminar cada celda se verifica que los procesos correspondientes hayan terminado y se restauran los estados de frecuencia modificados.
 
 En la matriz inicial y en el escenario E, las aplicaciones compuestas registran fronteras de fase conocidas por construcción y las decisiones del agente, con instante, clase, confianza y actuación. LAMMPS se ejecuta con fases naturales sin etiquetar y CloverLeaf como aplicación continua. En ambos casos se conservan la telemetría y la actuación observada, pero no se asigna una verdad de fase independiente.
 
-Para cada combinación experimental se calculan las medianas de duración, energía y EDP, y su razón respecto del brazo \textit{base}. En la matriz conjunta, con observaciones no apareadas, el EDP se contrasta con una prueba bilateral de Mann--Whitney \cite{Hollander2014}. Los experimentos confirmatorios organizados por bloques se analizan con una prueba de signos exacta bilateral sobre el EDP \cite{Hollander2014}. Con cinco bloques, el menor valor $p$ que puede dar esta prueba es $2\cdot(1/2)^5=0.0625$, cuando todos los bloques favorecen al mismo brazo, por lo que solo informa la dirección del efecto. El protocolo de E-A preveía una prueba exacta de permutaciones entre brazos, cuyo mínimo con cinco corridas por brazo es 0.008, y el de CloverLeaf no fijaba una prueba. Como la aleatorización se hizo por bloques, esa prueba admitiría asignaciones que el diseño no podía producir, por lo que al analizar se sustituyó por la prueba de signos, más conservadora. E-C, diseñado después, usó seis bloques para que esta prueba pudiera llegar a 0.031.
+Para cada combinación experimental se calculan las medianas de duración, energía y EDP, y su razón respecto del brazo \textit{base}. En la matriz conjunta, con observaciones no apareadas, el EDP se contrasta con una prueba bilateral de Mann--Whitney \cite{Hollander2014}. Los experimentos por bloques, con protocolo declarado antes de medir, se analizan con una prueba de signos exacta bilateral sobre el EDP \cite{Hollander2014}. Con cinco bloques, el menor valor $p$ que puede dar esta prueba es $2\cdot(1/2)^5=0.0625$, cuando todos los bloques favorecen al mismo brazo, por lo que solo informa la dirección del efecto: un resultado de cinco de cinco bloques se lee como una dirección consistente en ese escenario y no como una confirmación estadística. El protocolo de E-A preveía una prueba exacta de permutaciones entre brazos, cuyo mínimo con cinco corridas por brazo es 0.008, y el de CloverLeaf no fijaba una prueba. Como la aleatorización se hizo por bloques, esa prueba admitiría asignaciones que el diseño no podía producir, por lo que al analizar se sustituyó por la prueba de signos, más conservadora. E-C, diseñado después, usó seis bloques para que esta prueba pudiera llegar a 0.031.
 
-La magnitud del efecto se estima con la media geométrica de las razones brazo/base por bloque y su intervalo de confianza de 95\%, obtenido con una prueba $t$ pareada sobre el logaritmo de esas razones \cite{Montgomery2017}. En E-A y CloverLeaf este análisis se añadió después de medir, y con cinco bloques no es posible verificar el supuesto de normalidad del logaritmo; en E-C se declaró antes de medir como análisis secundario. También se reportan las razones individuales por bloque en duración, energía y EDP para conservar la variabilidad entre repeticiones.
+La magnitud del efecto se estima con la media geométrica de las razones brazo/base por bloque y su intervalo de confianza de 95\%, obtenido con una prueba $t$ pareada sobre el logaritmo de esas razones \cite{Montgomery2017}. En E-A y CloverLeaf este análisis se añadió después de medir, y con cinco bloques no es posible verificar el supuesto de normalidad del logaritmo; en E-C se declaró antes de medir como análisis secundario. Por eso este intervalo describe la magnitud y no sustituye a la prueba declarada en el protocolo. Las razones individuales de cada bloque en duración, energía y EDP se muestran en las figuras, para que el efecto pueda leerse sin el supuesto paramétrico.
 
 El brazo F1 fijo bloquea el reloj de GPU en 1260~MHz durante toda la aplicación y registra la utilización y el reloj SM cada 250~ms. El protocolo declarado exigía que toda muestra con utilización de al menos 10\% quedara entre 1230 y 1290~MHz. Como el límite de potencia de la A100 lleva el reloj por debajo de 1260~MHz en la fase de cómputo de E-A también sin bloqueo, después de medir se restringió esa verificación a las fases de memoria, que son las que la política actúa. En E-A el contraste con F1 fijo es, por tanto, un análisis posterior a la medición, igual que el intervalo de confianza por bloques. En E-C el contraste se declaró antes de medir y se aplicó el criterio de reloj del protocolo sin restricción.
 

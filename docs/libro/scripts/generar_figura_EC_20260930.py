@@ -1,6 +1,6 @@
 """Figura del escenario E-C y del contraste agente frente a F1 fijo (revisión C1 del director).
 
-Paneles: (a) E-A, EDP del nodo de agente y F1 fijo frente a la REF del mismo bloque, bajo performance (job 7696) y
+Paneles: (a) E-A, EDP CPU+GPU de agente y F1 fijo frente a la REF del mismo bloque, bajo performance (job 7696) y
 powersave (job 7789); (b) E-C, lo mismo con los seis bloques de los jobs 7815 (performance) y 7818 (powersave); (c)
 duración de la fase de rodinia_heartwall en E-C por brazo (puntos llenos: performance; vacíos: powersave). Barras:
 mediana; puntos: cada bloque. En E-A el brazo F1 fijo se valida con el
@@ -32,7 +32,7 @@ ARMS = (("base", "REF", g30.COL["base"]), ("activo_gpu", "Agente", g30.COL["acti
 
 
 def por_bloque(path):
-    """{brazo: [EDP del nodo / EDP de la REF del mismo bloque]} (sin filtrar por state_ok: F1 fijo de E-A se valida aparte)."""
+    """{brazo: [EDP CPU+GPU / EDP de la REF del mismo bloque]} (sin filtrar por state_ok: F1 fijo de E-A se valida aparte)."""
     rows = list(csv.DictReader(open(path)))
     edp = {(r["arm"], r["rep"]): (float(r["e_cpu_j"]) + float(r["e_gpu_j"])) * float(r["wall_s"]) for r in rows}
     reps = sorted({rep for _, rep in edp}, key=int)
@@ -73,7 +73,7 @@ def main():
         ax.set_ylim(0.93, 1.05)
         ax.set_xticks(range(len(ARMS))); ax.set_xticklabels([n for _, n, _ in ARMS], fontsize=7.5)
         ax.grid(axis="x", visible=False)
-    axes[0].set_ylabel("EDP del nodo relativo a la REF del bloque", fontsize=8)
+    axes[0].set_ylabel("EDP CPU+GPU relativo a la REF del bloque", fontsize=8)
     axes[1].set_yticklabels([])
     ax = axes[2]
     for i, (a, _, c) in enumerate(ARMS):  # puntos y mediana (no barras): el eje no parte de cero
