@@ -39,9 +39,9 @@ g++ -O2 -o "$OUT/gpu_energy_read" "$ROOT/fase3_daemon/composite_apps/gpu_energy_
   -I"$CUDA/include" "$CUDA/targets/x86_64-linux/lib/stubs/libnvidia-ml.so"
 GER=$OUT/gpu_energy_read
 
-python3 - "$OUT/plan.txt" <<'PY'
+python3 - "$OUT/plan.txt" "${CLOVER_SEED:-20260924}" <<'PY'
 import random, sys
-rng = random.Random(20260924)
+rng = random.Random(int(sys.argv[2]))
 with open(sys.argv[1], 'w') as out:
     for block in range(1, 6):
         arms = ['ref', 'sombra', 'activo']
@@ -49,7 +49,8 @@ with open(sys.argv[1], 'w') as out:
         for arm in arms:
             out.write(f'{block} {arm}\n')
 PY
-echo 'block,arm,wall_s,e_cpu_j,e_gpu_j,kinetic,app_rc,daemon_rc,state_ok' > "$OUT/results.csv"
+# e_cpu_j = paquete 0 + paquete 1 (la métrica del libro); e_cpu0_j y e_cpu1_j, cada zócalo por separado (análisis de zócalos)
+echo 'block,arm,wall_s,e_cpu_j,e_gpu_j,kinetic,app_rc,daemon_rc,state_ok,e_cpu0_j,e_cpu1_j' > "$OUT/results.csv"
 
 app_pid=''; daemon_pid=''; sampler_pid=''
 cleanup() {
@@ -109,19 +110,21 @@ while read -r block arm; do
   printf '%s\n' "$after" > "$d/clock_after.txt"
   state_ok=0
   [ "$reset_rc" = 0 ] && [ "$before" = "$after" ] && state_ok=1
-  read -r wall cpu gpu < <(python3 - "$t0" "$t1" "$e0" "$e1" "$f0" "$f1" "$g0" "$g1" "$RMAX" <<'PY'
+  read -r wall cpu gpu cpu0 cpu1 < <(python3 - "$t0" "$t1" "$e0" "$e1" "$f0" "$f1" "$g0" "$g1" "$RMAX" <<'PY'
 import math, sys
 t0,t1,e0,e1,f0,f1,g0,g1,m = map(float,sys.argv[1:])
 wall=t1-t0
-cpu=((e1-e0)%m+(f1-f0)%m)/1e6
+cpu0=((e1-e0)%m)/1e6
+cpu1=((f1-f0)%m)/1e6
+cpu=cpu0+cpu1
 gpu=(g1-g0)/1e3
-assert all(math.isfinite(x) and x>0 for x in (wall,cpu,gpu))
-print(f'{wall:.6f} {cpu:.6f} {gpu:.6f}')
+assert all(math.isfinite(x) and x>0 for x in (wall,cpu,gpu,cpu0,cpu1))
+print(f'{wall:.6f} {cpu:.6f} {gpu:.6f} {cpu0:.6f} {cpu1:.6f}')
 PY
   )
   kinetic=$(awk '/^ step:/{v=$8} END{print v}' "$d/clover.out")
   test -n "$kinetic"
-  echo "$block,$arm,$wall,$cpu,$gpu,$kinetic,$app_rc,$daemon_rc,$state_ok" | tee -a "$OUT/results.csv"
+  echo "$block,$arm,$wall,$cpu,$gpu,$kinetic,$app_rc,$daemon_rc,$state_ok,$cpu0,$cpu1" | tee -a "$OUT/results.csv"
   [ "$app_rc" = 0 ] && { [ "$daemon_rc" = 0 ] || [ "$daemon_rc" = NA ]; } && [ "$state_ok" = 1 ] || exit 1
 done < "$OUT/plan.txt"
 

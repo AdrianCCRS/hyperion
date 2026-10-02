@@ -84,7 +84,8 @@ case " $ONLY_SCOPES " in *" lammps "*)  # copia de los benchmarks con los pasos 
     eval "st=\${STEPS_$b:?falta STEPS_$b}"; sed -i -E "s/^run[[:space:]]+100$/run\t\t$st/" "$W/in.$b"
   done;; esac
 RES="$OUT/results.csv"
-[ -f "$RES" ] || echo "cell,scope,set,arm,rep,wall_s,e_cpu_j,e_gpu_j,app_rc,rc_cpu_daemon,rc_gpu_daemon,state_ok" > "$RES"
+# e_cpu_j = paquete 0 + paquete 1 (la métrica del libro); e_cpu0_j y e_cpu1_j, cada zócalo por separado (análisis de zócalos)
+[ -f "$RES" ] || echo "cell,scope,set,arm,rep,wall_s,e_cpu_j,e_gpu_j,app_rc,rc_cpu_daemon,rc_gpu_daemon,state_ok,e_cpu0_j,e_cpu1_j" > "$RES"
 python3 - "$ONLY_SCOPES" "$ONLY_SETS" "$ONLY_ARMS" "$REPS_GENERAL" "$REPS_JOINT" "$LAMMPS_SETS" "$RANDOM_SEED" "$ORDER_MODE" > "$OUT/cells.txt" <<'PY'
 import random, sys
 scopes, sets, arms = (set(a.split()) for a in sys.argv[1:4]); rg, rj = int(sys.argv[4]), int(sys.argv[5])
@@ -232,11 +233,13 @@ run_cell() {
     [ "$clock_rc" = 0 ] || { ok=0; echo "  !!! F1 no se sostuvo bajo carga ($id): $clock_check" >&2; }
     [ "$fixed_restore_rc" = 0 ] || { ok=0; echo "gpu_clock_restore=failed" >> "$D/fixed_gpu_lock.txt"; echo "  !!! no se libero F1 ($id)" >&2; }
   fi
-  local wall ecpu egpu
+  local wall ecpu ecpu0 ecpu1 egpu
   wall=$(python3 -c "print(round($t1-$t0,3))")
   ecpu=$(python3 -c "m=$RMAX; d=lambda a,b:(b-a)%m; print(round((d($e0,$e1)+d($f0,$f1))/1e6,2))")
+  ecpu0=$(python3 -c "m=$RMAX; print(round((($e1)-($e0))%m/1e6,2))")
+  ecpu1=$(python3 -c "m=$RMAX; print(round((($f1)-($f0))%m/1e6,2))")
   egpu=$(python3 -c "print(round(($g1-$g0)/1e3,2))")
-  echo "$id,$scope,$set,$arm,$rep,$wall,$ecpu,$egpu,$app_rc,$rc_c,$rc_g,$ok" | tee -a "$RES"
+  echo "$id,$scope,$set,$arm,$rep,$wall,$ecpu,$egpu,$app_rc,$rc_c,$rc_g,$ok,$ecpu0,$ecpu1" | tee -a "$RES"
 }
 while read -r scope set arm rep; do
   grep -q "^${scope}_${set}_${arm}_${rep}," "$RES" && continue
