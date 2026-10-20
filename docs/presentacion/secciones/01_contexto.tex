@@ -1,0 +1,31 @@
+% ---------------------------------------------------------------------
+%  01 · Contexto
+%  Ideas de la presentación original (nodo heterogéneo, potencia y energía,
+%  costo y disponibilidad, DVFS depende de la fase). Un ícono grande y una
+%  frase corta por columna; el resto, de viva voz.
+% ---------------------------------------------------------------------
+\seccion{Contexto}
+
+% \ctxcol{ícono}{título}{frase}  (columna de ancho fijo, tarjeta con ícono grande)
+\newcommand{\ctxcol}[3]{%
+  \begin{minipage}[t]{0.3\textwidth}
+    \centering
+    \tikz[baseline=0]\node[circle,fill=uisgreen,text=white,minimum size=17mm,inner sep=0pt,
+      font=\fontsize{20}{22}\selectfont]{#1};\par\vspace{3mm}
+    {\large\bfseries\color{uisgreen}#2\par}\vspace{1.5mm}
+    {\small #3\par}
+  \end{minipage}}
+
+\begin{frame}{La energía limita cuánto puede escalar un nodo CPU--GPU}
+  \vspace{4mm}
+  \centering
+  \ctxcol{\faMicrochip}{Nodo heterogéneo}{CPU y GPU comparten la carga científica}\hfill
+  \ctxcol{\faBolt}{Potencia y energía}{Cada dispositivo consume según su frecuencia y su actividad}\hfill
+  \ctxcol{\faLeaf}{Costo y disponibilidad}{La energía incide en los costos operativos y en la sostenibilidad}
+
+  \vspace{7mm}
+  \begin{cardhi}[halign=center,fontupper=\normalsize,top=3mm,bottom=3mm,width=0.88\textwidth,center]
+    DVFS ajusta voltaje y frecuencia en el hardware, pero\\
+    \textbf{el beneficio depende de lo que hace la aplicación en cada fase}
+  \end{cardhi}
+\end{frame}

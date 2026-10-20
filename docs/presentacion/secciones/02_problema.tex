@@ -1,0 +1,63 @@
+% ---------------------------------------------------------------------
+%  02 · Problema
+% ---------------------------------------------------------------------
+\seccion{Problema}
+
+\definecolor{uismem}{HTML}{8DBF2E}   % lima oscuro: legible sobre blanco
+
+% Tarjeta de una fase: cabecera con el color de la fase, gráfico T(f) y resultado.
+% \phasecard{color de relleno}{color del texto de la cabecera}{título}{curva}{resultado}
+\newcommand{\phasecard}[5]{%
+  \begin{minipage}[t]{0.47\textwidth}
+    \begin{tcolorbox}[uisbase,colback=uiscard,height=50mm,valign=center,halign=center,
+      left=3mm,right=3mm,top=2mm,bottom=2mm]
+      \tikz[baseline=-0.6ex]\node[rounded corners=0.8mm,fill=#1,text=#2,font=\small\bfseries,
+        minimum width=34mm,minimum height=6mm]{#3};\par\vspace{2mm}
+      \begin{tikzpicture}[x=0.5mm,y=0.3mm]
+        \draw[uisgray2,line width=0.8pt,-{Latex[length=1.6mm]}] (0,0) -- (0,52);
+        \draw[uisgray2,line width=0.8pt,-{Latex[length=1.6mm]}] (0,0) -- (96,0);
+        \node[font=\scriptsize\bfseries,anchor=east] at (-2,50) {$T$};
+        \node[font=\scriptsize\bfseries,anchor=north] at (94,-3) {$f$};
+        \draw[#1,line width=2.4pt,domain=0:90,samples=40,smooth] plot (\x,{#4});
+      \end{tikzpicture}\par\vspace{1mm}
+      {\normalsize\bfseries #5\par}
+    \end{tcolorbox}
+  \end{minipage}}
+
+\begin{frame}{Una misma aplicación alterna fases que responden distinto a la frecuencia}
+  % fila 1: una ejecución
+  \centering
+  \noindent\begin{tikzpicture}[x=0.01\textwidth,y=1mm]
+    \node[font=\small\bfseries,anchor=south west,inner sep=0pt] at (0,9.5) {Una aplicación};
+    \fill[uisgreen] (0,0) rectangle (22,8);   \node[font=\scriptsize\bfseries,text=white] at (11,4) {compute};
+    \fill[uismem]   (22,0) rectangle (52,8);  \node[font=\scriptsize\bfseries] at (37,4) {memory};
+    \fill[uisgreen] (52,0) rectangle (68,8);  \node[font=\scriptsize\bfseries,text=white] at (60,4) {compute};
+    \fill[uismem]   (68,0) rectangle (100,8); \node[font=\scriptsize\bfseries] at (84,4) {memory};
+  \end{tikzpicture}
+
+  \vspace{1mm}
+  % fila 2: dos tarjetas iguales
+  \phasecard{uisgreen}{white}{Compute-bound}{47*(0.25+0.75*exp(-\x/40))}{Más frecuencia, menos tiempo}%
+  \hfill
+  \phasecard{uismem}{uistext}{Memory-bound}{47*(1-0.08*\x/90)}{Más frecuencia, mismo tiempo}
+\end{frame}
+
+\begin{frame}{Los gobernadores nativos no consideran qué limita la fase}
+  \vspace{6mm}
+  \centering
+  \begin{tikzpicture}[node distance=6mm]
+    \tikzset{gb/.style={ubox,text width=26mm,minimum height=14mm,font=\small}}
+    \node[gb] (u) {\textbf{Utilización}\\o política fija};
+    \node[gb,right=of u] (g) {\textbf{Gobernador}\\\texttt{performance}\\\texttt{powersave}};
+    \node[gb,right=of g] (d) {\textbf{Controlador}\\\texttt{intel\_pstate}};
+    \node[gb,uboxdark,right=of d,font=\small\bfseries] (f) {Frecuencia};
+    \draw[uarrow] (u) -- (g);
+    \draw[uarrow] (g) -- (d);
+    \draw[uarrow] (d) -- (f);
+    \node[ubox,fill=white,draw=uisgray2,dashed,text width=34mm,font=\small,below=11mm of g] (q) {¿Cómputo o memoria?};
+    \draw[uisgray,dashed,line width=0.6pt] (q) -- (g);
+    \node[below=2mm of q,font=\small\bfseries,text=uisred] {No es una entrada de la decisión};
+  \end{tikzpicture}
+  \notapie{Fuente: Linux Kernel Documentation, \textit{intel\_pstate CPU Performance Scaling Driver} y
+    \textit{CPU Performance Scaling}; Hebbar y Milenković (2022).}
+\end{frame}

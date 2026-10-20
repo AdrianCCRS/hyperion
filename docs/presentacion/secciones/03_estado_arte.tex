@@ -1,0 +1,38 @@
+% ---------------------------------------------------------------------
+%  03 · Estado del arte  (línea de tiempo)
+%  Cada columna es un hito en orden cronológico, con lo que aporta y lo
+%  que deja abierto. Fuente: libro, Estado del Arte. La última columna es
+%  este trabajo, que cierra el hueco. Los runtimes de CPU (EAR, GEOPM,
+%  COUNTDOWN) se omiten de la diapositiva por brevedad; están en el libro.
+% ---------------------------------------------------------------------
+\seccion{Estado del arte}
+
+% \hito{x}{año}{autores}{aporta}{abierto}
+\newcommand{\hito}[5]{%
+  \node[circle,fill=uisgreen,inner sep=1.6pt] at (#1,0) {};
+  \node[font=\small\bfseries,text=uisgreen,anchor=south] at (#1,2.2mm) {#2};
+  \node[ubox,anchor=north,inner sep=1.8mm] at (#1,-4mm)
+    {\parbox[t][38mm][t]{23mm}{\raggedright\scriptsize
+     {\footnotesize\bfseries\color{uisgreen}#3\par}\vspace{1.2mm}
+     {\tiny\bfseries\color{uisgreen2}APORTA}\par #4\par\vspace{1.2mm}
+     {\tiny\bfseries\color{uisred}DEJA ABIERTO}\par #5}};}
+
+\begin{frame}{La literatura resuelve el problema por partes}
+  \vspace{2mm}
+  \centering
+  \begin{tikzpicture}[x=1mm,y=1mm]
+    % eje del tiempo
+    \draw[uisgray2,line width=0.9pt,-{Latex[length=2mm]}] (0,0) -- (142,0);
+    \hito{13}{2017}{Calore et al.}{DVFS por región, en CPU y GPU}{Decisión ligada a funciones instrumentadas}
+    \hito{41}{2019 · 2023}{Guerreiro\\Ali}{Predicen la respuesta a DVFS en GPU}{Caracterización previa; solo GPU}
+    \hito{69}{2024}{MCBound}{Clasifica el régimen de la carga}{No actúa sobre la frecuencia}
+    \hito{97}{2024}{Simsek\\DRLCap}{Ajustan la frecuencia de GPU en ejecución}{Instrumentación; solo GPU}
+    % este trabajo
+    \node[circle,fill=uisgreen,draw=white,line width=1pt,inner sep=2.4pt] at (125,0) {};
+    \node[font=\small\bfseries,text=uisgreen,anchor=south] at (125,2.2mm) {Hoy};
+    \node[uboxdark,anchor=north,inner sep=1.8mm] at (125,-4mm)
+      {\parbox[t][38mm][t]{23mm}{\raggedright\scriptsize
+       {\footnotesize\bfseries Este trabajo\par}\vspace{1.2mm}
+       Clasifica la fase y actúa en CPU y GPU, en ejecución, sin instrumentar la aplicación}};
+  \end{tikzpicture}
+\end{frame}

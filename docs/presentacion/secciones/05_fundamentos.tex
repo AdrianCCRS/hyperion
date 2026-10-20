@@ -1,0 +1,75 @@
+% ---------------------------------------------------------------------
+%  05 · Fundamentos
+% ---------------------------------------------------------------------
+\seccion{Fundamentos}
+
+\begin{frame}{Roofline: la intensidad operacional define la etiqueta}
+  \begin{columns}[c]
+    \begin{column}{0.56\textwidth}
+      \begin{tikzpicture}[x=1mm,y=1mm]
+        \fill[uislight] (0,0) rectangle (32,40);
+        \fill[uismint]  (32,0) rectangle (70,40);
+        \draw[uisgray2,-{Latex[length=1.4mm]}] (0,0) -- (72,0);
+        \draw[uisgray2,-{Latex[length=1.4mm]}] (0,0) -- (0,42);
+        \draw[uisgreen,line width=1.6pt] (2,3) -- (32,33) -- (70,33);
+        \draw[uisgray,dashed] (32,0) -- (32,40);
+        \node[font=\tiny,anchor=south] at (52,33.5) {techo de cómputo $P_{\text{pico}}$};
+        \node[font=\tiny,anchor=west,align=left] at (2,26) {techo de memoria\\$I\cdot BW_{\text{pico}}$};
+        \node[ubox,fill=white,draw=uisgray2,font=\tiny,inner sep=1mm] at (32,44) {\textit{ridge point}};
+        \node[font=\tiny\bfseries,text=uisgreen] at (16,4) {memory-bound};
+        \node[font=\tiny\bfseries,text=uisgreen] at (51,4) {compute-bound};
+        \node[ulabel,anchor=north east] at (72,-1) {Intensidad operacional $I$ (FLOP/byte)};
+        \node[ulabel,anchor=south west] at (0,46) {Rendimiento (FLOP/s)};
+      \end{tikzpicture}
+    \end{column}
+    \begin{column}{0.42\textwidth}
+      \small
+      \[ P=\min\left(P_{\text{pico}},\ I\cdot BW_{\text{pico}}\right) \]
+      \[ I_i=\frac{\text{FLOPs}_i}{B_i^{\text{DRAM}}}\qquad I_{\text{ridge}}=\frac{P_{\text{pico}}}{BW_{\text{pico}}} \]
+      \begin{card}[halign=center,fontupper=\footnotesize]
+        $I<I_{\text{ridge}}\ \Rightarrow$ \textbf{memory-bound}\\
+        $I\ge I_{\text{ridge}}\ \Rightarrow$ \textbf{compute-bound}
+      \end{card}
+      {\scriptsize\color{uisgray} Los techos se calibran en el nodo, por nivel de frecuencia y precisión.}
+    \end{column}
+  \end{columns}
+  \notapie{Adaptado de Williams et al. (2009).}
+\end{frame}
+
+% Fila de la cuadrícula de modelos: caja con el nombre de la magnitud y su fórmula
+% \fila{y_sup}{alto}{nombre}{fórmula}
+\newcommand{\fila}[4]{%
+  \fill[uiscard,rounded corners=1mm] (0,#1) rectangle (84,{#1-#2});
+  \node[font=\small\bfseries,text=uisgreen,anchor=west] at (4,{#1-#2/2}) {#3};
+  \node[anchor=west] at (30,{#1-#2/2}) {#4};}
+
+\begin{frame}{Bajar la frecuencia reduce la potencia, no siempre la energía}
+  \vspace{3mm}
+  \begin{columns}[T]
+    % ---- izquierda: modelo en tres filas iguales
+    \begin{column}{0.52\textwidth}
+      \centering
+      \begin{tikzpicture}[x=0.9mm,y=1mm]
+        \fila{0}{25}{Potencia}{$P \;=\; \underbrace{P_0}_{\text{piso}} \;+\;
+          \underbrace{\alpha\,C\,V^2 f}_{\text{dinámica}}$}
+        \fila{-27.5}{15}{Energía}{$E \;=\; P\cdot T$}
+        \fila{-45}{13}{EDP}{$\text{EDP} \;=\; E\cdot T$}
+      \end{tikzpicture}
+    \end{column}
+    % ---- derecha: gráfico en una tarjeta
+    \begin{column}{0.44\textwidth}
+      \centering
+      \begin{tikzpicture}[x=1mm,y=0.42mm]
+        \fill[uiscard,rounded corners=1mm] (-6,-30) rectangle (54,108);
+        \node[font=\small\bfseries,anchor=north] at (24,106) {Potencia $P$};
+        \fill[uisline]  (2,0)  rectangle (20,38);  \fill[uisgreen] (2,38)  rectangle (20,88);
+        \fill[uisline]  (28,0) rectangle (46,38);  \fill[uisgreen] (28,38) rectangle (46,60);
+        \draw[uisgray2,line width=0.6pt] (0,0) -- (48,0);
+        \node[font=\scriptsize\bfseries] at (11,-9) {$f$ alta};
+        \node[font=\scriptsize\bfseries] at (37,-9) {$f$ baja};
+        \fill[uisline]  (2,-24)  rectangle ++(3,6);  \node[anchor=west,font=\scriptsize] at (6,-21) {$P_0$};
+        \fill[uisgreen] (22,-24) rectangle ++(3,6);  \node[anchor=west,font=\scriptsize] at (26,-21) {dinámica};
+      \end{tikzpicture}
+    \end{column}
+  \end{columns}
+\end{frame}

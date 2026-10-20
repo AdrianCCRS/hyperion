@@ -1,0 +1,177 @@
+% ---------------------------------------------------------------------
+%  Anexo
+%  \figanexo{código}{rótulo}{título}{figura}{ancho}{tarjeta 1}{tarjeta 2}{tarjeta 3}
+%  La tercera tarjeta se dibuja destacada. (El rótulo #2 queda solo como referencia.)
+% ---------------------------------------------------------------------
+\section{Anexo}
+
+\newcommand{\figanexo}[8]{%
+  \begin{frame}{#1 · #3}
+    \begin{columns}[c]
+      \begin{column}{0.68\textwidth}
+        \centering\includegraphics[width=#5\linewidth,height=0.72\textheight,keepaspectratio]{#4}
+      \end{column}
+      \begin{column}{0.3\textwidth}
+        \begin{card}#6\end{card}
+        \begin{card}#7\end{card}
+        \begin{cardhi}#8\end{cardhi}
+      \end{column}
+    \end{columns}
+  \end{frame}}
+
+% ----------------------------------------------------------------- CPU
+\figanexo{A1}{CPU · Fase 1}{Composición de fase por familia en CPU}
+  {fig_cpu_composicion_clase_por_familia_20260925.png}{1}
+  {1\,309\,755 intervalos elegibles (91.9 \%): 40.2 \% \textit{compute}, 59.8 \% \textit{memory}}
+  {La fracción \textit{compute} sube de 29.0 \% (nativo) a 46.4 \% (F8) porque el \textit{ridge} baja}
+  {Familias mixtas (npb\_bt, npb\_lu, cholmod, phasic…) aportan ejemplos cerca del \textit{ridge}}
+
+\begin{frame}{A2 · Validación de la medición: techos y frecuencia efectiva}
+  \vspace{3mm}
+  \begin{columns}[T]
+    \begin{column}{0.48\textwidth}
+      \begin{card}[height=19mm]
+        {\footnotesize\bfseries Ancho de banda}\par
+        Calibrado 58.4--58.8 GB/s frente a 64.0--66.8 GB/s de Intel Advisor (8--13 \% por debajo)
+      \end{card}
+      \begin{card}[height=19mm]
+        {\footnotesize\bfseries \textit{Ridge} nativo}\par
+        Advisor lo ubica entre 7.1 y 9.5 FLOP/B; la campaña usó 8.69 FLOP/B
+      \end{card}
+    \end{column}
+    \begin{column}{0.48\textwidth}
+      \begin{card}[height=19mm]
+        {\footnotesize\bfseries Techo de cómputo}\par
+        417.8--555 GFLOP/s, consistente con 577.7 GFLOP/s de Advisor en los mismos seis núcleos
+      \end{card}
+      \begin{cardhi}[height=19mm]
+        {\footnotesize\bfseries Frecuencia efectiva}\par
+        Restringir también los hermanos SMT llevó la razón de rendimiento F0/F8 de 0.995 a 3.78 (esperado ≈ 4)
+      \end{cardhi}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\figanexo{A3}{CPU · Fase 2}{Matrices de confusión y métricas del clasificador CPU}
+  {fig_cpu_matriz_confusion_20260919.png}{1}
+  {Exactitud 0.769 · F1 macro 0.760 · AUC 0.842 · MCC 0.520}
+  {Sensibilidad: \textit{compute} 0.714, \textit{memory} 0.806}
+  {Con $\tau=0.85$ (derecha), F1 macro 0.842, pero refleja sobre todo qué intervalos quedan fuera}
+
+\figanexo{A4}{CPU · Fase 2}{El resultado en CPU varía mucho entre familias}
+  {fig_cpu_resultado_por_familia_20260919.png}{0.8}
+  {\textbf{14} familias superan 0.9 de exactitud}
+  {\textbf{5} quedan por debajo de 0.55; npb\_ft en \textbf{0.314}}
+  {Las peores tienen un perfil de contadores igual al de familias de la clase contraria}
+
+\figanexo{A5}{CPU · Fase 2}{El límite está en la información: perfiles gemelos}
+  {fig_cpu_perfiles_gemelos_20260922.png}{1}
+  {gap\_pr (\textit{memory}) y la fase \textit{compute} de phasic: MPKI 0.82 vs 0.94, IPC 1.11 vs 0.97}
+  {kNN sin ajuste: 0.684; curva de aprendizaje 0.615 → 0.718 (3 a 23 familias)}
+  {Con $I$ como entrada se llega a 0.9989: la brecha es información que las seis señales no transportan}
+
+\figanexo{A6}{CPU · Fase 2}{Abstención en CPU: $\tau=0.85$ decide el 72.2 \%}
+  {fig_cpu_umbral_calibracion_20260919.png}{1}
+  {Sobre lo decidido sube solo de 0.728 a 0.738; abstenerse al azar no mejora}
+  {Sobreconfianza fuera de familia: confianza media 0.890, exactitud 0.764 (ECE 0.126)}
+  {Con confianza $\ge 0.9$, npb\_ft acierta 32 \% y npb\_mg 35 \%}
+
+\figanexo{A7}{CPU · Fase 2}{Política CPU: no actuar en ninguna clase}
+  {fig_cpu_politica_forest_20260922.png}{1}
+  {Cómputo: F0 mejora 0.56 \%, menos que el efecto mínimo de 1 \%}
+  {Memoria: F1 empeora 5.4 \% (IC95 3.4 a 6.8)}
+  {Un oráculo por kernel ganaría 2.2 \% en promedio; 22 de 47 kernels bajo 1 \%}
+
+\figanexo{A8}{CPU · Fase 2}{En CPU el tiempo crece más de lo que cae la potencia}
+  {fig_cpu_energia_relativa_20260920.png}{1}
+  {La energía de memoria se mantiene cerca de la referencia hasta \textasciitilde 2 GHz}
+  {Con $P(f)=P_0+c\,f^k$, bajar el reloj mejora el EDP solo si $\beta<\beta_{\text{crít}}$}
+  {$\beta_{\text{crít}}$: mediana 0.14, máximo 0.33; el cómputo denso tiene $\beta\approx1$}
+
+\figanexo{A9}{CPU · Fase 2}{En CPU el 84 \% de la potencia es piso}
+  {fig_cpu_energia_piso_20260920.png}{1}
+  {Piso de \textasciitilde 85 W de paquete + DRAM del zócalo de la carga a 3.2 GHz}
+  {Según el kernel, el piso va de 62 a 94 \% de la potencia}
+  {Incluye \textit{uncore}, DRAM y núcleos no delegados: la conclusión es sobre los núcleos delegados}
+
+% ----------------------------------------------------------------- GPU
+\figanexo{A10}{GPU · Fase 2}{Ningún modelo GPU domina en exactitud}
+  {fig_gpu_comparacion_modelos_20260922.png}{1}
+  {RF 0.807, \textit{extra trees} 0.806 y regresión logística 0.792: indistinguibles}
+  {RF supera a XGBoost con probabilidad de superioridad 0.984}
+  {La búsqueda de hiperparámetros empeoró 4 de 5 modelos: se descartó}
+
+\figanexo{A11}{GPU · Fase 2}{Matrices de confusión del \textit{random forest} de GPU}
+  {fig_gpu_rf_matriz_confusion.png}{1}
+  {Exactitud 0.892 · F1 macro 0.881 · AUC 0.913 · MCC 0.763}
+  {Con $\tau=0.90$: 0.900, cobertura por celda 65.7 \%; 0 errores en \textit{memory}}
+  {De 239 corridas que activarían F1, 224 son \textit{memory} (precisión 0.937)}
+
+\figanexo{A12}{GPU · Fase 2}{Política GPU: no actuar en cómputo, F1 en memoria}
+  {fig_gpu_politica_forest_20260922.png}{1}
+  {Cómputo: F1 +2.1 \% (IC95 $-12.7$ a 14.2; $p=0.438$) → no actuar}
+  {Memoria: F1 +8.9 \% (IC95 3.0 a 13.3; $p=0.020$), estimación interna; con la familia fuera, 6.5 \% (IC95 $-4.0$ a 13.1)}
+  {rodinia\_gaussian pierde 27.3 \%: $\beta=0.941$ pese a ser \textit{memory-bound}}
+
+\figanexo{A13}{GPU · Fase 2}{En GPU la energía de memoria cae hasta F3}
+  {fig_gpu_politica_energia_relativa_20260922.png}{1}
+  {Piso estático $P_0=38.5$ W: 55.8 \% de la potencia al reloj más alto (CPU: 84 \%)}
+  {$\beta$ mediano: \textit{compute} 0.837, \textit{memory} 0.189}
+  {EDP $<1$ en F1--F2 para \textit{memory}; desde F5 domina el tiempo}
+
+% ----------------------------------------------------------------- Fase 3
+\newcommand{\vcard}[2]{\begin{card}[height=21mm,valign=top]{\footnotesize\bfseries #1}\par\vspace{0.6mm}#2\end{card}}
+\begin{frame}{A14 · Verificación del agente antes de la evaluación}
+  \vspace{2mm}
+  \begin{columns}[T]
+    \begin{column}{0.32\textwidth}
+      \vcard{Exportación ONNX}{Diferencia máx.\ de probabilidad $3\times10^{-7}$ (CPU) y $9\times10^{-8}$ (GPU); ninguna etiqueta cambia}
+      \vcard{Coordinación}{Con ambos procesos activos, el piso de CPU de 3.2 GHz se respetó en el 99.2 \% de las muestras}
+    \end{column}
+    \begin{column}{0.32\textwidth}
+      \vcard{Latencias}{Inferencia 16.4 µs (CPU) y 97 µs (GPU); escritura CPU 2.85 ms en paralelo; cambio de reloj GPU 0.35--0.37 s}
+      \vcard{Premisa física}{Con el reloj fijado, \textit{compute} escala con el reloj y \textit{memory} no cae hasta 510 MHz}
+    \end{column}
+    \begin{column}{0.32\textwidth}
+      \vcard{Restauración}{Ante SIGTERM o SIGINT devolvió reloj GPU, turbo y rango de CPU al estado inicial, código de salida 0}
+      \vcard{Permanencia mínima GPU}{3.7 s: diez veces la latencia de un cambio completo}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+% ----------------------------------------------------------------- Fase 4
+\figanexo{A15}{Fase 4}{Aplicaciones compuestas y clasificación en el lazo}
+  {fig_fase4_aplicaciones_20260926.png}{1}
+  {Tiempo en fases \textit{memory}: de 15 \% (B, CPU) a 71 \% (A)}
+  {CPU: acierta 96.7--97.5 \% (vistas) y 99.6--99.8 \% (inéditas), ponderado por ventanas}
+  {GPU: ninguna decisión errónea; se abstuvo en 2/12 (A) y 4--5/12 (B)}
+
+\figanexo{A16}{Fase 4}{Matriz inicial: el proceso de CPU empeora el EDP}
+  {fig_fase4_edp_alcance_20260930.png}{1}
+  {GPU activo: EDP 1.00 en A y B; sombra 1.01 y 1.00}
+  {CPU activo: 1.15 (A) y 1.06 (B); conjunto 1.04 y 1.06 ($p=0.0079$)}
+  {Sombra CPU ya en 1.10 y 1.05: +13.6 W y +6.2 W a igual duración}
+
+\figanexo{A17}{Fase 4}{Potencial de la GPU en la matriz inicial}
+  {fig_fase4_gpu_potencial_20260930.png}{1}
+  {Esperado (fracción \textit{memory} × 8.9 \%): 3.2 \% (A) y 4.3 \% (B) de EDP GPU}
+  {Medido: 0.5 \% y 3.0 \% de EDP GPU; 0.1 y 0.2 \% del EDP CPU+GPU; no se separa de cero}
+  {En B, 4 de 6 decisiones sobre BabelStream fueron abstenciones: motivó el escenario E}
+
+\figanexo{A18}{Fase 4}{Escenario E: fases de memoria largas}
+  {fig_fase4_E_20260930.png}{0.85}
+  {E-A: agente 0.962 de EDP CPU+GPU (IC95 0.946--0.977); energía GPU 0.928}
+  {F1 fijo 0.964; agente/F1 fijo = 0.998 (IC95 0.990--1.006)}
+  {E-B: sombra 1.028 y activo 1.016 (descriptivo); myocyte bimodal}
+
+\figanexo{A19}{Fase 4}{CloverLeaf: una decisión sostenida en una aplicación externa}
+  {fig_fase4_cloverleaf_20260930.png}{1}
+  {Una decisión \textit{memory-bound} con confianza 1.00 a los \textasciitilde 3 s; resultado físico idéntico ($10^{-8}$)}
+  {EDP CPU+GPU 0.961 (IC95 0.954--0.968); energía GPU 0.936; duración 1.001}
+  {Se comporta como F1 fijo mientras la GPU está activa; F1 fijo no se midió aquí}
+
+\figanexo{A20}{Fase 4}{LAMMPS: paridad con la base}
+  {fig_fase4_D_20260930.png}{1}
+  {GPU activo entre 1.003 y 1.009 de la base según la entrada}
+  {chain y rhodo: sin decisiones; lj y eam: solo \textit{compute} → nunca F1}
+  {Con el agente de CPU en observación: +2.9 a 3.4 \% de EDP}

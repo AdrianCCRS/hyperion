@@ -1,0 +1,79 @@
+% =====================================================================
+%  uisextras.sty
+%  Complementos sobre el tema SHZU: paleta, cajas de contenido y estilos
+%  TikZ para los diagramas. No cambia el marco del tema (barras, pie).
+% =====================================================================
+\ProvidesPackage{uisextras}
+
+\RequirePackage{tikz}
+\RequirePackage[most]{tcolorbox}
+\usetikzlibrary{arrows.meta,positioning,calc,fit}
+
+% caracteres Unicode usados en el texto (pdfLaTeX)
+\DeclareUnicodeCharacter{2192}{\ensuremath{\rightarrow}}
+\DeclareUnicodeCharacter{2248}{\ensuremath{\approx}}
+
+% ---------------------------------------------------------------------
+%  Paleta (derivada del color del tema)
+% ---------------------------------------------------------------------
+\colorlet{uisgreen}{shzucolor}         % principal
+\colorlet{uisgreen2}{shzucolor!80!white}
+\definecolor{uislime}{HTML}{C9E97A}    % segunda serie / memory-bound
+\colorlet{uislight}{shzucolor!12}      % caja destacada
+\colorlet{uismint}{shzucolor!22}
+\colorlet{uiscard}{black!5}            % caja neutra
+\definecolor{uistext}{HTML}{1F2421}
+\definecolor{uisgray}{HTML}{5F6368}
+\definecolor{uisline}{HTML}{BDBDBD}
+\definecolor{uisgray2}{HTML}{9AA0A6}
+\definecolor{uisred}{HTML}{9C2F2F}
+
+% ---------------------------------------------------------------------
+%  Envoltorios de sección (se usan en secciones/*.tex)
+% ---------------------------------------------------------------------
+\newcommand{\seccion}[1]{\section{#1}}
+\newcommand{\subseccion}[1]{\subsection{#1}}
+% nota pequeña fija en la esquina inferior izquierda, sobre el pie (fuentes, aclaraciones)
+\newcommand{\notapie}[1]{%
+  \begin{tikzpicture}[remember picture,overlay]
+    \node[anchor=south west,inner sep=0pt,text width=0.88\paperwidth,align=left,
+      font=\tiny,text=uisgray] at ($(current page.south west)+(9mm,9mm)$) {#1};
+  \end{tikzpicture}}
+
+% ---------------------------------------------------------------------
+%  Cajas de contenido
+% ---------------------------------------------------------------------
+\tcbset{
+  uisbase/.style={enhanced,arc=1mm,boxrule=0pt,frame hidden,
+    left=1.6mm,right=1.6mm,top=1.2mm,bottom=1.2mm,
+    fontupper=\scriptsize,halign=flush left,before skip=1.2mm,after skip=1.2mm},
+}
+\newtcolorbox{card}[1][]{uisbase,colback=uiscard,#1}
+\newtcolorbox{cardhi}[1][]{uisbase,colback=uislight,#1}
+\newtcolorbox{carddark}[1][]{uisbase,colback=uisgreen,fontupper=\scriptsize\color{white},#1}
+% caja con título en barra verde, como los bloques del tema
+\newtcolorbox{blockcard}[2][]{uisbase,colback=uiscard,colbacktitle=uisgreen,
+  coltitle=white,fonttitle=\scriptsize\bfseries,title={#2},toptitle=0.5mm,bottomtitle=0.5mm,#1}
+
+\newcommand{\bignum}[2][uisgreen]{{\fontsize{22}{24}\selectfont\bfseries\color{#1}#2}}
+\newcommand{\badge}[2][uisgreen]{\tikz[baseline=(b.base)]\node[circle,fill=#1,text=white,
+  inner sep=0pt,minimum size=4mm,font=\tiny\bfseries](b){#2};}
+\newcommand{\yesmark}{\tikz[baseline=-0.6ex]\node[circle,fill=uisgreen,text=white,
+  minimum size=5mm,inner sep=0pt,font=\small\bfseries]{\checkmark};}
+\newcommand{\nomark}{\tikz[baseline=-0.6ex]\node[circle,draw=uisred,line width=0.6pt,
+  text=uisred,minimum size=5mm,inner sep=0pt,font=\small\bfseries]{$\times$};}
+
+% ---------------------------------------------------------------------
+%  Estilos TikZ de los diagramas
+% ---------------------------------------------------------------------
+\tikzset{
+  ubox/.style={rounded corners=1mm,fill=uiscard,align=center,font=\scriptsize,
+    inner sep=1.6mm,text=uistext},
+  uboxhi/.style={ubox,fill=uislight},
+  uboxdark/.style={ubox,fill=uisgreen,text=white,font=\scriptsize\bfseries},
+  uboxline/.style={ubox,fill=white,draw=uisgreen,line width=0.6pt},
+  uarrow/.style={-{Latex[length=1.8mm]},uisgreen,line width=0.7pt},
+  ulabel/.style={font=\tiny\bfseries,text=uisgray},
+}
+
+\endinput

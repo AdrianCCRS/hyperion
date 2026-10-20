@@ -1,0 +1,275 @@
+% ---------------------------------------------------------------------
+%  06 · Metodología
+% ---------------------------------------------------------------------
+\seccion{Metodología}
+
+\begin{frame}{Cuatro fases encadenadas, de la medición a la evaluación}
+  \vspace{4mm}
+  \centering
+  \begin{tikzpicture}[node distance=6mm]
+    \tikzset{fase/.style={uboxdark,text width=26mm,minimum height=22mm,font=\normalsize},
+             sal/.style={uboxhi,text width=26mm,minimum height=19mm,font=\small}}
+    \node[fase] (f1) {Fase 1\\[1mm]\small\normalfont Caracterización y telemetría};
+    \node[fase,right=of f1] (f2) {Fase 2\\[1mm]\small\normalfont Clasificador y política};
+    \node[fase,right=of f2] (f3) {Fase 3\\[1mm]\small\normalfont Agente DVFS};
+    \node[fase,right=of f3] (f4) {Fase 4\\[1mm]\small\normalfont Evaluación};
+    \foreach \a/\b in {f1/f2,f2/f3,f3/f4} \draw[uarrow] (\a) -- (\b);
+    \node[sal,below=9mm of f1] (s1) {Conjunto de datos etiquetado con Roofline};
+    \node[sal,below=9mm of f2] (s2) {Modelos ONNX, umbral y tabla de política};
+    \node[sal,below=9mm of f3] (s3) {Dos procesos C++ en espacio de usuario};
+    \node[sal,below=9mm of f4] (s4) {EDP CPU+GPU frente a la base nativa};
+    \foreach \i in {1,...,4} \draw[uarrow,uisgray2] (f\i) -- (s\i);
+  \end{tikzpicture}
+  \notapie{\textbf{Plataforma:} Intel Xeon Gold 5315Y (Ice Lake-SP), 6 núcleos delegados + NVIDIA A100 PCIe 40 GB · nodo exclusivo vía Slurm}
+\end{frame}
+
+\subseccion{Fase 1}
+% Escalera de frecuencia: REF + F0..F8 (verde oscuro = frecuencia alta, claro = baja)
+% \escalera{y}{dispositivo}{valor F0}{valor F8}{telemetría}{familias}
+\newcommand{\escalera}[6]{%
+  \node[font=\normalsize\bfseries,text=uisgreen,anchor=east] at (14,{#1+2}) {#2};
+  \node[font=\scriptsize,text=uisgray,anchor=east] at (14,{#1-3}) {#6};
+  \node[rounded corners=0.8mm,fill=uisline,minimum width=9mm,minimum height=9mm,
+    font=\scriptsize\bfseries,inner sep=0pt] at (20,#1) {REF};
+  \foreach \i in {0,...,8} {
+    \pgfmathsetmacro{\pct}{100-\i*9.5}
+    \node[rounded corners=0.8mm,fill=uisgreen!\pct!white,minimum width=9mm,minimum height=9mm,
+      font=\scriptsize\bfseries,inner sep=0pt,text=\ifnum\i<5 white\else uistext\fi]
+      at ({30+\i*10},#1) {F\i};}
+  \node[font=\scriptsize,text=uisgray,anchor=north] at (30,{#1-6}) {#3};
+  \node[font=\scriptsize,text=uisgray,anchor=north] at (110,{#1-6}) {#4};
+  \node[uboxhi,font=\small\bfseries,minimum width=26mm,minimum height=9mm,anchor=west]
+    at (121,#1) {#5};}
+
+\begin{frame}{Fase 1: cada carga se mide en diez niveles de frecuencia}
+  \vspace{1mm}
+  \centering
+  \begin{tikzpicture}[x=0.9mm,y=1mm]
+    % cabeceras
+    \node[ulabel,anchor=south] at (70,32) {\small 10 niveles de frecuencia $\times$ 3 repeticiones};
+    \draw[uarrow,uisgray2] (28,30) -- (112,30);
+    \node[ulabel,anchor=south west] at (121,32) {\small Telemetría};
+    \escalera{18}{CPU}{3.2 GHz}{0.8 GHz}{Perf · RAPL}{30 familias}
+    \escalera{-4}{GPU}{1410 MHz}{210 MHz}{NVML}{16 familias}
+  \end{tikzpicture}
+  \notapie{REF: estado nativo del dispositivo. CPU con turbo desactivado.}
+\end{frame}
+
+% Fila de la etiqueta: dispositivo | cómo se obtiene I | recta de I frente al ridge
+% \filaetiqueta{y}{dispositivo}{granularidad}{valor del ridge}
+\newcommand{\filaetiqueta}[4]{%
+  \node[font=\large\bfseries,text=uisgreen,anchor=east] at (13,#1) {#2};
+  % cómo se obtiene I
+  \node[ubox,minimum width=50mm,minimum height=19mm,anchor=west,inner sep=1mm] at (16,#1)
+    {\parbox{47mm}{\centering {\normalsize\bfseries $I=\dfrac{\text{FLOPs}}{\text{bytes}}$}\par\vspace{0.8mm}
+     {\small #3}}};
+  \draw[uarrow,line width=1pt] (68,#1) -- (77,#1);
+  % recta: memory | ridge | compute
+  \fill[uislime]  (80,{#1-5}) rectangle (104,{#1+5});
+  \fill[uisgreen] (104,{#1-5}) rectangle (138,{#1+5});
+  \node[font=\small\bfseries] at (92,#1) {memory};
+  \node[font=\small\bfseries,text=white] at (121,#1) {compute};
+  \draw[uistext,line width=1.2pt] (104,{#1-8}) -- (104,{#1+8});
+  \node[font=\scriptsize,anchor=south] at (104,{#1+8.5}) {\textbf{\textit{ridge}}: #4};}
+
+\begin{frame}{La etiqueta compara la intensidad medida con el \textit{ridge} calibrado}
+  \vspace{0mm}
+  \centering
+  \begin{tikzpicture}[x=0.95mm,y=1mm]
+    \node[ulabel,anchor=south] at (41,27) {\small Intensidad operacional $I$};
+    \node[ulabel,anchor=south] at (109,27) {\small Etiqueta};
+    \filaetiqueta{12}{CPU}{por intervalo, $\approx$10 ms}{8.69 $\to$ 2.92 FLOP/B}
+    \filaetiqueta{-12}{GPU}{por kernel, fuera de línea}{14.97 (FP32) · 6.90 (FP64) FLOP/B}
+  \end{tikzpicture}
+  \notapie{\textit{Ridge} calibrado en el nodo por nivel de frecuencia y precisión; el de CPU baja con el reloj. Valores GPU en el nivel de referencia.}
+\end{frame}
+
+\subseccion{Fase 2}
+% Etiqueta de variable de entrada: \varchip{x}{y}{texto}
+\newcommand{\varchip}[3]{\node[uboxhi,minimum width=17mm,minimum height=9.5mm,font=\small,
+  inner sep=0.6mm,align=center] at (#1,#2) {#3};}
+
+\begin{frame}{Fase 2: un clasificador ligero aproxima la etiqueta con señales}
+  \vspace{-2mm}
+  \centering
+  \begin{tikzpicture}[x=0.95mm,y=1mm]
+    \node[ulabel,anchor=south] at (37,25) {\small Variables};
+    \node[ulabel,anchor=south] at (131,25) {\small Salida};
+    % tarjeta CPU (Perf, 6 variables)
+    \fill[uiscard,rounded corners=1mm] (0,0) rectangle (75,23.5);
+    \node[uboxdark,minimum width=13mm,minimum height=10mm,font=\small\bfseries] at (8,11.75) {Perf};
+    \varchip{27.5}{17.5}{IPC}  \varchip{45.7}{17.5}{MPKI}  \varchip{63.9}{17.5}{Tasa de\\fallos}
+    \varchip{27.5}{6}{Ciclos\\detenidos} \varchip{45.7}{6}{Instr/s} \varchip{63.9}{6}{Frecuencia}
+    % tarjeta GPU (NVML, 3 variables)
+    \fill[uiscard,rounded corners=1mm] (0,-16) rectangle (75,-3);
+    \node[uboxdark,minimum width=13mm,minimum height=10mm,font=\small\bfseries] at (8,-9.5) {NVML};
+    \varchip{27.5}{-9.5}{Utilización\\GPU} \varchip{45.7}{-9.5}{Utilización\\memoria} \varchip{63.9}{-9.5}{Desv.\ util.\\memoria}
+    % modelo, umbral y salida
+    \node[uboxdark,minimum width=20mm,minimum height=39.5mm,font=\normalsize\bfseries] (mod) at (91,3.75) {MODELO};
+    \draw[uarrow] (75,11.75) -- (81,11.75);  \draw[uarrow] (75,-9.5) -- (81,-9.5);
+    \node[ubox,minimum width=9mm,minimum height=14mm,font=\large] (tau) at (110.5,3.75) {$\tau$};
+    \draw[uarrow] (101,3.75) -- (106,3.75);
+    \node[uboxdark,minimum width=20mm,minimum height=9.5mm,font=\small\bfseries] (o1) at (131,14) {compute};
+    \node[uboxhi,minimum width=20mm,minimum height=9.5mm,font=\small\bfseries] (o2) at (131,3.75) {memory};
+    \node[ubox,fill=uisline!50,minimum width=20mm,minimum height=9.5mm,font=\small\bfseries] (o3) at (131,-6.5) {revisar};
+    \foreach \o in {o1,o2,o3} \draw[uarrow] (115,3.75) -- (\o.west);
+  \end{tikzpicture}
+
+  \vspace{-1.5mm}
+  \begin{columns}[T]
+    \begin{column}{0.40\textwidth}
+      \begin{card}[fontupper=\small,top=1.5mm,bottom=1.5mm]
+        \textbf{Prohibidas como entrada}\par\vspace{0.5mm}
+        $I$, FLOPs, bytes,\\\textit{ridge}, etiqueta
+      \end{card}
+    \end{column}
+    \begin{column}{0.56\textwidth}
+      \begin{card}[fontupper=\small,top=1.5mm,bottom=1.5mm]
+        \textbf{Modelos evaluados}\par\vspace{0.5mm}
+        Mayoritario, árbol, regresión logística,\\\textit{random forest}, \textit{extra trees}, XGBoost
+      \end{card}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{La validación retira familias completas y la política se deriva aparte}
+  \vspace{1mm}
+  \begin{columns}[T]
+    % ---- izquierda: gráfico de pliegues (LOFO), en una tarjeta de la altura de la columna derecha
+    \begin{column}{0.48\textwidth}
+      \begin{card}[height=58mm,valign=center,halign=center]
+        \begin{tikzpicture}[x=0.9mm,y=1mm]
+          \node[font=\small\bfseries] at (31.5,33) {Dejando una familia fuera (LOFO)};
+          \foreach \r in {0,1,2,3} {
+            \foreach \c in {0,...,7} {
+              \pgfmathsetmacro{\held}{int(\c==\r*2)}
+              \ifnum\held=1
+                \fill[uisgreen,rounded corners=0.5mm] ({\c*6.0},{22-\r*8}) rectangle ++(5.1,6.4);
+              \else
+                \fill[uislight,rounded corners=0.5mm] ({\c*6.0},{22-\r*8}) rectangle ++(5.1,6.4);
+              \fi
+            }
+            \node[font=\scriptsize,text=uisgray,anchor=west] at (49.5,{25-\r*8}) {pliegue \the\numexpr\r+1\relax};
+          }
+          \node[font=\scriptsize,text=uisgray] at (31.5,-6) {\dots\ una vez por familia};
+          \fill[uisgreen] (2,-14) rectangle ++(3.4,3.4);  \node[anchor=west,font=\scriptsize] at (6.5,-12.3) {familia evaluada};
+          \fill[uislight] (33,-14) rectangle ++(3.4,3.4); \node[anchor=west,font=\scriptsize] at (37.5,-12.3) {entrenamiento};
+        \end{tikzpicture}
+      \end{card}
+    \end{column}
+    % ---- derecha: fórmula y dos tarjetas, todas del mismo ancho
+    \begin{column}{0.48\textwidth}
+      \begin{card}[height=27mm,valign=center,halign=center,fontupper=\footnotesize]
+        $\displaystyle\hat y_i=\begin{cases}
+          \text{memory-bound}, & p_i\ge 0.5\ \wedge\ q_i\ge\tau\\
+          \text{compute-bound}, & p_i<0.5\ \wedge\ q_i\ge\tau\\
+          \textit{revisar}, & q_i<\tau
+        \end{cases}$
+      \end{card}
+      \begin{card}[height=15mm,valign=center,fontupper=\small]
+        \textbf{Métrica:} exactitud balanceada por celda (familia $\times$ clase)\par
+        $\tau$ elegido sin la familia retirada
+      \end{card}
+      \begin{card}[height=15mm,valign=center,fontupper=\small]
+        \textbf{Política:} por clase, el nivel con mejor EDP frente a la base (IC95 por \textit{bootstrap})
+      \end{card}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\subseccion{Fase 3}
+% Etapa del lazo: valor clave grande y verde (nodo con nombre), nombre pequeño y gris debajo
+% \etapa{nodo}{x}{y}{valor}{nombre}
+\newcommand{\etapa}[5]{%
+  \node[font=\large\bfseries,text=uisgreen,inner sep=0pt] (#1) at (#2,{#3+2.2}) {#4};
+  \node[font=\small,text=uisgray,inner sep=0pt] at (#2,{#3-4.2}) {#5};}
+
+% Fila del lazo: banda suave con la etiqueta del dispositivo y cuatro etapas, unidas por
+% flechas de igual largo, centradas en el hueco entre columnas
+% \filalazo{id}{y}{dispositivo}{{v1}{n1}}{{v2}{n2}}{{v3}{n3}}{{v4}{n4}}
+\newcommand{\filalazo}[7]{%
+  \fill[uiscard,rounded corners=1.5mm] (24,{#2-9}) rectangle (141,{#2+9});
+  \node[uboxdark,minimum width=11mm,minimum height=6mm,font=\small\bfseries,inner sep=0pt]
+    at (31,#2) {#3};
+  \etapa{#1a}{51}{#2}#4
+  \etapa{#1b}{76}{#2}#5
+  \etapa{#1c}{101}{#2}#6
+  \etapa{#1d}{128}{#2}#7
+  \foreach \x in {63.5,88.5,113.6} \draw[uarrow,line width=0.6pt] ({\x-2.4},{#2+2.2}) -- ({\x+2.4},{#2+2.2});}
+
+\begin{frame}{Fase 3: dos procesos C++ cierran el lazo en espacio de usuario}
+  \vspace{-1.5mm}
+  \centering
+  \begin{tikzpicture}[x=0.95mm,y=1mm]
+    % cabeceras de columna
+    \foreach \x/\t in {51/Telemetría,76/Inferencia,101/Decisión,128/Actuación}
+      \node[font=\small\bfseries,text=uisgray,anchor=south] at (\x,21) {\t};
+    % aplicación
+    \node[uboxline,minimum width=19mm,minimum height=16mm,font=\small\bfseries,inner sep=1mm,align=center] (app) at (10,-1)
+      {Aplicación\\[0.4mm]\normalfont\small sin modificar};
+    % filas
+    \filalazo{c}{10}{CPU}{{1 ms}{Perf}}{{ONNX}{Modelo CPU}}{{$\tau=0.85$}{50 ventanas}}{{sysfs}{núcleos}}
+    \filalazo{g}{-12}{GPU}{{50 ms}{NVML}}{{ONNX}{Modelo GPU}}{{$\tau=0.90$}{ventana 3 s}}{{nvidia-smi}{reloj GPU}}
+    \draw[uarrow] (app.north) |- (24,10);
+    \draw[uarrow] (app.south) |- (24,-12);
+    % reglas de diseño del agente, como dos tarjetas iguales
+    \node[uboxhi,minimum width=54mm,minimum height=16mm,text width=50mm,align=left,anchor=north west,inner sep=1.5mm,font=\small]
+      at (24,-24) {\textbf{Coordinación}\\GPU activa $\rightarrow$ piso de 3.2 GHz en CPU};
+    \node[uboxhi,minimum width=54mm,minimum height=16mm,text width=50mm,align=left,anchor=north west,inner sep=1.5mm,font=\small]
+      at (84,-24) {\textbf{Restauración}\\Devuelve el hardware a su estado inicial};
+  \end{tikzpicture}
+\end{frame}
+
+\subseccion{Fase 4}
+% Punto de la matriz de brazos: lleno (1) o vacío (0)
+\newcommand{\punto}[3]{\ifnum#3=1
+  \fill[uisgreen] (#1,#2) circle (2.3mm);
+  \else \draw[uisline,line width=1.2pt] (#1,#2) circle (2.3mm); \fi}
+% Fila de un brazo: nombre, aclaración y qué hace cada columna
+% \brazo{y}{nombre}{aclaración}{muestrea}{decide}{escribe}
+\newcommand{\brazo}[6]{%
+  \fill[uiscard,rounded corners=1mm] (0,{#1-5}) rectangle (117,{#1+5});
+  \node[font=\normalsize\bfseries,anchor=west,inner sep=0pt] at (4,{#1+1.8}) {#2};
+  \node[font=\small,text=uisgray,anchor=west,inner sep=0pt] at (4,{#1-2.8}) {#3};
+  \punto{66}{#1}{#4} \punto{88}{#1}{#5} \punto{110}{#1}{#6}}
+
+\begin{frame}{Fase 4: brazos comparables y EDP CPU+GPU frente a la base nativa}
+  \vspace{-4mm}
+  \centering
+  \begin{tikzpicture}[x=0.95mm,y=1mm]
+    \foreach \x/\t in {66/Muestrea,88/Decide,110/Escribe}
+      \node[font=\small\bfseries,text=uisgray,anchor=south] at (\x,36.5) {\t};
+    \brazo{30}{Base}{sin agente}{0}{0}{0}
+    \brazo{19}{Sombra}{con agente}{1}{1}{0}
+    \brazo{8}{Activo}{con agente}{1}{1}{1}
+    \brazo{-3}{F1 fijo}{sin agente, reloj GPU fijo}{0}{0}{1}
+    % métrica y diseño
+    \node[uboxhi,minimum width=72mm,minimum height=12mm,anchor=north west,inner sep=1mm,font=\normalsize]
+      at (0,-10) {$\text{EDP}_{\text{CPU+GPU}}=(E_{\text{pkg0}}+E_{\text{pkg1}}+E_{\text{GPU}})\cdot T$};
+    \node[uboxhi,minimum width=34mm,minimum height=12mm,anchor=north west,inner sep=1mm,font=\normalsize]
+      at (80,-10) {Bloques aleatorizados};
+  \end{tikzpicture}
+  \notapie{Turbo de CPU desactivado; en la base, la GPU queda en gestión automática del controlador.}
+\end{frame}
+
+% Tarjeta de escenario: nombre y descripción
+% \escenario{x0}{y0}{nombre}{descripción}
+\newcommand{\escenario}[4]{%
+  \fill[uiscard,rounded corners=1mm] (#1,#2) rectangle ++(57,17);
+  \node[font=\normalsize\bfseries,text=uisgreen,anchor=west,inner sep=0pt] at ({#1+3},{#2+11.8}) {#3};
+  \node[font=\small,text=uisgray,anchor=west,inner sep=0pt] at ({#1+3},{#2+4.6}) {#4};}
+
+\begin{frame}{Seis escenarios, de aplicaciones armadas a aplicaciones externas}
+  \vspace{-2.5mm}
+  \centering
+  \begin{tikzpicture}[x=0.95mm,y=1mm]
+    \node[font=\small\bfseries,text=uisgray,anchor=west] at (0,52.5) {Aplicaciones armadas};
+    \escenario{0}{31}{Matriz inicial}{Compuestas A y B}
+    \escenario{60}{31}{E-A}{Memoria larga · vistas}
+    \escenario{0}{12}{E-B}{Memoria larga · inéditas}
+    \escenario{60}{12}{E-C}{E-A + cómputo sensible al reloj}
+    \node[font=\small\bfseries,text=uisgray,anchor=west] at (0,7.3) {Aplicaciones externas};
+    \escenario{0}{-13}{LAMMPS}{Aplicación externa · 4 entradas}
+    \escenario{60}{-13}{CloverLeaf}{Aplicación externa continua}
+  \end{tikzpicture}
+\end{frame}

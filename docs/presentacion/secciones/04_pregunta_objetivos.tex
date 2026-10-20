@@ -1,0 +1,43 @@
+% ---------------------------------------------------------------------
+%  04 · Pregunta y objetivos  (texto verbatim del plan de trabajo)
+% ---------------------------------------------------------------------
+\seccion{Pregunta y objetivos}
+
+\begin{frame}{Pregunta de investigación}
+  \vspace{6mm}
+  \begin{card}[width=0.9\textwidth,center,fontupper=\small,halign=center,top=4mm,bottom=4mm,left=5mm,right=5mm]
+    ¿En qué medida el diseño e implementación de un agente en espacio de usuario,
+    guiado por modelos ligeros de aprendizaje automático, permite ajustar la
+    frecuencia de operación (DVFS) en sistemas heterogéneos CPU--GPU para reducir
+    el consumo energético, sin que el costo de la inferencia computacional degrade
+    el rendimiento global de la aplicación, en comparación con los gobernadores
+    nativos de Linux?
+  \end{card}
+\end{frame}
+
+\begin{frame}{Objetivo general}
+  \vspace{6mm}
+  \begin{card}[width=0.9\textwidth,center,fontupper=\small,halign=center,top=4mm,bottom=4mm,left=5mm,right=5mm]
+    \textbf{Caracterizar, diseñar, implementar y evaluar} un agente en espacio de
+    usuario basado en modelos ligeros de Aprendizaje Automático para el ajuste
+    dinámico de frecuencia (DVFS) en sistemas heterogéneos CPU--GPU, con el
+    propósito de maximizar la eficiencia energética en aplicaciones científicas
+    sin inducir una penalización severa en su rendimiento global.
+  \end{card}
+\end{frame}
+
+% \oe{número}{texto}
+\newcommand{\oecard}[2]{%
+  \begin{minipage}[t]{0.235\textwidth}
+    \begin{tcolorbox}[uisbase,colback=uisgreen,fontupper=\small\bfseries\color{white},halign=center,
+      sharp corners=south,bottom=1mm,top=1mm]#1\end{tcolorbox}\vspace{-2.2mm}
+    \begin{card}[sharp corners=north,height=27mm,halign=center,fontupper=\footnotesize]#2\end{card}
+  \end{minipage}}
+
+\begin{frame}{Cuatro objetivos específicos, cuatro fases}
+  \vspace{4mm}
+  \oecard{1}{\textbf{Caracterizar} cargas y consumo bajo distintas frecuencias con Perf, RAPL y NVML}\hfill
+  \oecard{2}{\textbf{Entrenar y validar} clasificadores ligeros de fase con baja latencia de inferencia}\hfill
+  \oecard{3}{\textbf{Desarrollar} un \textit{daemon} en espacio de usuario que infiera la fase y aplique DVFS}\hfill
+  \oecard{4}{\textbf{Evaluar} con EDP si el ahorro compensa la sobrecarga frente a los gobernadores nativos}
+\end{frame}

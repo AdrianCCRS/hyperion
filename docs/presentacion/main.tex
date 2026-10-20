@@ -1,0 +1,84 @@
+% =====================================================================
+%  Sustentación del trabajo de grado · tema SHZU (shzu.sty)
+%  Compilar:  latexmk -pdf main.tex   (pdfLaTeX; en Overleaf, pdfLaTeX)
+%  Contenido por sección en secciones/*.tex
+%  Complementos (cajas, colores, diagramas) en uisextras.sty
+% =====================================================================
+\documentclass[aspectratio=169]{beamer}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[spanish,es-noshorthands,es-nodecimaldot]{babel}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs,tabularx,array}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepackage{appendixnumberbeamer}
+\usepackage{fontawesome5}
+
+\title[Agente DVFS con modelos ligeros de ML]{Diseño e Implementación de un Agente en
+Espacio de Usuario para la Gestión Dinámica de Frecuencia (DVFS) en Sistemas
+Heterogéneos mediante Modelos Ligeros de Machine Learning}
+\subtitle{Trabajo de grado · Modalidad Investigación}
+\author[Cáceres Torres · Pérez Porras]{Yeison Adrián Cáceres Torres \and Ricardo Andrés Pérez Porras\\[1mm]
+  {\footnotesize Director: Gilberto Javier Díaz Toro, Ph.D.}}
+\institute[UIS · Escuela de Ingeniería de Sistemas e Informática]{Universidad Industrial de Santander\\
+  Escuela de Ingeniería de Sistemas e Informática}
+\date{}  % fecha de la sustentación
+
+\usepackage{shzu}
+\usepackage{uisextras}
+% El tema repite la tabla de contenido al inicio de cada sección; aquí sin
+% subsecciones para que quepa. Para quitarla: \AtBeginSection[]{}
+\AtBeginSection[]{
+  \begin{frame}
+    \begin{columns}[T]
+      \begin{column}{0.48\textwidth}
+        \tableofcontents[sections={1-4},currentsection,hideallsubsections]
+      \end{column}
+      \begin{column}{0.48\textwidth}
+        \tableofcontents[sections={5-8},currentsection,hideallsubsections]
+      \end{column}
+    \end{columns}
+  \end{frame}
+}
+\graphicspath{{figuras/}}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+  \vspace{-5mm}
+  \begin{center}
+    \includegraphics[height=7mm]{logos/cage.png}\hspace{4mm}%
+    \includegraphics[height=7mm]{logos/uis.png}
+  \end{center}
+\end{frame}
+
+\begin{frame}{Contenido}
+  \begin{columns}[T]
+    \begin{column}{0.48\textwidth}
+      \tableofcontents[sections={1-4},hideallsubsections]
+    \end{column}
+    \begin{column}{0.48\textwidth}
+      \tableofcontents[sections={5-8},hideallsubsections]
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\input{secciones/01_contexto}
+\input{secciones/02_problema}
+\input{secciones/03_estado_arte}
+\input{secciones/04_pregunta_objetivos}
+\input{secciones/05_fundamentos}
+\input{secciones/06_metodologia}
+\input{secciones/07_resultados}
+\input{secciones/08_conclusiones}
+\input{secciones/09_cierre}
+
+\appendix
+\AtBeginSection[]{}
+\input{secciones/10_anexo}
+
+\end{document}

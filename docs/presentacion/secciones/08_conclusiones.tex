@@ -1,0 +1,49 @@
+% ---------------------------------------------------------------------
+%  08 · Conclusiones
+% ---------------------------------------------------------------------
+\seccion{Conclusiones}
+
+\newcommand{\oecardh}[2]{%
+  \begin{minipage}[t]{0.235\textwidth}
+    \begin{tcolorbox}[uisbase,colback=uisgreen,fontupper=\small\bfseries\color{white},halign=center,
+      sharp corners=south,bottom=1mm,top=1mm]#1\end{tcolorbox}\vspace{-2.2mm}
+    \begin{card}[sharp corners=north,height=36mm,halign=center,valign=center,fontupper=\footnotesize]#2\end{card}
+  \end{minipage}}
+
+\begin{frame}{Conclusiones por objetivo}
+  \vspace{4mm}
+  \oecardh{OE1}{Instrumento y datos verificados}\hfill
+  \oecardh{OE2}{Clasificadores validados por familia: 0.728 (CPU) y 0.819 (GPU)}\hfill
+  \oecardh{OE3}{Agente C++ con inferencia de 16 y 97 µs y restauración verificada}\hfill
+  \oecardh{OE4}{GPU: $-3.8$ y $-3.9$ \% de EDP CPU+GPU. CPU: no se compensa la sobrecarga}
+\end{frame}
+
+\begin{frame}{Respuesta a la pregunta de investigación}
+  \vspace{3mm}
+  \begin{columns}[T]
+    \begin{column}{0.48\textwidth}
+      \begin{cardhi}[height=30mm]
+        \begin{tabular}{@{}m{8mm}@{}m{0.8\linewidth}@{}}
+          \yesmark & {\small\bfseries En GPU, sí}
+        \end{tabular}\par\vspace{1mm}
+        Reduce el EDP CPU+GPU sin costo de inferencia medible cuando hay fases
+        \textit{memory-bound} largas. Clasificar por fase aporta frente a un reloj fijo
+        solo si hay fases de cómputo sensibles al reloj (E-C).
+      \end{cardhi}
+    \end{column}
+    \begin{column}{0.48\textwidth}
+      \begin{card}[height=30mm]
+        \begin{tabular}{@{}m{8mm}@{}m{0.8\linewidth}@{}}
+          \nomark & {\small\bfseries En CPU, no}
+        \end{tabular}\par\vspace{1mm}
+        En esta plataforma la política es no actuar (piso de 84 \%) y el proceso de
+        observación aumenta el EDP; el aumento no se atribuye a la inferencia, que toma 16 µs.
+      \end{card}
+    \end{column}
+  \end{columns}
+  \vspace{3mm}
+  \begin{carddark}[halign=center,fontupper=\small\bfseries\color{white}]
+    Recomendación: desplegar solo el proceso de GPU
+  \end{carddark}
+  \notapie{Siguiente paso: familias externas con fases de memoria y de cómputo sensibles al reloj, modelo GPU reentrenado por ventana y menor costo de observación en CPU.}
+\end{frame}
