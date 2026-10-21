@@ -1,4 +1,4 @@
-# Guion de la sustentación (diapositivas 1 a 34)
+# Guion de la sustentación (diapositivas 1 a 43)
 
 Duración total: **30 minutos**. Ritmo de referencia: unas 130 palabras por minuto, más lento en
 las cifras. Los textos están escritos para decirse en voz alta, no para leerse palabra por palabra.
@@ -13,10 +13,11 @@ las cifras. Los textos están escritos para decirse en voz alta, no para leerse 
 | Pregunta y objetivos | 10–13 | 1:50 | 6:25 |
 | Fundamentos | 14–16 | 2:00 | 8:25 |
 | Metodología | 17–25 | 7:25 | 15:50 |
-| Resultados: Fases 1 a 3 | 26–34 | 7:50 | **23:40** |
-| *Pendiente: Fase 4, conclusiones y cierre* | 35–43 | *≈ 6:20* | *30:00* |
+| Resultados: Fases 1 a 3 | 26–34 | 7:50 | 23:40 |
+| Resultados: Fase 4 | 35–37 | 3:00 | 26:40 |
+| Conclusiones y cierre | 38–43 | 3:20 | **30:00** |
 
-Las diapositivas de índice que abren cada sección (3, 5, 8, 10, 14, 17, 26) se pasan con una frase de
+Las diapositivas de índice que abren cada sección (3, 5, 8, 10, 14, 17, 26, 38) se pasan con una frase de
 transición, sin detenerse (unos 5 s cada una).
 
 Convenciones: **[acción]** es lo que se hace o señala en pantalla; *[si hay tiempo]* es una frase
@@ -187,7 +188,7 @@ simple y 6.90 en doble.
 
 La etiqueta exige contar FLOPs y bytes. El agente no tiene esos contadores disponibles en
 operación, y en GPU obtenerlos exige perfilar, lo que alarga mucho la ejecución. Por eso un
-clasificador ligero aproxima la etiqueta con señales baratas.
+clasificador ligero aproxima la etiqueta con señales ligeras.
 
 **[variables]** En CPU usa seis variables de Perf, entre ellas IPC, MPKI, los ciclos detenidos por
 memoria y la frecuencia. En GPU, tres señales de NVML: utilización de GPU, utilización de memoria y
@@ -395,6 +396,116 @@ mil veces por segundo.
 **[+4–6 %]** Por eso, en la matriz inicial, el agente de CPU activo empeoró el EDP CPU+GPU entre
 4 y 6 %, con p = 0.0079. La conclusión es que el costo está en observar, no en actuar.
 
+## 35 · Fase 4: el agente de GPU gana con fases de memoria largas · 1:00 (24:40)
+
+**[transición]** Con el agente funcionando, ¿ahorra energía frente a la base?
+
+**[cuadrícula]** Estos son los mismos seis escenarios de la metodología, ahora con el cambio del
+EDP CPU+GPU del agente de GPU frente a la base. Negativo es ahorro.
+
+**[verdes]** Gana en tres: E-A, −3.8 %; CloverLeaf, −3.9 %; y E-C, −2.4 %. Los tres tienen fases
+de memoria largas, que es justo donde la política fija F1.
+
+**[grises]** En los otros tres queda en paridad. En la matriz inicial las fases de memoria son
+cortas; en E-B las familias son nuevas y el agente se abstuvo; y en LAMMPS nunca encontró una fase
+de memoria, así que nunca aplicó F1.
+
+## 36 · Con fases de memoria largas, el EDP CPU+GPU baja 3.8–3.9 % · 1:00 (25:40)
+
+**[barras]** Veamos los dos escenarios donde más gana. E-A es una aplicación compuesta con
+familias vistas y fases de memoria de 46 a 60 segundos; CloverLeaf es una aplicación externa que
+no armamos nosotros. El EDP CPU+GPU baja 3.8 y 3.9 %. La energía de la GPU baja más, 7.2 y
+6.4 %, y la duración prácticamente no cambia.
+
+**[pie]** ¿Por qué el EDP baja menos que la energía de GPU? Porque la CPU es el 64 % de la energía
+medida, y el agente de GPU no la toca.
+
+**[tarjetas]** Los cinco bloques mejoran en los dos escenarios. Observar sin actuar no ahorra
+nada, así que el ahorro viene de actuar. Y se mantiene con el gobernador *powersave*.
+
+**[tarjeta verde]** Pero aquí un reloj fijo en F1 logra lo mismo. Eso nos lleva a la pregunta
+siguiente.
+
+## 37 · ¿Clasificar o fijar F1? · 1:00 (26:40)
+
+**[transición]** ¿Hace falta clasificar, o basta con fijar F1 todo el tiempo?
+
+**[panel E-A]** En E-A, el agente y F1 fijo empatan: la diferencia es 0.2 %. La fase de cómputo de
+E-A, DGEMM, ya corría por debajo de 1260 MHz por el límite de potencia, así que bajar el reloj no
+le costaba nada.
+
+**[panel E-C]** E-C añade una fase de cómputo que sí depende del reloj: heartwall. Ahí F1 fijo
+pierde. *[señalar el panel derecho]* Alarga heartwall de 29.9 a 33.6 segundos, y su EDP queda peor
+que la base. El agente reconoce el cómputo, libera el reloj, y gana 2.8 % frente a F1 fijo, en los
+seis bloques.
+
+**[tarjeta E-B]** El caso contrario es E-B: con familias nuevas el agente se abstuvo, y F1 fijo
+ahorró más.
+
+**[pie]** E-C es una prueba de mecanismo: lo construimos con el kernel más favorable. Muestra
+cuándo clasificar aporta, no cuánto aporta en general.
+
+## 38 · Sección: Conclusiones · 0:05 (26:45)
+
+Para cerrar, las conclusiones.
+
+## 39 · Tres hallazgos · 1:00 (27:45)
+
+**[1]** Primero: el piso de potencia decide dónde vale la pena el DVFS. En CPU es el 84 % y no
+queda margen; en GPU es el 55.8 %, y ahí sí.
+
+**[2]** Segundo: con señales ligeras de NVML se aproxima el régimen Roofline sin perfilar, con
+0.819 en familias que el modelo no vio y 97 microsegundos por inferencia. Perfilar con Nsight
+habría alargado la ejecución unas 60 veces.
+
+**[3]** Tercero: clasificar por fase gana solo cuando hay cómputo sensible al reloj. Donde no lo
+hay, una regla fija rinde igual.
+
+## 40 · Respuesta a la pregunta de investigación · 0:45 (28:30)
+
+**[fila 1]** ¿Reduce el consumo? En GPU, sí: 3.8 y 3.9 % de EDP CPU+GPU, 8.0 y 6.3 % si se mira
+solo la GPU, con fases de memoria largas. En CPU, no: con un piso del 84 % no hay margen.
+
+**[fila 2]** ¿La inferencia degrada el rendimiento? No: son microsegundos. Lo que cuesta en CPU es
+observar, que sube entre 5 y 9 % la energía de CPU.
+
+**[fila 3]** ¿Frente a los gobernadores nativos? El resultado de GPU se mantiene con *performance*
+y con *powersave*.
+
+**[barra]** Por eso la recomendación es desplegar solo el proceso de GPU.
+
+## 41 · Limitaciones: qué no afirma este trabajo · 0:50 (29:20)
+
+**[columna 1]** Todo se midió en un solo nodo, así que no generalizamos a otras CPU ni GPU. Y en CPU
+solo movimos la frecuencia de seis núcleos, sin turbo ni *uncore*: la conclusión no es sobre la
+CPU completa.
+
+**[columna 2]** La energía es la de los paquetes de CPU y de la GPU, no la del nodo entero.
+Comparamos con *performance* y *powersave*, porque *ondemand* y *schedutil* no existen con este
+controlador.
+
+**[columna 3, Evidencia]** Medimos cinco bloques por escenario, y en todos el agente mejoró. Con
+cinco bloques ese es el mejor resultado posible, pero estadísticamente no alcanza para declararlo
+significativo al 5 %. Por eso hablamos de una dirección consistente, no de una confirmación. Y E-C
+lo construimos a propósito para probar el mecanismo.
+
+**[modelo de GPU]** *[si hay tiempo]* El modelo de GPU se entrenó con corridas completas y se
+aplica en ventanas de 3 segundos; con fases cortas o familias nuevas, se abstiene.
+
+*Si insisten con la estadística:* con 5 bloques el valor p más pequeño posible es 0.0625, aunque
+los cinco mejoren. No decir «significativo».
+
+## 42 · Trabajo futuro · 0:30 (29:50)
+
+Como trabajo futuro, lo más importante es ampliar las familias *memory-bound* externas en GPU,
+para que el agente no se abstenga ante programas nuevos, y probar en arquitecturas con un piso de
+potencia más bajo, donde el DVFS de CPU sí tenga margen. *[si hay tiempo]* También repetir la
+comparación con F1 fijo en aplicaciones externas y actuar sobre el *uncore* y la memoria.
+
+## 43 · Gracias · 0:10 (30:00)
+
+Muchas gracias. Quedamos atentos a sus preguntas.
+
 ---
 
 ## Orden de Resultados por fases
@@ -405,19 +516,6 @@ mil veces por segundo.
 | Fase 2 | 28–29 CPU · 30–31 GPU | «Con esos datos, ¿un modelo ligero aprende la etiqueta?» |
 | Fase 3 | 32 piso de potencia · 33 política · 34 latencias y costo | «Con el modelo dentro del agente, ¿qué decide en cada clase?» · en la 34: «¿Y cuánto cuesta ejecutarlo?» |
 | Fase 4 | 35 panorama de los seis escenarios · 36 fases de memoria largas (E-A y CloverLeaf) · 37 ¿clasificar o fijar F1? | «Con el agente funcionando, ¿ahorra energía frente a la base?» · en la 37: «¿Y hace falta clasificar, o basta con fijar F1?» |
-
-## Nota para la diapositiva 36 (fases de memoria largas), a incorporar al escribir su guion
-
-La diapositiva muestra solo el EDP CPU+GPU y la duración; esto se dice:
-- Qué son los escenarios: E-A es una aplicación compuesta con familias vistas y fases de memoria de
-  46 a 60 s; CloverLeaf es una aplicación externa continua (CUDA Fortran).
-- De dónde viene el ahorro: la energía de la GPU baja 7.2 % (E-A) y 6.4 % (CloverLeaf). El EDP
-  baja menos porque la CPU es el 64 % de la energía medida y el agente de GPU no la toca.
-- 5 de 5 bloques es el mejor resultado posible con 5 bloques (p = 0.0625): dirección consistente,
-  no confirmación estadística. No decir «significativo».
-- El brazo sombra queda en paridad (0.997): el ahorro viene de actuar, no de observar.
-- CloverLeaf tiene una sola decisión *memory* sostenida: se comportó como F1 fijo y no puntúa
-  clasificación.
 
 ## Si preguntan: «¿por qué esa métrica y no otra?»
 
@@ -439,8 +537,6 @@ sin que las familias grandes la inflen.
   anchos y varios modelos empatan. Y la cifra depende del protocolo: 0.728 con la familia
   retirada contra 0.874 mezclando al azar.
 
-*Continúa en la diapositiva 35 (Fase 4, panorama de los escenarios). Quedan unos 6 minutos y 20
-segundos para las diapositivas 35 a 43.*
 
 ---
 

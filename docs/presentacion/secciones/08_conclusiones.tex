@@ -16,31 +16,31 @@
   \vspace{1mm}
   \hallazgo{1}{84 \% vs 55.8 \%}{El piso de potencia decide dónde vale la pena el DVFS}
     {En CPU casi toda la potencia es piso y no hay margen; en GPU sí}
-  \hallazgo{2}{0.819}{Señales baratas aproximan el régimen Roofline sin perfilar}
+  \hallazgo{2}{0.819}{Señales ligeras aproximan el régimen Roofline sin perfilar}
     {En familias no vistas, con inferencia de 97 µs; perfilar con Nsight alarga 60 veces la ejecución}
   \hallazgo{3}{$-2.8$ \%}{Clasificar por fase gana cuando hay cómputo sensible al reloj}
     {Frente a un reloj fijo en E-C; donde no hay esa fase (E-A), una regla fija rinde igual}
 \end{frame}
 
 % fila de respuesta: parte de la pregunta, GPU, CPU
-\newcommand{\resp}[4]{%
-  \fill[uiscard,rounded corners=1mm] (0,#1) rectangle (126,{#1+13});
-  \node[font=\small\bfseries,anchor=west,align=flush left,text width=39mm] at (3,{#1+6.5}) {#2};
-  \node[font=\small,anchor=west,align=flush left,text width=38mm] at (47,{#1+6.5}) {#3};
-  \node[font=\small,anchor=west,align=flush left,text width=36mm] at (88,{#1+6.5}) {#4};}
+\newcommand{\resp}[5][13]{%
+  \fill[uiscard,rounded corners=1mm] (0,#2) rectangle (126,{#2+#1});
+  \node[font=\small\bfseries,anchor=west,align=flush left,text width=39mm] at (3,{#2+#1/2}) {#3};
+  \node[font=\small,anchor=west,align=flush left,text width=38mm] at (47,{#2+#1/2}) {#4};
+  \node[font=\small,anchor=west,align=flush left,text width=36mm] at (88,{#2+#1/2}) {#5};}
 
 \begin{frame}{Respuesta a la pregunta de investigación}
   \centering
   \begin{tikzpicture}[x=1mm,y=1mm]
-    \node[font=\small\bfseries,text=uisgreen,anchor=west] at (49,53) {GPU};
+    \node[font=\small\bfseries,text=uisgreen,anchor=west] at (49,53.5) {GPU};
     \node[font=\small\bfseries,text=uisred,anchor=west] at (90,53) {CPU};
-    \resp{36}{¿Reduce el\\consumo?}
-      {\textbf{Sí:} $-3.8$ / $-3.9$ \% de EDP CPU+GPU con fases de memoria largas}
+    \resp[18]{32}{¿Reduce el\\consumo?}
+      {\textbf{Sí:} $-3.8$ / $-3.9$ \% de EDP CPU+GPU\\[0.3mm]{\footnotesize\color{uisgray}solo GPU: $-8.0$ / $-6.3$ \%; con memoria larga}}
       {\textbf{No:} con un piso de 84 \% no hay margen}
-    \resp{20}{¿La inferencia\\degrada el rendimiento?}
+    \resp{17}{¿La inferencia\\degrada el rendimiento?}
       {\textbf{No:} 97 µs por decisión; la duración no cambia}
-      {\textbf{No es inferir} (16 µs): observar cuesta 6--14~W}
-    \resp{4}{¿Frente a los\\gobernadores nativos?}
+      {\textbf{No es inferir} (16 µs): observar sube 5--9 \% la energía de CPU}
+    \resp{2}{¿Frente a los\\gobernadores nativos?}
       {\textbf{Se mantiene} con \textit{performance} y \textit{powersave}}
       {Empeora el EDP con ambos}
     \fill[uisgreen,rounded corners=1mm] (0,-12) rectangle (126,-2);
@@ -83,5 +83,7 @@
     \vineta{Repetir base, agente y F1 fijo en aplicaciones externas con cómputo sensible al reloj}
     \vineta{Reentrenar el modelo de GPU por ventana, con fronteras de fase de CUPTI}
     \vineta{Reducir primero el costo de observar en CPU, antes de revisar su política}
+    \vineta{Probar en otras arquitecturas con un piso de potencia de CPU más bajo, donde el DVFS de CPU sí tenga margen}
+    \vineta{Actuar también sobre la frecuencia del \textit{uncore} y de la memoria en CPU, no solo sobre la de los núcleos}
   \end{cardhi}
 \end{frame}
