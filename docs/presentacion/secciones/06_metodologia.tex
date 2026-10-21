@@ -159,19 +159,19 @@
     \end{column}
     % ---- derecha: fórmula y dos tarjetas, todas del mismo ancho
     \begin{column}{0.48\textwidth}
-      \begin{card}[height=27mm,valign=center,halign=center,fontupper=\footnotesize]
+      \begin{card}[height=22mm,valign=center,halign=center,fontupper=\footnotesize]
         $\displaystyle\hat y_i=\begin{cases}
           \text{memory-bound}, & p_i\ge 0.5\ \wedge\ q_i\ge\tau\\
           \text{compute-bound}, & p_i<0.5\ \wedge\ q_i\ge\tau\\
           \textit{revisar}, & q_i<\tau
         \end{cases}$
       \end{card}
-      \begin{card}[height=15mm,valign=center,fontupper=\small]
-        \textbf{Métrica:} exactitud balanceada por celda (familia $\times$ clase)\par
+      \begin{card}[height=19mm,valign=center,fontupper=\small]
+        \textbf{Métrica de decisión:} exactitud balanceada por celda\par{\scriptsize aciertos promediados por celda (familia $\times$ clase)}\par
         $\tau$ elegido sin la familia retirada
       \end{card}
       \begin{card}[height=15mm,valign=center,fontupper=\small]
-        \textbf{Política:} por clase, el nivel con mejor EDP frente a la base (IC95 por \textit{bootstrap})
+        \textbf{Política:} por clase, el nivel con mejor EDP frente a la base
       \end{card}
     \end{column}
   \end{columns}

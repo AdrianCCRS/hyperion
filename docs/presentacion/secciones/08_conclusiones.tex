@@ -3,47 +3,85 @@
 % ---------------------------------------------------------------------
 \seccion{Conclusiones}
 
-\newcommand{\oecardh}[2]{%
-  \begin{minipage}[t]{0.235\textwidth}
-    \begin{tcolorbox}[uisbase,colback=uisgreen,fontupper=\small\bfseries\color{white},halign=center,
-      sharp corners=south,bottom=1mm,top=1mm]#1\end{tcolorbox}\vspace{-2.2mm}
-    \begin{card}[sharp corners=north,height=36mm,halign=center,valign=center,fontupper=\footnotesize]#2\end{card}
-  \end{minipage}}
+% hallazgo: número, cifra, título, explicación
+\newcommand{\hallazgo}[4]{%
+  \begin{card}[height=17mm,valign=center]
+    \begin{tabular}{@{}>{\centering\arraybackslash}m{9mm}@{\hspace{2mm}}>{\centering\arraybackslash}m{32mm}@{\hspace{3mm}}>{\raggedright\arraybackslash}m{0.56\linewidth}@{}}
+      \badge{#1} & {\large\bfseries\boldmath\color{uisgreen}#2} &
+      {\small\bfseries #3}\par\vspace{0.5mm}{\footnotesize\color{uisgray}#4}
+    \end{tabular}
+  \end{card}}
 
-\begin{frame}{Conclusiones por objetivo}
-  \vspace{4mm}
-  \oecardh{OE1}{Instrumento y datos verificados}\hfill
-  \oecardh{OE2}{Clasificadores validados por familia: 0.728 (CPU) y 0.819 (GPU)}\hfill
-  \oecardh{OE3}{Agente C++ con inferencia de 16 y 97 µs y restauración verificada}\hfill
-  \oecardh{OE4}{GPU: $-3.8$ y $-3.9$ \% de EDP CPU+GPU. CPU: no se compensa la sobrecarga}
+\begin{frame}{Tres hallazgos}
+  \vspace{1mm}
+  \hallazgo{1}{84 \% vs 55.8 \%}{El piso de potencia decide dónde vale la pena el DVFS}
+    {En CPU casi toda la potencia es piso y no hay margen; en GPU sí}
+  \hallazgo{2}{0.819}{Señales baratas aproximan el régimen Roofline sin perfilar}
+    {En familias no vistas, con inferencia de 97 µs; perfilar con Nsight alarga 60 veces la ejecución}
+  \hallazgo{3}{$-2.8$ \%}{Clasificar por fase gana cuando hay cómputo sensible al reloj}
+    {Frente a un reloj fijo en E-C; donde no hay esa fase (E-A), una regla fija rinde igual}
 \end{frame}
 
+% fila de respuesta: parte de la pregunta, GPU, CPU
+\newcommand{\resp}[4]{%
+  \fill[uiscard,rounded corners=1mm] (0,#1) rectangle (126,{#1+13});
+  \node[font=\small\bfseries,anchor=west,align=flush left,text width=39mm] at (3,{#1+6.5}) {#2};
+  \node[font=\small,anchor=west,align=flush left,text width=38mm] at (47,{#1+6.5}) {#3};
+  \node[font=\small,anchor=west,align=flush left,text width=36mm] at (88,{#1+6.5}) {#4};}
+
 \begin{frame}{Respuesta a la pregunta de investigación}
-  \vspace{3mm}
+  \centering
+  \begin{tikzpicture}[x=1mm,y=1mm]
+    \node[font=\small\bfseries,text=uisgreen,anchor=west] at (49,53) {GPU};
+    \node[font=\small\bfseries,text=uisred,anchor=west] at (90,53) {CPU};
+    \resp{36}{¿Reduce el\\consumo?}
+      {\textbf{Sí:} $-3.8$ / $-3.9$ \% de EDP CPU+GPU con fases de memoria largas}
+      {\textbf{No:} con un piso de 84 \% no hay margen}
+    \resp{20}{¿La inferencia\\degrada el rendimiento?}
+      {\textbf{No:} 97 µs por decisión; la duración no cambia}
+      {\textbf{No es inferir} (16 µs): observar cuesta 6--14~W}
+    \resp{4}{¿Frente a los\\gobernadores nativos?}
+      {\textbf{Se mantiene} con \textit{performance} y \textit{powersave}}
+      {Empeora el EDP con ambos}
+    \fill[uisgreen,rounded corners=1mm] (0,-12) rectangle (126,-2);
+    \node[font=\normalsize\bfseries,text=white] at (63,-7) {Recomendación: desplegar solo el proceso de GPU};
+  \end{tikzpicture}
+\end{frame}
+
+% tarjeta de límite: título, texto
+\newcommand{\limite}[2]{%
+  \begin{card}[height=21mm,valign=top]
+    {\small\bfseries\color{uisgreen}#1}\par\vspace{0.8mm}{\footnotesize #2}
+  \end{card}}
+
+\begin{frame}{Limitaciones: qué no afirma este trabajo}
+  \vspace{1mm}
   \begin{columns}[T]
-    \begin{column}{0.48\textwidth}
-      \begin{cardhi}[height=30mm]
-        \begin{tabular}{@{}m{8mm}@{}m{0.8\linewidth}@{}}
-          \yesmark & {\small\bfseries En GPU, sí}
-        \end{tabular}\par\vspace{1mm}
-        Reduce el EDP CPU+GPU sin costo de inferencia medible cuando hay fases
-        \textit{memory-bound} largas. Clasificar por fase aporta frente a un reloj fijo
-        solo si hay fases de cómputo sensibles al reloj (E-C).
-      \end{cardhi}
+    \begin{column}{0.32\textwidth}
+      \limite{Un solo nodo}{Xeon Gold 5315Y + A100. No se generaliza a otras CPU, GPU ni controladores}
+      \limite{CPU acotada}{Solo la frecuencia de 6 núcleos delegados, sin turbo ni \textit{uncore}. No es la CPU completa}
     \end{column}
-    \begin{column}{0.48\textwidth}
-      \begin{card}[height=30mm]
-        \begin{tabular}{@{}m{8mm}@{}m{0.8\linewidth}@{}}
-          \nomark & {\small\bfseries En CPU, no}
-        \end{tabular}\par\vspace{1mm}
-        En esta plataforma la política es no actuar (piso de 84 \%) y el proceso de
-        observación aumenta el EDP; el aumento no se atribuye a la inferencia, que toma 16 µs.
-      \end{card}
+    \begin{column}{0.32\textwidth}
+      \limite{Energía medida}{Paquetes de CPU y GPU. No incluye DRAM, placa, fuente ni ventilación: no es la energía del nodo}
+      \limite{Gobernadores}{\textit{performance} y \textit{powersave}; \textit{ondemand} y \textit{schedutil} no existen con \texttt{intel\_pstate}}
+    \end{column}
+    \begin{column}{0.32\textwidth}
+      \limite{Evidencia}{5 bloques: dirección consistente, no confirmación. E-C es una prueba de mecanismo construida}
+      \limite{Modelo de GPU}{Entrenado por corrida y aplicado en ventanas de 3 s; con fases cortas o familias nuevas se abstiene}
     \end{column}
   \end{columns}
-  \vspace{3mm}
-  \begin{carddark}[halign=center,fontupper=\small\bfseries\color{white}]
-    Recomendación: desplegar solo el proceso de GPU
-  \end{carddark}
-  \notapie{Siguiente paso: familias externas con fases de memoria y de cómputo sensibles al reloj, modelo GPU reentrenado por ventana y menor costo de observación en CPU.}
+\end{frame}
+
+% elemento de lista con viñeta verde
+\newcommand{\vineta}[1]{\par\vspace{1.6mm}\noindent\textcolor{uisgreen}{\rule[0.5ex]{1.6mm}{1.6mm}}\hspace{2mm}#1}
+
+\begin{frame}{Trabajo futuro}
+  \vspace{4mm}
+  \begin{cardhi}[width=0.86\textwidth,center]
+    \small
+    \vineta{Más familias externas \textit{memory-bound} en GPU, evaluadas una sola vez con el modelo congelado}
+    \vineta{Repetir base, agente y F1 fijo en aplicaciones externas con cómputo sensible al reloj}
+    \vineta{Reentrenar el modelo de GPU por ventana, con fronteras de fase de CUPTI}
+    \vineta{Reducir primero el costo de observar en CPU, antes de revisar su política}
+  \end{cardhi}
 \end{frame}

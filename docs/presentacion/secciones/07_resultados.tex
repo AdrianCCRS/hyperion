@@ -3,9 +3,9 @@
 % ---------------------------------------------------------------------
 % macros de los gráficos TikZ (deben definirse fuera de los frames)
 \newcommand{\lat}[5]{% fila, longitud, color, etiqueta, valor
-  \node[font=\tiny,anchor=east] at (-1.5,{-#1*7-3}) {#4};
+  \node[font=\scriptsize,anchor=east] at (-1.5,{-#1*7-3}) {#4};
   \fill[#3] (0,{-#1*7-5}) rectangle (#2,{-#1*7-1});
-  \node[font=\tiny\bfseries,anchor=west] at (#2,{-#1*7-3}) {#5};}
+  \node[font=\scriptsize\bfseries,anchor=west] at (#2,{-#1*7-3}) {#5};}
 \newcommand{\gbar}[6]{% y, valor, inf, sup, color, rotulo
   \fill[#5] (0,{#1-1.8}) rectangle (#2,{#1+1.8});
   \draw[uistext,line width=0.5pt] (#3,#1) -- (#4,#1)
@@ -15,8 +15,8 @@
 
 \seccion{Resultados}
 
-% ---------------------------------------------------------------- OE1
-\subseccion{¿La caracterización distingue los regímenes?}
+% ---------------------------------------------------------------- Fase 1
+\subseccion{Fase 1}
 % tarjeta de dispositivo: x0, cifra, texto, diseño, % compute, % memory, nota
 \newcommand{\dcard}[7]{%
   \fill[uiscard,rounded corners=1mm] (#1,0) rectangle ++(60,64);
@@ -31,7 +31,7 @@
   \node[font=\scriptsize,text=uisgray,anchor=east] at ({#1+55},12.5) {memory};
   \node[font=\scriptsize,text=uisgray] at ({#1+30},5) {#7};}
 
-\begin{frame}{El conjunto de datos cubre ambos regímenes}
+\begin{frame}{Fase 1: el conjunto de datos cubre ambos regímenes}
   \vspace{-2mm}\centering
   \begin{tikzpicture}[x=1.1mm,y=0.8mm]
     \dcard{0}{42\,458}{intervalos CPU · 30 familias}{tope de 1000 por familia y clase}{50.3}{49.7}{21\,350 compute · 21\,108 memory}
@@ -40,64 +40,195 @@
   \notapie{Ambos se ponderan por celda de familia y clase, para que ninguna domine el entrenamiento y el desbalance no sesgue el modelo. CPU: además, tope de 1000 por celda. GPU: sin tope, las 483 corridas completas. Medido en CPU: 1470 corridas y 1.31 M de intervalos elegibles (40.2 \% \textit{compute}).}
 \end{frame}
 
-% ---------------------------------------------------------------- OE2 CPU
-\subseccion{Clasificador CPU}
-\begin{frame}{En CPU, ningún modelo supera 0.73 con familias no vistas}
+% ---------------------------------------------------------------- Fase 2
+\subseccion{Fase 2}
+\newcommand{\latnum}[2]{{\fontsize{16}{18}\selectfont\bfseries\color{#1}#2}}
+\begin{frame}{Fase 2: en CPU los modelos empatan; se eligió el más rápido}
   \begin{columns}[c]
-    \begin{column}{0.6\textwidth}
+    \begin{column}{0.60\textwidth}
       \includegraphics[width=\linewidth]{fig_cpu_comparacion_modelos_20260919.png}
     \end{column}
-    \begin{column}{0.38\textwidth}
-      \begin{cardhi}[halign=center]
-        \bignum{0.728}\\
-        XGBoost · exactitud balanceada por celda, familia retirada (IC95 0.669--0.790)
+    \begin{column}{0.36\textwidth}
+      \begin{cardhi}[halign=center,fontupper=\normalsize]
+        Exactitud balanceada por celda\\\textbf{empatada}
       \end{cardhi}
-      \begin{card}
-        Los bosques empatan dentro del IC95; XGBoost se eligió por latencia
-        (243 µs frente a 5.3 ms en Python)
+      \begin{card}[halign=center,fontupper=\small]
+        {\bfseries\color{uisgreen}Latencia por intervalo}\\[1mm]
+        \latnum{uisgreen}{243 µs}\hspace{3mm}\latnum{uisgray}{5.3 ms}\\[0.5mm]
+        XGBoost \hspace{4mm} {\scriptsize Random Forest\\[-0.5mm]\hspace{16mm}Extra Trees}
       \end{card}
-      \begin{card}
-        Optuna anidado: $+0.019$ (IC95 $-0.007$ a $+0.050$) → configuración fija.
-        El límite está en la información, no en el modelo (anexo A5)
+      \begin{card}[halign=center,fontupper=\small]
+        {\bfseries\color{uisgreen}Hiperparámetros de XGBoost}\\[0.5mm]
+        $+0.019$, sin diferencia clara
       \end{card}
     \end{column}
   \end{columns}
+  \notapie{\parbox{0.52\paperwidth}{Familia retirada. Latencia en Python, un hilo.}}
 \end{frame}
 
-% ---------------------------------------------------------------- OE2 GPU
-\subseccion{Clasificador GPU}
-\begin{frame}{En GPU se eligió el modelo que no depende del reloj que el agente modifica}
+% fila de configuración: y, etiqueta, valor
+\newcommand{\cfgrow}[3]{%
+  \node[font=\small,text=uisgray,anchor=west] at (4,#1) {#2};
+  \node[font=\small\bfseries,anchor=east] at (56,#1) {#3};}
+% mosaico de métrica: x, y, valor, etiqueta
+\newcommand{\mtile}[4]{%
+  \fill[uiscard,rounded corners=1mm] (#1,#2) rectangle ++(18.7,23);
+  \node[font=\Large\bfseries,text=uisgreen] at ({#1+9.35},{#2+14}) {#3};
+  \node[font=\scriptsize,text=uisgray,align=center] at ({#1+9.35},{#2+5.5}) {#4};}
+
+\begin{frame}{XGBoost: el modelo final de CPU}
+  \vspace{-2mm}\centering
+  \begin{tikzpicture}[x=1.1mm,y=0.72mm]
+    \node[font=\small\bfseries,text=uisgreen] at (30,73) {Configuración};
+    \node[font=\small\bfseries,text=uisgreen] at (94,73) {Métricas sin abstención};
+    % panel de configuración
+    \fill[uiscard,rounded corners=1mm] (0,20) rectangle (60,69);
+    \cfgrow{64}{Modelo}{XGBoost}
+    \cfgrow{56}{Árboles}{100 · prof. 6}
+    \cfgrow{48}{Entradas}{6 de Perf}
+    \cfgrow{40}{Pesos}{por celda}
+    \cfgrow{32}{Salida}{P(\textit{memory})}
+    \cfgrow{24}{Validación}{familia retirada}
+    % mosaicos de métricas
+    \mtile{64}{46}{0.769}{Exactitud común}
+    \mtile{85.3}{46}{0.714}{Sens.\ \textit{compute}}
+    \mtile{106.6}{46}{0.806}{Sens.\ \textit{memory}}
+    \mtile{64}{20}{0.760}{F1 macro}
+    \mtile{85.3}{20}{0.842}{AUC-ROC}
+    \mtile{106.6}{20}{0.520}{Matthews}
+    % franja inferior: dos tarjetas iguales
+    \fill[uislight,rounded corners=1mm] (0,0) rectangle (61,16);
+    \fill[uislight,rounded corners=1mm] (63,0) rectangle (124,16);
+    \node[font=\fontsize{16}{18}\selectfont\bfseries,text=uisgreen] at (14,8) {0.728};
+    \node[font=\scriptsize,text=uisgray,align=left,anchor=west] at (25,8) {por celda\\(al azar: 0.874)};
+    \node[font=\fontsize{16}{18}\selectfont\bfseries,text=uisgreen] at (77,8) {0.738};
+    \node[font=\scriptsize,text=uisgray,align=left,anchor=west] at (88,8) {decide 72.2 \%\\con $\tau=0.85$};
+  \end{tikzpicture}
+\end{frame}
+
+% ---------------------------------------------------------------- Fase 2 · GPU
+\begin{frame}{En GPU los modelos también empatan}
   \begin{columns}[c]
-    \begin{column}{0.56\textwidth}
-      \includegraphics[width=\linewidth]{fig_gpu_invarianza_reloj_20260923.png}
+    \begin{column}{0.60\textwidth}
+      \includegraphics[width=\linewidth]{fig_gpu_comparacion_modelos_20260922.png}
     \end{column}
-    \begin{column}{0.42\textwidth}
-      \begin{cardhi}[halign=center]
-        \bignum{0.819}\\
-        \textit{Random forest} con 3 señales invariantes al reloj, familia retirada
+    \begin{column}{0.36\textwidth}
+      \begin{cardhi}[halign=center,fontupper=\normalsize]
+        Exactitud balanceada por celda\\\textbf{empatada}
       \end{cardhi}
-      \begin{card}
-        Fijar el reloj en 1410 MHz cambia el 26.7 \% de las predicciones de la
-        regresión logística; el RF conserva su exactitud sin reloj ni potencia
+      \begin{card}[halign=center,fontupper=\small]
+        {\bfseries\color{uisgreen}Latencia por predicción}\\[1mm]
+        \latnum{uisgreen}{4.7 ms}\hspace{3mm}\latnum{uisgreen}{4.8 ms}\\[0.5mm]
+        Random Forest \hspace{2mm} Extra Trees
       \end{card}
-      \begin{card}
-        Con $\tau=0.90$: 0.900 de exactitud y cobertura de 65.7 \%;
-        0 errores en \textit{memory-bound}
+      \begin{card}[halign=center,fontupper=\small]
+        {\bfseries\color{uisgreen}Hiperparámetros}\\[0.5mm]
+        empeoran 4 de 5 modelos
       \end{card}
     \end{column}
   \end{columns}
+  \notapie{\parbox{0.52\paperwidth}{Familia retirada. Latencia mediana por fila en Python, nodo de destino, mismas variables.}}
 \end{frame}
 
-% ---------------------------------------------------------------- OE3
-\subseccion{¿Es suficientemente rápida la inferencia?}
+\begin{frame}{En GPU se eligió el modelo que no depende del reloj que el agente modifica}
+  \vspace{-2mm}\centering
+  \begin{tikzpicture}[x=1.1mm,y=0.72mm]
+    \node[font=\small\bfseries,text=uisgreen] at (30,73) {Configuración};
+    \node[font=\small\bfseries,text=uisgreen] at (94,73) {Métricas sin abstención};
+    \fill[uiscard,rounded corners=1mm] (0,20) rectangle (60,69);
+    \cfgrow{64}{Modelo}{\textit{Random forest}}
+    \cfgrow{56}{Entradas}{3 de NVML}
+    \cfgrow{48}{Sin}{reloj ni potencia}
+    \cfgrow{40}{Pesos}{por celda}
+    \cfgrow{32}{Salida}{P(\textit{memory})}
+    \cfgrow{24}{Validación}{familia retirada}
+    \mtile{64}{46}{0.892}{Exactitud común}
+    \mtile{85.3}{46}{0.825}{Sens.\ \textit{compute}}
+    \mtile{106.6}{46}{0.929}{Sens.\ \textit{memory}}
+    \mtile{64}{20}{0.881}{F1 macro}
+    \mtile{85.3}{20}{0.913}{AUC-ROC}
+    \mtile{106.6}{20}{0.763}{Matthews}
+    % franja inferior: dos tarjetas iguales
+    \fill[uislight,rounded corners=1mm] (0,0) rectangle (61,16);
+    \fill[uislight,rounded corners=1mm] (63,0) rectangle (124,16);
+    \node[font=\fontsize{16}{18}\selectfont\bfseries,text=uisgreen] at (14,8) {0.819};
+    \node[font=\scriptsize,text=uisgray,align=left,anchor=west] at (25,8) {por celda\\(sin abstención)};
+    \node[font=\fontsize{16}{18}\selectfont\bfseries,text=uisgreen] at (77,8) {0.900};
+    \node[font=\scriptsize,text=uisgray,align=left,anchor=west] at (88,8) {con $\tau=0.90$\\cobertura 65.7 \%};
+  \end{tikzpicture}
+\end{frame}
+
+% ---------------------------------------------------------------- Fase 3
+\subseccion{Fase 3}
+% ---------------------------------------------------------------- Fase 3 · piso de potencia
+\begin{frame}{Fase 3: bajar el reloj de CPU casi no baja la potencia}
+  \begin{columns}[c]
+    \begin{column}{0.64\textwidth}
+      \centering
+      \includegraphics[width=\linewidth,trim=0 0 212 0,clip]{fig_cpu_energia_piso_20260920.png}
+    \end{column}
+    \begin{column}{0.33\textwidth}
+      \centering
+      \begin{tikzpicture}[x=1mm,y=0.36mm]
+        \fill[uisline!70] (0,0) rectangle (13,84);   \fill[uisgreen] (0,84) rectangle (13,100);
+        \fill[uisline!70] (21,0) rectangle (34,55.8); \fill[uisgreen] (21,55.8) rectangle (34,100);
+        \node[font=\footnotesize\bfseries] at (6.5,42) {84 \%};
+        \node[font=\footnotesize\bfseries] at (27.5,28) {55.8 \%};
+        \node[font=\footnotesize,text=white] at (6.5,92) {16 \%};
+        \node[font=\footnotesize,text=white] at (27.5,78) {44 \%};
+        \node[font=\small\bfseries] at (6.5,-7) {CPU};
+        \node[font=\small\bfseries] at (27.5,-7) {GPU};
+        \fill[uisline!70] (0,-21) rectangle ++(3,5); \node[font=\scriptsize,anchor=west] at (3.5,-18.5) {piso $P_0$};
+        \fill[uisgreen] (18,-21) rectangle ++(3,5); \node[font=\scriptsize,anchor=west] at (21.5,-18.5) {dinámica};
+      \end{tikzpicture}
+
+      {\scriptsize\color{uisgray} Potencia al reloj más alto.}
+    \end{column}
+  \end{columns}
+  \notapie{Izquierda: potencia de paquete y DRAM de CPU con la frecuencia fija de los núcleos delegados; cada línea gris es un kernel.}
+\end{frame}
+
+% ---------------------------------------------------------------- Fase 3 · política
+\begin{frame}{El piso de potencia decide: no actuar en CPU y F1 en GPU \textit{memory-bound}}
+  \centering
+  \vspace{2mm}
+      \begin{tikzpicture}[x=1.45mm,y=1.15mm]
+        % encabezados
+        \node[font=\small\bfseries] at (24,47) {compute-bound};
+        \node[font=\small\bfseries] at (56,47) {memory-bound};
+        \node[font=\small\bfseries,anchor=east] at (6,32) {CPU};
+        \node[font=\small\bfseries,anchor=east] at (6,10) {GPU};
+        % celdas: no actuar
+        \fill[uiscard,rounded corners=1mm] (9,22) rectangle (39,42);
+        \fill[uiscard,rounded corners=1mm] (41,22) rectangle (71,42);
+        \fill[uiscard,rounded corners=1mm] (9,0) rectangle (39,20);
+        \node[font=\normalsize,text=uisgray] at (24,35) {No actuar};
+        \node[font=\normalsize,text=uisgray] at (56,35) {No actuar};
+        \node[font=\normalsize,text=uisgray] at (24,13) {No actuar};
+        \node[font=\scriptsize,text=uisgray,align=center] at (24,27.5) {la mejor opción\\gana solo 0.6 \%};
+        \node[font=\scriptsize,text=uisgray,align=center] at (56,27.5) {bajar a F1\\empeora 5.4 \%};
+        \node[font=\scriptsize,text=uisgray,align=center] at (24,5.5) {bajar a F1 gana 2.1 \%,\\pero no siempre};
+        % celda accionable
+        \fill[uisgreen,rounded corners=1mm] (41,0) rectangle (71,20);
+        \node[font=\normalsize\bfseries,text=white] at (56,14.5) {F1 = 1260 MHz};
+        \node[font=\scriptsize,text=white] at (56,8) {$+8.9$ \% EDP GPU};
+        \node[font=\tiny,text=white] at (56,3.5) {6.5 \% en programas nuevos};
+      \end{tikzpicture}
+
+      \vspace{1mm}
+
+  \vspace{1mm}
+  {\scriptsize\color{uisgray} Mejora de EDP frente a la base. Se actúa solo si supera el 1 \% con evidencia.}
+\end{frame}
+
 \begin{frame}{Inferir cuesta microsegundos; el proceso de CPU completo sí cuesta}
   \begin{columns}[c]
     \begin{column}{0.56\textwidth}
-      \begin{tikzpicture}[x=0.8mm,y=1mm]
+      \begin{tikzpicture}[x=0.62mm,y=1mm]
         % x = 10*(log10(t)+5) unidades  ->  10 us = 0, 10 s = 60
         \foreach \x/\l in {0/10 µs,20/1 ms,40/100 ms,60/10 s} {
           \draw[uisline!70] (\x,-1) -- (\x,-36);
-          \node[font=\tiny,text=uisgray] at (\x,-39) {\l};}
+          \node[font=\scriptsize,text=uisgray] at (\x,-39) {\l};}
         \lat{0}{2.0}{uisgreen}{Inferencia CPU}{16 µs}
         \lat{1}{9.9}{uisgreen}{Inferencia GPU}{97 µs}
         \lat{2}{24.5}{uismint}{Escritura de frecuencia CPU}{2.85 ms}
@@ -105,159 +236,119 @@
         \lat{4}{54.8}{uislime}{Ventana para decidir (GPU)}{3 s}
       \end{tikzpicture}
 
-      {\tiny\color{uisgray} Escala logarítmica de tiempo.}
+      {\scriptsize\color{uisgray} Escala logarítmica de tiempo.}
     \end{column}
-    \begin{column}{0.42\textwidth}
+    \begin{column}{0.40\textwidth}
+      \small
+      \begin{card}
+        \begin{tabular}{@{}>{\centering\arraybackslash}m{20mm}@{\hspace{2mm}}>{\raggedright\arraybackslash}m{0.58\linewidth}@{}}
+          {\large\bfseries\color{uisgreen}Sin costo} & El agente de GPU observando deja el EDP CPU+GPU igual a la base
+        \end{tabular}
+      \end{card}
       \begin{cardhi}
-        \textbf{Proceso GPU (sombra):} EDP de 1.002 a 1.010 de la base; sin costo medible
+        \begin{tabular}{@{}>{\centering\arraybackslash}m{20mm}@{\hspace{2mm}}>{\raggedright\arraybackslash}m{0.58\linewidth}@{}}
+          {\large\bfseries\color{uisred}6--14\,W} & El agente de CPU gasta esto de más, sin actuar
+        \end{tabular}
       \end{cardhi}
       \begin{card}
-        \textbf{Proceso CPU (sombra):} +5 a 9 \% de energía de CPU, unos 6 a 14 W,
-        sin escribir ninguna frecuencia
+        \begin{tabular}{@{}>{\centering\arraybackslash}m{20mm}@{\hspace{2mm}}>{\raggedright\arraybackslash}m{0.58\linewidth}@{}}
+          {\large\bfseries\color{uisred}+4--6\,\%} & Por eso el agente de CPU empeora el EDP CPU+GPU
+        \end{tabular}
       \end{card}
-      \begin{card}
-        \textbf{Matriz inicial:} CPU activo 1.15 y 1.06 de EDP; conjunto 1.04 y 1.06
-        ($p=0.0079$)
-      \end{card}
-    \end{column}
-  \end{columns}
-  \vspace{1mm}
-  {\scriptsize La sobrecarga de CPU no se atribuye a la inferencia: el proceso lee 9 contadores
-  en 6 núcleos y decide unas mil veces por segundo.}
-\end{frame}
-
-% ---------------------------------------------------------------- política
-\subseccion{¿La política produce un efecto medible?}
-\begin{frame}{El piso de potencia decide la política: no actuar en CPU, F1 en GPU \textit{memory-bound}}
-  \begin{columns}[c]
-    \begin{column}{0.3\textwidth}
-      \centering
-      \begin{tikzpicture}[x=1mm,y=0.42mm]
-        \fill[uisline!70] (0,0) rectangle (12,84);   \fill[uisgreen] (0,84) rectangle (12,100);
-        \fill[uisline!70] (20,0) rectangle (32,55.8); \fill[uisgreen] (20,55.8) rectangle (32,100);
-        \node[font=\tiny\bfseries] at (6,42) {84 \%};
-        \node[font=\tiny\bfseries] at (26,28) {55.8 \%};
-        \node[font=\tiny,text=white] at (6,92) {16 \%};
-        \node[font=\tiny,text=white] at (26,78) {44 \%};
-        \node[font=\scriptsize\bfseries] at (6,-8) {CPU};
-        \node[font=\scriptsize\bfseries] at (26,-8) {GPU};
-        \fill[uisline!70] (0,-22) rectangle ++(3,6); \node[font=\tiny,anchor=west] at (3.5,-19) {piso $P_0$};
-        \fill[uisgreen] (17,-22) rectangle ++(3,6); \node[font=\tiny,anchor=west] at (20.5,-19) {dinámica};
-      \end{tikzpicture}
-
-      {\tiny\color{uisgray} Fracción de la potencia al reloj más alto.}
-    \end{column}
-    \begin{column}{0.68\textwidth}
-      \scriptsize
-      \renewcommand{\arraystretch}{1.35}
-      \begin{tabularx}{\linewidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
-        \toprule
-        & \textbf{compute-bound} & \textbf{memory-bound}\\
-        \midrule
-        \textbf{CPU} & No actuar\newline{\tiny\color{uisgray}F0 mejora 0.56 \%, bajo el mínimo de 1 \%}
-                     & No actuar\newline{\tiny\color{uisgray}F1 empeora 5.4 \% (IC95 3.4 a 6.8)}\\
-        \textbf{GPU} & No actuar\newline{\tiny\color{uisgray}F1 +2.1 \% (IC95 $-12.7$ a 14.2; $p=0.438$)}
-                     & \textbf{F1 = 1260 MHz}\newline{\tiny\color{uisgray}+8.9 \% de EDP GPU (IC95 3.0 a 13.3), estimación interna;
-                       \textbf{6.5 \%} con la familia fuera (IC95 $-4.0$ a 13.1)}\\
-        \bottomrule
-      \end{tabularx}
-      \vspace{2mm}
-
-      En CPU, bajar a 0.8 GHz ahorra solo 15 \% de potencia; ni un oráculo por kernel
-      pasa de 2.2 \% de mejora media. Excepción en GPU: \texttt{rodinia\_gaussian}
-      es \textit{memory-bound} pero pierde 27.3 \% con F1.
     \end{column}
   \end{columns}
 \end{frame}
 
-% ---------------------------------------------------------------- OE4
-\subseccion{¿Cómo se compara con la base nativa?}
-\begin{frame}{Con fases de memoria largas, el agente de GPU reduce el EDP CPU+GPU 3.8--3.9 \%}
-  \begin{columns}[c]
-    \begin{column}{0.58\textwidth}
-      \begin{tikzpicture}[x=6mm,y=1mm]
-        % eje x en %: -8 .. +1 ; 1 % = 6 mm
-        \foreach \v in {-8,-6,-4,-2,0} {
-          \draw[uisline!70] (\v,-1) -- (\v,-43);
-          \node[font=\tiny,text=uisgray] at (\v,-46) {\v\,\%};}
-        \draw[uisgray,line width=0.6pt] (0,-1) -- (0,-43);
-        \node[font=\scriptsize\bfseries,anchor=west] at (0.3,-6) {EDP CPU+GPU};
-        \gbar{-6}{-3.8}{-5.4}{-2.3}{uisgreen}{$-3.8$ \%}
-        \gbar{-11}{-3.9}{-4.6}{-3.2}{uislime}{$-3.9$ \%}
-        \node[font=\scriptsize\bfseries,anchor=west] at (0.3,-21) {Energía GPU};
-        \gbar{-21}{-7.2}{-7.7}{-6.8}{uisgreen}{$-7.2$ \%}
-        \gbar{-26}{-6.4}{-7.6}{-5.3}{uislime}{$-6.4$ \%}
-        \node[font=\scriptsize\bfseries,anchor=west] at (0.3,-36) {Duración};
-        \gbar{-36}{-0.8}{-1.6}{0.1}{uisgreen}{$-0.8$ \%}
-        \gbar{-41}{0.1}{0.0}{0.2}{uislime}{$+0.1$ \%}
-        \fill[uisgreen] (-8,7) rectangle ++(0.4,2.5); \node[font=\tiny,anchor=west] at (-7.5,8.2) {E-A};
-        \fill[uislime] (-6,7) rectangle ++(0.4,2.5); \node[font=\tiny,anchor=west] at (-5.5,8.2) {CloverLeaf};
-        \node[font=\tiny,text=uisgray,anchor=west] at (-8,2.5) {media geométrica por bloque · bigotes: IC95};
-      \end{tikzpicture}
-    \end{column}
-    \begin{column}{0.4\textwidth}
-      \begin{cardhi}
-        \textbf{5 de 5 bloques} favorables en ambas ($p=0.0625$, el mínimo posible con 5):
-        dirección consistente, IC95 calculado \textit{post hoc}
-      \end{cardhi}
-      \begin{card}
-        \textbf{Brazo sombra ≈ paridad} (0.997): el ahorro viene de actuar, no de observar
-      \end{card}
-      \begin{card}
-        \textbf{Con \textit{powersave}:} $-2.6$ \% y $-3.2$ \%; mismas conclusiones
-      \end{card}
-      \begin{card}
-        \textbf{Pero:} en E-A, un reloj fijo en F1 logra lo mismo (agente/F1 fijo = 0.998)
-      \end{card}
-    \end{column}
-  \end{columns}
-  \notapie{E-A: compuesta con familias vistas, fases de memoria de 46 a 60 s. CloverLeaf CUDA Fortran: aplicación externa. En E-A la CPU es \textasciitilde 64 \% de la energía medida y no se modifica.}
-\end{frame}
+% ---------------------------------------------------------------- Fase 4
+\subseccion{Fase 4}
+% Tarjeta de resultado por escenario (misma cuadrícula que en Metodología)
+% \escres{x0}{y0}{nombre}{cifra}{nota}{fondo}{color de la cifra}
+\newcommand{\escres}[7]{%
+  \fill[#6,rounded corners=1mm] (#1,#2) rectangle ++(57,15);
+  \node[font=\normalsize\bfseries,text=uisgreen,anchor=west,inner sep=0pt] at ({#1+3},{#2+10.5}) {#3};
+  \node[font=\large\bfseries\boldmath,text=#7,anchor=east,inner sep=0pt] at ({#1+54},{#2+10.5}) {#4};
+  \node[font=\footnotesize,text=uisgray,anchor=west,inner sep=0pt] at ({#1+3},{#2+4}) {#5};}
 
-\subseccion{¿Aporta clasificar por fase?}
-\begin{frame}{Clasificar supera al reloj fijo cuando una fase de cómputo depende del reloj}
+\begin{frame}{Fase 4: el agente de GPU gana con fases de memoria largas}
+  \vspace{-3mm}
   \centering
-  \includegraphics[width=0.66\textwidth]{fig_fase4_EC_20260930.png}
+  \begin{tikzpicture}[x=0.95mm,y=1mm]
+    \node[font=\small\bfseries,text=uisgray,anchor=west] at (0,41) {Aplicaciones armadas};
+    \node[font=\scriptsize,text=uisgray,anchor=east] at (117,41) {Cambio del EDP CPU+GPU frente a la base};
+    \escres{0}{20}{Matriz inicial}{$+0.2$--$1.0$ \%}{compuestas A y B}{uiscard}{uisgray}
+    \escres{60}{20}{E-A}{$-3.8$ \%}{F1 fijo logra lo mismo}{uislight}{uisgreen}
+    \escres{0}{2}{E-B}{$+1.6$ \%}{familias inéditas: se abstuvo}{uiscard}{uisgray}
+    \escres{60}{2}{E-C}{$-2.4$ \%}{supera a F1 fijo (6 de 6 bloques)}{uislight}{uisgreen}
+    \node[font=\small\bfseries,text=uisgray,anchor=west] at (0,-3) {Aplicaciones externas};
+    \escres{0}{-20}{LAMMPS}{$+0.3$--$0.9$ \%}{nunca aplicó F1}{uiscard}{uisgray}
+    \escres{60}{-20}{CloverLeaf}{$-3.9$ \%}{5 de 5 bloques}{uislight}{uisgreen}
+  \end{tikzpicture}
+\end{frame}
 
-  \vspace{1mm}
+% barra horizontal: y, longitud (mm), color, etiqueta
+\newcommand{\hbarra}[4]{%
+  \fill[#3] (0,{#1-2.6}) rectangle (#2,{#1+2.6});
+  \node[font=\footnotesize\bfseries\boldmath,anchor=west] at ({#2+1},#1) {#4};}
+
+\begin{frame}{Con fases de memoria largas, el EDP CPU+GPU baja 3.8--3.9 \%}
+  \begin{columns}[c]
+    \begin{column}{0.55\textwidth}
+      \begin{tikzpicture}[x=1mm,y=1mm]
+        \node[font=\small\bfseries,text=uisgray,anchor=west] at (-30,52) {Cambio frente a la base};
+        \fill[uisgreen] (0,45.5) rectangle ++(3.5,3); \node[font=\scriptsize,anchor=west] at (4,47) {E-A};
+        \fill[uislime] (14,45.5) rectangle ++(3.5,3); \node[font=\scriptsize,anchor=west] at (18,47) {CloverLeaf};
+        % 1 % = 5.5 mm
+        \node[font=\small\bfseries,anchor=west] at (-30,35) {EDP CPU+GPU};
+        \hbarra{38}{20.9}{uisgreen}{$-3.8$ \%}
+        \hbarra{32}{21.5}{uislime}{$-3.9$ \%}
+        \node[font=\small\bfseries,anchor=west] at (-30,19) {Energía GPU};
+        \hbarra{22}{39.6}{uisgreen}{$-7.2$ \%}
+        \hbarra{16}{35.2}{uislime}{$-6.4$ \%}
+        \node[font=\small\bfseries,anchor=west] at (-30,3) {Duración};
+        \hbarra{6}{4.4}{uisgreen}{$-0.8$ \%}
+        \hbarra{0}{0.6}{uislime}{$+0.1$ \%}
+        \draw[uisgray,line width=0.6pt] (0,-4) -- (0,42);
+      \end{tikzpicture}
+    \end{column}
+    \begin{column}{0.41\textwidth}
+      \begin{cardhi}[halign=center]
+        \textbf{5 de 5 bloques} mejoran\\en los dos escenarios
+      \end{cardhi}
+      \begin{card}[halign=center]
+        Observar sin actuar no ahorra:\\el ahorro viene de actuar
+      \end{card}
+      \begin{card}[halign=center]
+        Con \textit{powersave}: $-2.6$ \% y $-3.2$ \%
+      \end{card}
+      \begin{carddark}[halign=center,fontupper=\small\bfseries\color{white}]
+        Pero aquí un reloj fijo en F1\\logra lo mismo
+      \end{carddark}
+    \end{column}
+  \end{columns}
+  \notapie{E-A: compuesta con familias vistas. CloverLeaf: aplicación externa. La CPU es \textasciitilde 64 \% de la energía medida y no se modifica.}
+\end{frame}
+
+\begin{frame}{¿Clasificar o fijar F1? Clasificar gana solo si hay cómputo sensible al reloj}
+  \vspace{-3mm}
+  \centering
+  \includegraphics[width=0.86\textwidth]{fig_fase4_EC_20260930.png}
+
+  \vspace{0.5mm}
   \begin{minipage}[t]{0.32\textwidth}
-    \begin{card}[height=13mm,valign=center,fontupper=\tiny]
-      \textbf{E-A:} agente/F1 fijo = 0.998 (IC95 0.990--1.006). DGEMM ya corría bajo 1260 MHz
-      por el límite de potencia
+    \begin{card}[height=11mm,valign=center,halign=center,fontupper=\scriptsize]
+      \textbf{E-A · empatan}\par $-0.2$ \% frente a F1 fijo
     \end{card}
   \end{minipage}\hfill
   \begin{minipage}[t]{0.32\textwidth}
-    \begin{cardhi}[height=13mm,valign=center,fontupper=\tiny]
-      \textbf{E-C:} agente/F1 fijo = \textbf{0.972} (IC95 0.958--0.985); 6 de 6 bloques,
-      $p=0.031$. Frente a la base: 0.976 ($p=0.031$)
+    \begin{cardhi}[height=11mm,valign=center,halign=center,fontupper=\scriptsize]
+      \textbf{E-C · gana el agente}\par $-2.8$ \%, 6 de 6 bloques
     \end{cardhi}
   \end{minipage}\hfill
   \begin{minipage}[t]{0.32\textwidth}
-    \begin{card}[height=13mm,valign=center,fontupper=\tiny]
-      \textbf{heartwall:} 29.9 s base · 30.3 s agente · 33.6 s F1 fijo.
-      F1 fijo no mejora la base (1.004)
+    \begin{card}[height=11mm,valign=center,halign=center,fontupper=\scriptsize]
+      \textbf{E-B · gana F1 fijo}\par el agente se abstuvo
     \end{card}
   \end{minipage}
-  \notapie{E-C es una prueba de mecanismo: escenario construido con el kernel más favorable y una familia vista. En E-B (exploratorio), cuando el agente se abstuvo, F1 fijo ahorró más.}
+  \notapie{E-C es una prueba de mecanismo: escenario construido con el kernel más favorable y una familia vista.}
 \end{frame}
 
-\subseccion{¿Qué no funcionó?}
-\newcommand{\nocard}[2]{%
-  \begin{card}[height=19mm,valign=center]
-    \begin{tabular}{@{}m{8mm}@{}m{0.8\linewidth}@{}}
-      \nomark & {\footnotesize\bfseries #1}\par\vspace{0.6mm}{\scriptsize #2}
-    \end{tabular}
-  \end{card}}
-\begin{frame}{El agente no ganó en CPU, en LAMMPS ni en familias GPU no vistas}
-  \vspace{4mm}
-  \begin{columns}[T]
-    \begin{column}{0.48\textwidth}
-      \nocard{CPU}{Piso de potencia del 84 \%: la política es no actuar y el proceso de observación aumenta el EDP}
-      \nocard{Familias GPU inéditas}{BabelStream: abstención en 9 de 11 repeticiones (E-B); quedó cerca de la paridad}
-    \end{column}
-    \begin{column}{0.48\textwidth}
-      \nocard{LAMMPS}{EDP entre 1.003 y 1.009 de la base; el agente nunca aplicó F1}
-      \nocard{Alcance}{Un solo nodo; modelo GPU entrenado por corrida y aplicado en ventanas de 3~s}
-    \end{column}
-  \end{columns}
-\end{frame}
