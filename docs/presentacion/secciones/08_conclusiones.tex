@@ -50,7 +50,7 @@
 
 % tarjeta de límite: título, texto
 \newcommand{\limite}[2]{%
-  \begin{card}[height=21mm,valign=top]
+  \begin{card}[height=26mm,valign=top]
     {\small\bfseries\color{uisgreen}#1}\par\vspace{0.8mm}{\footnotesize #2}
   \end{card}}
 
@@ -66,7 +66,7 @@
       \limite{Gobernadores}{\textit{performance} y \textit{powersave}; \textit{ondemand} y \textit{schedutil} no existen con \texttt{intel\_pstate}}
     \end{column}
     \begin{column}{0.32\textwidth}
-      \limite{Evidencia}{5 bloques: dirección consistente, no confirmación. E-C es una prueba de mecanismo construida}
+      \limite{Pocas repeticiones}{Solo 5 por escenario: no bastan para una prueba concluyente. E-C se construyó para probar el mecanismo}
       \limite{Modelo de GPU}{Entrenado por corrida y aplicado en ventanas de 3 s; con fases cortas o familias nuevas se abstiene}
     \end{column}
   \end{columns}

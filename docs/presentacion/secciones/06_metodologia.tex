@@ -3,32 +3,12 @@
 % ---------------------------------------------------------------------
 \seccion{Metodología}
 
-\begin{frame}{Cuatro fases encadenadas, de la medición a la evaluación}
-  \vspace{4mm}
-  \centering
-  \begin{tikzpicture}[node distance=6mm]
-    \tikzset{fase/.style={uboxdark,text width=26mm,minimum height=22mm,font=\normalsize},
-             sal/.style={uboxhi,text width=26mm,minimum height=19mm,font=\small}}
-    \node[fase] (f1) {Fase 1\\[1mm]\small\normalfont Caracterización y telemetría};
-    \node[fase,right=of f1] (f2) {Fase 2\\[1mm]\small\normalfont Clasificador y política};
-    \node[fase,right=of f2] (f3) {Fase 3\\[1mm]\small\normalfont Agente DVFS};
-    \node[fase,right=of f3] (f4) {Fase 4\\[1mm]\small\normalfont Evaluación};
-    \foreach \a/\b in {f1/f2,f2/f3,f3/f4} \draw[uarrow] (\a) -- (\b);
-    \node[sal,below=9mm of f1] (s1) {Conjunto de datos etiquetado con Roofline};
-    \node[sal,below=9mm of f2] (s2) {Modelos ONNX, umbral y tabla de política};
-    \node[sal,below=9mm of f3] (s3) {Dos procesos C++ en espacio de usuario};
-    \node[sal,below=9mm of f4] (s4) {EDP CPU+GPU frente a la base nativa};
-    \foreach \i in {1,...,4} \draw[uarrow,uisgray2] (f\i) -- (s\i);
-  \end{tikzpicture}
-  \notapie{\textbf{Plataforma:} Intel Xeon Gold 5315Y (Ice Lake-SP), 6 núcleos delegados + NVIDIA A100 PCIe 40 GB · nodo exclusivo vía Slurm}
-\end{frame}
-
 \subseccion{Fase 1}
 % Escalera de frecuencia: REF + F0..F8 (verde oscuro = frecuencia alta, claro = baja)
 % \escalera{y}{dispositivo}{valor F0}{valor F8}{telemetría}{familias}
 \newcommand{\escalera}[6]{%
   \node[font=\normalsize\bfseries,text=uisgreen,anchor=east] at (14,{#1+2}) {#2};
-  \node[font=\scriptsize,text=uisgray,anchor=east] at (14,{#1-3}) {#6};
+  \node[font=\scriptsize,text=uisgray,anchor=east,align=right] at (14,{#1-4}) {#6};
   \node[rounded corners=0.8mm,fill=uisline,minimum width=9mm,minimum height=9mm,
     font=\scriptsize\bfseries,inner sep=0pt] at (20,#1) {REF};
   \foreach \i in {0,...,8} {
@@ -44,20 +24,20 @@
 \begin{frame}{Fase 1: cada carga se mide en diez niveles de frecuencia}
   \vspace{1mm}
   \centering
-  \begin{tikzpicture}[x=0.9mm,y=1mm]
+  \begin{tikzpicture}[x=0.8mm,y=1mm]
     % cabeceras
     \node[ulabel,anchor=south] at (70,32) {\small 10 niveles de frecuencia $\times$ 3 repeticiones};
     \draw[uarrow,uisgray2] (28,30) -- (112,30);
     \node[ulabel,anchor=south west] at (121,32) {\small Telemetría};
-    \escalera{18}{CPU}{3.2 GHz}{0.8 GHz}{Perf · RAPL}{30 familias}
-    \escalera{-4}{GPU}{1410 MHz}{210 MHz}{NVML}{16 familias}
+    \escalera{18}{CPU}{3.2 GHz}{0.8 GHz}{Perf · RAPL}{Xeon Gold 5315Y\\6 núcleos · 30 familias}
+    \escalera{-4}{GPU}{1410 MHz}{210 MHz}{NVML}{A100 PCIe 40 GB\\16 familias}
   \end{tikzpicture}
-  \notapie{REF: estado nativo del dispositivo. CPU con turbo desactivado.}
+  \notapie{REF: estado nativo del dispositivo. CPU con turbo desactivado. Un solo nodo, exclusivo vía Slurm.}
 \end{frame}
 
 % Fila de la etiqueta: dispositivo | cómo se obtiene I | recta de I frente al ridge
 % \filaetiqueta{y}{dispositivo}{granularidad}{valor del ridge}
-\newcommand{\filaetiqueta}[4]{%
+\newcommand{\filaetiqueta}[3]{%
   \node[font=\large\bfseries,text=uisgreen,anchor=east] at (13,#1) {#2};
   % cómo se obtiene I
   \node[ubox,minimum width=50mm,minimum height=19mm,anchor=west,inner sep=1mm] at (16,#1)
@@ -69,19 +49,29 @@
   \fill[uisgreen] (104,{#1-5}) rectangle (138,{#1+5});
   \node[font=\small\bfseries] at (92,#1) {memory};
   \node[font=\small\bfseries,text=white] at (121,#1) {compute};
-  \draw[uistext,line width=1.2pt] (104,{#1-8}) -- (104,{#1+8});
-  \node[font=\scriptsize,anchor=south] at (104,{#1+8.5}) {\textbf{\textit{ridge}}: #4};}
+  \draw[uistext,line width=1.2pt] (104,{#1-8}) -- (104,{#1+8});}
+% flecha del ridge, de izquierda a derecha: y, rótulo, valor con reloj nativo, valor con reloj mínimo
+\newcommand{\ridgeflecha}[4]{%
+  \node[font=\scriptsize,text=uisgray,anchor=east] at (86,#1) {#2};
+  \node[font=\footnotesize\bfseries,anchor=east] at (101,#1) {#3};
+  \draw[uarrow,line width=0.9pt] (103,#1) -- (117,#1);
+  \node[font=\footnotesize\bfseries,anchor=west] at (119,#1) {#4};}
 
 \begin{frame}{La etiqueta compara la intensidad medida con el \textit{ridge} calibrado}
   \vspace{0mm}
   \centering
-  \begin{tikzpicture}[x=0.95mm,y=1mm]
-    \node[ulabel,anchor=south] at (41,27) {\small Intensidad operacional $I$};
-    \node[ulabel,anchor=south] at (109,27) {\small Etiqueta};
-    \filaetiqueta{12}{CPU}{por intervalo, $\approx$10 ms}{8.69 $\to$ 2.92 FLOP/B}
-    \filaetiqueta{-12}{GPU}{por kernel, fuera de línea}{14.97 (FP32) · 6.90 (FP64) FLOP/B}
+  \begin{tikzpicture}[x=0.95mm,y=0.92mm]
+    \node[ulabel,anchor=south] at (41,31) {\small Intensidad operacional $I$};
+    \node[ulabel,anchor=south] at (109,31) {\small Etiqueta};
+    \filaetiqueta{12}{CPU}{por intervalo, $\approx$10 ms}
+    \node[font=\scriptsize,text=uisgray,anchor=east] at (101,28) {reloj nativo};
+    \node[font=\scriptsize,text=uisgray,anchor=west] at (119,28) {reloj mínimo};
+    \ridgeflecha{22.5}{CPU}{8.69}{2.92}
+    \filaetiqueta{-14}{GPU}{por kernel, fuera de línea}
+    \ridgeflecha{0.5}{FP32}{14.97}{2.93}
+    \ridgeflecha{-4.5}{FP64}{6.90}{1.35}
   \end{tikzpicture}
-  \notapie{\textit{Ridge} calibrado en el nodo por nivel de frecuencia y precisión; el de CPU baja con el reloj. Valores GPU en el nivel de referencia.}
+  \notapie{\textit{Ridge} en FLOP/B, calibrado en el nodo por nivel de frecuencia y precisión. Cada flecha va del reloj nativo al reloj mínimo.}
 \end{frame}
 
 \subseccion{Fase 2}

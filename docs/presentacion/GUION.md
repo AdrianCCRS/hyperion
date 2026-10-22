@@ -1,4 +1,4 @@
-# Guion de la sustentación (diapositivas 1 a 43)
+# Guion de la sustentación (diapositivas 1 a 42)
 
 Duración total: **30 minutos**. Ritmo de referencia: unas 130 palabras por minuto, más lento en
 las cifras. Los textos están escritos para decirse en voz alta, no para leerse palabra por palabra.
@@ -12,12 +12,12 @@ las cifras. Los textos están escritos para decirse en voz alta, no para leerse 
 | Estado del arte | 8–9 | 1:20 | 4:35 |
 | Pregunta y objetivos | 10–13 | 1:50 | 6:25 |
 | Fundamentos | 14–16 | 2:00 | 8:25 |
-| Metodología | 17–25 | 7:25 | 15:50 |
-| Resultados: Fases 1 a 3 | 26–34 | 7:50 | 23:40 |
-| Resultados: Fase 4 | 35–37 | 3:00 | 26:40 |
-| Conclusiones y cierre | 38–43 | 3:20 | **30:00** |
+| Metodología | 17–24 | 6:45 | 15:10 |
+| Resultados: Fases 1 a 3 | 25–33 | 7:50 | 23:00 |
+| Resultados: Fase 4 | 34–36 | 3:00 | 26:00 |
+| Conclusiones y cierre | 37–42 | 3:20 | **29:20** |
 
-Las diapositivas de índice que abren cada sección (3, 5, 8, 10, 14, 17, 26, 38) se pasan con una frase de
+Las diapositivas de índice que abren cada sección (3, 5, 8, 10, 14, 17, 25, 37) se pasan con una frase de
 transición, sin detenerse (unos 5 s cada una).
 
 Convenciones: **[acción]** es lo que se hace o señala en pantalla; *[si hay tiempo]* es una frase
@@ -119,7 +119,7 @@ eficiencia energética sin una penalización severa del rendimiento.
 
 Se divide en cuatro objetivos, y cada uno es una fase del trabajo. **[señalar 1 a 4]**
 
-Uno, caracterizar las cargas y su consumo en distintas frecuencias, con Perf, RAPL y NVML. Dos,
+Uno, caracterizar las cargas y su consumo en distintas frecuencias, con contadores e interfaces de potencia estándar. Dos,
 entrenar clasificadores ligeros de fase con baja latencia. Tres, construir el *daemon* que infiere
 la fase y aplica DVFS. Y cuatro, evaluar con el producto energía–retardo si el ahorro compensa la
 sobrecarga, frente a los gobernadores nativos.
@@ -158,33 +158,29 @@ energía pero penaliza alargar la ejecución.
 
 Pasemos a cómo lo hicimos.
 
-## 18 · Cuatro fases encadenadas · 0:40 (9:10)
-
-**[recorrer las fases]** La Fase 1 produce un conjunto de datos etiquetado con Roofline. La Fase 2,
-los modelos, el umbral y la tabla de política. La Fase 3, el agente, como dos procesos en C++. Y la
-Fase 4 lo evalúa con el EDP CPU+GPU frente a la base nativa.
-
-**[pie]** Todo se midió en un nodo exclusivo, con un Xeon Gold 5315Y, seis núcleos delegados, y una
-A100 PCIe de 40 GB.
-
-## 19 · Fase 1: cada carga se mide en diez niveles de frecuencia · 0:50 (10:00)
+## 18 · Fase 1: cada carga se mide en diez niveles de frecuencia · 0:50 (9:20)
 
 Cada carga se mide en diez estados de frecuencia: el nativo y nueve niveles fijos. **[CPU]** En CPU
 van de 3.2 a 0.8 GHz, con el turbo desactivado; **[GPU]** en GPU, de 1410 a 210 MHz. Cada
 combinación se repite tres veces.
 
-El catálogo tiene 30 familias algorítmicas en CPU y 16 en GPU. La telemetría viene de Perf y RAPL en
-CPU, y de NVML en GPU.
+Todo se midió en un solo nodo, exclusivo vía Slurm: un Xeon Gold 5315Y, del que usamos seis núcleos,
+y una A100 PCIe de 40 GB. El catálogo tiene 30 familias algorítmicas en CPU y 16 en GPU. La
+telemetría viene de Perf y RAPL en CPU, y de NVML en GPU.
 
-## 20 · La etiqueta compara la intensidad medida con el ridge calibrado · 0:45 (10:45)
+## 19 · La etiqueta compara la intensidad medida con el ridge calibrado · 0:45 (10:05)
 
 **[fila CPU]** En CPU la intensidad se calcula por intervalo, de unos 10 milisegundos, con FLOPs y
 bytes de DRAM medidos por hardware. El *ridge* baja de 8.69 a 2.92 FLOP por byte al bajar el reloj.
 
-**[fila GPU]** En GPU se calcula por kernel, fuera de línea, con un *ridge* de 14.97 en precisión
-simple y 6.90 en doble.
+**[fila GPU]** En GPU se calcula por kernel, fuera de línea. El *ridge* también baja al bajar el
+reloj, y depende de la precisión: en precisión simple va de 14.97 a 2.93, y en doble, de 6.90 a
+1.35. Cada flecha va del reloj nativo, a la izquierda, al reloj mínimo, a la derecha.
 
-## 21 · Fase 2: un clasificador ligero aproxima la etiqueta · 0:55 (11:40)
+*Si preguntan por qué baja:* al bajar el reloj cae el techo de cómputo, y el ancho de banda de
+memoria casi no cambia; el punto de inflexión es el cociente entre los dos.
+
+## 20 · Fase 2: un clasificador ligero aproxima la etiqueta · 0:55 (11:00)
 
 La etiqueta exige contar FLOPs y bytes. El agente no tiene esos contadores disponibles en
 operación, y en GPU obtenerlos exige perfilar, lo que alarga mucho la ejecución. Por eso un
@@ -198,7 +194,7 @@ su desviación.
 la etiqueta misma. **[salida]** El modelo responde *compute*, *memory* o *revisar*, cuando no está
 seguro. Comparamos varios modelos, desde una regla mayoritaria hasta XGBoost.
 
-## 22 · La validación retira familias completas · 1:25 (13:05)
+## 21 · La validación retira familias completas · 1:25 (12:25)
 
 **[pliegues]** Validamos dejando una familia fuera: en cada pliegue se retira una familia
 algorítmica completa, se entrena con las demás y se evalúa sobre la retirada. Así medimos lo que
@@ -222,7 +218,7 @@ clase; si no, el modelo responde *revisar*.
 **[tarjeta de política]** La política se deriva aparte del clasificador: para cada clase, el nivel
 de frecuencia con mejor EDP frente a la base.
 
-## 23 · Fase 3: dos procesos C++ cierran el lazo · 1:05 (14:10)
+## 22 · Fase 3: dos procesos C++ cierran el lazo · 1:05 (13:30)
 
 El agente son dos procesos en C++ que corren junto a la aplicación, sin modificarla.
 
@@ -236,7 +232,7 @@ con umbral 0.90, y fija el reloj con `nvidia-smi`.
 de 3.2 GHz, para no frenar al acelerador. Y si el agente se interrumpe, devuelve el hardware a su
 estado inicial.
 
-## 24 · Fase 4: brazos comparables · 0:55 (15:05)
+## 23 · Fase 4: brazos comparables · 0:55 (14:25)
 
 **[recorrer las filas]** Comparamos cuatro brazos. La base corre sin agente. La sombra ejecuta el
 agente completo, muestrea y decide, pero no escribe ninguna frecuencia: así medimos cuánto cuesta
@@ -246,7 +242,7 @@ la aplicación, para saber si clasificar aporta algo frente a una regla fija.
 **[fórmula]** La métrica es el EDP CPU+GPU: la energía de los dos paquetes de CPU más la de la GPU,
 por el tiempo. Los brazos se ejecutan en bloques aleatorizados.
 
-## 25 · Seis escenarios · 0:45 (15:50)
+## 24 · Seis escenarios · 0:45 (15:10)
 
 **[grupo superior]** Cuatro escenarios usan aplicaciones armadas con el catálogo: la matriz
 inicial, con las compuestas A y B; E-A y E-B, con fases de memoria largas de familias vistas e
@@ -255,11 +251,11 @@ inéditas; y E-C, que añade a E-A una fase de cómputo sensible al reloj.
 **[grupo inferior]** Y dos aplicaciones externas que no armamos nosotros: LAMMPS, con cuatro
 entradas, y CloverLeaf, una aplicación continua.
 
-## 26 · Sección: Resultados · 0:05 (15:55)
+## 25 · Sección: Resultados · 0:05 (15:15)
 
 Vamos a los resultados, en el mismo orden de las cuatro fases.
 
-## 27 · Fase 1: el conjunto de datos cubre ambos regímenes · 1:10 (17:05)
+## 26 · Fase 1: el conjunto de datos cubre ambos regímenes · 1:10 (16:25)
 
 **[transición]** Empezamos por lo que dejó la Fase 1: los datos.
 
@@ -280,7 +276,7 @@ lógica gobierna la métrica: la exactitud promedia el acierto de cada celda, no
 *[si hay tiempo]* Como referencia, en CPU se midieron 1470 corridas y 1.31 millones de intervalos
 elegibles.
 
-## 28 · Fase 2: en CPU los modelos empatan; se eligió el más rápido · 0:50 (17:55)
+## 27 · Fase 2: en CPU los modelos empatan; se eligió el más rápido · 0:50 (17:15)
 
 **[transición]** Con esos datos, la Fase 2: ¿un modelo ligero aprende la etiqueta?
 
@@ -296,7 +292,7 @@ modelo que íbamos a desplegar. Mejoró 0.019, pero
 es una diferencia pequeña que con estos datos no se distingue de que no haya mejorado nada. Por eso dejamos la configuración fija, que es la más simple
 de reproducir.
 
-## 29 · XGBoost: el modelo final de CPU · 1:45 (19:40)
+## 28 · XGBoost: el modelo final de CPU · 1:45 (19:00)
 
 **[configuración]** Este es el modelo final: XGBoost de cien árboles y profundidad seis, con las
 seis variables de Perf y ponderado por celda. **[métricas]** La sensibilidad es, de las fases que
@@ -328,7 +324,7 @@ no en el modelo. Hay cuatro pruebas de eso:
 
 *[si hay poco tiempo, decir solo la 1 y la 4]* Los detalles están en el anexo A5.
 
-## 30 · En GPU los modelos también empatan · 0:50 (20:30)
+## 29 · En GPU los modelos también empatan · 0:50 (19:50)
 
 **[gráfica]** En GPU repetimos la comparación con el mismo protocolo y la misma métrica. Pasa lo
 mismo que en CPU: *random forest*, *extra trees* y la regresión logística quedan prácticamente
@@ -341,7 +337,7 @@ toma unos 50 milisegundos y decide sobre ventanas de 3 segundos.
 **[hiperparámetros]** La búsqueda automática de hiperparámetros empeoró cuatro de los cinco
 modelos ajustables, así que también dejamos la configuración fija.
 
-## 31 · En GPU se eligió el modelo que no depende del reloj · 1:05 (21:35)
+## 30 · En GPU se eligió el modelo que no depende del reloj · 1:05 (20:55)
 
 **[configuración]** El modelo final es un *random forest* con tres señales de NVML: utilización de
 GPU, utilización de memoria y la variación de esta última. No usa el reloj ni la potencia, porque
@@ -357,7 +353,7 @@ el agente cambia el reloj, y un modelo que lo usara terminaría respondiendo a s
 lo que decide. *[si hay tiempo]* No se equivoca en ninguna fase *memory*, que es la clase en la
 que el agente actúa.
 
-## 32–33 · Fase 3: el piso de potencia decide la política · 1:10 (22:45)
+## 31–32 · Fase 3: el piso de potencia decide la política · 1:10 (22:05)
 
 **[transición]** Con el modelo dentro del agente, ¿qué decide en cada clase?
 
@@ -379,7 +375,7 @@ nuevo esperamos 6.5 %, aunque con tan pocas familias no podemos descartar que se
 *[si hay tiempo]* La clase marca la oportunidad, no la garantiza: `rodinia_gaussian` es *memory* y
 pierde 27.3 % con F1.
 
-## 34 · Inferir cuesta microsegundos; el proceso de CPU sí cuesta · 0:55 (23:40)
+## 33 · Inferir cuesta microsegundos; el proceso de CPU sí cuesta · 0:55 (23:00)
 
 **[transición]** ¿Y cuánto cuesta tener al agente funcionando?
 
@@ -396,7 +392,7 @@ mil veces por segundo.
 **[+4–6 %]** Por eso, en la matriz inicial, el agente de CPU activo empeoró el EDP CPU+GPU entre
 4 y 6 %, con p = 0.0079. La conclusión es que el costo está en observar, no en actuar.
 
-## 35 · Fase 4: el agente de GPU gana con fases de memoria largas · 1:00 (24:40)
+## 34 · Fase 4: el agente de GPU gana con fases de memoria largas · 1:00 (24:00)
 
 **[transición]** Con el agente funcionando, ¿ahorra energía frente a la base?
 
@@ -410,7 +406,7 @@ de memoria largas, que es justo donde la política fija F1.
 cortas; en E-B las familias son nuevas y el agente se abstuvo; y en LAMMPS nunca encontró una fase
 de memoria, así que nunca aplicó F1.
 
-## 36 · Con fases de memoria largas, el EDP CPU+GPU baja 3.8–3.9 % · 1:00 (25:40)
+## 35 · Con fases de memoria largas, el EDP CPU+GPU baja 3.8–3.9 % · 1:00 (25:00)
 
 **[barras]** Veamos los dos escenarios donde más gana. E-A es una aplicación compuesta con
 familias vistas y fases de memoria de 46 a 60 segundos; CloverLeaf es una aplicación externa que
@@ -426,7 +422,7 @@ nada, así que el ahorro viene de actuar. Y se mantiene con el gobernador *power
 **[tarjeta verde]** Pero aquí un reloj fijo en F1 logra lo mismo. Eso nos lleva a la pregunta
 siguiente.
 
-## 37 · ¿Clasificar o fijar F1? · 1:00 (26:40)
+## 36 · ¿Clasificar o fijar F1? · 1:00 (26:00)
 
 **[transición]** ¿Hace falta clasificar, o basta con fijar F1 todo el tiempo?
 
@@ -445,11 +441,11 @@ ahorró más.
 **[pie]** E-C es una prueba de mecanismo: lo construimos con el kernel más favorable. Muestra
 cuándo clasificar aporta, no cuánto aporta en general.
 
-## 38 · Sección: Conclusiones · 0:05 (26:45)
+## 37 · Sección: Conclusiones · 0:05 (26:05)
 
 Para cerrar, las conclusiones.
 
-## 39 · Tres hallazgos · 1:00 (27:45)
+## 38 · Tres hallazgos · 1:00 (27:05)
 
 **[1]** Primero: el piso de potencia decide dónde vale la pena el DVFS. En CPU es el 84 % y no
 queda margen; en GPU es el 55.8 %, y ahí sí.
@@ -461,7 +457,7 @@ habría alargado la ejecución unas 60 veces.
 **[3]** Tercero: clasificar por fase gana solo cuando hay cómputo sensible al reloj. Donde no lo
 hay, una regla fija rinde igual.
 
-## 40 · Respuesta a la pregunta de investigación · 0:45 (28:30)
+## 39 · Respuesta a la pregunta de investigación · 0:45 (27:50)
 
 **[fila 1]** ¿Reduce el consumo? En GPU, sí: 3.8 y 3.9 % de EDP CPU+GPU, 8.0 y 6.3 % si se mira
 solo la GPU, con fases de memoria largas. En CPU, no: con un piso del 84 % no hay margen.
@@ -474,7 +470,7 @@ y con *powersave*.
 
 **[barra]** Por eso la recomendación es desplegar solo el proceso de GPU.
 
-## 41 · Limitaciones: qué no afirma este trabajo · 0:50 (29:20)
+## 40 · Limitaciones: qué no afirma este trabajo · 0:50 (28:40)
 
 **[columna 1]** Todo se midió en un solo nodo, así que no generalizamos a otras CPU ni GPU. Y en CPU
 solo movimos la frecuencia de seis núcleos, sin turbo ni *uncore*: la conclusión no es sobre la
@@ -484,25 +480,25 @@ CPU completa.
 Comparamos con *performance* y *powersave*, porque *ondemand* y *schedutil* no existen con este
 controlador.
 
-**[columna 3, Evidencia]** Medimos cinco bloques por escenario, y en todos el agente mejoró. Con
-cinco bloques ese es el mejor resultado posible, pero estadísticamente no alcanza para declararlo
-significativo al 5 %. Por eso hablamos de una dirección consistente, no de una confirmación. Y E-C
-lo construimos a propósito para probar el mecanismo.
+**[columna 3, Pocas repeticiones]** Repetimos cada escenario cinco veces, y en las cinco el agente
+mejoró. Con cinco repeticiones ese es el mejor resultado posible, pero estadísticamente no alcanza
+para declararlo significativo al 5 %. Por eso hablamos de una dirección consistente, no de una
+confirmación. Y E-C lo construimos a propósito para probar el mecanismo.
 
 **[modelo de GPU]** *[si hay tiempo]* El modelo de GPU se entrenó con corridas completas y se
 aplica en ventanas de 3 segundos; con fases cortas o familias nuevas, se abstiene.
 
-*Si insisten con la estadística:* con 5 bloques el valor p más pequeño posible es 0.0625, aunque
-los cinco mejoren. No decir «significativo».
+*Si insisten con la estadística:* con 5 repeticiones el valor p más pequeño posible es 0.0625,
+aunque las cinco mejoren. No decir «significativo».
 
-## 42 · Trabajo futuro · 0:30 (29:50)
+## 41 · Trabajo futuro · 0:30 (29:10)
 
 Como trabajo futuro, lo más importante es ampliar las familias *memory-bound* externas en GPU,
 para que el agente no se abstenga ante programas nuevos, y probar en arquitecturas con un piso de
 potencia más bajo, donde el DVFS de CPU sí tenga margen. *[si hay tiempo]* También repetir la
 comparación con F1 fijo en aplicaciones externas y actuar sobre el *uncore* y la memoria.
 
-## 43 · Gracias · 0:10 (30:00)
+## 42 · Gracias · 0:10 (29:20)
 
 Muchas gracias. Quedamos atentos a sus preguntas.
 
@@ -512,10 +508,10 @@ Muchas gracias. Quedamos atentos a sus preguntas.
 
 | Fase | Diapositivas | Transición sugerida |
 |---|---|---|
-| Fase 1 | 27 datos | «Empezamos por lo que dejó la Fase 1: los datos.» |
-| Fase 2 | 28–29 CPU · 30–31 GPU | «Con esos datos, ¿un modelo ligero aprende la etiqueta?» |
-| Fase 3 | 32 piso de potencia · 33 política · 34 latencias y costo | «Con el modelo dentro del agente, ¿qué decide en cada clase?» · en la 34: «¿Y cuánto cuesta ejecutarlo?» |
-| Fase 4 | 35 panorama de los seis escenarios · 36 fases de memoria largas (E-A y CloverLeaf) · 37 ¿clasificar o fijar F1? | «Con el agente funcionando, ¿ahorra energía frente a la base?» · en la 37: «¿Y hace falta clasificar, o basta con fijar F1?» |
+| Fase 1 | 26 datos | «Empezamos por lo que dejó la Fase 1: los datos.» |
+| Fase 2 | 27–28 CPU · 29–30 GPU | «Con esos datos, ¿un modelo ligero aprende la etiqueta?» |
+| Fase 3 | 31 piso de potencia · 32 política · 33 latencias y costo | «Con el modelo dentro del agente, ¿qué decide en cada clase?» · en la 33: «¿Y cuánto cuesta ejecutarlo?» |
+| Fase 4 | 34 panorama de los seis escenarios · 35 fases de memoria largas (E-A y CloverLeaf) · 36 ¿clasificar o fijar F1? | «Con el agente funcionando, ¿ahorra energía frente a la base?» · en la 36: «¿Y hace falta clasificar, o basta con fijar F1?» |
 
 ## Si preguntan: «¿por qué esa métrica y no otra?»
 
@@ -540,7 +536,7 @@ sin que las familias grandes la inflen.
 
 ---
 
-## Preguntas probables (GPU, diapositivas 30 y 31; respaldo en el anexo A8)
+## Preguntas probables (GPU, diapositivas 29 y 30; respaldo en el anexo A8)
 
 **¿Por qué *random forest* y no *extra trees*, si empatan?**
 Empatan en exactitud balanceada por celda (0.807 y 0.806) y en latencia, pero *random forest* es
@@ -554,7 +550,7 @@ Porque depende del reloj que el agente cambia. Al fijar el reloj en 1410 MHz cam
 26.7 % de sus predicciones. Con las mismas tres señales sin reloj ni potencia baja a 0.624, mientras
 *random forest* llega a 0.819. Y 0.4 ms frente a 5 ms no importa con ventanas de 3 segundos.
 
-## Preguntas probables (CPU, diapositivas 28 y 29)
+## Preguntas probables (CPU, diapositivas 27 y 28)
 
 **¿Por qué no se probó la búsqueda de hiperparámetros en los otros modelos?**
 La búsqueda se evaluó en XGBoost, el modelo que se iba a desplegar, y en la regresión logística,
